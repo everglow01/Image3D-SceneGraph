@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.uv-cache/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Large model artifacts
+checkpoints/
+weights/
+models/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.engine
+*.plan
+
+# Datasets, generated assets, and debug output
+data/
+datasets/
+outputs/
+runs/
+debug/
+debug_outputs/
+logs/
+*.log
+*.tmp
+*.cache
+
+# Keep example folders, but do not commit user data by default.
+examples/inputs/*
+examples/outputs/*
+!examples/inputs/.gitkeep
+!examples/outputs/.gitkeep
+
+# External repositories are documented, not vendored.
+external/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
