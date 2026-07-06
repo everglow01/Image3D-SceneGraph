@@ -11,8 +11,8 @@
 
 Working description:
 
-> A calibration-free image/video to semantic 3D scene reconstruction system.
-> Users upload one image, multiple images, or a video; the system estimates geometry automatically, reconstructs a 3D scene, attaches semantic objects, infers spatial relations, and provides a web interface for viewing and export.
+> A calibration-free image/video/panorama to semantic 3D scene reconstruction system.
+> Users upload one image, multiple images, a video, or a 360 panorama; the system estimates geometry automatically, reconstructs a 3D scene, attaches semantic objects, infers spatial relations, and provides a web interface for viewing and export.
 
 Important wording:
 
@@ -33,7 +33,7 @@ The previous `Mono3D-Grounding` project proved several useful pieces:
 
 This new project changes the center of gravity:
 
-> From realtime monocular depth point clouds to full image/video-based semantic 3D scene reconstruction.
+> From realtime monocular depth point clouds to full image/video/panorama-based semantic 3D scene reconstruction.
 
 The goal is not to build a generic wrapper around many models. The goal is to build a coherent computer vision system with clear algorithmic contributions and a demonstrable frontend.
 
@@ -43,7 +43,7 @@ The goal is not to build a generic wrapper around many models. The goal is to bu
 
 A user opens the web app and can:
 
-1. Upload a single image, multiple images, or a video.
+1. Upload a single image, multiple images, a video, or a 360 panorama.
 2. Start a reconstruction job.
 3. Watch job progress and logs.
 4. View the reconstructed 3D result in the browser.
@@ -62,6 +62,7 @@ Inputs:
 - One RGB image.
 - Multiple unordered RGB images.
 - A video, internally converted to selected frames.
+- One equirectangular 360 panorama image.
 
 Unavailable from the user:
 
@@ -105,7 +106,7 @@ Prefer one reliable baseline and one clear algorithmic improvement path.
 
 ```text
 Frontend
-  upload image/images/video
+  upload image/images/video/panorama
   view job status
   inspect 3D scene
   inspect semantic objects and relations
@@ -151,7 +152,7 @@ Algorithm stack:
 
 - Geometry baseline: VGGT first, or DUSt3R / MASt3R if VGGT is inconvenient.
 - Single-image object-level baseline: optional TripoSR-style model later.
-- Multi-image/video scene output: point cloud first, mesh or 3D Gaussian Splatting later.
+- Multi-image/video/panorama scene output: point cloud first, mesh or 3D Gaussian Splatting later.
 - Semantics: segmentation + VLM parsing, projected/fused into 3D.
 - Algorithm contribution: scale recovery, physical consistency, semantic scene graph.
 
@@ -247,7 +248,7 @@ Example manifest:
 
 ```text
 POST /api/jobs
-  Create a reconstruction job from uploaded image/images/video.
+  Create a reconstruction job from uploaded image/images/video/panorama.
 
 GET /api/jobs/{job_id}
   Return job status, stage, progress, and errors.
@@ -274,7 +275,7 @@ Do not design a large API before the MVP works. Add endpoints only when the fron
 The first frontend should include:
 
 1. Upload panel.
-2. Reconstruction mode selector: single image / multi image / video.
+2. Reconstruction mode selector: single image / multi image / video / panorama.
 3. Job progress timeline.
 4. 3D viewer.
 5. Object list panel.
@@ -462,7 +463,7 @@ Success criteria:
 
 Deliverables:
 
-- image/multi-image/video input handling;
+- image/multi-image/video/panorama input handling;
 - frame extraction for video;
 - geometry model adapter;
 - point cloud export;
@@ -544,9 +545,9 @@ Success criteria:
 
 Recommended first steps:
 
-1. Create repo skeleton and `.gitignore`.
-2. Build FastAPI mock job API.
-3. Build React/Vite frontend with upload and 3D viewer.
+1. Create repo skeleton and `.gitignore`. Done.
+2. Build FastAPI mock job API. Done.
+3. Build React/Vite frontend with upload and 3D viewer. Next.
 4. Add one sample output asset to exercise the viewer.
 5. Add a geometry adapter interface.
 6. Integrate VGGT or DUSt3R as the first baseline.
@@ -561,8 +562,10 @@ Do not begin with training or fine-tuning.
 
 - New workspace: `/home/owen/Image3D-SceneGraph`.
 - Old workspace `/home/owen/3d_demo` remains an exploration repo.
-- Project direction: image/video to semantic 3D scene reconstruction.
+- Project direction: image/video/panorama to semantic 3D scene reconstruction.
 - Frontend is part of MVP, not a later add-on.
 - User does not provide camera parameters; the system estimates them internally.
 - Algorithm value should come from scale recovery, semantic 3D fusion, physical consistency, and scene graph reasoning.
 - Python environment management should use `uv`.
+- Mock backend API now creates local jobs, writes `manifest.json`, serves mock assets, and exposes scene graph JSON.
+- `panorama` is a supported input mode for one equirectangular 360 image; real panorama reconstruction will come later.
