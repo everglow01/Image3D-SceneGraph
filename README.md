@@ -84,6 +84,25 @@ Current mock API:
 
 The MVP writes mock results to `outputs/jobs/{job_id}/`, including `manifest.json`, `geometry/points.ply`, `scene_graph/scene.json`, and `logs/run.log`.
 
+## Frontend MVP
+
+Install and start the web UI:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api` to `http://127.0.0.1:8000`, so run the backend in a separate terminal before using the frontend.
+
+Current frontend flow:
+
+1. Choose `Image`, `Multi-image`, `Video`, or `Panorama`.
+2. Upload local files.
+3. Create a mock reconstruction job.
+4. View job metrics, scene objects, output links, and the mock `.ply` point cloud.
+
 ## Development Status
 
-The repository has a project skeleton and a mock backend job API. The next step is to build a frontend viewer against the stable `manifest.json` output contract.
+The repository has a project skeleton, a mock backend job API, and a functional frontend MVP against the stable `manifest.json` output contract.

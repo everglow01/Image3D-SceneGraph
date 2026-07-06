@@ -547,9 +547,9 @@ Recommended first steps:
 
 1. Create repo skeleton and `.gitignore`. Done.
 2. Build FastAPI mock job API. Done.
-3. Build React/Vite frontend with upload and 3D viewer. Next.
-4. Add one sample output asset to exercise the viewer.
-5. Add a geometry adapter interface.
+3. Build React/Vite frontend with upload and 3D viewer. Done.
+4. Add one sample output asset to exercise the viewer. Covered by mock job output.
+5. Add a geometry adapter interface. Next.
 6. Integrate VGGT or DUSt3R as the first baseline.
 7. Connect generated output to frontend via `manifest.json`.
 8. Add semantic fusion only after geometry output is stable.
@@ -569,3 +569,4 @@ Do not begin with training or fine-tuning.
 - Python environment management should use `uv`.
 - Mock backend API now creates local jobs, writes `manifest.json`, serves mock assets, and exposes scene graph JSON.
 - `panorama` is a supported input mode for one equirectangular 360 image; real panorama reconstruction will come later.
+- Frontend MVP now supports mode selection, file upload, mock job creation, manifest/scene display, asset links, and `.ply` point cloud viewing.
