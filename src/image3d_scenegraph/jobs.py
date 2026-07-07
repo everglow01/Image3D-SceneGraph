@@ -44,6 +44,7 @@ class JobStore:
         files: list[UploadedInput],
         geometry_backend: str = "mock",
         output_type: str = "point_cloud",
+        options: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         self._validate_request(mode, files)
 
@@ -57,14 +58,18 @@ class JobStore:
         except ReconstructionError as exc:
             raise JobError(str(exc)) from exc
 
-        reconstruction = adapter.run(
-            ReconstructionContext(
-                job_id=job_id,
-                job_dir=job_dir,
-                mode=mode,
-                input_assets=input_assets,
+        try:
+            reconstruction = adapter.run(
+                ReconstructionContext(
+                    job_id=job_id,
+                    job_dir=job_dir,
+                    mode=mode,
+                    input_assets=input_assets,
+                    options=options or {},
+                )
             )
-        )
+        except ReconstructionError as exc:
+            raise JobError(str(exc)) from exc
 
         scene = self._build_mock_scene(job_id, mode)
         self._write_json(job_dir / "scene_graph" / "scene.json", scene)

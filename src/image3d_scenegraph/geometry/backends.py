@@ -46,6 +46,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             repo_path=external_root / "vggt",
             checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
             supported_outputs=("point_cloud",),
+            adapter_implemented=True,
         ),
         _external_model_spec(
             backend_id="dust3r",
@@ -84,8 +85,11 @@ def _external_model_spec(
     repo_path: Path,
     checkpoint_hint: Path,
     supported_outputs: tuple[str, ...],
+    adapter_implemented: bool = False,
 ) -> BackendSpec:
-    missing: list[str] = ["adapter not implemented"]
+    missing: list[str] = []
+    if not adapter_implemented:
+        missing.append("adapter not implemented")
     if not repo_path.exists():
         missing.append(f"repo missing: {repo_path}")
     if not checkpoint_hint.exists():
@@ -95,7 +99,7 @@ def _external_model_spec(
         backend_id=backend_id,
         label=label,
         supported_outputs=supported_outputs,
-        available=False,
+        available=not missing,
         reason="; ".join(missing) if missing else None,
         setup_command=f"uv run python scripts/setup_model.py --backend {backend_id}",
     )

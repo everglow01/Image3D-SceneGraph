@@ -42,6 +42,9 @@ type Manifest = {
     num_inputs: number;
     num_points: number;
     num_objects: number;
+    num_groups?: number;
+    batch_size?: number;
+    overlap_size?: number;
   };
 };
 
@@ -121,6 +124,9 @@ export function App() {
   const [mode, setMode] = useState<Mode>("image");
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
+  const [vggtMaxImages, setVggtMaxImages] = useState(225);
+  const [vggtBatchSize, setVggtBatchSize] = useState(8);
+  const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
   const [files, setFiles] = useState<File[]>([]);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -201,6 +207,13 @@ export function App() {
       setError(validationError);
       return;
     }
+    if (geometryBackend === "vggt") {
+      const optionError = validateVggtOptions(vggtMaxImages, vggtBatchSize, vggtOverlapSize, files.length);
+      if (optionError) {
+        setError(optionError);
+        return;
+      }
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -210,6 +223,11 @@ export function App() {
       form.append("mode", mode);
       form.append("geometry_backend", geometryBackend);
       form.append("output_type", outputType);
+      if (geometryBackend === "vggt") {
+        form.append("vggt_max_images", String(vggtMaxImages));
+        form.append("vggt_batch_size", String(vggtBatchSize));
+        form.append("vggt_overlap_size", String(vggtOverlapSize));
+      }
       for (const file of files) {
         form.append("files", file, getUploadName(file));
       }
@@ -344,6 +362,44 @@ export function App() {
                 ))}
               </select>
             </label>
+
+            {geometryBackend === "vggt" && (
+              <div className="numeric-grid">
+                <label>
+                  <span>Max images</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={vggtMaxImages}
+                    onChange={(event) => setVggtMaxImages(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>Batch size</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    step={1}
+                    value={vggtBatchSize}
+                    onChange={(event) => setVggtBatchSize(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>Overlap</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={7}
+                    step={1}
+                    value={vggtOverlapSize}
+                    onChange={(event) => setVggtOverlapSize(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           <div className="file-picker-grid">
@@ -456,6 +512,18 @@ export function App() {
               <dt>Points</dt>
               <dd>{currentStatus?.metrics.num_points ?? "-"}</dd>
             </div>
+            <div>
+              <dt>Groups</dt>
+              <dd>{currentStatus?.metrics.num_groups ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Batch</dt>
+              <dd>{currentStatus?.metrics.batch_size ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Overlap</dt>
+              <dd>{currentStatus?.metrics.overlap_size ?? "-"}</dd>
+            </div>
           </dl>
 
           <section className="result-section">
@@ -538,6 +606,28 @@ function validateFiles(mode: Mode, files: File[]) {
   }
   if (mode === "multi_image" && files.length < 2) {
     return "Multi-image mode requires at least two files.";
+  }
+  return null;
+}
+
+function validateVggtOptions(maxImages: number, batchSize: number, overlapSize: number, fileCount: number) {
+  if (!Number.isInteger(maxImages) || maxImages <= 0) {
+    return "VGGT max images must be a positive integer.";
+  }
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    return "VGGT batch size must be a positive integer.";
+  }
+  if (!Number.isInteger(overlapSize) || overlapSize <= 0) {
+    return "VGGT overlap must be a positive integer.";
+  }
+  if (fileCount > 1 && batchSize < 2) {
+    return "VGGT batch size must be at least 2 for multi-image jobs.";
+  }
+  if (overlapSize >= batchSize) {
+    return "VGGT overlap must be smaller than batch size.";
+  }
+  if (batchSize > maxImages) {
+    return "VGGT batch size cannot be larger than max images.";
   }
   return null;
 }

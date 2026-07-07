@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,6 +22,7 @@ class ReconstructionContext:
     job_dir: Path
     mode: str
     input_assets: list[dict[str, Any]]
+    options: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,115 @@ class MockPointCloudAdapter:
         path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
 
 
+class VggtPointCloudAdapter:
+    backend = "vggt"
+    output_type = "point_cloud"
+
+    def run(self, context: ReconstructionContext) -> ReconstructionResult:
+        if context.mode == "video":
+            raise ReconstructionError("VGGT adapter currently expects image inputs, not video files")
+
+        project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
+        script_path = project_root / "scripts" / "run_vggt_pointcloud.py"
+        if not script_path.exists():
+            raise ReconstructionError(f"VGGT runner missing: {script_path}")
+
+        image_dir = context.job_dir / "input" / "images"
+        command = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(script_path),
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(context.job_dir),
+            "--device",
+            os.environ.get("IMAGE3D_VGGT_DEVICE", "cuda"),
+            "--max-images",
+            str(_positive_int_option(context, "vggt_max_images", "IMAGE3D_VGGT_MAX_IMAGES", 8)),
+            "--max-points",
+            os.environ.get("IMAGE3D_VGGT_MAX_POINTS", "200000"),
+            "--conf-percentile",
+            os.environ.get("IMAGE3D_VGGT_CONF_PERCENTILE", "50"),
+            "--batch-size",
+            str(_positive_int_option(context, "vggt_batch_size", "IMAGE3D_VGGT_BATCH_SIZE", 8)),
+            "--overlap-size",
+            str(_positive_int_option(context, "vggt_overlap_size", "IMAGE3D_VGGT_OVERLAP_SIZE", 4)),
+        ]
+        if os.environ.get("IMAGE3D_VGGT_USE_POINT_MAP") == "1":
+            command.append("--use-point-map")
+
+        env = os.environ.copy()
+        if os.environ.get("IMAGE3D_VGGT_KEEP_LD_LIBRARY_PATH") != "1":
+            env.pop("LD_LIBRARY_PATH", None)
+        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=project_root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
+            raise ReconstructionError(f"VGGT reconstruction failed:\n{details}") from exc
+
+        point_cloud_path = context.job_dir / "geometry" / "points.ply"
+        cameras_path = context.job_dir / "geometry" / "cameras.json"
+        if not point_cloud_path.exists() or not cameras_path.exists():
+            raise ReconstructionError("VGGT reconstruction did not produce points.ply and cameras.json")
+
+        runner_log = context.job_dir / "logs" / "run.log"
+        metrics = _parse_key_value_metrics(runner_log)
+        log_lines = [
+            "geometry_backend=vggt",
+            "output_type=point_cloud",
+            "adapter=VggtPointCloudAdapter",
+            f"runner={' '.join(command)}",
+            *[line for line in runner_log.read_text(encoding="utf-8").splitlines() if line],
+        ]
+        if completed.stdout.strip():
+            log_lines.append(f"stdout={completed.stdout.strip()}")
+
+        return ReconstructionResult(
+            stage="vggt_reconstruction",
+            assets={
+                "point_cloud": "geometry/points.ply",
+                "cameras": "geometry/cameras.json",
+            },
+            metrics=metrics,
+            log_lines=log_lines,
+        )
+
+
+def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
+    metrics: dict[str, int | float | str | bool] = {}
+    if not path.exists():
+        return metrics
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key in {"num_images", "num_groups", "batch_size", "overlap_size", "num_points", "max_points"}:
+            metrics[key] = int(value)
+        elif key in {"conf_percentile", "model_load_seconds", "inference_seconds", "elapsed_seconds"}:
+            metrics[key] = float(value)
+        else:
+            metrics[key] = value
+    return metrics
+
+
+def _positive_int_option(context: ReconstructionContext, key: str, env_key: str, default: int) -> int:
+    value = context.options.get(key)
+    if value is None:
+        value = int(os.environ.get(env_key, str(default)))
+    if value <= 0:
+        raise ReconstructionError(f"{key} must be positive")
+    return value
+
+
 def get_reconstruction_adapter(
     geometry_backend: str, output_type: str
 ) -> ReconstructionAdapter:
@@ -95,6 +208,8 @@ def get_reconstruction_adapter(
 
     if geometry_backend == "mock" and output_type == "point_cloud":
         return MockPointCloudAdapter()
+    if geometry_backend == "vggt" and output_type == "point_cloud":
+        return VggtPointCloudAdapter()
 
     raise ReconstructionError(
         f"geometry_backend '{geometry_backend}' with output_type '{output_type}' is not implemented"

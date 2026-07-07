@@ -7,6 +7,12 @@ type PointCloudViewerProps = {
   sourceUrl: string | null;
 };
 
+type AxisSigns = {
+  x: 1 | -1;
+  y: 1 | -1;
+  z: 1 | -1;
+};
+
 export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -15,6 +21,7 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointsRef = useRef<THREE.Points | null>(null);
   const [viewerState, setViewerState] = useState("idle");
+  const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: -1, z: -1 });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -122,13 +129,15 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
         geometry.computeBoundingSphere();
         geometry.center();
 
+        const hasVertexColors = geometry.hasAttribute("color");
         const material = new THREE.PointsMaterial({
           size: 0.025,
-          vertexColors: geometry.hasAttribute("color"),
-          color: 0x1f6f78
+          vertexColors: hasVertexColors,
+          color: hasVertexColors ? 0xffffff : 0x1f6f78
         });
 
         const points = new THREE.Points(geometry, material);
+        applyAxisSigns(points, axisSigns);
         scene.add(points);
         pointsRef.current = points;
 
@@ -155,8 +164,44 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
     };
   }, [sourceUrl]);
 
+  useEffect(() => {
+    if (pointsRef.current) {
+      applyAxisSigns(pointsRef.current, axisSigns);
+    }
+  }, [axisSigns]);
+
+  function toggleAxis(axis: keyof AxisSigns) {
+    setAxisSigns((current) => ({
+      ...current,
+      [axis]: current[axis] === 1 ? -1 : 1
+    }));
+  }
+
   return (
     <div className="viewer-surface" ref={containerRef}>
+      <div className="pointcloud-toolbar" aria-label="Point cloud coordinate controls">
+        <button
+          className={axisSigns.x === -1 ? "viewer-tool-button active" : "viewer-tool-button"}
+          onClick={() => toggleAxis("x")}
+          type="button"
+        >
+          X
+        </button>
+        <button
+          className={axisSigns.y === -1 ? "viewer-tool-button active" : "viewer-tool-button"}
+          onClick={() => toggleAxis("y")}
+          type="button"
+        >
+          Y
+        </button>
+        <button
+          className={axisSigns.z === -1 ? "viewer-tool-button active" : "viewer-tool-button"}
+          onClick={() => toggleAxis("z")}
+          type="button"
+        >
+          Z
+        </button>
+      </div>
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
           {viewerState === "idle" && "No point cloud"}
@@ -166,4 +211,8 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
       )}
     </div>
   );
+}
+
+function applyAxisSigns(points: THREE.Points, axisSigns: AxisSigns) {
+  points.scale.set(axisSigns.x, axisSigns.y, axisSigns.z);
 }

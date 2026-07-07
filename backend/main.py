@@ -28,6 +28,9 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
         mode: Annotated[str, Form()] = "image",
         geometry_backend: Annotated[str, Form()] = "mock",
         output_type: Annotated[str, Form()] = "point_cloud",
+        vggt_max_images: Annotated[int | None, Form()] = None,
+        vggt_batch_size: Annotated[int | None, Form()] = None,
+        vggt_overlap_size: Annotated[int | None, Form()] = None,
     ) -> dict:
         uploaded: list[UploadedInput] = []
         for file in files:
@@ -39,12 +42,23 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
                 )
             )
 
+        options = {
+            key: value
+            for key, value in {
+                "vggt_max_images": vggt_max_images,
+                "vggt_batch_size": vggt_batch_size,
+                "vggt_overlap_size": vggt_overlap_size,
+            }.items()
+            if value is not None
+        }
+
         try:
             return app.state.job_store.create_job(
                 mode,
                 uploaded,
                 geometry_backend=geometry_backend,
                 output_type=output_type,
+                options=options,
             )
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -83,7 +83,12 @@ Current mock API:
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `files`: one or more uploaded files
 
-Only `geometry_backend=mock` with `output_type=point_cloud` is implemented right now. Other combinations are part of the API contract and return a clear not implemented error until their adapters are added.
+Implemented geometry paths:
+
+- `geometry_backend=mock` with `output_type=point_cloud`
+- `geometry_backend=vggt` with `output_type=point_cloud`, when the local VGGT repo and checkpoint are installed
+
+DUSt3R, MASt3R, mesh export, automatic 3DGS training, and video-to-geometry are still API contract placeholders and return a clear not implemented error until their adapters are added.
 
 Optional geometry backends are not downloaded with the base project. Check local backend availability with:
 
@@ -99,9 +104,27 @@ uv run python scripts/setup_model.py --backend vggt --install
 
 The backend also exposes `GET /api/backends` so the frontend can disable missing model integrations and show the required setup command.
 
+Run VGGT directly for a local image folder:
+
+```bash
+env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_vggt_pointcloud.py \
+  --image-dir path/to/images \
+  --output-dir outputs/vggt_run \
+  --max-images 4 \
+  --batch-size 8 \
+  --overlap-size 4 \
+  --max-points 200000 \
+  --device cuda \
+  --precision auto
+```
+
+On 8GB GPUs, direct 4 to 5 image VGGT inference can run out of memory. The backend defaults to `IMAGE3D_VGGT_MAX_IMAGES=8`, `IMAGE3D_VGGT_BATCH_SIZE=8`, and `IMAGE3D_VGGT_OVERLAP_SIZE=4`, aligns adjacent groups with a shared-camera Sim3 estimate, and keeps the VGGT backbone in automatic half precision while leaving the camera/depth heads in fp32 for dtype stability. The frontend exposes per-job VGGT `Max images`, `Batch size`, and `Overlap` controls, so larger uploads such as 225 images can be attempted without changing environment variables.
+
 `panorama` currently means one equirectangular 360 image. Real panorama reconstruction is not implemented yet; the backend records the mode and returns mock geometry through the same manifest contract.
 
-The MVP writes mock results to `outputs/jobs/{job_id}/`, including `manifest.json`, `geometry/points.ply`, `scene_graph/scene.json`, and `logs/run.log`.
+The MVP writes results to `outputs/jobs/{job_id}/`, including `manifest.json`, `geometry/points.ply`, `scene_graph/scene.json`, and `logs/run.log`. VGGT jobs also write `geometry/cameras.json`.
+
+The point-cloud viewer includes X/Y/Z axis flip controls. X/Y/Z buttons are display-only transforms, so they can correct viewer coordinate conventions without rerunning reconstruction.
 
 ## Frontend MVP
 

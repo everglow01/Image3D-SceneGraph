@@ -201,7 +201,8 @@ h3 {
   overflow-wrap: anywhere;
 }
 
-.control-stack select {
+.control-stack select,
+.control-stack input {
   width: 100%;
   min-height: 38px;
   border: 1px solid #cbd4d6;
@@ -209,6 +210,12 @@ h3 {
   background: #ffffff;
   color: #223034;
   padding: 0 10px;
+}
+
+.numeric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .file-drop input {
@@ -341,6 +348,15 @@ h3 {
   gap: 6px;
 }
 
+.pointcloud-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+}
+
 .viewer-tool-button {
   min-width: 54px;
   min-height: 32px;
@@ -351,6 +367,12 @@ h3 {
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
+}
+
+.viewer-tool-button.active {
+  border-color: #1f6f78;
+  background: #e5f2f2;
+  color: #104f57;
 }
 
 .viewer-tool-button:disabled {

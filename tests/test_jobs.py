@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import subprocess
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -111,9 +113,65 @@ def test_reject_unimplemented_reconstruction_option(tmp_path):
         store.create_job(
             "image",
             [UploadedInput(filename="room.jpg", content=b"fake-image")],
-            geometry_backend="vggt",
+            geometry_backend="dust3r",
             output_type="point_cloud",
         )
+
+
+def test_create_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monkeypatch):
+    captured_command = []
+
+    def fake_run(command, **kwargs):
+        captured_command[:] = command
+        output_dir = tmp_path
+        for index, value in enumerate(command):
+            if value == "--output-dir":
+                output_dir = command[index + 1]
+                break
+        job_dir = Path(output_dir)
+        (job_dir / "geometry").mkdir(parents=True, exist_ok=True)
+        (job_dir / "logs").mkdir(parents=True, exist_ok=True)
+        (job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
+        (job_dir / "geometry" / "cameras.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "logs" / "run.log").write_text(
+            "\n".join(
+                [
+                    "backend=vggt",
+                    "num_images=1",
+                    "num_groups=1",
+                    "batch_size=8",
+                    "overlap_size=4",
+                    "num_points=123",
+                    "inference_seconds=0.5",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.create_job(
+        "image",
+        [UploadedInput(filename="room.jpg", content=b"fake-image", content_type="image/jpeg")],
+        geometry_backend="vggt",
+        output_type="point_cloud",
+        options={"vggt_max_images": 225, "vggt_batch_size": 8, "vggt_overlap_size": 4},
+    )
+
+    assert manifest["stage"] == "vggt_reconstruction"
+    assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
+    assert manifest["assets"]["cameras"] == "geometry/cameras.json"
+    assert manifest["metrics"]["num_points"] == 123
+    assert manifest["metrics"]["num_groups"] == 1
+    assert manifest["metrics"]["batch_size"] == 8
+    assert manifest["metrics"]["overlap_size"] == 4
+    assert manifest["metrics"]["inference_seconds"] == 0.5
+    assert captured_command[captured_command.index("--max-images") + 1] == "225"
+    assert captured_command[captured_command.index("--batch-size") + 1] == "8"
+    assert captured_command[captured_command.index("--overlap-size") + 1] == "4"
 
 
 def test_reject_invalid_output_type(tmp_path):

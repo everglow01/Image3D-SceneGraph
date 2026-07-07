@@ -557,9 +557,9 @@ Recommended first steps:
 2. Build FastAPI mock job API. Done.
 3. Build React/Vite frontend with upload and 3D viewer. Done.
 4. Add one sample output asset to exercise the viewer. Covered by mock job output.
-5. Add a geometry adapter interface. Done for the mock point-cloud path.
-6. Integrate VGGT or DUSt3R as the first baseline.
-7. Connect generated output to frontend via `manifest.json`.
+5. Add a geometry adapter interface. Done.
+6. Integrate VGGT or DUSt3R as the first baseline. Done for VGGT point-cloud output.
+7. Connect generated output to frontend via `manifest.json`. Done for mock, Nerfstudio import, and VGGT point-cloud jobs.
 8. Add semantic fusion only after geometry output is stable.
 
 Do not begin with training or fine-tuning.
@@ -578,8 +578,15 @@ Do not begin with training or fine-tuning.
 - Mock backend API now creates local jobs, writes `manifest.json`, serves mock assets, and exposes scene graph JSON.
 - `panorama` is a supported input mode for one equirectangular 360 image; real panorama reconstruction will come later.
 - Frontend MVP now supports mode selection, file upload, mock job creation, manifest/scene display, asset links, and `.ply` point cloud viewing.
-- Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; only `mock + point_cloud` is implemented.
+- Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; `mock + point_cloud` and `vggt + point_cloud` are implemented.
 - Optional heavy model integrations are explicit local backends. They are not installed by the base package; `GET /api/backends` reports availability and `scripts/setup_model.py` is the setup entry point. VGGT setup defaults to dry-run and requires `--install` because its checkpoint is about 5GB plus environment dependencies.
+- VGGT first baseline uses `scripts/run_vggt_pointcloud.py`, exports `geometry/points.ply` and `geometry/cameras.json`, and is invoked by `VggtPointCloudAdapter`. On this machine, unset `LD_LIBRARY_PATH` for VGGT/PyTorch CUDA runs to avoid linking against the system cuDNN ahead of the uv environment libraries.
+- RTX 4060 8GB cannot run 4 uploaded images through VGGT-1B in one fp32 pass; it OOMs in the depth head. The runner now supports overlapping groups with `--batch-size` and `--overlap-size`, and the backend defaults to `IMAGE3D_VGGT_MAX_IMAGES=8`, `IMAGE3D_VGGT_BATCH_SIZE=8`, and `IMAGE3D_VGGT_OVERLAP_SIZE=4`. The runner converts the VGGT backbone to auto half precision on CUDA while keeping camera/depth heads fp32 to avoid LayerNorm dtype errors.
+- The frontend exposes per-job VGGT `Max images`, `Batch size`, and `Overlap` controls. A 225-image upload can be attempted by setting `Max images=225`; with `Batch size=8` and `Overlap=4`, this is still slow and global drift remains likely until a stronger global alignment/bundle-adjustment stage is added.
+- Windowed VGGT group stitching now estimates a Sim3 transform from shared camera centers instead of a rigid-only SE3 transform. A 45-image office upload with `Batch size=8` and `Overlap=4` produced 11 groups.
+- Point-cloud viewer has display-only X/Y/Z axis flip controls. Default display flips Y and Z to better match OpenCV camera-style geometry in Three.js, but users can toggle axes without rerunning reconstruction.
+- Residual 45-image drift is still expected because current stitching is local window Sim3, not global pose graph optimization or bundle adjustment. Next geometry improvement should add a global pose graph over VGGT window cameras and optimize Sim3/SE3 constraints before merging point clouds.
+- VGGT point colors now come from original RGB images resized/padded to the VGGT input shape, not from model tensors. This fixed the observed green color cast on a 45-image office upload; the fixed point cloud mean RGB was close to the original image mean RGB.
 - User has a Nerfstudio splatfacto checkpoint at `/home/owen/nerfstudio/outputs/drjohnson_hq/splatfacto/2026-06-22_161605/nerfstudio_models/step-000029999.ckpt`, but no browser-ready `.splat/.ply/.ksplat` export was found there.
 - Nerfstudio `ns-export gaussian-splat` successfully exported `/home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq/splat.ply` from that checkpoint; this file is intentionally under ignored `outputs/`.
 - `scripts/register_gaussian_splat.py` can register an exported `.ply/.splat/.ksplat` as a local `nerfstudio_3dgs + gaussian_splat` job.
