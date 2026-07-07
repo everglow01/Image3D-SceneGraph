@@ -68,6 +68,7 @@ uv run python scripts/smoke_backend.py
 Current mock API:
 
 - `GET /api/health`
+- `GET /api/backends`
 - `POST /api/jobs`
 - `GET /api/jobs/{job_id}`
 - `GET /api/jobs/{job_id}/manifest`
@@ -83,6 +84,14 @@ Current mock API:
 - `files`: one or more uploaded files
 
 Only `geometry_backend=mock` with `output_type=point_cloud` is implemented right now. Other combinations are part of the API contract and return a clear not implemented error until their adapters are added.
+
+Optional geometry backends are not downloaded with the base project. Check local backend availability with:
+
+```bash
+uv run python scripts/setup_model.py --backend vggt
+```
+
+The backend also exposes `GET /api/backends` so the frontend can disable missing model integrations and show the required setup command.
 
 `panorama` currently means one equirectangular 360 image. Real panorama reconstruction is not implemented yet; the backend records the mode and returns mock geometry through the same manifest contract.
 

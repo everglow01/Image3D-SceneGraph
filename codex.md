@@ -268,6 +268,10 @@ GET /api/jobs/{job_id}/assets/{path}
 
 GET /api/jobs/{job_id}/download
   Download complete result bundle.
+
+GET /api/backends
+  Return optional model availability, supported outputs, missing paths,
+  and setup commands for frontend gating.
 ```
 
 Do not design a large API before the MVP works. Add endpoints only when the frontend needs them.
@@ -575,6 +579,7 @@ Do not begin with training or fine-tuning.
 - `panorama` is a supported input mode for one equirectangular 360 image; real panorama reconstruction will come later.
 - Frontend MVP now supports mode selection, file upload, mock job creation, manifest/scene display, asset links, and `.ply` point cloud viewing.
 - Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; only `mock + point_cloud` is implemented.
+- Optional heavy model integrations are explicit local backends. They are not installed by the base package; `GET /api/backends` reports availability and `scripts/setup_model.py` is the setup entry point.
 - User has a Nerfstudio splatfacto checkpoint at `/home/owen/nerfstudio/outputs/drjohnson_hq/splatfacto/2026-06-22_161605/nerfstudio_models/step-000029999.ckpt`, but no browser-ready `.splat/.ply/.ksplat` export was found there.
 - Nerfstudio `ns-export gaussian-splat` successfully exported `/home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq/splat.ply` from that checkpoint; this file is intentionally under ignored `outputs/`.
 - `scripts/register_gaussian_splat.py` can register an exported `.ply/.splat/.ksplat` as a local `nerfstudio_3dgs + gaussian_splat` job.

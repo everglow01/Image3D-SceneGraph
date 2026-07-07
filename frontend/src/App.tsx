@@ -1,4 +1,4 @@
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import {
   Download,
   FileArchive,
@@ -76,6 +76,15 @@ type JobStatus = Pick<
   | "metrics"
 >;
 
+type BackendStatus = {
+  id: GeometryBackend;
+  label: string;
+  available: boolean;
+  reason: string | null;
+  supported_outputs: OutputType[];
+  setup_command: string | null;
+};
+
 const modeOptions: Array<{
   id: Mode;
   label: string;
@@ -91,23 +100,21 @@ const modeOptions: Array<{
 const backendOptions: Array<{
   id: GeometryBackend;
   label: string;
-  implemented: boolean;
 }> = [
-  { id: "mock", label: "Mock", implemented: true },
-  { id: "vggt", label: "VGGT", implemented: false },
-  { id: "dust3r", label: "DUSt3R", implemented: false },
-  { id: "mast3r", label: "MASt3R", implemented: false },
-  { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS", implemented: false }
+  { id: "mock", label: "Mock" },
+  { id: "vggt", label: "VGGT" },
+  { id: "dust3r", label: "DUSt3R" },
+  { id: "mast3r", label: "MASt3R" },
+  { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS" }
 ];
 
 const outputOptions: Array<{
   id: OutputType;
   label: string;
-  implemented: boolean;
 }> = [
-  { id: "point_cloud", label: "Point cloud", implemented: true },
-  { id: "mesh", label: "Mesh", implemented: false },
-  { id: "gaussian_splat", label: "Gaussian splat", implemented: false }
+  { id: "point_cloud", label: "Point cloud" },
+  { id: "mesh", label: "Mesh" },
+  { id: "gaussian_splat", label: "Gaussian splat" }
 ];
 
 export function App() {
@@ -121,9 +128,14 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [jobIdInput, setJobIdInput] = useState("");
+  const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedMode = modeOptions.find((option) => option.id === mode) ?? modeOptions[0];
+  const selectedBackendStatus = backendStatuses?.[geometryBackend];
+  const selectedBackendAvailable = selectedBackendStatus?.available ?? geometryBackend === "mock";
+  const selectedOutputSupported =
+    selectedBackendStatus?.supported_outputs.includes(outputType) ?? outputType === "point_cloud";
   const pointCloudUrl = useMemo(() => {
     if (!manifest?.assets.point_cloud) {
       return null;
@@ -137,6 +149,32 @@ export function App() {
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.scene_splat}`;
   }, [manifest]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    requestJson<{ backends: BackendStatus[] }>("/api/backends")
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setBackendStatuses(
+          Object.fromEntries(payload.backends.map((backend) => [backend.id, backend])) as Record<
+            GeometryBackend,
+            BackendStatus
+          >
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBackendStatuses(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function onModeChange(nextMode: Mode) {
     setMode(nextMode);
     setFiles([]);
@@ -149,6 +187,15 @@ export function App() {
   }
 
   async function createJob() {
+    if (!selectedBackendAvailable) {
+      setError(selectedBackendStatus?.reason ?? "Selected geometry backend is not available.");
+      return;
+    }
+    if (!selectedOutputSupported) {
+      setError(`${outputType} is not supported by ${geometryBackend}.`);
+      return;
+    }
+
     const validationError = validateFiles(mode, files);
     if (validationError) {
       setError(validationError);
@@ -275,11 +322,13 @@ export function App() {
                 onChange={(event) => setGeometryBackend(event.target.value as GeometryBackend)}
               >
                 {backendOptions.map((option) => (
-                  <option disabled={!option.implemented} key={option.id} value={option.id}>
-                    {option.implemented ? option.label : `${option.label} (planned)`}
+                  <option disabled={!isBackendAvailable(option.id, backendStatuses)} key={option.id} value={option.id}>
+                    {formatBackendOption(option, backendStatuses)}
                   </option>
                 ))}
               </select>
+              {selectedBackendStatus?.reason && <small>{selectedBackendStatus.reason}</small>}
+              {selectedBackendStatus?.setup_command && <small>{selectedBackendStatus.setup_command}</small>}
             </label>
 
             <label>
@@ -289,8 +338,8 @@ export function App() {
                 onChange={(event) => setOutputType(event.target.value as OutputType)}
               >
                 {outputOptions.map((option) => (
-                  <option disabled={!option.implemented} key={option.id} value={option.id}>
-                    {option.implemented ? option.label : `${option.label} (planned)`}
+                  <option disabled={!isOutputSupported(option.id, selectedBackendStatus)} key={option.id} value={option.id}>
+                    {isOutputSupported(option.id, selectedBackendStatus) ? option.label : `${option.label} (unavailable)`}
                   </option>
                 ))}
               </select>
@@ -339,7 +388,12 @@ export function App() {
 
           {error && <div className="error-box">{error}</div>}
 
-          <button className="primary-button" type="button" onClick={createJob} disabled={isSubmitting}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={createJob}
+            disabled={isSubmitting || !selectedBackendAvailable || !selectedOutputSupported}
+          >
             <Play size={18} aria-hidden="true" />
             <span>{isSubmitting ? "Creating job" : "Create job"}</span>
           </button>
@@ -486,6 +540,28 @@ function validateFiles(mode: Mode, files: File[]) {
     return "Multi-image mode requires at least two files.";
   }
   return null;
+}
+
+function isBackendAvailable(
+  backendId: GeometryBackend,
+  statuses: Record<GeometryBackend, BackendStatus> | null
+) {
+  return statuses?.[backendId]?.available ?? backendId === "mock";
+}
+
+function formatBackendOption(
+  option: { id: GeometryBackend; label: string },
+  statuses: Record<GeometryBackend, BackendStatus> | null
+) {
+  const status = statuses?.[option.id];
+  if (!status) {
+    return option.id === "mock" ? option.label : `${option.label} (checking)`;
+  }
+  return status.available ? status.label : `${status.label} (setup required)`;
+}
+
+function isOutputSupported(outputType: OutputType, backendStatus: BackendStatus | undefined) {
+  return backendStatus?.supported_outputs.includes(outputType) ?? outputType === "point_cloud";
 }
 
 function getUploadName(file: File) {

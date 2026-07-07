@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from image3d_scenegraph.geometry.backends import get_backend_status_payload
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
 
 
@@ -16,6 +17,10 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/backends")
+    def get_backends() -> dict:
+        return get_backend_status_payload()
 
     @app.post("/api/jobs")
     async def create_job(
