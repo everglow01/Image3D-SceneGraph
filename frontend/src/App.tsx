@@ -9,9 +9,9 @@ import {
   UploadCloud,
   Video
 } from "lucide-react";
-import { PointCloudViewer } from "./PointCloudViewer";
+import { GeometryViewer } from "./GeometryViewer";
 
-type Mode = "image" | "multi_image" | "video" | "panorama";
+type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
 type GeometryBackend = "mock" | "vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 
@@ -119,6 +119,8 @@ export function App() {
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [scene, setScene] = useState<SceneGraph | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [jobIdInput, setJobIdInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const selectedMode = modeOptions.find((option) => option.id === mode) ?? modeOptions[0];
@@ -127,6 +129,12 @@ export function App() {
       return null;
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.point_cloud}`;
+  }, [manifest]);
+  const splatUrl = useMemo(() => {
+    if (!manifest?.assets.scene_splat) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.scene_splat}`;
   }, [manifest]);
 
   function onModeChange(nextMode: Mode) {
@@ -195,6 +203,31 @@ export function App() {
       setScene(sceneGraph);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to refresh job");
+    }
+  }
+
+  async function loadJobById() {
+    const jobId = jobIdInput.trim();
+    if (!jobId) {
+      setError("Enter a job id.");
+      return;
+    }
+
+    setIsLoadingJob(true);
+    setError(null);
+    try {
+      const [status, nextManifest, sceneGraph] = await Promise.all([
+        requestJson<JobStatus>(`/api/jobs/${jobId}`),
+        requestJson<Manifest>(`/api/jobs/${jobId}/manifest`),
+        requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`)
+      ]);
+      setJobStatus(status);
+      setManifest(nextManifest);
+      setScene(sceneGraph);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to load job");
+    } finally {
+      setIsLoadingJob(false);
     }
   }
 
@@ -316,20 +349,32 @@ export function App() {
           <div className="viewer-header">
             <div>
               <h2>3D viewer</h2>
-              <span>{manifest?.assets.point_cloud ?? "No point cloud loaded"}</span>
+              <span>{manifest?.assets.scene_splat ?? manifest?.assets.point_cloud ?? "No geometry loaded"}</span>
             </div>
             <button className="icon-button" type="button" onClick={refreshJob} disabled={!manifest}>
               <RefreshCw size={17} aria-hidden="true" />
               <span>Refresh</span>
             </button>
           </div>
-          <PointCloudViewer sourceUrl={pointCloudUrl} />
+          <GeometryViewer pointCloudUrl={pointCloudUrl} splatUrl={splatUrl} />
         </section>
 
         <aside className="panel result-panel" aria-label="Job results">
           <div className="panel-heading">
             <h2>Job</h2>
             <span>{manifest?.job_id ?? "none"}</span>
+          </div>
+
+          <div className="load-job-row">
+            <input
+              aria-label="Job id"
+              placeholder="Load job id"
+              value={jobIdInput}
+              onChange={(event) => setJobIdInput(event.target.value)}
+            />
+            <button type="button" onClick={loadJobById} disabled={isLoadingJob}>
+              {isLoadingJob ? "Loading" : "Load"}
+            </button>
           </div>
 
           <dl className="metrics-grid">

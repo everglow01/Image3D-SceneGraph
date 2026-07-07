@@ -107,6 +107,33 @@ Current frontend flow:
 3. Upload local files.
 4. Create a mock reconstruction job.
 5. View job metrics, scene objects, output links, and the mock `.ply` point cloud.
+6. Or load an existing job id, including registered Gaussian splat jobs.
+
+## Nerfstudio 3DGS Import
+
+Existing Nerfstudio `splatfacto` checkpoints must be exported before the web viewer can load them.
+
+Example export:
+
+```bash
+cd /home/owen/nerfstudio
+MPLCONFIGDIR=/tmp/matplotlib-cache .venv/bin/ns-export gaussian-splat \
+  --load-config outputs/drjohnson_hq/splatfacto/2026-06-22_161605/config.yml \
+  --output-dir /home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq \
+  --output-filename splat.ply \
+  --ply-color-mode sh_coeffs
+```
+
+Register the exported asset as an Image3D-SceneGraph job:
+
+```bash
+cd /home/owen/Image3D-SceneGraph
+uv run python scripts/register_gaussian_splat.py \
+  --splat outputs/exports/drjohnson_hq/splat.ply \
+  --name drjohnson_hq
+```
+
+Then open the frontend and load the printed `job_id`.
 
 ## Development Status
 

@@ -576,3 +576,5 @@ Do not begin with training or fine-tuning.
 - Frontend MVP now supports mode selection, file upload, mock job creation, manifest/scene display, asset links, and `.ply` point cloud viewing.
 - Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; only `mock + point_cloud` is implemented.
 - User has a Nerfstudio splatfacto checkpoint at `/home/owen/nerfstudio/outputs/drjohnson_hq/splatfacto/2026-06-22_161605/nerfstudio_models/step-000029999.ckpt`, but no browser-ready `.splat/.ply/.ksplat` export was found there.
+- Nerfstudio `ns-export gaussian-splat` successfully exported `/home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq/splat.ply` from that checkpoint; this file is intentionally under ignored `outputs/`.
+- `scripts/register_gaussian_splat.py` can register an exported `.ply/.splat/.ksplat` as a local `nerfstudio_3dgs + gaussian_splat` job.
