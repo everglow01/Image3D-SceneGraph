@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from image3d_scenegraph.geometry.adapters import (
+    ReconstructionContext,
+    ReconstructionError,
+    get_reconstruction_adapter,
+)
+
 
 VALID_MODES = {"image", "multi_image", "video", "panorama"}
 
@@ -30,6 +36,15 @@ class JobStore:
         self.output_root = Path(output_root or default_root)
 
     def create_mock_job(self, mode: str, files: list[UploadedInput]) -> dict[str, Any]:
+        return self.create_job(mode, files, geometry_backend="mock", output_type="point_cloud")
+
+    def create_job(
+        self,
+        mode: str,
+        files: list[UploadedInput],
+        geometry_backend: str = "mock",
+        output_type: str = "point_cloud",
+    ) -> dict[str, Any]:
         self._validate_request(mode, files)
 
         job_id = self._new_job_id()
@@ -37,7 +52,19 @@ class JobStore:
         self._create_job_dirs(job_dir)
 
         input_assets = self._write_inputs(job_dir, mode, files)
-        self._write_mock_geometry(job_dir / "geometry" / "points.ply")
+        try:
+            adapter = get_reconstruction_adapter(geometry_backend, output_type)
+        except ReconstructionError as exc:
+            raise JobError(str(exc)) from exc
+
+        reconstruction = adapter.run(
+            ReconstructionContext(
+                job_id=job_id,
+                job_dir=job_dir,
+                mode=mode,
+                input_assets=input_assets,
+            )
+        )
 
         scene = self._build_mock_scene(job_id, mode)
         self._write_json(job_dir / "scene_graph" / "scene.json", scene)
@@ -47,14 +74,35 @@ class JobStore:
                 f"job_id={job_id}",
                 f"mode={mode}",
                 f"num_inputs={len(files)}",
-                "stage=mock_reconstruction",
+                f"stage={reconstruction.stage}",
                 "status=done",
+                *reconstruction.log_lines,
                 "",
             ]
         )
         (job_dir / "logs" / "run.log").write_text(log_text, encoding="utf-8")
 
-        manifest = self._build_manifest(job_id, mode, input_assets, scene)
+        assets = {
+            **reconstruction.assets,
+            "scene_graph": "scene_graph/scene.json",
+            "log": "logs/run.log",
+        }
+        metrics = {
+            "num_inputs": len(input_assets),
+            "num_objects": len(scene["objects"]),
+            **reconstruction.metrics,
+        }
+        manifest = self._build_manifest(
+            job_id,
+            mode,
+            input_assets,
+            scene,
+            geometry_backend=geometry_backend,
+            output_type=output_type,
+            stage=reconstruction.stage,
+            assets=assets,
+            metrics=metrics,
+        )
         self._write_json(job_dir / "manifest.json", manifest)
         return manifest
 
@@ -127,15 +175,17 @@ class JobStore:
     ) -> list[dict[str, Any]]:
         assets: list[dict[str, Any]] = []
         for index, uploaded in enumerate(files):
-            filename = self._safe_filename(uploaded.filename, index)
+            filename = self._safe_relative_path(uploaded.filename, index)
             if mode == "video":
-                destination = job_dir / "input" / filename
+                destination = job_dir / "input" / Path(filename).name
             else:
                 destination = job_dir / "input" / "images" / filename
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination = self._deduplicate_destination(destination, index)
             destination.write_bytes(uploaded.content)
             assets.append(
                 {
-                    "filename": filename,
+                    "filename": destination.name,
                     "path": destination.relative_to(job_dir).as_posix(),
                     "content_type": uploaded.content_type,
                     "size_bytes": len(uploaded.content),
@@ -143,34 +193,22 @@ class JobStore:
             )
         return assets
 
-    def _safe_filename(self, filename: str, index: int) -> str:
-        name = Path(filename).name.strip()
-        if not name or name in {".", ".."}:
+    def _safe_relative_path(self, filename: str, index: int) -> str:
+        normalized = filename.replace("\\", "/")
+        parts: list[str] = []
+        for raw_part in normalized.split("/"):
+            part = raw_part.strip()
+            if not part or part in {".", ".."}:
+                continue
+            parts.append(Path(part).name)
+        if not parts:
             return f"input_{index:03d}.bin"
-        return name
+        return "/".join(parts)
 
-    def _write_mock_geometry(self, path: Path) -> None:
-        points = [
-            (-0.5, -0.5, 1.0, 255, 80, 80),
-            (0.5, -0.5, 1.0, 80, 255, 80),
-            (0.5, 0.5, 1.0, 80, 80, 255),
-            (-0.5, 0.5, 1.0, 255, 255, 80),
-            (0.0, 0.0, 0.5, 255, 255, 255),
-        ]
-        header = [
-            "ply",
-            "format ascii 1.0",
-            f"element vertex {len(points)}",
-            "property float x",
-            "property float y",
-            "property float z",
-            "property uchar red",
-            "property uchar green",
-            "property uchar blue",
-            "end_header",
-        ]
-        body = [f"{x} {y} {z} {r} {g} {b}" for x, y, z, r, g, b in points]
-        path.write_text("\n".join(header + body) + "\n", encoding="utf-8")
+    def _deduplicate_destination(self, destination: Path, index: int) -> Path:
+        if not destination.exists():
+            return destination
+        return destination.with_name(f"{destination.stem}_{index:03d}{destination.suffix}")
 
     def _build_mock_scene(self, job_id: str, mode: str) -> dict[str, Any]:
         return {
@@ -200,27 +238,26 @@ class JobStore:
         mode: str,
         input_assets: list[dict[str, Any]],
         scene: dict[str, Any],
+        geometry_backend: str,
+        output_type: str,
+        stage: str,
+        assets: dict[str, str],
+        metrics: dict[str, int | float | str | bool],
     ) -> dict[str, Any]:
         created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return {
             "job_id": job_id,
             "status": "done",
-            "stage": "mock_reconstruction",
+            "stage": stage,
             "progress": 1.0,
             "mode": mode,
             "input_type": self._input_type(mode),
+            "geometry_backend": geometry_backend,
+            "output_type": output_type,
             "created_at": created_at,
             "inputs": input_assets,
-            "assets": {
-                "point_cloud": "geometry/points.ply",
-                "scene_graph": "scene_graph/scene.json",
-                "log": "logs/run.log",
-            },
-            "metrics": {
-                "num_inputs": len(input_assets),
-                "num_points": 5,
-                "num_objects": len(scene["objects"]),
-            },
+            "assets": assets,
+            "metrics": metrics,
         }
 
     def _input_type(self, mode: str) -> str:

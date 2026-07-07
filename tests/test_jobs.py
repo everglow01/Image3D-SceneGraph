@@ -24,6 +24,8 @@ def test_create_image_job_and_read_outputs(tmp_path):
     job_id = manifest["job_id"]
     assert manifest["status"] == "done"
     assert manifest["mode"] == "image"
+    assert manifest["geometry_backend"] == "mock"
+    assert manifest["output_type"] == "point_cloud"
     assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
 
     loaded_manifest = store.get_manifest(job_id)
@@ -61,6 +63,24 @@ def test_create_panorama_job(tmp_path):
     assert manifest["inputs"][0]["path"] == "input/images/office_360.jpg"
 
 
+def test_preserve_multi_image_folder_paths(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.create_mock_job(
+        "multi_image",
+        [
+            UploadedInput(filename="scan/front/frame_001.jpg", content=b"front"),
+            UploadedInput(filename="scan/back/frame_001.jpg", content=b"back"),
+        ],
+    )
+
+    input_paths = [item["path"] for item in manifest["inputs"]]
+    assert input_paths == [
+        "input/images/scan/front/frame_001.jpg",
+        "input/images/scan/back/frame_001.jpg",
+    ]
+
+
 def test_reject_multiple_panorama_inputs(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 
@@ -81,6 +101,30 @@ def test_reject_invalid_mode(tmp_path):
         store.create_mock_job(
             "rgbd",
             [UploadedInput(filename="room.jpg", content=b"fake-image")],
+        )
+
+
+def test_reject_unimplemented_reconstruction_option(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="not implemented"):
+        store.create_job(
+            "image",
+            [UploadedInput(filename="room.jpg", content=b"fake-image")],
+            geometry_backend="vggt",
+            output_type="point_cloud",
+        )
+
+
+def test_reject_invalid_output_type(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="unsupported output_type"):
+        store.create_job(
+            "image",
+            [UploadedInput(filename="room.jpg", content=b"fake-image")],
+            geometry_backend="mock",
+            output_type="rgbd",
         )
 
 

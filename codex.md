@@ -249,6 +249,10 @@ Example manifest:
 ```text
 POST /api/jobs
   Create a reconstruction job from uploaded image/images/video/panorama.
+  Required reconstruction contract fields:
+    mode: image | multi_image | video | panorama
+    geometry_backend: mock | vggt | dust3r | mast3r | nerfstudio_3dgs
+    output_type: point_cloud | mesh | gaussian_splat
 
 GET /api/jobs/{job_id}
   Return job status, stage, progress, and errors.
@@ -549,7 +553,7 @@ Recommended first steps:
 2. Build FastAPI mock job API. Done.
 3. Build React/Vite frontend with upload and 3D viewer. Done.
 4. Add one sample output asset to exercise the viewer. Covered by mock job output.
-5. Add a geometry adapter interface. Next.
+5. Add a geometry adapter interface. Done for the mock point-cloud path.
 6. Integrate VGGT or DUSt3R as the first baseline.
 7. Connect generated output to frontend via `manifest.json`.
 8. Add semantic fusion only after geometry output is stable.
@@ -570,3 +574,5 @@ Do not begin with training or fine-tuning.
 - Mock backend API now creates local jobs, writes `manifest.json`, serves mock assets, and exposes scene graph JSON.
 - `panorama` is a supported input mode for one equirectangular 360 image; real panorama reconstruction will come later.
 - Frontend MVP now supports mode selection, file upload, mock job creation, manifest/scene display, asset links, and `.ply` point cloud viewing.
+- Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; only `mock + point_cloud` is implemented.
+- User has a Nerfstudio splatfacto checkpoint at `/home/owen/nerfstudio/outputs/drjohnson_hq/splatfacto/2026-06-22_161605/nerfstudio_models/step-000029999.ckpt`, but no browser-ready `.splat/.ply/.ksplat` export was found there.

@@ -21,6 +21,8 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
     async def create_job(
         files: Annotated[list[UploadFile], File()],
         mode: Annotated[str, Form()] = "image",
+        geometry_backend: Annotated[str, Form()] = "mock",
+        output_type: Annotated[str, Form()] = "point_cloud",
     ) -> dict:
         uploaded: list[UploadedInput] = []
         for file in files:
@@ -33,7 +35,12 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
             )
 
         try:
-            return app.state.job_store.create_mock_job(mode, uploaded)
+            return app.state.job_store.create_job(
+                mode,
+                uploaded,
+                geometry_backend=geometry_backend,
+                output_type=output_type,
+            )
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -49,6 +56,8 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
             "stage": manifest["stage"],
             "progress": manifest["progress"],
             "mode": manifest["mode"],
+            "geometry_backend": manifest["geometry_backend"],
+            "output_type": manifest["output_type"],
             "metrics": manifest["metrics"],
         }
 

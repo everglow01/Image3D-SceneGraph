@@ -156,6 +156,12 @@ h3 {
   font-weight: 800;
 }
 
+.file-picker-grid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .file-drop {
   display: flex;
   align-items: center;
@@ -167,7 +173,34 @@ h3 {
   color: #314146;
   min-height: 78px;
   cursor: pointer;
+}
+
+.file-drop.compact {
+  min-height: 44px;
+}
+
+.control-stack {
+  display: grid;
+  gap: 10px;
   margin-bottom: 12px;
+}
+
+.control-stack label {
+  display: grid;
+  gap: 6px;
+  color: #334247;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.control-stack select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #cbd4d6;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #223034;
+  padding: 0 10px;
 }
 
 .file-drop input {
@@ -176,6 +209,12 @@ h3 {
 
 .file-list {
   min-height: 94px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #e2e7e8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px 10px;
   margin-bottom: 12px;
 }
 
@@ -332,6 +371,7 @@ h3 {
 
 button:focus-visible,
 a:focus-visible,
+.control-stack select:focus-visible,
 .file-drop:focus-within {
   outline: 2px solid #c86f45;
   outline-offset: 2px;

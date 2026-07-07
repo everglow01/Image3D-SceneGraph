@@ -12,6 +12,8 @@ import {
 import { PointCloudViewer } from "./PointCloudViewer";
 
 type Mode = "image" | "multi_image" | "video" | "panorama";
+type GeometryBackend = "mock" | "vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
+type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 
 type Manifest = {
   job_id: string;
@@ -20,6 +22,8 @@ type Manifest = {
   progress: number;
   mode: Mode;
   input_type: string;
+  geometry_backend: GeometryBackend;
+  output_type: OutputType;
   created_at: string;
   inputs: Array<{
     filename: string;
@@ -29,6 +33,8 @@ type Manifest = {
   }>;
   assets: {
     point_cloud?: string;
+    mesh?: string;
+    scene_splat?: string;
     scene_graph?: string;
     log?: string;
   };
@@ -60,7 +66,14 @@ type SceneGraph = {
 
 type JobStatus = Pick<
   Manifest,
-  "job_id" | "status" | "stage" | "progress" | "mode" | "metrics"
+  | "job_id"
+  | "status"
+  | "stage"
+  | "progress"
+  | "mode"
+  | "geometry_backend"
+  | "output_type"
+  | "metrics"
 >;
 
 const modeOptions: Array<{
@@ -75,8 +88,32 @@ const modeOptions: Array<{
   { id: "panorama", label: "Panorama", icon: FileArchive, fileHint: "One 360 image" }
 ];
 
+const backendOptions: Array<{
+  id: GeometryBackend;
+  label: string;
+  implemented: boolean;
+}> = [
+  { id: "mock", label: "Mock", implemented: true },
+  { id: "vggt", label: "VGGT", implemented: false },
+  { id: "dust3r", label: "DUSt3R", implemented: false },
+  { id: "mast3r", label: "MASt3R", implemented: false },
+  { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS", implemented: false }
+];
+
+const outputOptions: Array<{
+  id: OutputType;
+  label: string;
+  implemented: boolean;
+}> = [
+  { id: "point_cloud", label: "Point cloud", implemented: true },
+  { id: "mesh", label: "Mesh", implemented: false },
+  { id: "gaussian_splat", label: "Gaussian splat", implemented: false }
+];
+
 export function App() {
   const [mode, setMode] = useState<Mode>("image");
+  const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
+  const [outputType, setOutputType] = useState<OutputType>("point_cloud");
   const [files, setFiles] = useState<File[]>([]);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -116,8 +153,10 @@ export function App() {
     try {
       const form = new FormData();
       form.append("mode", mode);
+      form.append("geometry_backend", geometryBackend);
+      form.append("output_type", outputType);
       for (const file of files) {
-        form.append("files", file);
+        form.append("files", file, getUploadName(file));
       }
 
       const created = await requestJson<Manifest>("/api/jobs", {
@@ -195,24 +234,70 @@ export function App() {
             })}
           </div>
 
-          <label className="file-drop">
-            <UploadCloud size={22} aria-hidden="true" />
-            <span>{files.length > 0 ? `${files.length} selected` : "Choose files"}</span>
-            <input
-              type="file"
-              accept={mode === "video" ? "video/*" : "image/*"}
-              multiple={mode === "multi_image"}
-              onChange={onFilesChange}
-            />
-          </label>
+          <div className="control-stack">
+            <label>
+              <span>Geometry backend</span>
+              <select
+                value={geometryBackend}
+                onChange={(event) => setGeometryBackend(event.target.value as GeometryBackend)}
+              >
+                {backendOptions.map((option) => (
+                  <option disabled={!option.implemented} key={option.id} value={option.id}>
+                    {option.implemented ? option.label : `${option.label} (planned)`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Output type</span>
+              <select
+                value={outputType}
+                onChange={(event) => setOutputType(event.target.value as OutputType)}
+              >
+                {outputOptions.map((option) => (
+                  <option disabled={!option.implemented} key={option.id} value={option.id}>
+                    {option.implemented ? option.label : `${option.label} (planned)`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="file-picker-grid">
+            <label className="file-drop">
+              <UploadCloud size={22} aria-hidden="true" />
+              <span>{files.length > 0 ? `${files.length} selected` : "Choose files"}</span>
+              <input
+                type="file"
+                accept={mode === "video" ? "video/*" : "image/*"}
+                multiple={mode === "multi_image"}
+                onChange={onFilesChange}
+              />
+            </label>
+
+            {mode === "multi_image" && (
+              <label className="file-drop compact">
+                <UploadCloud size={20} aria-hidden="true" />
+                <span>Choose folder</span>
+                <input
+                  {...folderInputProps}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={onFilesChange}
+                />
+              </label>
+            )}
+          </div>
 
           <div className="file-list">
             {files.length === 0 ? (
               <p>No file selected</p>
             ) : (
               files.map((file) => (
-                <div className="file-row" key={`${file.name}-${file.size}`}>
-                  <span>{file.name}</span>
+                <div className="file-row" key={`${getUploadName(file)}-${file.size}`}>
+                  <span title={getUploadName(file)}>{getUploadName(file)}</span>
                   <small>{formatBytes(file.size)}</small>
                 </div>
               ))
@@ -257,6 +342,14 @@ export function App() {
               <dd>{currentStatus?.mode ?? "-"}</dd>
             </div>
             <div>
+              <dt>Backend</dt>
+              <dd>{currentStatus?.geometry_backend ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Output</dt>
+              <dd>{currentStatus?.output_type ?? "-"}</dd>
+            </div>
+            <div>
               <dt>Inputs</dt>
               <dd>{currentStatus?.metrics.num_inputs ?? "-"}</dd>
             </div>
@@ -289,6 +382,8 @@ export function App() {
             <h3>Assets</h3>
             <div className="asset-links">
               <AssetLink manifest={manifest} assetKey="point_cloud" label="Point cloud" />
+              <AssetLink manifest={manifest} assetKey="mesh" label="Mesh" />
+              <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian splat" />
               <AssetLink manifest={manifest} assetKey="scene_graph" label="Scene graph" />
               <AssetLink manifest={manifest} assetKey="log" label="Run log" />
               {manifest && (
@@ -304,6 +399,11 @@ export function App() {
     </main>
   );
 }
+
+const folderInputProps: Record<string, string> = {
+  webkitdirectory: "",
+  directory: ""
+};
 
 function AssetLink({
   manifest,
@@ -341,6 +441,10 @@ function validateFiles(mode: Mode, files: File[]) {
     return "Multi-image mode requires at least two files.";
   }
   return null;
+}
+
+function getUploadName(file: File) {
+  return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {

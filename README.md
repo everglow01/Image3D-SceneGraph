@@ -78,7 +78,11 @@ Current mock API:
 `POST /api/jobs` accepts multipart form data:
 
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
+- `geometry_backend`: `mock`, `vggt`, `dust3r`, `mast3r`, or `nerfstudio_3dgs`
+- `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `files`: one or more uploaded files
+
+Only `geometry_backend=mock` with `output_type=point_cloud` is implemented right now. Other combinations are part of the API contract and return a clear not implemented error until their adapters are added.
 
 `panorama` currently means one equirectangular 360 image. Real panorama reconstruction is not implemented yet; the backend records the mode and returns mock geometry through the same manifest contract.
 
@@ -99,9 +103,10 @@ The Vite dev server proxies `/api` to `http://127.0.0.1:8000`, so run the backen
 Current frontend flow:
 
 1. Choose `Image`, `Multi-image`, `Video`, or `Panorama`.
-2. Upload local files.
-3. Create a mock reconstruction job.
-4. View job metrics, scene objects, output links, and the mock `.ply` point cloud.
+2. Choose a geometry backend and output type.
+3. Upload local files.
+4. Create a mock reconstruction job.
+5. View job metrics, scene objects, output links, and the mock `.ply` point cloud.
 
 ## Development Status
 

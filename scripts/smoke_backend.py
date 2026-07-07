@@ -39,7 +39,11 @@ def main() -> None:
         with httpx.Client(base_url=base_url, timeout=10.0) as client:
             created = client.post(
                 "/api/jobs",
-                data={"mode": "image"},
+                data={
+                    "mode": "image",
+                    "geometry_backend": "mock",
+                    "output_type": "point_cloud",
+                },
                 files={"files": ("smoke.jpg", b"smoke-image", "image/jpeg")},
             )
             created.raise_for_status()
@@ -48,7 +52,11 @@ def main() -> None:
 
             panorama = client.post(
                 "/api/jobs",
-                data={"mode": "panorama"},
+                data={
+                    "mode": "panorama",
+                    "geometry_backend": "mock",
+                    "output_type": "point_cloud",
+                },
                 files={"files": ("smoke_360.jpg", b"smoke-panorama", "image/jpeg")},
             )
             panorama.raise_for_status()
