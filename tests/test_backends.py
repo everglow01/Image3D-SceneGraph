@@ -27,7 +27,7 @@ def test_backend_specs_keep_external_backend_disabled_until_adapter_exists(tmp_p
     specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
 
     assert specs["vggt"].available is False
-    assert specs["vggt"].reason == "adapter not implemented"
+    assert "adapter not implemented" in (specs["vggt"].reason or "")
 
 
 def test_backends_api_route_is_registered(tmp_path):

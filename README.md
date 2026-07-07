@@ -91,6 +91,12 @@ Optional geometry backends are not downloaded with the base project. Check local
 uv run python scripts/setup_model.py --backend vggt
 ```
 
+VGGT setup is intentionally explicit because the checkpoint is about 5GB and the full environment can require substantially more disk space. Install only after checking free space:
+
+```bash
+uv run python scripts/setup_model.py --backend vggt --install
+```
+
 The backend also exposes `GET /api/backends` so the frontend can disable missing model integrations and show the required setup command.
 
 `panorama` currently means one equirectangular 360 image. Real panorama reconstruction is not implemented yet; the backend records the mode and returns mock geometry through the same manifest contract.

@@ -44,7 +44,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             backend_id="vggt",
             label="VGGT",
             repo_path=external_root / "vggt",
-            checkpoint_hint=checkpoint_root / "vggt",
+            checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
             supported_outputs=("point_cloud",),
         ),
         _external_model_spec(
