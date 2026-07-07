@@ -323,6 +323,48 @@ h3 {
   pointer-events: none;
 }
 
+.splat-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.viewer-tool-button {
+  min-width: 54px;
+  min-height: 32px;
+  border: 1px solid rgba(214, 221, 223, 0.72);
+  border-radius: 8px;
+  background: rgba(251, 252, 252, 0.9);
+  color: #223034;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.viewer-tool-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.viewer-hint {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  max-width: calc(100% - 20px);
+  border: 1px solid rgba(214, 221, 223, 0.72);
+  border-radius: 8px;
+  background: rgba(251, 252, 252, 0.88);
+  color: #4e5d61;
+  padding: 7px 9px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

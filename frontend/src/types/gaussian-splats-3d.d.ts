@@ -1,5 +1,29 @@
 declare module "@mkkellogg/gaussian-splats-3d" {
+  import type * as THREE from "three";
+
+  export type ViewerControls = {
+    target: THREE.Vector3;
+    rotateSpeed: number;
+    zoomSpeed: number;
+    panSpeed: number;
+    enableDamping: boolean;
+    dampingFactor: number;
+    screenSpacePanning: boolean;
+    zoomToCursor: boolean;
+    minPolarAngle: number;
+    maxPolarAngle: number;
+    update(): void;
+    saveState(): void;
+  };
+
+  export type SplatMesh = {
+    computeBoundingBox(applySceneTransforms?: boolean, sceneIndex?: number): THREE.Box3;
+  };
+
   export class Viewer {
+    camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+    controls: ViewerControls | null;
+
     constructor(options?: {
       rootElement?: HTMLElement;
       cameraUp?: [number, number, number];
@@ -27,6 +51,8 @@ declare module "@mkkellogg/gaussian-splats-3d" {
 
     start(): void;
     stop(): void;
+    forceRenderNextFrame?(): void;
+    getSplatMesh(): SplatMesh;
     dispose(): Promise<void>;
   }
 }
