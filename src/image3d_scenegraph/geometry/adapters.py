@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
-VALID_GEOMETRY_BACKENDS = {"mock", "vggt", "dust3r", "mast3r", "nerfstudio_3dgs"}
+VALID_GEOMETRY_BACKENDS = {"mock", "vggt", "colmap", "dust3r", "mast3r", "nerfstudio_3dgs"}
 VALID_OUTPUT_TYPES = {"point_cloud", "mesh", "gaussian_splat"}
 
 
@@ -166,6 +166,71 @@ class VggtPointCloudAdapter:
         )
 
 
+class ColmapPointCloudAdapter:
+    backend = "colmap"
+    output_type = "point_cloud"
+
+    def run(self, context: ReconstructionContext) -> ReconstructionResult:
+        if context.mode == "video":
+            raise ReconstructionError("COLMAP adapter currently expects image inputs, not video files")
+
+        project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
+        script_path = project_root / "scripts" / "run_colmap_sparse.py"
+        if not script_path.exists():
+            raise ReconstructionError(f"COLMAP runner missing: {script_path}")
+
+        image_dir = context.job_dir / "input" / "images"
+        command = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(script_path),
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(context.job_dir),
+            "--matcher",
+            os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
+        ]
+
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
+            raise ReconstructionError(f"COLMAP reconstruction failed:\n{details}") from exc
+
+        point_cloud_path = context.job_dir / "geometry" / "points.ply"
+        cameras_path = context.job_dir / "geometry" / "cameras.json"
+        if not point_cloud_path.exists() or not cameras_path.exists():
+            raise ReconstructionError("COLMAP reconstruction did not produce points.ply and cameras.json")
+
+        runner_log = context.job_dir / "logs" / "run.log"
+        metrics = _parse_key_value_metrics(runner_log)
+        log_lines = [
+            "geometry_backend=colmap",
+            "output_type=point_cloud",
+            "adapter=ColmapPointCloudAdapter",
+            f"runner={' '.join(command)}",
+            *[line for line in runner_log.read_text(encoding="utf-8").splitlines() if line],
+        ]
+        if completed.stdout.strip():
+            log_lines.append(f"stdout={completed.stdout.strip()}")
+
+        return ReconstructionResult(
+            stage="colmap_sparse_reconstruction",
+            assets={
+                "point_cloud": "geometry/points.ply",
+                "cameras": "geometry/cameras.json",
+            },
+            metrics=metrics,
+            log_lines=log_lines,
+        )
+
+
 def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
     metrics: dict[str, int | float | str | bool] = {}
     if not path.exists():
@@ -174,7 +239,15 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
-        if key in {"num_images", "num_groups", "batch_size", "overlap_size", "num_points", "max_points"}:
+        if key in {
+            "num_images",
+            "registered_images",
+            "num_groups",
+            "batch_size",
+            "overlap_size",
+            "num_points",
+            "max_points",
+        }:
             metrics[key] = int(value)
         elif key in {"conf_percentile", "model_load_seconds", "inference_seconds", "elapsed_seconds"}:
             metrics[key] = float(value)
@@ -210,6 +283,8 @@ def get_reconstruction_adapter(
         return MockPointCloudAdapter()
     if geometry_backend == "vggt" and output_type == "point_cloud":
         return VggtPointCloudAdapter()
+    if geometry_backend == "colmap" and output_type == "point_cloud":
+        return ColmapPointCloudAdapter()
 
     raise ReconstructionError(
         f"geometry_backend '{geometry_backend}' with output_type '{output_type}' is not implemented"

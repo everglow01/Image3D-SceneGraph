@@ -7,6 +7,7 @@ from image3d_scenegraph.geometry.backends import get_backend_specs
 def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
     monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(tmp_path / "external"))
     monkeypatch.setenv("IMAGE3D_CHECKPOINT_ROOT", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("PATH", "")
 
     specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
 
@@ -14,6 +15,8 @@ def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
     assert specs["mock"].supported_outputs == ("point_cloud",)
     assert specs["vggt"].available is False
     assert "repo missing" in (specs["vggt"].reason or "")
+    assert specs["colmap"].available is False
+    assert "colmap executable not found" in (specs["colmap"].reason or "")
 
 
 def test_backend_specs_keep_vggt_disabled_until_checkpoint_exists(tmp_path, monkeypatch):

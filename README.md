@@ -79,7 +79,7 @@ Current mock API:
 `POST /api/jobs` accepts multipart form data:
 
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
-- `geometry_backend`: `mock`, `vggt`, `dust3r`, `mast3r`, or `nerfstudio_3dgs`
+- `geometry_backend`: `mock`, `vggt`, `colmap`, `dust3r`, `mast3r`, or `nerfstudio_3dgs`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `files`: one or more uploaded files
 
@@ -87,6 +87,7 @@ Implemented geometry paths:
 
 - `geometry_backend=mock` with `output_type=point_cloud`
 - `geometry_backend=vggt` with `output_type=point_cloud`, when the local VGGT repo and checkpoint are installed
+- `geometry_backend=colmap` with `output_type=point_cloud`, when the `colmap` executable is installed
 
 DUSt3R, MASt3R, mesh export, automatic 3DGS training, and video-to-geometry are still API contract placeholders and return a clear not implemented error until their adapters are added.
 
@@ -103,6 +104,23 @@ uv run python scripts/setup_model.py --backend vggt --install
 ```
 
 The backend also exposes `GET /api/backends` so the frontend can disable missing model integrations and show the required setup command.
+
+Install COLMAP before using the COLMAP baseline:
+
+```bash
+sudo apt install colmap
+```
+
+Run COLMAP sparse SfM directly for a local image folder:
+
+```bash
+.venv/bin/python scripts/run_colmap_sparse.py \
+  --image-dir path/to/images \
+  --output-dir outputs/colmap_run \
+  --matcher sequential
+```
+
+COLMAP output is a sparse SfM reference: it estimates a global camera graph and sparse point cloud. Use it to compare whether VGGT multi-image drift is caused by windowed model inference or by weak image overlap / texture.
 
 Run VGGT directly for a local image folder:
 

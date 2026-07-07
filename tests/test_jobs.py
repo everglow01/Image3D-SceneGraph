@@ -174,6 +174,71 @@ def test_create_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monkeypatch
     assert captured_command[captured_command.index("--overlap-size") + 1] == "4"
 
 
+def test_create_colmap_point_cloud_job_uses_adapter_contract(tmp_path, monkeypatch):
+    captured_command = []
+
+    def fake_run(command, **kwargs):
+        captured_command[:] = command
+        output_dir = tmp_path
+        for index, value in enumerate(command):
+            if value == "--output-dir":
+                output_dir = command[index + 1]
+                break
+        job_dir = Path(output_dir)
+        (job_dir / "geometry").mkdir(parents=True, exist_ok=True)
+        (job_dir / "logs").mkdir(parents=True, exist_ok=True)
+        (job_dir / "geometry" / "points.ply").write_text(
+            "\n".join(
+                [
+                    "ply",
+                    "format ascii 1.0",
+                    "element vertex 9",
+                    "property float x",
+                    "property float y",
+                    "property float z",
+                    "end_header",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "logs" / "run.log").write_text(
+            "\n".join(
+                [
+                    "backend=colmap",
+                    "num_images=2",
+                    "registered_images=2",
+                    "num_points=9",
+                    "matcher=sequential",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.create_job(
+        "multi_image",
+        [
+            UploadedInput(filename="frame_001.jpg", content=b"fake-image", content_type="image/jpeg"),
+            UploadedInput(filename="frame_002.jpg", content=b"fake-image", content_type="image/jpeg"),
+        ],
+        geometry_backend="colmap",
+        output_type="point_cloud",
+    )
+
+    assert manifest["stage"] == "colmap_sparse_reconstruction"
+    assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
+    assert manifest["assets"]["cameras"] == "geometry/cameras.json"
+    assert manifest["metrics"]["registered_images"] == 2
+    assert manifest["metrics"]["num_points"] == 9
+    assert captured_command[captured_command.index("--matcher") + 1] == "sequential"
+
+
 def test_reject_invalid_output_type(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 

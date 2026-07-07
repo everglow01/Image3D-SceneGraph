@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,14 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
             supported_outputs=("point_cloud",),
             adapter_implemented=True,
+        ),
+        BackendSpec(
+            backend_id="colmap",
+            label="COLMAP",
+            supported_outputs=("point_cloud",),
+            available=shutil.which("colmap") is not None,
+            reason=None if shutil.which("colmap") is not None else "colmap executable not found on PATH",
+            setup_command="sudo apt install colmap",
         ),
         _external_model_spec(
             backend_id="dust3r",

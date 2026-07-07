@@ -12,7 +12,7 @@ import {
 import { GeometryViewer } from "./GeometryViewer";
 
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
-type GeometryBackend = "mock" | "vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
+type GeometryBackend = "mock" | "vggt" | "colmap" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 
 type Manifest = {
@@ -106,6 +106,7 @@ const backendOptions: Array<{
 }> = [
   { id: "mock", label: "Mock" },
   { id: "vggt", label: "VGGT" },
+  { id: "colmap", label: "COLMAP" },
   { id: "dust3r", label: "DUSt3R" },
   { id: "mast3r", label: "MASt3R" },
   { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS" }
