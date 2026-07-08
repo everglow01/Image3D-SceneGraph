@@ -131,10 +131,15 @@ def analyze_pointcloud(
 
 
 def read_ply_points(path: Path) -> np.ndarray:
+    points, _ = read_ply_points_and_colors(path)
+    return points
+
+
+def read_ply_points_and_colors(path: Path) -> tuple[np.ndarray, np.ndarray | None]:
     with path.open("rb") as file:
         header = parse_ply_header(file)
         if header.vertex_count == 0:
-            return np.empty((0, 3), dtype=np.float32)
+            return np.empty((0, 3), dtype=np.float32), None
         if header.fmt == "binary_little_endian":
             return read_binary_little_endian_vertices(file, header)
         if header.fmt == "ascii":
@@ -183,21 +188,44 @@ def parse_ply_header(file: Any) -> PlyHeader:
     return PlyHeader(fmt=fmt, vertex_count=vertex_count, vertex_properties=vertex_properties, data_offset=file.tell())
 
 
-def read_binary_little_endian_vertices(file: Any, header: PlyHeader) -> np.ndarray:
+def read_binary_little_endian_vertices(file: Any, header: PlyHeader) -> tuple[np.ndarray, np.ndarray | None]:
     dtype = np.dtype([(name, PLY_SCALAR_TYPES[scalar_type]) for name, scalar_type in header.vertex_properties])
     vertices = np.fromfile(file, dtype=dtype, count=header.vertex_count)
     if len(vertices) != header.vertex_count:
         raise ValueError(f"Expected {header.vertex_count} vertices, found {len(vertices)}")
-    return np.column_stack([vertices["x"], vertices["y"], vertices["z"]]).astype(np.float32, copy=False)
+    points = np.column_stack([vertices["x"], vertices["y"], vertices["z"]]).astype(np.float32, copy=False)
+    colors = extract_vertex_colors(vertices, [name for name, _ in header.vertex_properties])
+    return points, colors
 
 
-def read_ascii_vertices(file: Any, header: PlyHeader) -> np.ndarray:
+def read_ascii_vertices(file: Any, header: PlyHeader) -> tuple[np.ndarray, np.ndarray | None]:
     if header.vertex_count == 0:
-        return np.empty((0, 3), dtype=np.float32)
-    raw = np.loadtxt(file, max_rows=header.vertex_count, dtype=np.float32, ndmin=2)
+        return np.empty((0, 3), dtype=np.float32), None
+    rows: list[list[float]] = []
+    for vertex_index in range(header.vertex_count):
+        raw_line = file.readline()
+        if not raw_line:
+            raise ValueError(f"Expected {header.vertex_count} vertices, found {vertex_index}")
+        values = raw_line.decode("ascii").split()
+        if len(values) < len(header.vertex_properties):
+            raise ValueError(f"Vertex {vertex_index} has fewer properties than the PLY header declares")
+        rows.append([float(value) for value in values[: len(header.vertex_properties)]])
+    raw = np.asarray(rows, dtype=np.float32)
     property_names = [name for name, _ in header.vertex_properties]
     indices = [property_names.index(axis) for axis in ("x", "y", "z")]
-    return raw[:, indices].astype(np.float32, copy=False)
+    points = raw[:, indices].astype(np.float32, copy=False)
+    if {"red", "green", "blue"}.issubset(property_names):
+        color_indices = [property_names.index(channel) for channel in ("red", "green", "blue")]
+        colors = np.clip(raw[:, color_indices], 0, 255).astype(np.uint8)
+    else:
+        colors = None
+    return points, colors
+
+
+def extract_vertex_colors(vertices: np.ndarray, property_names: list[str]) -> np.ndarray | None:
+    if not {"red", "green", "blue"}.issubset(property_names):
+        return None
+    return np.column_stack([vertices["red"], vertices["green"], vertices["blue"]]).astype(np.uint8, copy=False)
 
 
 def compute_bbox(points: np.ndarray, *, lower: float, upper: float) -> dict[str, Any]:

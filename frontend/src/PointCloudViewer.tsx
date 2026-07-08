@@ -21,7 +21,7 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointsRef = useRef<THREE.Points | null>(null);
   const [viewerState, setViewerState] = useState("idle");
-  const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: -1, z: -1 });
+  const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: 1, z: 1 });
   const [pointSize, setPointSize] = useState(0.035);
 
   useEffect(() => {
@@ -35,7 +35,8 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 1000);
-    camera.position.set(1.8, 1.5, 2.4);
+    camera.up.set(0, 0, 1);
+    camera.position.set(1.8, -2.4, 1.5);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -49,7 +50,7 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
     controlsRef.current = controls;
 
     const grid = new THREE.GridHelper(2, 10, 0x9aa3a7, 0xd2d8dc);
-    grid.position.y = -0.6;
+    grid.rotation.x = Math.PI / 2;
     scene.add(grid);
 
     const axes = new THREE.AxesHelper(0.8);
@@ -143,7 +144,8 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
         pointsRef.current = points;
 
         const radius = geometry.boundingSphere?.radius ?? 1;
-        camera.position.set(radius * 1.8, radius * 1.4, radius * 2.2);
+        camera.position.set(radius * 1.8, -radius * 2.2, radius * 1.4);
+        camera.up.set(0, 0, 1);
         camera.near = Math.max(radius / 100, 0.001);
         camera.far = Math.max(radius * 100, 100);
         camera.updateProjectionMatrix();

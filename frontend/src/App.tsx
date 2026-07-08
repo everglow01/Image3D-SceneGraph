@@ -33,6 +33,8 @@ type Manifest = {
   }>;
   assets: {
     point_cloud?: string;
+    point_cloud_aligned?: string;
+    alignment_diagnostics?: string;
     mesh?: string;
     scene_splat?: string;
     scene_graph?: string;
@@ -46,6 +48,8 @@ type Manifest = {
     batch_size?: number;
     vggt_batch_size?: number;
     overlap_size?: number;
+    alignment_status?: string;
+    alignment_plane_inlier_ratio?: number;
   };
 };
 
@@ -140,6 +144,7 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [jobIdInput, setJobIdInput] = useState("");
+  const [pointCloudVariant, setPointCloudVariant] = useState<"raw" | "aligned">("aligned");
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -148,12 +153,16 @@ export function App() {
   const selectedBackendAvailable = selectedBackendStatus?.available ?? geometryBackend === "mock";
   const selectedOutputSupported =
     selectedBackendStatus?.supported_outputs.includes(outputType) ?? outputType === "point_cloud";
+  const selectedPointCloudAsset =
+    pointCloudVariant === "aligned" && manifest?.assets.point_cloud_aligned
+      ? manifest.assets.point_cloud_aligned
+      : manifest?.assets.point_cloud;
   const pointCloudUrl = useMemo(() => {
-    if (!manifest?.assets.point_cloud) {
+    if (!manifest || !selectedPointCloudAsset) {
       return null;
     }
-    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.point_cloud}`;
-  }, [manifest]);
+    return `/api/jobs/${manifest.job_id}/assets/${selectedPointCloudAsset}`;
+  }, [manifest, selectedPointCloudAsset]);
   const splatUrl = useMemo(() => {
     if (!manifest?.assets.scene_splat) {
       return null;
@@ -259,6 +268,7 @@ export function App() {
         body: form
       });
       setManifest(created);
+      setPointCloudVariant(created.assets.point_cloud_aligned ? "aligned" : "raw");
 
       const [status, sceneGraph] = await Promise.all([
         requestJson<JobStatus>(`/api/jobs/${created.job_id}`),
@@ -287,6 +297,7 @@ export function App() {
       ]);
       setJobStatus(status);
       setManifest(nextManifest);
+      setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
       setScene(sceneGraph);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to refresh job");
@@ -310,6 +321,7 @@ export function App() {
       ]);
       setJobStatus(status);
       setManifest(nextManifest);
+      setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
       setScene(sceneGraph);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load job");
@@ -319,6 +331,7 @@ export function App() {
   }
 
   const currentStatus = jobStatus ?? manifest;
+  const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
 
   return (
     <main className="app-shell">
@@ -519,12 +532,33 @@ export function App() {
           <div className="viewer-header">
             <div>
               <h2>3D viewer</h2>
-              <span>{manifest?.assets.scene_splat ?? manifest?.assets.point_cloud ?? "No geometry loaded"}</span>
+              <span>{manifest?.assets.scene_splat ?? selectedPointCloudAsset ?? "No geometry loaded"}</span>
             </div>
-            <button className="icon-button" type="button" onClick={refreshJob} disabled={!manifest}>
-              <RefreshCw size={17} aria-hidden="true" />
-              <span>Refresh</span>
-            </button>
+            <div className="viewer-actions">
+              {manifest?.assets.point_cloud && !manifest.assets.scene_splat && (
+                <div className="variant-toggle" role="group" aria-label="Point cloud view">
+                  <button
+                    className={pointCloudVariant === "raw" || !hasAlignedPointCloud ? "active" : ""}
+                    type="button"
+                    onClick={() => setPointCloudVariant("raw")}
+                  >
+                    Raw
+                  </button>
+                  <button
+                    className={pointCloudVariant === "aligned" && hasAlignedPointCloud ? "active" : ""}
+                    type="button"
+                    onClick={() => setPointCloudVariant("aligned")}
+                    disabled={!hasAlignedPointCloud}
+                  >
+                    Aligned
+                  </button>
+                </div>
+              )}
+              <button className="icon-button" type="button" onClick={refreshJob} disabled={!manifest}>
+                <RefreshCw size={17} aria-hidden="true" />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
           <GeometryViewer pointCloudUrl={pointCloudUrl} splatUrl={splatUrl} />
         </section>
@@ -584,6 +618,10 @@ export function App() {
               <dt>Overlap</dt>
               <dd>{currentStatus?.metrics.overlap_size ?? "-"}</dd>
             </div>
+            <div>
+              <dt>Alignment</dt>
+              <dd>{currentStatus?.metrics.alignment_status ?? "-"}</dd>
+            </div>
           </dl>
 
           <section className="result-section">
@@ -609,8 +647,10 @@ export function App() {
             <h3>Assets</h3>
             <div className="asset-links">
               <AssetLink manifest={manifest} assetKey="point_cloud" label="Point cloud" />
+              <AssetLink manifest={manifest} assetKey="point_cloud_aligned" label="Aligned point cloud" />
               <AssetLink manifest={manifest} assetKey="mesh" label="Mesh" />
               <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian splat" />
+              <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="Alignment" />
               <AssetLink manifest={manifest} assetKey="scene_graph" label="Scene graph" />
               <AssetLink manifest={manifest} assetKey="log" label="Run log" />
               {manifest && (

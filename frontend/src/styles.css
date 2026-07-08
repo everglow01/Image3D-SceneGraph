@@ -295,6 +295,47 @@ h3 {
   margin-bottom: 10px;
 }
 
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.variant-toggle {
+  display: flex;
+  min-height: 34px;
+  overflow: hidden;
+  border: 1px solid #cbd4d6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.variant-toggle button {
+  min-width: 68px;
+  border: 0;
+  border-right: 1px solid #d9e0e2;
+  background: transparent;
+  color: #334145;
+  cursor: pointer;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.variant-toggle button:last-child {
+  border-right: 0;
+}
+
+.variant-toggle button.active {
+  background: #e5f2f2;
+  color: #104f57;
+}
+
+.variant-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .icon-button {
   min-height: 34px;
   padding: 7px 10px;

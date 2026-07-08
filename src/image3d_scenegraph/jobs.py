@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +73,9 @@ class JobStore:
         except ReconstructionError as exc:
             raise JobError(str(exc)) from exc
 
+        alignment_assets, alignment_metrics, alignment_log_lines = self._try_align_point_cloud(
+            job_dir, reconstruction.assets
+        )
         scene = self._build_mock_scene(job_id, mode)
         self._write_json(job_dir / "scene_graph" / "scene.json", scene)
 
@@ -82,6 +87,7 @@ class JobStore:
                 f"stage={reconstruction.stage}",
                 "status=done",
                 *reconstruction.log_lines,
+                *alignment_log_lines,
                 "",
             ]
         )
@@ -89,6 +95,7 @@ class JobStore:
 
         assets = {
             **reconstruction.assets,
+            **alignment_assets,
             "scene_graph": "scene_graph/scene.json",
             "log": "logs/run.log",
         }
@@ -96,6 +103,7 @@ class JobStore:
             "num_inputs": len(input_assets),
             "num_objects": len(scene["objects"]),
             **reconstruction.metrics,
+            **alignment_metrics,
         }
         manifest = self._build_manifest(
             job_id,
@@ -112,10 +120,11 @@ class JobStore:
         return manifest
 
     def get_manifest(self, job_id: str) -> dict[str, Any]:
-        manifest_path = self.job_dir(job_id) / "manifest.json"
+        job_dir = self.job_dir(job_id)
+        manifest_path = job_dir / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(job_id)
-        return self._read_json(manifest_path)
+        return self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
 
     def get_scene(self, job_id: str) -> dict[str, Any]:
         scene_path = self.job_dir(job_id) / "scene_graph" / "scene.json"
@@ -215,6 +224,95 @@ class JobStore:
             return destination
         return destination.with_name(f"{destination.stem}_{index:03d}{destination.suffix}")
 
+    def _try_align_point_cloud(
+        self, job_dir: Path, assets: dict[str, str]
+    ) -> tuple[dict[str, str], dict[str, int | float | str | bool], list[str]]:
+        point_cloud_asset = assets.get("point_cloud")
+        if not point_cloud_asset:
+            return {}, {"alignment_status": "skipped_no_point_cloud"}, ["alignment_status=skipped_no_point_cloud"]
+
+        input_path = job_dir / point_cloud_asset
+        if not input_path.is_file():
+            return {}, {"alignment_status": "skipped_missing_point_cloud"}, ["alignment_status=skipped_missing_point_cloud"]
+
+        output_asset = "geometry/points_aligned.ply"
+        diagnostics_asset = "diagnostics/alignment.json"
+        output_path = job_dir / output_asset
+        diagnostics_path = job_dir / diagnostics_asset
+
+        try:
+            align_module = self._load_alignment_module()
+            result = align_module.align_pointcloud(
+                input_path=input_path,
+                output_path=output_path,
+                diagnostics_output=diagnostics_path,
+                sample_size=int(os.environ.get("IMAGE3D_ALIGNMENT_SAMPLE_SIZE", "50000")),
+                ransac_iterations=int(os.environ.get("IMAGE3D_ALIGNMENT_RANSAC_ITERATIONS", "400")),
+                min_plane_inlier_ratio=float(os.environ.get("IMAGE3D_ALIGNMENT_MIN_PLANE_RATIO", "0.08")),
+                seed=int(os.environ.get("IMAGE3D_ALIGNMENT_SEED", "42")),
+            )
+        except (Exception, SystemExit) as exc:
+            reason = str(exc) or exc.__class__.__name__
+            return (
+                {},
+                {
+                    "alignment_status": "failed",
+                    "alignment_reason": reason,
+                },
+                [
+                    "alignment_status=failed",
+                    f"alignment_reason={reason}",
+                ],
+            )
+
+        if not output_path.is_file() or not diagnostics_path.is_file():
+            return (
+                {},
+                {
+                    "alignment_status": "failed",
+                    "alignment_reason": "alignment outputs missing",
+                },
+                [
+                    "alignment_status=failed",
+                    "alignment_reason=alignment outputs missing",
+                ],
+            )
+
+        source_plane = result.get("source_plane", {})
+        inlier_ratio = source_plane.get("inlier_ratio")
+        metrics: dict[str, int | float | str | bool] = {"alignment_status": "aligned"}
+        if isinstance(inlier_ratio, (int, float)):
+            metrics["alignment_plane_inlier_ratio"] = float(inlier_ratio)
+        return (
+            {
+                "point_cloud_aligned": output_asset,
+                "alignment_diagnostics": diagnostics_asset,
+            },
+            metrics,
+            [
+                "alignment_status=aligned",
+                f"alignment_output={output_asset}",
+                f"alignment_diagnostics={diagnostics_asset}",
+            ],
+        )
+
+    def _load_alignment_module(self) -> Any:
+        project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()
+        scripts_dir = project_root / "scripts"
+        script_path = scripts_dir / "align_pointcloud.py"
+        if not script_path.exists():
+            raise FileNotFoundError(f"alignment script missing: {script_path}")
+
+        scripts_dir_text = str(scripts_dir)
+        if scripts_dir_text not in sys.path:
+            sys.path.insert(0, scripts_dir_text)
+        spec = importlib_util.spec_from_file_location("image3d_scenegraph_align_pointcloud", script_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot load alignment script: {script_path}")
+        module = importlib_util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def _build_mock_scene(self, job_id: str, mode: str) -> dict[str, Any]:
         return {
             "job_id": job_id,
@@ -278,3 +376,26 @@ class JobStore:
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    def _with_existing_alignment_assets(self, job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+        assets = manifest.setdefault("assets", {})
+        metrics = manifest.setdefault("metrics", {})
+        aligned_asset = "geometry/points_aligned.ply"
+        diagnostics_asset = "diagnostics/alignment.json"
+
+        if "point_cloud_aligned" not in assets and (job_dir / aligned_asset).is_file():
+            assets["point_cloud_aligned"] = aligned_asset
+        if "alignment_diagnostics" not in assets and (job_dir / diagnostics_asset).is_file():
+            assets["alignment_diagnostics"] = diagnostics_asset
+        if assets.get("point_cloud_aligned") and "alignment_status" not in metrics:
+            metrics["alignment_status"] = "aligned"
+            diagnostics_path = job_dir / diagnostics_asset
+            if diagnostics_path.is_file():
+                try:
+                    alignment = self._read_json(diagnostics_path)
+                    inlier_ratio = alignment.get("source_plane", {}).get("inlier_ratio")
+                    if isinstance(inlier_ratio, (int, float)):
+                        metrics["alignment_plane_inlier_ratio"] = float(inlier_ratio)
+                except (json.JSONDecodeError, OSError):
+                    pass
+        return manifest

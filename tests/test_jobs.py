@@ -29,6 +29,9 @@ def test_create_image_job_and_read_outputs(tmp_path):
     assert manifest["geometry_backend"] == "mock"
     assert manifest["output_type"] == "point_cloud"
     assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
+    assert manifest["assets"]["point_cloud_aligned"] == "geometry/points_aligned.ply"
+    assert manifest["assets"]["alignment_diagnostics"] == "diagnostics/alignment.json"
+    assert manifest["metrics"]["alignment_status"] == "aligned"
 
     loaded_manifest = store.get_manifest(job_id)
     assert loaded_manifest["metrics"]["num_points"] == 5
@@ -38,6 +41,8 @@ def test_create_image_job_and_read_outputs(tmp_path):
 
     asset_path = store.get_asset_path(job_id, "geometry/points.ply")
     assert asset_path.read_text(encoding="utf-8").startswith("ply\n")
+    aligned_asset_path = store.get_asset_path(job_id, "geometry/points_aligned.ply")
+    assert aligned_asset_path.read_bytes().startswith(b"ply\n")
 
     bundle_path = store.build_zip(job_id)
     assert bundle_path == tmp_path / "jobs" / f"{job_id}.zip"

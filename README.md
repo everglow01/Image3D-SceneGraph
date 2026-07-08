@@ -149,6 +149,18 @@ uv run python scripts/analyze_pointcloud.py \
 
 The diagnostics include point count, bounding boxes, density estimates, and dominant RANSAC planes. Use this to verify whether a reliable ground/table/wall plane exists before applying automatic upright alignment.
 
+Align a generated point cloud to its dominant plane:
+
+```bash
+uv run python scripts/align_pointcloud.py \
+  --input outputs/jobs/{job_id}/geometry/points.ply \
+  --output outputs/jobs/{job_id}/geometry/points_aligned.ply \
+  --diagnostics-output outputs/jobs/{job_id}/diagnostics/alignment.json
+```
+
+The alignment step preserves the original point cloud and writes a separate aligned PLY. By default it rotates the strongest detected plane to the +Z axis and translates that plane to zero height. The point-cloud viewer uses the same Z-up convention and displays its grid on the XY plane.
+Job creation also runs this alignment as a generic point-cloud postprocess. Any backend that returns a `point_cloud` asset can expose `point_cloud_aligned` in the manifest, and the frontend viewer lets the user switch between Raw and Aligned when the aligned asset exists.
+
 Run VGGT directly for a local image folder:
 
 ```bash
