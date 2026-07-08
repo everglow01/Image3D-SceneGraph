@@ -79,7 +79,7 @@ Current mock API:
 `POST /api/jobs` accepts multipart form data:
 
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
-- `geometry_backend`: `mock`, `vggt`, `colmap`, `dust3r`, `mast3r`, or `nerfstudio_3dgs`
+- `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `dust3r`, `mast3r`, or `nerfstudio_3dgs`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `files`: one or more uploaded files
 
@@ -88,6 +88,7 @@ Implemented geometry paths:
 - `geometry_backend=mock` with `output_type=point_cloud`
 - `geometry_backend=vggt` with `output_type=point_cloud`, when the local VGGT repo and checkpoint are installed
 - `geometry_backend=colmap` with `output_type=point_cloud`, when the `colmap` executable is installed
+- `geometry_backend=colmap_vggt` with `output_type=point_cloud`, when both COLMAP and VGGT are installed
 
 DUSt3R, MASt3R, mesh export, automatic 3DGS training, and video-to-geometry are still API contract placeholders and return a clear not implemented error until their adapters are added.
 
@@ -121,6 +122,32 @@ Run COLMAP sparse SfM directly for a local image folder:
 ```
 
 COLMAP output is a sparse SfM reference: it estimates a global camera graph and sparse point cloud. Use it to compare whether VGGT multi-image drift is caused by windowed model inference or by weak image overlap / texture.
+
+Run COLMAP + VGGT dense fusion directly:
+
+```bash
+env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_colmap_vggt_dense.py \
+  --image-dir path/to/images \
+  --output-dir outputs/colmap_vggt_run \
+  --matcher exhaustive \
+  --vggt-batch-size 4 \
+  --max-points 2000000 \
+  --conf-percentile 50 \
+  --device cuda
+```
+
+This path uses COLMAP for global camera poses and VGGT for dense depth. The first scale alignment baseline estimates a per-image depth scale from COLMAP sparse observations and VGGT depth samples, then fuses all depth maps in COLMAP's global frame.
+For large image sets, increase `--max-points` to keep the fused cloud dense enough for inspection. Lower `--conf-percentile` keeps more VGGT depth samples but can introduce more noisy points.
+
+Analyze a generated point cloud before attempting coordinate alignment:
+
+```bash
+uv run python scripts/analyze_pointcloud.py \
+  --input outputs/jobs/{job_id}/geometry/points.ply \
+  --output outputs/jobs/{job_id}/diagnostics/geometry.json
+```
+
+The diagnostics include point count, bounding boxes, density estimates, and dominant RANSAC planes. Use this to verify whether a reliable ground/table/wall plane exists before applying automatic upright alignment.
 
 Run VGGT directly for a local image folder:
 

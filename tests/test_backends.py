@@ -17,6 +17,8 @@ def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
     assert "repo missing" in (specs["vggt"].reason or "")
     assert specs["colmap"].available is False
     assert "colmap executable not found" in (specs["colmap"].reason or "")
+    assert specs["colmap_vggt"].available is False
+    assert "colmap executable not found" in (specs["colmap_vggt"].reason or "")
 
 
 def test_backend_specs_keep_vggt_disabled_until_checkpoint_exists(tmp_path, monkeypatch):

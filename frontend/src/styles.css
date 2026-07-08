@@ -354,6 +354,8 @@ h3 {
   left: 10px;
   z-index: 2;
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -378,6 +380,25 @@ h3 {
 .viewer-tool-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.point-size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid rgba(214, 221, 223, 0.72);
+  border-radius: 8px;
+  background: rgba(251, 252, 252, 0.9);
+  color: #223034;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.point-size-control input {
+  width: 92px;
+  accent-color: #1f6f78;
 }
 
 .viewer-hint {

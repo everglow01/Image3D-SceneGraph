@@ -251,7 +251,7 @@ POST /api/jobs
   Create a reconstruction job from uploaded image/images/video/panorama.
   Required reconstruction contract fields:
     mode: image | multi_image | video | panorama
-    geometry_backend: mock | vggt | colmap | dust3r | mast3r | nerfstudio_3dgs
+    geometry_backend: mock | vggt | colmap | colmap_vggt | dust3r | mast3r | nerfstudio_3dgs
     output_type: point_cloud | mesh | gaussian_splat
 
 GET /api/jobs/{job_id}
@@ -578,7 +578,7 @@ Do not begin with training or fine-tuning.
 - Mock backend API now creates local jobs, writes `manifest.json`, serves mock assets, and exposes scene graph JSON.
 - `panorama` is a supported input mode for one equirectangular 360 image; real panorama reconstruction will come later.
 - Frontend MVP now supports mode selection, file upload, mock job creation, manifest/scene display, asset links, and `.ply` point cloud viewing.
-- Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; `mock + point_cloud`, `vggt + point_cloud`, and `colmap + point_cloud` are implemented.
+- Reconstruction adapter contract now exposes `geometry_backend` and `output_type`; `mock + point_cloud`, `vggt + point_cloud`, `colmap + point_cloud`, and `colmap_vggt + point_cloud` are implemented.
 - Optional heavy model integrations are explicit local backends. They are not installed by the base package; `GET /api/backends` reports availability and `scripts/setup_model.py` is the setup entry point. VGGT setup defaults to dry-run and requires `--install` because its checkpoint is about 5GB plus environment dependencies.
 - VGGT first baseline uses `scripts/run_vggt_pointcloud.py`, exports `geometry/points.ply` and `geometry/cameras.json`, and is invoked by `VggtPointCloudAdapter`. On this machine, unset `LD_LIBRARY_PATH` for VGGT/PyTorch CUDA runs to avoid linking against the system cuDNN ahead of the uv environment libraries.
 - RTX 4060 8GB cannot run 4 uploaded images through VGGT-1B in one fp32 pass; it OOMs in the depth head. The runner now supports overlapping groups with `--batch-size` and `--overlap-size`, and the backend defaults to `IMAGE3D_VGGT_MAX_IMAGES=8`, `IMAGE3D_VGGT_BATCH_SIZE=8`, and `IMAGE3D_VGGT_OVERLAP_SIZE=4`. The runner converts the VGGT backbone to auto half precision on CUDA while keeping camera/depth heads fp32 to avoid LayerNorm dtype errors.
@@ -587,7 +587,8 @@ Do not begin with training or fine-tuning.
 - Point-cloud viewer has display-only X/Y/Z axis flip controls. Default display flips Y and Z to better match OpenCV camera-style geometry in Three.js, but users can toggle axes without rerunning reconstruction.
 - Residual 45-image drift is still expected because current stitching is local window Sim3, not global pose graph optimization or bundle adjustment. Next geometry improvement should add a global pose graph over VGGT window cameras and optimize Sim3/SE3 constraints before merging point clouds.
 - VGGT point colors now come from original RGB images resized/padded to the VGGT input shape, not from model tensors. This fixed the observed green color cast on a 45-image office upload; the fixed point cloud mean RGB was close to the original image mean RGB.
-- COLMAP sparse SfM baseline is wired through `scripts/run_colmap_sparse.py` and `ColmapPointCloudAdapter`. It exports `geometry/points.ply` and `geometry/cameras.json` for global SfM comparison, but requires the system `colmap` executable on PATH. Current machine check did not find `colmap`.
+- COLMAP sparse SfM baseline is wired through `scripts/run_colmap_sparse.py` and `ColmapPointCloudAdapter`. It exports `geometry/points.ply` and `geometry/cameras.json` for global SfM comparison, and requires the system `colmap` executable on PATH.
+- COLMAP + VGGT dense baseline is wired through `scripts/run_colmap_vggt_dense.py` and `ColmapVggtPointCloudAdapter`. It runs COLMAP global SfM, runs VGGT depth in batches, estimates a per-image depth scale using COLMAP sparse observations versus VGGT depth samples, and fuses dense points in COLMAP's global frame. On the 45-image office set, `--matcher exhaustive` registered/scaled 45/45 images and exported 300000 points.
 - User has a Nerfstudio splatfacto checkpoint at `/home/owen/nerfstudio/outputs/drjohnson_hq/splatfacto/2026-06-22_161605/nerfstudio_models/step-000029999.ckpt`, but no browser-ready `.splat/.ply/.ksplat` export was found there.
 - Nerfstudio `ns-export gaussian-splat` successfully exported `/home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq/splat.ply` from that checkpoint; this file is intentionally under ignored `outputs/`.
 - `scripts/register_gaussian_splat.py` can register an exported `.ply/.splat/.ksplat` as a local `nerfstudio_3dgs + gaussian_splat` job.

@@ -12,7 +12,7 @@ import {
 import { GeometryViewer } from "./GeometryViewer";
 
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
-type GeometryBackend = "mock" | "vggt" | "colmap" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
+type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 
 type Manifest = {
@@ -44,6 +44,7 @@ type Manifest = {
     num_objects: number;
     num_groups?: number;
     batch_size?: number;
+    vggt_batch_size?: number;
     overlap_size?: number;
   };
 };
@@ -107,6 +108,7 @@ const backendOptions: Array<{
   { id: "mock", label: "Mock" },
   { id: "vggt", label: "VGGT" },
   { id: "colmap", label: "COLMAP" },
+  { id: "colmap_vggt", label: "COLMAP + VGGT" },
   { id: "dust3r", label: "DUSt3R" },
   { id: "mast3r", label: "MASt3R" },
   { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS" }
@@ -128,6 +130,9 @@ export function App() {
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
   const [vggtBatchSize, setVggtBatchSize] = useState(8);
   const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
+  const [colmapVggtBatchSize, setColmapVggtBatchSize] = useState(4);
+  const [colmapVggtMaxPoints, setColmapVggtMaxPoints] = useState(2_000_000);
+  const [colmapVggtConfPercentile, setColmapVggtConfPercentile] = useState(50);
   const [files, setFiles] = useState<File[]>([]);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -215,6 +220,17 @@ export function App() {
         return;
       }
     }
+    if (geometryBackend === "colmap_vggt") {
+      const optionError = validateColmapVggtOptions(
+        colmapVggtBatchSize,
+        colmapVggtMaxPoints,
+        colmapVggtConfPercentile
+      );
+      if (optionError) {
+        setError(optionError);
+        return;
+      }
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -228,6 +244,11 @@ export function App() {
         form.append("vggt_max_images", String(vggtMaxImages));
         form.append("vggt_batch_size", String(vggtBatchSize));
         form.append("vggt_overlap_size", String(vggtOverlapSize));
+      }
+      if (geometryBackend === "colmap_vggt") {
+        form.append("vggt_batch_size", String(colmapVggtBatchSize));
+        form.append("colmap_vggt_max_points", String(colmapVggtMaxPoints));
+        form.append("colmap_vggt_conf_percentile", String(colmapVggtConfPercentile));
       }
       for (const file of files) {
         form.append("files", file, getUploadName(file));
@@ -401,6 +422,44 @@ export function App() {
                 </label>
               </div>
             )}
+
+            {geometryBackend === "colmap_vggt" && (
+              <div className="numeric-grid">
+                <label>
+                  <span>Max points</span>
+                  <input
+                    type="number"
+                    min={100000}
+                    max={10000000}
+                    step={100000}
+                    value={colmapVggtMaxPoints}
+                    onChange={(event) => setColmapVggtMaxPoints(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>Depth batch</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    step={1}
+                    value={colmapVggtBatchSize}
+                    onChange={(event) => setColmapVggtBatchSize(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>Confidence</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={95}
+                    step={5}
+                    value={colmapVggtConfPercentile}
+                    onChange={(event) => setColmapVggtConfPercentile(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           <div className="file-picker-grid">
@@ -519,7 +578,7 @@ export function App() {
             </div>
             <div>
               <dt>Batch</dt>
-              <dd>{currentStatus?.metrics.batch_size ?? "-"}</dd>
+              <dd>{currentStatus?.metrics.batch_size ?? currentStatus?.metrics.vggt_batch_size ?? "-"}</dd>
             </div>
             <div>
               <dt>Overlap</dt>
@@ -629,6 +688,19 @@ function validateVggtOptions(maxImages: number, batchSize: number, overlapSize: 
   }
   if (batchSize > maxImages) {
     return "VGGT batch size cannot be larger than max images.";
+  }
+  return null;
+}
+
+function validateColmapVggtOptions(batchSize: number, maxPoints: number, confPercentile: number) {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    return "COLMAP+VGGT depth batch must be a positive integer.";
+  }
+  if (!Number.isInteger(maxPoints) || maxPoints <= 0) {
+    return "COLMAP+VGGT max points must be a positive integer.";
+  }
+  if (!Number.isFinite(confPercentile) || confPercentile < 0 || confPercentile >= 100) {
+    return "COLMAP+VGGT confidence must be between 0 and 99.";
   }
   return null;
 }

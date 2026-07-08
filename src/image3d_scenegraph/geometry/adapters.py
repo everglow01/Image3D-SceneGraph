@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
-VALID_GEOMETRY_BACKENDS = {"mock", "vggt", "colmap", "dust3r", "mast3r", "nerfstudio_3dgs"}
+VALID_GEOMETRY_BACKENDS = {"mock", "vggt", "colmap", "colmap_vggt", "dust3r", "mast3r", "nerfstudio_3dgs"}
 VALID_OUTPUT_TYPES = {"point_cloud", "mesh", "gaussian_splat"}
 
 
@@ -22,7 +22,7 @@ class ReconstructionContext:
     job_dir: Path
     mode: str
     input_assets: list[dict[str, Any]]
-    options: dict[str, int]
+    options: dict[str, int | float]
 
 
 @dataclass(frozen=True)
@@ -231,6 +231,85 @@ class ColmapPointCloudAdapter:
         )
 
 
+class ColmapVggtPointCloudAdapter:
+    backend = "colmap_vggt"
+    output_type = "point_cloud"
+
+    def run(self, context: ReconstructionContext) -> ReconstructionResult:
+        if context.mode == "video":
+            raise ReconstructionError("COLMAP+VGGT adapter currently expects image inputs, not video files")
+
+        project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
+        script_path = project_root / "scripts" / "run_colmap_vggt_dense.py"
+        if not script_path.exists():
+            raise ReconstructionError(f"COLMAP+VGGT runner missing: {script_path}")
+
+        image_dir = context.job_dir / "input" / "images"
+        command = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(script_path),
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(context.job_dir),
+            "--device",
+            os.environ.get("IMAGE3D_VGGT_DEVICE", "cuda"),
+            "--matcher",
+            os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
+            "--vggt-batch-size",
+            str(_positive_int_option(context, "vggt_batch_size", "IMAGE3D_COLMAP_VGGT_BATCH_SIZE", 4)),
+            "--max-points",
+            str(_positive_int_option(context, "colmap_vggt_max_points", "IMAGE3D_COLMAP_VGGT_MAX_POINTS", 2_000_000)),
+            "--conf-percentile",
+            str(_percentile_option(context, "colmap_vggt_conf_percentile", "IMAGE3D_COLMAP_VGGT_CONF_PERCENTILE", 50.0)),
+        ]
+
+        env = os.environ.copy()
+        if os.environ.get("IMAGE3D_VGGT_KEEP_LD_LIBRARY_PATH") != "1":
+            env.pop("LD_LIBRARY_PATH", None)
+        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=project_root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
+            raise ReconstructionError(f"COLMAP+VGGT reconstruction failed:\n{details}") from exc
+
+        point_cloud_path = context.job_dir / "geometry" / "points.ply"
+        cameras_path = context.job_dir / "geometry" / "cameras.json"
+        if not point_cloud_path.exists() or not cameras_path.exists():
+            raise ReconstructionError("COLMAP+VGGT reconstruction did not produce points.ply and cameras.json")
+
+        runner_log = context.job_dir / "logs" / "run.log"
+        metrics = _parse_key_value_metrics(runner_log)
+        log_lines = [
+            "geometry_backend=colmap_vggt",
+            "output_type=point_cloud",
+            "adapter=ColmapVggtPointCloudAdapter",
+            f"runner={' '.join(command)}",
+            *[line for line in runner_log.read_text(encoding="utf-8").splitlines() if line],
+        ]
+        if completed.stdout.strip():
+            log_lines.append(f"stdout={completed.stdout.strip()}")
+
+        return ReconstructionResult(
+            stage="colmap_vggt_dense_reconstruction",
+            assets={
+                "point_cloud": "geometry/points.ply",
+                "cameras": "geometry/cameras.json",
+            },
+            metrics=metrics,
+            log_lines=log_lines,
+        )
+
+
 def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
     metrics: dict[str, int | float | str | bool] = {}
     if not path.exists():
@@ -242,14 +321,27 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
         if key in {
             "num_images",
             "registered_images",
+            "scaled_images",
+            "colmap_points",
             "num_groups",
             "batch_size",
+            "vggt_batch_size",
             "overlap_size",
             "num_points",
             "max_points",
         }:
             metrics[key] = int(value)
-        elif key in {"conf_percentile", "model_load_seconds", "inference_seconds", "elapsed_seconds"}:
+        elif key in {
+            "conf_percentile",
+            "model_load_seconds",
+            "inference_seconds",
+            "colmap_seconds",
+            "vggt_seconds",
+            "elapsed_seconds",
+            "scale_median",
+            "scale_min",
+            "scale_max",
+        }:
             metrics[key] = float(value)
         else:
             metrics[key] = value
@@ -260,8 +352,19 @@ def _positive_int_option(context: ReconstructionContext, key: str, env_key: str,
     value = context.options.get(key)
     if value is None:
         value = int(os.environ.get(env_key, str(default)))
+    value = int(value)
     if value <= 0:
         raise ReconstructionError(f"{key} must be positive")
+    return value
+
+
+def _percentile_option(context: ReconstructionContext, key: str, env_key: str, default: float) -> float:
+    value = context.options.get(key)
+    if value is None:
+        value = float(os.environ.get(env_key, str(default)))
+    value = float(value)
+    if value < 0 or value >= 100:
+        raise ReconstructionError(f"{key} must be between 0 and 99")
     return value
 
 
@@ -285,6 +388,8 @@ def get_reconstruction_adapter(
         return VggtPointCloudAdapter()
     if geometry_backend == "colmap" and output_type == "point_cloud":
         return ColmapPointCloudAdapter()
+    if geometry_backend == "colmap_vggt" and output_type == "point_cloud":
+        return ColmapVggtPointCloudAdapter()
 
     raise ReconstructionError(
         f"geometry_backend '{geometry_backend}' with output_type '{output_type}' is not implemented"

@@ -31,6 +31,8 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
         vggt_max_images: Annotated[int | None, Form()] = None,
         vggt_batch_size: Annotated[int | None, Form()] = None,
         vggt_overlap_size: Annotated[int | None, Form()] = None,
+        colmap_vggt_max_points: Annotated[int | None, Form()] = None,
+        colmap_vggt_conf_percentile: Annotated[float | None, Form()] = None,
     ) -> dict:
         uploaded: list[UploadedInput] = []
         for file in files:
@@ -48,6 +50,8 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
                 "vggt_max_images": vggt_max_images,
                 "vggt_batch_size": vggt_batch_size,
                 "vggt_overlap_size": vggt_overlap_size,
+                "colmap_vggt_max_points": colmap_vggt_max_points,
+                "colmap_vggt_conf_percentile": colmap_vggt_conf_percentile,
             }.items()
             if value is not None
         }

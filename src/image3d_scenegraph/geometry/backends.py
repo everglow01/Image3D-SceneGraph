@@ -57,6 +57,10 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             reason=None if shutil.which("colmap") is not None else "colmap executable not found on PATH",
             setup_command="sudo apt install colmap",
         ),
+        _colmap_vggt_spec(
+            repo_path=external_root / "vggt",
+            checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
+        ),
         _external_model_spec(
             backend_id="dust3r",
             label="DUSt3R",
@@ -111,4 +115,22 @@ def _external_model_spec(
         available=not missing,
         reason="; ".join(missing) if missing else None,
         setup_command=f"uv run python scripts/setup_model.py --backend {backend_id}",
+    )
+
+
+def _colmap_vggt_spec(*, repo_path: Path, checkpoint_hint: Path) -> BackendSpec:
+    missing: list[str] = []
+    if shutil.which("colmap") is None:
+        missing.append("colmap executable not found on PATH")
+    if not repo_path.exists():
+        missing.append(f"repo missing: {repo_path}")
+    if not checkpoint_hint.exists():
+        missing.append(f"checkpoint path missing: {checkpoint_hint}")
+    return BackendSpec(
+        backend_id="colmap_vggt",
+        label="COLMAP + VGGT",
+        supported_outputs=("point_cloud",),
+        available=not missing,
+        reason="; ".join(missing) if missing else None,
+        setup_command="sudo apt install colmap && uv run python scripts/setup_model.py --backend vggt",
     )

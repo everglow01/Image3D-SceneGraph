@@ -44,7 +44,7 @@ class JobStore:
         files: list[UploadedInput],
         geometry_backend: str = "mock",
         output_type: str = "point_cloud",
-        options: dict[str, int] | None = None,
+        options: dict[str, int | float] | None = None,
     ) -> dict[str, Any]:
         self._validate_request(mode, files)
 

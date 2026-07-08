@@ -22,6 +22,7 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
   const pointsRef = useRef<THREE.Points | null>(null);
   const [viewerState, setViewerState] = useState("idle");
   const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: -1, z: -1 });
+  const [pointSize, setPointSize] = useState(0.035);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -131,7 +132,7 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
 
         const hasVertexColors = geometry.hasAttribute("color");
         const material = new THREE.PointsMaterial({
-          size: 0.025,
+          size: pointSize,
           vertexColors: hasVertexColors,
           color: hasVertexColors ? 0xffffff : 0x1f6f78
         });
@@ -170,6 +171,14 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
     }
   }, [axisSigns]);
 
+  useEffect(() => {
+    const material = pointsRef.current?.material;
+    if (material instanceof THREE.PointsMaterial) {
+      material.size = pointSize;
+      material.needsUpdate = true;
+    }
+  }, [pointSize]);
+
   function toggleAxis(axis: keyof AxisSigns) {
     setAxisSigns((current) => ({
       ...current,
@@ -201,6 +210,18 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
         >
           Z
         </button>
+        <label className="point-size-control">
+          <span>Point</span>
+          <input
+            aria-label="Point size"
+            type="range"
+            min={0.01}
+            max={0.12}
+            step={0.005}
+            value={pointSize}
+            onChange={(event) => setPointSize(Number(event.target.value))}
+          />
+        </label>
       </div>
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
