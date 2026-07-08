@@ -49,6 +49,7 @@ def test_backend_specs_report_vggt_available_with_local_assets(tmp_path, monkeyp
 
     assert specs["vggt"].available is True
     assert specs["vggt"].reason is None
+    assert specs["vggt"].supported_outputs == ("point_cloud", "mesh")
 
 
 def test_backends_api_route_is_registered(tmp_path):

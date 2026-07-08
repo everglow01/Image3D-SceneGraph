@@ -36,6 +36,7 @@ type Manifest = {
     point_cloud_aligned?: string;
     alignment_diagnostics?: string;
     mesh?: string;
+    mesh_diagnostics?: string;
     scene_splat?: string;
     scene_graph?: string;
     log?: string;
@@ -50,6 +51,10 @@ type Manifest = {
     overlap_size?: number;
     alignment_status?: string;
     alignment_plane_inlier_ratio?: number;
+    mesh_status?: string;
+    mesh_vertices?: number;
+    mesh_triangles?: number;
+    mesh_processed_points?: number;
   };
 };
 
@@ -168,6 +173,12 @@ export function App() {
       return null;
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.scene_splat}`;
+  }, [manifest]);
+  const meshUrl = useMemo(() => {
+    if (!manifest?.assets.mesh || manifest.assets.scene_splat) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.mesh}`;
   }, [manifest]);
 
   useEffect(() => {
@@ -532,10 +543,10 @@ export function App() {
           <div className="viewer-header">
             <div>
               <h2>3D viewer</h2>
-              <span>{manifest?.assets.scene_splat ?? selectedPointCloudAsset ?? "No geometry loaded"}</span>
+              <span>{manifest?.assets.scene_splat ?? manifest?.assets.mesh ?? selectedPointCloudAsset ?? "No geometry loaded"}</span>
             </div>
             <div className="viewer-actions">
-              {manifest?.assets.point_cloud && !manifest.assets.scene_splat && (
+              {manifest?.assets.point_cloud && !manifest.assets.scene_splat && !manifest.assets.mesh && (
                 <div className="variant-toggle" role="group" aria-label="Point cloud view">
                   <button
                     className={pointCloudVariant === "raw" || !hasAlignedPointCloud ? "active" : ""}
@@ -560,7 +571,7 @@ export function App() {
               </button>
             </div>
           </div>
-          <GeometryViewer pointCloudUrl={pointCloudUrl} splatUrl={splatUrl} />
+          <GeometryViewer pointCloudUrl={pointCloudUrl} meshUrl={meshUrl} splatUrl={splatUrl} />
         </section>
 
         <aside className="panel result-panel" aria-label="Job results">
@@ -622,6 +633,14 @@ export function App() {
               <dt>Alignment</dt>
               <dd>{currentStatus?.metrics.alignment_status ?? "-"}</dd>
             </div>
+            <div>
+              <dt>Mesh</dt>
+              <dd>{currentStatus?.metrics.mesh_status ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Faces</dt>
+              <dd>{currentStatus?.metrics.mesh_triangles ?? "-"}</dd>
+            </div>
           </dl>
 
           <section className="result-section">
@@ -649,6 +668,7 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="point_cloud" label="Point cloud" />
               <AssetLink manifest={manifest} assetKey="point_cloud_aligned" label="Aligned point cloud" />
               <AssetLink manifest={manifest} assetKey="mesh" label="Mesh" />
+              <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="Mesh diagnostics" />
               <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian splat" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="Alignment" />
               <AssetLink manifest={manifest} assetKey="scene_graph" label="Scene graph" />

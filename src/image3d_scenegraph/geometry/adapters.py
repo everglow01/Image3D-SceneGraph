@@ -384,11 +384,11 @@ def get_reconstruction_adapter(
 
     if geometry_backend == "mock" and output_type == "point_cloud":
         return MockPointCloudAdapter()
-    if geometry_backend == "vggt" and output_type == "point_cloud":
+    if geometry_backend == "vggt" and output_type in {"point_cloud", "mesh"}:
         return VggtPointCloudAdapter()
-    if geometry_backend == "colmap" and output_type == "point_cloud":
+    if geometry_backend == "colmap" and output_type in {"point_cloud", "mesh"}:
         return ColmapPointCloudAdapter()
-    if geometry_backend == "colmap_vggt" and output_type == "point_cloud":
+    if geometry_backend == "colmap_vggt" and output_type in {"point_cloud", "mesh"}:
         return ColmapVggtPointCloudAdapter()
 
     raise ReconstructionError(

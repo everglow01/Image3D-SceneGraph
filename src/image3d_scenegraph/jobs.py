@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
@@ -76,6 +77,18 @@ class JobStore:
         alignment_assets, alignment_metrics, alignment_log_lines = self._try_align_point_cloud(
             job_dir, reconstruction.assets
         )
+        geometry_assets = {
+            **reconstruction.assets,
+            **alignment_assets,
+        }
+        mesh_assets: dict[str, str] = {}
+        mesh_metrics: dict[str, int | float | str | bool] = {}
+        mesh_log_lines: list[str] = []
+        stage = reconstruction.stage
+        if output_type == "mesh":
+            mesh_assets, mesh_metrics, mesh_log_lines = self._build_mesh(job_dir, geometry_assets)
+            stage = "mesh_reconstruction"
+
         scene = self._build_mock_scene(job_id, mode)
         self._write_json(job_dir / "scene_graph" / "scene.json", scene)
 
@@ -84,18 +97,19 @@ class JobStore:
                 f"job_id={job_id}",
                 f"mode={mode}",
                 f"num_inputs={len(files)}",
-                f"stage={reconstruction.stage}",
+                f"stage={stage}",
                 "status=done",
                 *reconstruction.log_lines,
                 *alignment_log_lines,
+                *mesh_log_lines,
                 "",
             ]
         )
         (job_dir / "logs" / "run.log").write_text(log_text, encoding="utf-8")
 
         assets = {
-            **reconstruction.assets,
-            **alignment_assets,
+            **geometry_assets,
+            **mesh_assets,
             "scene_graph": "scene_graph/scene.json",
             "log": "logs/run.log",
         }
@@ -104,6 +118,7 @@ class JobStore:
             "num_objects": len(scene["objects"]),
             **reconstruction.metrics,
             **alignment_metrics,
+            **mesh_metrics,
         }
         manifest = self._build_manifest(
             job_id,
@@ -112,7 +127,7 @@ class JobStore:
             scene,
             geometry_backend=geometry_backend,
             output_type=output_type,
-            stage=reconstruction.stage,
+            stage=stage,
             assets=assets,
             metrics=metrics,
         )
@@ -294,6 +309,96 @@ class JobStore:
                 f"alignment_output={output_asset}",
                 f"alignment_diagnostics={diagnostics_asset}",
             ],
+        )
+
+    def _build_mesh(
+        self, job_dir: Path, assets: dict[str, str]
+    ) -> tuple[dict[str, str], dict[str, int | float | str | bool], list[str]]:
+        source_asset = assets.get("point_cloud_aligned") or assets.get("point_cloud")
+        if not source_asset:
+            raise JobError("mesh output requires a point_cloud asset")
+
+        source_path = job_dir / source_asset
+        if not source_path.is_file():
+            raise JobError(f"mesh source point cloud is missing: {source_asset}")
+
+        mesh_asset = "geometry/mesh.glb"
+        diagnostics_asset = "diagnostics/mesh.json"
+        mesh_path = job_dir / mesh_asset
+        diagnostics_path = job_dir / diagnostics_asset
+
+        project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()
+        script_path = project_root / "scripts" / "mesh_from_pointcloud.py"
+        if not script_path.exists():
+            raise JobError(f"mesh runner missing: {script_path}")
+
+        command = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(script_path),
+            str(source_path),
+            str(mesh_path),
+            "--diagnostics-output",
+            str(diagnostics_path),
+            "--method",
+            os.environ.get("IMAGE3D_MESH_METHOD", "poisson"),
+            "--voxel-size",
+            os.environ.get("IMAGE3D_MESH_VOXEL_SIZE", "0.05"),
+            "--normal-radius",
+            os.environ.get("IMAGE3D_MESH_NORMAL_RADIUS", "0.2"),
+            "--poisson-depth",
+            os.environ.get("IMAGE3D_MESH_POISSON_DEPTH", "8"),
+            "--density-trim-quantile",
+            os.environ.get("IMAGE3D_MESH_DENSITY_TRIM_QUANTILE", "0.1"),
+            "--max-triangles",
+            os.environ.get("IMAGE3D_MESH_MAX_TRIANGLES", "120000"),
+        ]
+
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
+            raise JobError(f"mesh reconstruction failed:\n{details}") from exc
+
+        if not mesh_path.is_file() or not diagnostics_path.is_file():
+            raise JobError("mesh reconstruction did not produce mesh.glb and mesh.json")
+
+        diagnostics = self._read_json(diagnostics_path)
+        metrics: dict[str, int | float | str | bool] = {
+            "mesh_status": "built",
+            "mesh_source": source_asset,
+        }
+        for key, metric_key in {
+            "vertices": "mesh_vertices",
+            "triangles": "mesh_triangles",
+            "processed_points": "mesh_processed_points",
+        }.items():
+            value = diagnostics.get(key)
+            if isinstance(value, (int, float)):
+                metrics[metric_key] = int(value)
+
+        log_lines = [
+            "mesh_status=built",
+            f"mesh_source={source_asset}",
+            f"mesh_output={mesh_asset}",
+            f"mesh_diagnostics={diagnostics_asset}",
+            f"mesh_runner={' '.join(command)}",
+        ]
+        if completed.stdout.strip():
+            log_lines.append(f"mesh_stdout={completed.stdout.strip()}")
+
+        return (
+            {
+                "mesh": mesh_asset,
+                "mesh_diagnostics": diagnostics_asset,
+            },
+            metrics,
+            log_lines,
         )
 
     def _load_alignment_module(self) -> Any:

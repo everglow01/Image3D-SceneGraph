@@ -86,11 +86,11 @@ Current mock API:
 Implemented geometry paths:
 
 - `geometry_backend=mock` with `output_type=point_cloud`
-- `geometry_backend=vggt` with `output_type=point_cloud`, when the local VGGT repo and checkpoint are installed
-- `geometry_backend=colmap` with `output_type=point_cloud`, when the `colmap` executable is installed
-- `geometry_backend=colmap_vggt` with `output_type=point_cloud`, when both COLMAP and VGGT are installed
+- `geometry_backend=vggt` with `output_type=point_cloud` or `mesh`, when the local VGGT repo and checkpoint are installed
+- `geometry_backend=colmap` with `output_type=point_cloud` or `mesh`, when the `colmap` executable is installed
+- `geometry_backend=colmap_vggt` with `output_type=point_cloud` or `mesh`, when both COLMAP and VGGT are installed
 
-DUSt3R, MASt3R, mesh export, automatic 3DGS training, and video-to-geometry are still API contract placeholders and return a clear not implemented error until their adapters are added.
+DUSt3R, MASt3R, automatic 3DGS training, and video-to-geometry are still API contract placeholders and return a clear not implemented error until their adapters are added.
 
 Optional geometry backends are not downloaded with the base project. Check local backend availability with:
 
@@ -160,6 +160,17 @@ uv run python scripts/align_pointcloud.py \
 
 The alignment step preserves the original point cloud and writes a separate aligned PLY. By default it rotates the strongest detected plane to the +Z axis and translates that plane to zero height. The point-cloud viewer uses the same Z-up convention and displays its grid on the XY plane.
 Job creation also runs this alignment as a generic point-cloud postprocess. Any backend that returns a `point_cloud` asset can expose `point_cloud_aligned` in the manifest, and the frontend viewer lets the user switch between Raw and Aligned when the aligned asset exists.
+
+Build a mesh from a generated point cloud:
+
+```bash
+uv run python scripts/mesh_from_pointcloud.py \
+  outputs/jobs/{job_id}/geometry/points_aligned.ply \
+  outputs/jobs/{job_id}/geometry/mesh.glb \
+  --diagnostics-output outputs/jobs/{job_id}/diagnostics/mesh.json
+```
+
+Mesh output uses Open3D. Job creation runs the same mesh postprocess automatically when `output_type=mesh` is selected, preferring `points_aligned.ply` over the raw point cloud.
 
 Run VGGT directly for a local image folder:
 

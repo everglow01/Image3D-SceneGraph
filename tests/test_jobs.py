@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import zipfile
 from pathlib import Path
@@ -310,6 +311,78 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"
     assert captured_command[captured_command.index("--max-points") + 1] == "1500000"
     assert captured_command[captured_command.index("--conf-percentile") + 1] == "45.0"
+
+
+def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch):
+    captured_commands = []
+
+    def fake_run(command, **kwargs):
+        captured_commands.append(command)
+        if str(command[1]).endswith("mesh_from_pointcloud.py"):
+            output_path = Path(command[3])
+            diagnostics_path = Path(command[command.index("--diagnostics-output") + 1])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"fake-glb")
+            diagnostics_path.write_text(
+                json.dumps(
+                    {
+                        "vertices": 42,
+                        "triangles": 80,
+                        "processed_points": 120,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0, stdout="mesh ok\n", stderr="")
+
+        output_dir = tmp_path
+        for index, value in enumerate(command):
+            if value == "--output-dir":
+                output_dir = command[index + 1]
+                break
+        job_dir = Path(output_dir)
+        (job_dir / "geometry").mkdir(parents=True, exist_ok=True)
+        (job_dir / "logs").mkdir(parents=True, exist_ok=True)
+        (job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
+        (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "logs" / "run.log").write_text(
+            "\n".join(
+                [
+                    "backend=colmap_vggt",
+                    "num_images=2",
+                    "num_points=99",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="points ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.create_job(
+        "multi_image",
+        [
+            UploadedInput(filename="frame_001.jpg", content=b"fake-image", content_type="image/jpeg"),
+            UploadedInput(filename="frame_002.jpg", content=b"fake-image", content_type="image/jpeg"),
+        ],
+        geometry_backend="colmap_vggt",
+        output_type="mesh",
+    )
+
+    assert manifest["output_type"] == "mesh"
+    assert manifest["stage"] == "mesh_reconstruction"
+    assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
+    assert manifest["assets"]["mesh"] == "geometry/mesh.glb"
+    assert manifest["assets"]["mesh_diagnostics"] == "diagnostics/mesh.json"
+    assert manifest["metrics"]["mesh_status"] == "built"
+    assert manifest["metrics"]["mesh_vertices"] == 42
+    assert manifest["metrics"]["mesh_triangles"] == 80
+    assert any(str(command[1]).endswith("run_colmap_vggt_dense.py") for command in captured_commands)
+    assert any(str(command[1]).endswith("mesh_from_pointcloud.py") for command in captured_commands)
 
 
 def test_reject_invalid_output_type(tmp_path):
