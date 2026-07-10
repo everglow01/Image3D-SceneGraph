@@ -55,6 +55,9 @@ type Manifest = {
     mesh_vertices?: number;
     mesh_triangles?: number;
     mesh_processed_points?: number;
+    mesh_method?: string;
+    mesh_component_count?: number;
+    mesh_long_edge_removed_triangles?: number;
   };
 };
 
@@ -638,8 +641,20 @@ export function App() {
               <dd>{currentStatus?.metrics.mesh_status ?? "-"}</dd>
             </div>
             <div>
+              <dt>Method</dt>
+              <dd>{currentStatus?.metrics.mesh_method ?? "-"}</dd>
+            </div>
+            <div>
               <dt>Faces</dt>
               <dd>{currentStatus?.metrics.mesh_triangles ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Components</dt>
+              <dd>{currentStatus?.metrics.mesh_component_count ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Trimmed</dt>
+              <dd>{currentStatus?.metrics.mesh_long_edge_removed_triangles ?? "-"}</dd>
             </div>
           </dl>
 

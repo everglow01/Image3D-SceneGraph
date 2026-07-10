@@ -171,6 +171,42 @@ uv run python scripts/mesh_from_pointcloud.py \
 ```
 
 Mesh output uses Open3D. Job creation runs the same mesh postprocess automatically when `output_type=mesh` is selected, preferring `points_aligned.ply` over the raw point cloud.
+The mesh diagnostics JSON records point filtering, local point spacing, bounding boxes, connected components, long-edge triangle removal, and timings. Use it as the first check before tuning reconstruction parameters.
+
+Useful first-round mesh A/B commands:
+
+```bash
+# Poisson with stricter bridge cleanup.
+uv run python scripts/mesh_from_pointcloud.py \
+  outputs/jobs/{job_id}/geometry/points_aligned.ply \
+  outputs/jobs/{job_id}/geometry/mesh_poisson_clean.glb \
+  --diagnostics-output outputs/jobs/{job_id}/diagnostics/mesh_poisson_clean.json \
+  --voxel-size 0.04 \
+  --poisson-depth 9 \
+  --edge-trim-factor 1.6 \
+  --max-triangles 250000
+
+# Ball pivoting, useful when Poisson closes too many holes.
+uv run python scripts/mesh_from_pointcloud.py \
+  outputs/jobs/{job_id}/geometry/points_aligned.ply \
+  outputs/jobs/{job_id}/geometry/mesh_bpa.glb \
+  --diagnostics-output outputs/jobs/{job_id}/diagnostics/mesh_bpa.json \
+  --method ball_pivoting \
+  --voxel-size 0.035 \
+  --edge-trim-factor 1.6 \
+  --max-triangles 250000
+
+# Alpha shape baseline, useful as a coarse geometry sanity check.
+uv run python scripts/mesh_from_pointcloud.py \
+  outputs/jobs/{job_id}/geometry/points_aligned.ply \
+  outputs/jobs/{job_id}/geometry/mesh_alpha.glb \
+  --diagnostics-output outputs/jobs/{job_id}/diagnostics/mesh_alpha.json \
+  --method alpha_shape \
+  --alpha 0.12 \
+  --max-triangles 250000
+```
+
+When mesh jobs run through the API, the same options can be tuned with environment variables such as `IMAGE3D_MESH_METHOD`, `IMAGE3D_MESH_VOXEL_SIZE`, `IMAGE3D_MESH_POISSON_DEPTH`, `IMAGE3D_MESH_EDGE_TRIM_FACTOR`, and `IMAGE3D_MESH_MAX_TRIANGLES`.
 
 Run VGGT directly for a local image folder:
 

@@ -345,12 +345,30 @@ class JobStore:
             os.environ.get("IMAGE3D_MESH_VOXEL_SIZE", "0.05"),
             "--normal-radius",
             os.environ.get("IMAGE3D_MESH_NORMAL_RADIUS", "0.2"),
+            "--normal-max-nn",
+            os.environ.get("IMAGE3D_MESH_NORMAL_MAX_NN", "30"),
+            "--statistical-neighbors",
+            os.environ.get("IMAGE3D_MESH_STATISTICAL_NEIGHBORS", "24"),
+            "--statistical-std-ratio",
+            os.environ.get("IMAGE3D_MESH_STATISTICAL_STD_RATIO", "2.0"),
+            "--radius-outlier-neighbors",
+            os.environ.get("IMAGE3D_MESH_RADIUS_OUTLIER_NEIGHBORS", "0"),
+            "--radius-outlier-radius",
+            os.environ.get("IMAGE3D_MESH_RADIUS_OUTLIER_RADIUS", "0.0"),
             "--poisson-depth",
             os.environ.get("IMAGE3D_MESH_POISSON_DEPTH", "8"),
             "--density-trim-quantile",
             os.environ.get("IMAGE3D_MESH_DENSITY_TRIM_QUANTILE", "0.1"),
+            "--component-min-ratio",
+            os.environ.get("IMAGE3D_MESH_COMPONENT_MIN_RATIO", "0.03"),
+            "--edge-trim-quantile",
+            os.environ.get("IMAGE3D_MESH_EDGE_TRIM_QUANTILE", "0.98"),
+            "--edge-trim-factor",
+            os.environ.get("IMAGE3D_MESH_EDGE_TRIM_FACTOR", "2.5"),
             "--max-triangles",
             os.environ.get("IMAGE3D_MESH_MAX_TRIANGLES", "120000"),
+            "--alpha",
+            os.environ.get("IMAGE3D_MESH_ALPHA", "0.0"),
         ]
 
         try:
@@ -372,6 +390,7 @@ class JobStore:
         metrics: dict[str, int | float | str | bool] = {
             "mesh_status": "built",
             "mesh_source": source_asset,
+            "mesh_method": str(diagnostics.get("method", "")),
         }
         for key, metric_key in {
             "vertices": "mesh_vertices",
@@ -381,6 +400,16 @@ class JobStore:
             value = diagnostics.get(key)
             if isinstance(value, (int, float)):
                 metrics[metric_key] = int(value)
+        cleanup = diagnostics.get("cleanup")
+        if isinstance(cleanup, dict):
+            for key, metric_key in {
+                "component_count": "mesh_component_count",
+                "long_edge_removed_triangles": "mesh_long_edge_removed_triangles",
+                "small_component_removed_triangles": "mesh_small_component_removed_triangles",
+            }.items():
+                value = cleanup.get(key)
+                if isinstance(value, (int, float)):
+                    metrics[metric_key] = int(value)
 
         log_lines = [
             "mesh_status=built",

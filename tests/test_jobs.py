@@ -327,9 +327,15 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
             diagnostics_path.write_text(
                 json.dumps(
                     {
+                        "method": "poisson",
                         "vertices": 42,
                         "triangles": 80,
                         "processed_points": 120,
+                        "cleanup": {
+                            "component_count": 3,
+                            "long_edge_removed_triangles": 7,
+                            "small_component_removed_triangles": 11,
+                        },
                     }
                 )
                 + "\n",
@@ -379,10 +385,17 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
     assert manifest["assets"]["mesh"] == "geometry/mesh.glb"
     assert manifest["assets"]["mesh_diagnostics"] == "diagnostics/mesh.json"
     assert manifest["metrics"]["mesh_status"] == "built"
+    assert manifest["metrics"]["mesh_method"] == "poisson"
     assert manifest["metrics"]["mesh_vertices"] == 42
     assert manifest["metrics"]["mesh_triangles"] == 80
+    assert manifest["metrics"]["mesh_component_count"] == 3
+    assert manifest["metrics"]["mesh_long_edge_removed_triangles"] == 7
+    assert manifest["metrics"]["mesh_small_component_removed_triangles"] == 11
     assert any(str(command[1]).endswith("run_colmap_vggt_dense.py") for command in captured_commands)
     assert any(str(command[1]).endswith("mesh_from_pointcloud.py") for command in captured_commands)
+    mesh_command = next(command for command in captured_commands if str(command[1]).endswith("mesh_from_pointcloud.py"))
+    assert "--edge-trim-factor" in mesh_command
+    assert "--radius-outlier-radius" in mesh_command
 
 
 def test_reject_invalid_output_type(tmp_path):
