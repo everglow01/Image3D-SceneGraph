@@ -257,9 +257,13 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
                 break
         job_dir = Path(output_dir)
         (job_dir / "geometry").mkdir(parents=True, exist_ok=True)
+        (job_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
         (job_dir / "logs").mkdir(parents=True, exist_ok=True)
         (job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "diagnostics" / "fusion.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "diagnostics" / "visibility_graph.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "diagnostics" / "consistency.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "logs" / "run.log").write_text(
             "\n".join(
                 [
@@ -300,6 +304,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["stage"] == "colmap_vggt_dense_reconstruction"
     assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
     assert manifest["assets"]["cameras"] == "geometry/cameras.json"
+    assert manifest["assets"]["fusion_diagnostics"] == "diagnostics/fusion.json"
+    assert manifest["assets"]["visibility_graph"] == "diagnostics/visibility_graph.json"
+    assert manifest["assets"]["consistency_diagnostics"] == "diagnostics/consistency.json"
     assert manifest["metrics"]["registered_images"] == 2
     assert manifest["metrics"]["scaled_images"] == 2
     assert manifest["metrics"]["num_points"] == 99
@@ -350,9 +357,13 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
                 break
         job_dir = Path(output_dir)
         (job_dir / "geometry").mkdir(parents=True, exist_ok=True)
+        (job_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
         (job_dir / "logs").mkdir(parents=True, exist_ok=True)
         (job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "diagnostics" / "fusion.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "diagnostics" / "visibility_graph.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "diagnostics" / "consistency.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "logs" / "run.log").write_text(
             "\n".join(
                 [

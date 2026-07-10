@@ -284,8 +284,20 @@ class ColmapVggtPointCloudAdapter:
 
         point_cloud_path = context.job_dir / "geometry" / "points.ply"
         cameras_path = context.job_dir / "geometry" / "cameras.json"
-        if not point_cloud_path.exists() or not cameras_path.exists():
-            raise ReconstructionError("COLMAP+VGGT reconstruction did not produce points.ply and cameras.json")
+        fusion_diagnostics_path = context.job_dir / "diagnostics" / "fusion.json"
+        visibility_graph_path = context.job_dir / "diagnostics" / "visibility_graph.json"
+        consistency_path = context.job_dir / "diagnostics" / "consistency.json"
+        if not all(
+            path.exists()
+            for path in [
+                point_cloud_path,
+                cameras_path,
+                fusion_diagnostics_path,
+                visibility_graph_path,
+                consistency_path,
+            ]
+        ):
+            raise ReconstructionError("COLMAP+VGGT reconstruction did not produce required geometry and diagnostics")
 
         runner_log = context.job_dir / "logs" / "run.log"
         metrics = _parse_key_value_metrics(runner_log)
@@ -304,6 +316,9 @@ class ColmapVggtPointCloudAdapter:
             assets={
                 "point_cloud": "geometry/points.ply",
                 "cameras": "geometry/cameras.json",
+                "fusion_diagnostics": "diagnostics/fusion.json",
+                "visibility_graph": "diagnostics/visibility_graph.json",
+                "consistency_diagnostics": "diagnostics/consistency.json",
             },
             metrics=metrics,
             log_lines=log_lines,
@@ -341,8 +356,24 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "scale_median",
             "scale_min",
             "scale_max",
+            "scale_observations_median",
+            "scale_log_mad_median",
+            "consistency_confidence_threshold",
+            "consistency_relative_threshold",
+            "consistency_acceptance_rate",
+            "consistency_residual_p50",
+            "consistency_residual_p90",
         }:
             metrics[key] = float(value)
+        elif key in {
+            "consistency_candidates",
+            "consistency_accepted",
+            "consistency_rejected",
+            "consistency_unverified",
+            "consistency_supported",
+            "consistency_stride",
+        }:
+            metrics[key] = int(value)
         else:
             metrics[key] = value
     return metrics

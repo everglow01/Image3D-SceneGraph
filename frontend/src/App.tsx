@@ -62,6 +62,9 @@ type Manifest = {
     point_cloud?: string;
     point_cloud_aligned?: string;
     alignment_diagnostics?: string;
+    fusion_diagnostics?: string;
+    visibility_graph?: string;
+    consistency_diagnostics?: string;
     mesh?: string;
     mesh_diagnostics?: string;
     scene_splat?: string;
@@ -79,6 +82,9 @@ type Manifest = {
     overlap_size?: number;
     alignment_status?: string;
     alignment_plane_inlier_ratio?: number;
+    consistency_acceptance_rate?: number;
+    consistency_rejected?: number;
+    consistency_residual_p90?: number;
     mesh_status?: string;
     mesh_vertices?: number;
     mesh_triangles?: number;
@@ -787,6 +793,26 @@ export function App() {
               <dd>{currentStatus?.metrics.alignment_status ?? "-"}</dd>
             </div>
             <div>
+              <dt>View check</dt>
+              <dd>
+                {currentStatus?.metrics.consistency_acceptance_rate === undefined
+                  ? "-"
+                  : `${(currentStatus.metrics.consistency_acceptance_rate * 100).toFixed(1)}%`}
+              </dd>
+            </div>
+            <div>
+              <dt>Rejected</dt>
+              <dd>{currentStatus?.metrics.consistency_rejected ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Residual P90</dt>
+              <dd>
+                {currentStatus?.metrics.consistency_residual_p90 === undefined
+                  ? "-"
+                  : `${(currentStatus.metrics.consistency_residual_p90 * 100).toFixed(2)}%`}
+              </dd>
+            </div>
+            <div>
               <dt>Mesh</dt>
               <dd>{currentStatus?.metrics.mesh_status ?? "-"}</dd>
             </div>
@@ -968,6 +994,9 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="Mesh diagnostics" />
               <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian splat" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="Alignment" />
+              <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="Fusion diagnostics" />
+              <AssetLink manifest={manifest} assetKey="visibility_graph" label="Visibility graph" />
+              <AssetLink manifest={manifest} assetKey="consistency_diagnostics" label="Consistency diagnostics" />
               <AssetLink manifest={manifest} assetKey="scene_graph" label="Scene graph" />
               <AssetLink manifest={manifest} assetKey="log" label="Run log" />
               {manifest && (
