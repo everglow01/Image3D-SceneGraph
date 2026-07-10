@@ -14,6 +14,32 @@ import { GeometryViewer } from "./GeometryViewer";
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
 type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
+type MeshMethod = "poisson" | "ball_pivoting" | "alpha_shape";
+
+type MeshSettings = {
+  method: MeshMethod;
+  voxel_size: number;
+  normal_radius: number;
+  statistical_std_ratio: number;
+  poisson_depth: number;
+  density_trim_quantile: number;
+  component_min_ratio: number;
+  edge_trim_factor: number;
+  max_triangles: number;
+  alpha: number;
+};
+
+type MeshVariant = {
+  id: string;
+  label: string;
+  method: MeshMethod;
+  mesh_asset: string;
+  diagnostics_asset: string;
+  source_asset: string;
+  options: Partial<MeshSettings>;
+  metrics: Record<string, string | number | boolean>;
+  created_at: string;
+};
 
 type Manifest = {
   job_id: string;
@@ -41,6 +67,7 @@ type Manifest = {
     scene_graph?: string;
     log?: string;
   };
+  mesh_variants?: MeshVariant[];
   metrics: {
     num_inputs: number;
     num_points: number;
@@ -135,6 +162,19 @@ const outputOptions: Array<{
   { id: "gaussian_splat", label: "Gaussian splat" }
 ];
 
+const defaultMeshSettings: MeshSettings = {
+  method: "poisson",
+  voxel_size: 0.05,
+  normal_radius: 0.2,
+  statistical_std_ratio: 2.0,
+  poisson_depth: 8,
+  density_trim_quantile: 0.1,
+  component_min_ratio: 0.03,
+  edge_trim_factor: 2.5,
+  max_triangles: 120_000,
+  alpha: 0.12
+};
+
 export function App() {
   const [mode, setMode] = useState<Mode>("image");
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
@@ -153,6 +193,9 @@ export function App() {
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [jobIdInput, setJobIdInput] = useState("");
   const [pointCloudVariant, setPointCloudVariant] = useState<"raw" | "aligned">("aligned");
+  const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
+  const [selectedMeshVariantId, setSelectedMeshVariantId] = useState<string | null>(null);
+  const [isBuildingMesh, setIsBuildingMesh] = useState(false);
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -177,12 +220,17 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.scene_splat}`;
   }, [manifest]);
+  const meshVariants = manifest?.mesh_variants ?? [];
+  const selectedMeshVariant =
+    meshVariants.find((variant) => variant.id === selectedMeshVariantId) ?? meshVariants[0] ?? null;
+  const selectedMeshAsset = selectedMeshVariant?.mesh_asset ?? manifest?.assets.mesh;
   const meshUrl = useMemo(() => {
-    if (!manifest?.assets.mesh || manifest.assets.scene_splat) {
+    if (!manifest || !selectedMeshAsset || manifest.assets.scene_splat) {
       return null;
     }
-    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.mesh}`;
-  }, [manifest]);
+    const cacheKey = selectedMeshVariant?.id ?? "primary";
+    return `/api/jobs/${manifest.job_id}/assets/${selectedMeshAsset}?mesh_variant=${encodeURIComponent(cacheKey)}`;
+  }, [manifest, selectedMeshAsset, selectedMeshVariant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,6 +257,21 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false) {
+    setManifest(nextManifest);
+    setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
+    const variants = nextManifest.mesh_variants ?? [];
+    setSelectedMeshVariantId((current) => {
+      if (selectNewestMeshVariant && variants.length > 0) {
+        return variants[variants.length - 1].id;
+      }
+      if (current && variants.some((variant) => variant.id === current)) {
+        return current;
+      }
+      return variants[0]?.id ?? null;
+    });
+  }
 
   function onModeChange(nextMode: Mode) {
     setMode(nextMode);
@@ -281,8 +344,7 @@ export function App() {
         method: "POST",
         body: form
       });
-      setManifest(created);
-      setPointCloudVariant(created.assets.point_cloud_aligned ? "aligned" : "raw");
+      applyManifest(created);
 
       const [status, sceneGraph] = await Promise.all([
         requestJson<JobStatus>(`/api/jobs/${created.job_id}`),
@@ -310,8 +372,7 @@ export function App() {
         requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`)
       ]);
       setJobStatus(status);
-      setManifest(nextManifest);
-      setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
+      applyManifest(nextManifest);
       setScene(sceneGraph);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to refresh job");
@@ -334,8 +395,7 @@ export function App() {
         requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`)
       ]);
       setJobStatus(status);
-      setManifest(nextManifest);
-      setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
+      applyManifest(nextManifest);
       setScene(sceneGraph);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load job");
@@ -344,8 +404,39 @@ export function App() {
     }
   }
 
+  function updateMeshSetting(key: Exclude<keyof MeshSettings, "method">, value: number) {
+    setMeshSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  async function buildMeshVariant() {
+    if (!manifest) {
+      return;
+    }
+    const validationError = validateMeshSettings(meshSettings);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setIsBuildingMesh(true);
+    setError(null);
+    try {
+      const nextManifest = await requestJson<Manifest>(`/api/jobs/${manifest.job_id}/mesh-variants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(meshSettings)
+      });
+      applyManifest(nextManifest, true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to build mesh variant");
+    } finally {
+      setIsBuildingMesh(false);
+    }
+  }
+
   const currentStatus = jobStatus ?? manifest;
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
+  const canBuildMeshVariant = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
 
   return (
     <main className="app-shell">
@@ -658,6 +749,138 @@ export function App() {
             </div>
           </dl>
 
+          {canBuildMeshVariant && (
+            <section className="result-section mesh-experiment">
+              <div className="section-heading">
+                <h3>Mesh variants</h3>
+                <span>{meshVariants.length}</span>
+              </div>
+
+              <div className="control-stack mesh-settings">
+                <label>
+                  <span>Method</span>
+                  <select
+                    value={meshSettings.method}
+                    onChange={(event) =>
+                      setMeshSettings((current) => ({ ...current, method: event.target.value as MeshMethod }))
+                    }
+                  >
+                    <option value="poisson">Poisson</option>
+                    <option value="ball_pivoting">Ball pivoting</option>
+                    <option value="alpha_shape">Alpha shape</option>
+                  </select>
+                </label>
+
+                <div className="numeric-grid">
+                  <NumberControl
+                    label="Voxel"
+                    min={0.005}
+                    max={2}
+                    step={0.005}
+                    value={meshSettings.voxel_size}
+                    onChange={(value) => updateMeshSetting("voxel_size", value)}
+                  />
+                  <NumberControl
+                    label="Normal radius"
+                    min={0.01}
+                    max={5}
+                    step={0.01}
+                    value={meshSettings.normal_radius}
+                    onChange={(value) => updateMeshSetting("normal_radius", value)}
+                  />
+                  <NumberControl
+                    label="Noise std"
+                    min={0.1}
+                    max={10}
+                    step={0.1}
+                    value={meshSettings.statistical_std_ratio}
+                    onChange={(value) => updateMeshSetting("statistical_std_ratio", value)}
+                  />
+                  <NumberControl
+                    label="Edge factor"
+                    min={0.5}
+                    max={10}
+                    step={0.1}
+                    value={meshSettings.edge_trim_factor}
+                    onChange={(value) => updateMeshSetting("edge_trim_factor", value)}
+                  />
+                  <NumberControl
+                    label="Component ratio"
+                    min={0}
+                    max={0.5}
+                    step={0.01}
+                    value={meshSettings.component_min_ratio}
+                    onChange={(value) => updateMeshSetting("component_min_ratio", value)}
+                  />
+                  <NumberControl
+                    label="Max faces"
+                    min={1_000}
+                    max={1_000_000}
+                    step={10_000}
+                    value={meshSettings.max_triangles}
+                    onChange={(value) => updateMeshSetting("max_triangles", value)}
+                  />
+                  {meshSettings.method === "poisson" && (
+                    <>
+                      <NumberControl
+                        label="Poisson depth"
+                        min={5}
+                        max={12}
+                        step={1}
+                        value={meshSettings.poisson_depth}
+                        onChange={(value) => updateMeshSetting("poisson_depth", value)}
+                      />
+                      <NumberControl
+                        label="Density trim"
+                        min={0}
+                        max={0.9}
+                        step={0.01}
+                        value={meshSettings.density_trim_quantile}
+                        onChange={(value) => updateMeshSetting("density_trim_quantile", value)}
+                      />
+                    </>
+                  )}
+                  {meshSettings.method === "alpha_shape" && (
+                    <NumberControl
+                      label="Alpha"
+                      min={0}
+                      max={10}
+                      step={0.01}
+                      value={meshSettings.alpha}
+                      onChange={(value) => updateMeshSetting("alpha", value)}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <button className="primary-button" type="button" onClick={buildMeshVariant} disabled={isBuildingMesh}>
+                <Play size={18} aria-hidden="true" />
+                <span>{isBuildingMesh ? "Building mesh" : "Build mesh variant"}</span>
+              </button>
+
+              {meshVariants.length > 0 && (
+                <div className="mesh-variant-list" role="group" aria-label="Mesh variants">
+                  {meshVariants.map((variant) => (
+                    <button
+                      className={variant.id === selectedMeshVariant?.id ? "mesh-variant-row active" : "mesh-variant-row"}
+                      key={variant.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMeshVariantId(variant.id);
+                        setMeshSettings((current) => ({ ...current, ...variant.options, method: variant.method }));
+                      }}
+                    >
+                      <strong>{variant.label}</strong>
+                      <span>
+                        {variant.metrics.mesh_triangles ?? "-"} faces · {variant.metrics.mesh_component_count ?? "-"} components
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           <section className="result-section">
             <h3>Objects</h3>
             {scene?.objects.length ? (
@@ -732,6 +955,36 @@ function AssetLink({
   );
 }
 
+function NumberControl({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
 function validateFiles(mode: Mode, files: File[]) {
   if (files.length === 0) {
     return "Select at least one file.";
@@ -776,6 +1029,17 @@ function validateColmapVggtOptions(batchSize: number, maxPoints: number, confPer
   }
   if (!Number.isFinite(confPercentile) || confPercentile < 0 || confPercentile >= 100) {
     return "COLMAP+VGGT confidence must be between 0 and 99.";
+  }
+  return null;
+}
+
+function validateMeshSettings(settings: MeshSettings) {
+  const values = Object.entries(settings).filter(([key]) => key !== "method");
+  if (values.some(([, value]) => typeof value !== "number" || !Number.isFinite(value))) {
+    return "Mesh settings must be finite numbers.";
+  }
+  if (!Number.isInteger(settings.poisson_depth) || !Number.isInteger(settings.max_triangles)) {
+    return "Poisson depth and max faces must be integers.";
   }
   return null;
 }

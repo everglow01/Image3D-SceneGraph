@@ -391,11 +391,67 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
     assert manifest["metrics"]["mesh_component_count"] == 3
     assert manifest["metrics"]["mesh_long_edge_removed_triangles"] == 7
     assert manifest["metrics"]["mesh_small_component_removed_triangles"] == 11
+    assert manifest["mesh_variants"][0]["id"] == "baseline"
+    assert manifest["mesh_variants"][0]["mesh_asset"] == "geometry/mesh.glb"
     assert any(str(command[1]).endswith("run_colmap_vggt_dense.py") for command in captured_commands)
     assert any(str(command[1]).endswith("mesh_from_pointcloud.py") for command in captured_commands)
     mesh_command = next(command for command in captured_commands if str(command[1]).endswith("mesh_from_pointcloud.py"))
     assert "--edge-trim-factor" in mesh_command
     assert "--radius-outlier-radius" in mesh_command
+
+
+def test_build_mesh_variant_reuses_existing_point_cloud(tmp_path, monkeypatch):
+    captured_command = []
+
+    def fake_run(command, **kwargs):
+        captured_command[:] = command
+        output_path = Path(command[3])
+        diagnostics_path = Path(command[command.index("--diagnostics-output") + 1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"variant-glb")
+        diagnostics_path.write_text(
+            json.dumps(
+                {
+                    "method": "ball_pivoting",
+                    "options": {"method": "ball_pivoting", "voxel_size": 0.07},
+                    "vertices": 55,
+                    "triangles": 77,
+                    "processed_points": 110,
+                    "cleanup": {
+                        "component_count": 4,
+                        "long_edge_removed_triangles": 8,
+                        "small_component_removed_triangles": 9,
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="variant ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    store = JobStore(output_root=tmp_path / "jobs")
+    manifest = store.create_mock_job("image", [UploadedInput(filename="room.jpg", content=b"fake-image")])
+
+    updated_manifest = store.build_mesh_variant(
+        manifest["job_id"],
+        {
+            "method": "ball_pivoting",
+            "voxel_size": 0.07,
+            "normal_radius": 0.28,
+            "edge_trim_factor": 1.6,
+            "max_triangles": 120_000,
+        },
+    )
+
+    variant = updated_manifest["mesh_variants"][-1]
+    assert variant["method"] == "ball_pivoting"
+    assert variant["mesh_asset"].startswith("geometry/mesh_ball_pivoting_")
+    assert variant["metrics"]["mesh_triangles"] == 77
+    assert (tmp_path / "jobs" / manifest["job_id"] / variant["mesh_asset"]).read_bytes() == b"variant-glb"
+    assert captured_command[captured_command.index("--method") + 1] == "ball_pivoting"
+    assert captured_command[captured_command.index("--voxel-size") + 1] == "0.07"
 
 
 def test_reject_invalid_output_type(tmp_path):

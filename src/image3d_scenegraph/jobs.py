@@ -20,6 +20,24 @@ from image3d_scenegraph.geometry.adapters import (
 
 
 VALID_MODES = {"image", "multi_image", "video", "panorama"}
+MESH_METHODS = {"poisson", "ball_pivoting", "alpha_shape"}
+MESH_OPTION_DEFAULTS = {
+    "method": "poisson",
+    "voxel_size": 0.05,
+    "normal_radius": 0.2,
+    "normal_max_nn": 30,
+    "statistical_neighbors": 24,
+    "statistical_std_ratio": 2.0,
+    "radius_outlier_neighbors": 0,
+    "radius_outlier_radius": 0.0,
+    "poisson_depth": 8,
+    "density_trim_quantile": 0.1,
+    "component_min_ratio": 0.03,
+    "edge_trim_quantile": 0.98,
+    "edge_trim_factor": 2.5,
+    "max_triangles": 120_000,
+    "alpha": 0.0,
+}
 
 
 @dataclass(frozen=True)
@@ -131,6 +149,8 @@ class JobStore:
             assets=assets,
             metrics=metrics,
         )
+        if output_type == "mesh":
+            self._with_existing_mesh_variants(job_dir, manifest)
         self._write_json(job_dir / "manifest.json", manifest)
         return manifest
 
@@ -139,13 +159,58 @@ class JobStore:
         manifest_path = job_dir / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(job_id)
-        return self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
+        manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
+        return self._with_existing_mesh_variants(job_dir, manifest)
 
     def get_scene(self, job_id: str) -> dict[str, Any]:
         scene_path = self.job_dir(job_id) / "scene_graph" / "scene.json"
         if not scene_path.exists():
             raise FileNotFoundError(job_id)
         return self._read_json(scene_path)
+
+    def build_mesh_variant(self, job_id: str, requested_options: dict[str, Any]) -> dict[str, Any]:
+        job_dir = self.job_dir(job_id)
+        manifest_path = job_dir / "manifest.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(job_id)
+
+        manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
+        self._with_existing_mesh_variants(job_dir, manifest)
+        assets = manifest.setdefault("assets", {})
+        source_asset = assets.get("point_cloud_aligned") or assets.get("point_cloud")
+        if not isinstance(source_asset, str):
+            raise JobError("mesh variant requires a point_cloud asset")
+
+        options = self._normalize_mesh_options(requested_options)
+        variant_id = f"{options['method']}_{uuid.uuid4().hex[:8]}"
+        mesh_asset = f"geometry/mesh_{variant_id}.glb"
+        diagnostics_asset = f"diagnostics/mesh_{variant_id}.json"
+        _, metrics, log_lines = self._run_mesh(
+            job_dir,
+            source_asset,
+            mesh_asset,
+            diagnostics_asset,
+            options,
+        )
+        diagnostics = self._read_json(job_dir / diagnostics_asset)
+        variant = self._mesh_variant(
+            variant_id=variant_id,
+            mesh_asset=mesh_asset,
+            diagnostics_asset=diagnostics_asset,
+            source_asset=source_asset,
+            diagnostics=diagnostics,
+            metrics=metrics,
+            label=self._mesh_label(str(options["method"])),
+        )
+        variants = manifest.setdefault("mesh_variants", [])
+        if not isinstance(variants, list):
+            variants = []
+            manifest["mesh_variants"] = variants
+        variants.append(variant)
+        self._write_json(manifest_path, manifest)
+        with (job_dir / "logs" / "run.log").open("a", encoding="utf-8") as log_file:
+            log_file.write("\n" + "\n".join([f"mesh_variant={variant_id}", *log_lines]) + "\n")
+        return manifest
 
     def get_asset_path(self, job_id: str, asset_path: str) -> Path:
         job_dir = self.job_dir(job_id).resolve()
@@ -318,12 +383,27 @@ class JobStore:
         if not source_asset:
             raise JobError("mesh output requires a point_cloud asset")
 
+        return self._run_mesh(
+            job_dir,
+            source_asset,
+            "geometry/mesh.glb",
+            "diagnostics/mesh.json",
+            self._mesh_options_from_environment(),
+        )
+
+    def _run_mesh(
+        self,
+        job_dir: Path,
+        source_asset: str,
+        mesh_asset: str,
+        diagnostics_asset: str,
+        options: dict[str, int | float | str],
+    ) -> tuple[dict[str, str], dict[str, int | float | str | bool], list[str]]:
+
         source_path = job_dir / source_asset
         if not source_path.is_file():
             raise JobError(f"mesh source point cloud is missing: {source_asset}")
 
-        mesh_asset = "geometry/mesh.glb"
-        diagnostics_asset = "diagnostics/mesh.json"
         mesh_path = job_dir / mesh_asset
         diagnostics_path = job_dir / diagnostics_asset
 
@@ -340,35 +420,35 @@ class JobStore:
             "--diagnostics-output",
             str(diagnostics_path),
             "--method",
-            os.environ.get("IMAGE3D_MESH_METHOD", "poisson"),
+            str(options["method"]),
             "--voxel-size",
-            os.environ.get("IMAGE3D_MESH_VOXEL_SIZE", "0.05"),
+            str(options["voxel_size"]),
             "--normal-radius",
-            os.environ.get("IMAGE3D_MESH_NORMAL_RADIUS", "0.2"),
+            str(options["normal_radius"]),
             "--normal-max-nn",
-            os.environ.get("IMAGE3D_MESH_NORMAL_MAX_NN", "30"),
+            str(options["normal_max_nn"]),
             "--statistical-neighbors",
-            os.environ.get("IMAGE3D_MESH_STATISTICAL_NEIGHBORS", "24"),
+            str(options["statistical_neighbors"]),
             "--statistical-std-ratio",
-            os.environ.get("IMAGE3D_MESH_STATISTICAL_STD_RATIO", "2.0"),
+            str(options["statistical_std_ratio"]),
             "--radius-outlier-neighbors",
-            os.environ.get("IMAGE3D_MESH_RADIUS_OUTLIER_NEIGHBORS", "0"),
+            str(options["radius_outlier_neighbors"]),
             "--radius-outlier-radius",
-            os.environ.get("IMAGE3D_MESH_RADIUS_OUTLIER_RADIUS", "0.0"),
+            str(options["radius_outlier_radius"]),
             "--poisson-depth",
-            os.environ.get("IMAGE3D_MESH_POISSON_DEPTH", "8"),
+            str(options["poisson_depth"]),
             "--density-trim-quantile",
-            os.environ.get("IMAGE3D_MESH_DENSITY_TRIM_QUANTILE", "0.1"),
+            str(options["density_trim_quantile"]),
             "--component-min-ratio",
-            os.environ.get("IMAGE3D_MESH_COMPONENT_MIN_RATIO", "0.03"),
+            str(options["component_min_ratio"]),
             "--edge-trim-quantile",
-            os.environ.get("IMAGE3D_MESH_EDGE_TRIM_QUANTILE", "0.98"),
+            str(options["edge_trim_quantile"]),
             "--edge-trim-factor",
-            os.environ.get("IMAGE3D_MESH_EDGE_TRIM_FACTOR", "2.5"),
+            str(options["edge_trim_factor"]),
             "--max-triangles",
-            os.environ.get("IMAGE3D_MESH_MAX_TRIANGLES", "120000"),
+            str(options["max_triangles"]),
             "--alpha",
-            os.environ.get("IMAGE3D_MESH_ALPHA", "0.0"),
+            str(options["alpha"]),
         ]
 
         try:
@@ -387,6 +467,28 @@ class JobStore:
             raise JobError("mesh reconstruction did not produce mesh.glb and mesh.json")
 
         diagnostics = self._read_json(diagnostics_path)
+        metrics = self._mesh_metrics(source_asset, diagnostics)
+
+        log_lines = [
+            "mesh_status=built",
+            f"mesh_source={source_asset}",
+            f"mesh_output={mesh_asset}",
+            f"mesh_diagnostics={diagnostics_asset}",
+            f"mesh_runner={' '.join(command)}",
+        ]
+        if completed.stdout.strip():
+            log_lines.append(f"mesh_stdout={completed.stdout.strip()}")
+
+        return (
+            {
+                "mesh": mesh_asset,
+                "mesh_diagnostics": diagnostics_asset,
+            },
+            metrics,
+            log_lines,
+        )
+
+    def _mesh_metrics(self, source_asset: str, diagnostics: dict[str, Any]) -> dict[str, int | float | str | bool]:
         metrics: dict[str, int | float | str | bool] = {
             "mesh_status": "built",
             "mesh_source": source_asset,
@@ -410,25 +512,143 @@ class JobStore:
                 value = cleanup.get(key)
                 if isinstance(value, (int, float)):
                     metrics[metric_key] = int(value)
+        return metrics
 
-        log_lines = [
-            "mesh_status=built",
-            f"mesh_source={source_asset}",
-            f"mesh_output={mesh_asset}",
-            f"mesh_diagnostics={diagnostics_asset}",
-            f"mesh_runner={' '.join(command)}",
-        ]
-        if completed.stdout.strip():
-            log_lines.append(f"mesh_stdout={completed.stdout.strip()}")
+    def _mesh_options_from_environment(self) -> dict[str, int | float | str]:
+        requested = {
+            "method": os.environ.get("IMAGE3D_MESH_METHOD", "poisson"),
+            "voxel_size": os.environ.get("IMAGE3D_MESH_VOXEL_SIZE", "0.05"),
+            "normal_radius": os.environ.get("IMAGE3D_MESH_NORMAL_RADIUS", "0.2"),
+            "normal_max_nn": os.environ.get("IMAGE3D_MESH_NORMAL_MAX_NN", "30"),
+            "statistical_neighbors": os.environ.get("IMAGE3D_MESH_STATISTICAL_NEIGHBORS", "24"),
+            "statistical_std_ratio": os.environ.get("IMAGE3D_MESH_STATISTICAL_STD_RATIO", "2.0"),
+            "radius_outlier_neighbors": os.environ.get("IMAGE3D_MESH_RADIUS_OUTLIER_NEIGHBORS", "0"),
+            "radius_outlier_radius": os.environ.get("IMAGE3D_MESH_RADIUS_OUTLIER_RADIUS", "0.0"),
+            "poisson_depth": os.environ.get("IMAGE3D_MESH_POISSON_DEPTH", "8"),
+            "density_trim_quantile": os.environ.get("IMAGE3D_MESH_DENSITY_TRIM_QUANTILE", "0.1"),
+            "component_min_ratio": os.environ.get("IMAGE3D_MESH_COMPONENT_MIN_RATIO", "0.03"),
+            "edge_trim_quantile": os.environ.get("IMAGE3D_MESH_EDGE_TRIM_QUANTILE", "0.98"),
+            "edge_trim_factor": os.environ.get("IMAGE3D_MESH_EDGE_TRIM_FACTOR", "2.5"),
+            "max_triangles": os.environ.get("IMAGE3D_MESH_MAX_TRIANGLES", "120000"),
+            "alpha": os.environ.get("IMAGE3D_MESH_ALPHA", "0.0"),
+        }
+        return self._normalize_mesh_options(requested)
 
-        return (
-            {
-                "mesh": mesh_asset,
-                "mesh_diagnostics": diagnostics_asset,
-            },
-            metrics,
-            log_lines,
+    def _normalize_mesh_options(self, requested_options: dict[str, Any] | None) -> dict[str, int | float | str]:
+        options: dict[str, Any] = dict(MESH_OPTION_DEFAULTS)
+        if requested_options:
+            unknown_options = sorted(set(requested_options) - set(MESH_OPTION_DEFAULTS))
+            if unknown_options:
+                raise JobError(f"unsupported mesh options: {', '.join(unknown_options)}")
+            options.update(requested_options)
+
+        try:
+            options["method"] = str(options["method"])
+            for key in {
+                "voxel_size",
+                "normal_radius",
+                "statistical_std_ratio",
+                "radius_outlier_radius",
+                "density_trim_quantile",
+                "component_min_ratio",
+                "edge_trim_quantile",
+                "edge_trim_factor",
+                "alpha",
+            }:
+                options[key] = float(options[key])
+            for key in {
+                "normal_max_nn",
+                "statistical_neighbors",
+                "radius_outlier_neighbors",
+                "poisson_depth",
+                "max_triangles",
+            }:
+                options[key] = int(options[key])
+        except (TypeError, ValueError) as exc:
+            raise JobError("mesh options must use numeric values") from exc
+
+        if options["method"] not in MESH_METHODS:
+            raise JobError(f"unsupported mesh method '{options['method']}'")
+        for key in {"voxel_size", "normal_radius", "statistical_std_ratio", "edge_trim_factor"}:
+            if options[key] <= 0:
+                raise JobError(f"mesh {key} must be positive")
+        for key in {"normal_max_nn", "statistical_neighbors", "radius_outlier_neighbors", "poisson_depth", "max_triangles"}:
+            if options[key] < 0:
+                raise JobError(f"mesh {key} must be non-negative")
+        for key in {"density_trim_quantile", "component_min_ratio", "edge_trim_quantile"}:
+            if not 0.0 <= options[key] < 1.0:
+                raise JobError(f"mesh {key} must be between 0 and 1")
+        if options["radius_outlier_radius"] < 0 or options["alpha"] < 0:
+            raise JobError("mesh radius and alpha values must be non-negative")
+        return options
+
+    def _with_existing_mesh_variants(self, job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+        variants = manifest.get("mesh_variants")
+        if isinstance(variants, list):
+            return manifest
+
+        manifest["mesh_variants"] = []
+        assets = manifest.get("assets")
+        if not isinstance(assets, dict):
+            return manifest
+        mesh_asset = assets.get("mesh")
+        diagnostics_asset = assets.get("mesh_diagnostics")
+        if not isinstance(mesh_asset, str) or not isinstance(diagnostics_asset, str):
+            return manifest
+
+        diagnostics_path = job_dir / diagnostics_asset
+        if not (job_dir / mesh_asset).is_file() or not diagnostics_path.is_file():
+            return manifest
+        try:
+            diagnostics = self._read_json(diagnostics_path)
+        except (json.JSONDecodeError, OSError):
+            return manifest
+
+        metrics = manifest.get("metrics")
+        source_asset = ""
+        if isinstance(metrics, dict):
+            source_asset = str(metrics.get("mesh_source", ""))
+        if not source_asset:
+            source_asset = str(assets.get("point_cloud_aligned") or assets.get("point_cloud") or "")
+        manifest["mesh_variants"].append(
+            self._mesh_variant(
+                variant_id="baseline",
+                mesh_asset=mesh_asset,
+                diagnostics_asset=diagnostics_asset,
+                source_asset=source_asset,
+                diagnostics=diagnostics,
+                metrics=self._mesh_metrics(source_asset, diagnostics),
+                label=f"{self._mesh_label(str(diagnostics.get('method', 'mesh')))} baseline",
+            )
         )
+        return manifest
+
+    def _mesh_variant(
+        self,
+        *,
+        variant_id: str,
+        mesh_asset: str,
+        diagnostics_asset: str,
+        source_asset: str,
+        diagnostics: dict[str, Any],
+        metrics: dict[str, int | float | str | bool],
+        label: str,
+    ) -> dict[str, Any]:
+        options = diagnostics.get("options")
+        return {
+            "id": variant_id,
+            "label": label,
+            "method": str(diagnostics.get("method", "")),
+            "mesh_asset": mesh_asset,
+            "diagnostics_asset": diagnostics_asset,
+            "source_asset": source_asset,
+            "options": options if isinstance(options, dict) else {},
+            "metrics": metrics,
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+
+    def _mesh_label(self, method: str) -> str:
+        return method.replace("_", " ").title()
 
     def _load_alignment_module(self) -> Any:
         project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()

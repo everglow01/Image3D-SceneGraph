@@ -13,6 +13,8 @@ type AxisSigns = {
   z: 1 | -1;
 };
 
+type MeshAppearance = "rgb" | "lit";
+
 export function MeshViewer({ sourceUrl }: MeshViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -22,6 +24,7 @@ export function MeshViewer({ sourceUrl }: MeshViewerProps) {
   const meshRootRef = useRef<THREE.Object3D | null>(null);
   const [viewerState, setViewerState] = useState("idle");
   const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: 1, z: 1 });
+  const [appearance, setAppearance] = useState<MeshAppearance>("rgb");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -126,7 +129,7 @@ export function MeshViewer({ sourceUrl }: MeshViewerProps) {
         }
 
         const root = gltf.scene;
-        normalizeMeshMaterials(root);
+        applyMeshAppearance(root, appearance);
         applyAxisSigns(root, axisSigns);
         scene.add(root);
         meshRootRef.current = root;
@@ -160,6 +163,12 @@ export function MeshViewer({ sourceUrl }: MeshViewerProps) {
     }
   }, [axisSigns]);
 
+  useEffect(() => {
+    if (meshRootRef.current) {
+      applyMeshAppearance(meshRootRef.current, appearance);
+    }
+  }, [appearance]);
+
   function toggleAxis(axis: keyof AxisSigns) {
     setAxisSigns((current) => ({
       ...current,
@@ -170,6 +179,14 @@ export function MeshViewer({ sourceUrl }: MeshViewerProps) {
   return (
     <div className="viewer-surface" ref={containerRef}>
       <div className="pointcloud-toolbar" aria-label="Mesh coordinate controls">
+        <div className="variant-toggle" role="group" aria-label="Mesh appearance">
+          <button className={appearance === "rgb" ? "active" : ""} onClick={() => setAppearance("rgb")} type="button">
+            RGB
+          </button>
+          <button className={appearance === "lit" ? "active" : ""} onClick={() => setAppearance("lit")} type="button">
+            Lit
+          </button>
+        </div>
         <button
           className={axisSigns.x === -1 ? "viewer-tool-button active" : "viewer-tool-button"}
           onClick={() => toggleAxis("x")}
@@ -214,17 +231,32 @@ function getObjectFrame(root: THREE.Object3D) {
   return { center, radius };
 }
 
-function normalizeMeshMaterials(root: THREE.Object3D) {
+function applyMeshAppearance(root: THREE.Object3D, appearance: MeshAppearance) {
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) {
       return;
     }
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) {
-      if ("side" in material) {
+    if (!object.geometry.getAttribute("color")) {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
         material.side = THREE.DoubleSide;
       }
+      return;
     }
+
+    const material =
+      appearance === "rgb"
+        ? new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true })
+        : new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            metalness: 0,
+            roughness: 0.85,
+            side: THREE.DoubleSide,
+            vertexColors: true
+          });
+    const previousMaterial = object.material;
+    object.material = material;
+    disposeMaterial(previousMaterial);
   });
 }
 

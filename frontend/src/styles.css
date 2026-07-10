@@ -87,6 +87,7 @@ h3 {
 .workspace {
   display: grid;
   grid-template-columns: minmax(250px, 300px) minmax(420px, 1fr) minmax(260px, 330px);
+  align-items: start;
   gap: 14px;
   min-height: calc(100vh - 108px);
 }
@@ -100,6 +101,13 @@ h3 {
 
 .panel {
   padding: 14px;
+}
+
+.upload-panel,
+.result-panel {
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .panel-heading,
@@ -286,6 +294,7 @@ h3 {
 .viewer-column {
   display: flex;
   flex-direction: column;
+  height: calc(100vh - 108px);
   min-width: 0;
   min-height: 420px;
   padding: 14px;
@@ -519,6 +528,62 @@ h3 {
   margin-top: 14px;
 }
 
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-heading span {
+  color: #667276;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mesh-settings {
+  margin-top: 10px;
+}
+
+.mesh-experiment .primary-button {
+  margin-top: 2px;
+}
+
+.mesh-variant-list {
+  display: grid;
+  gap: 6px;
+  max-height: 210px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+
+.mesh-variant-row {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid #dce3e5;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #263438;
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.mesh-variant-row strong {
+  font-size: 13px;
+}
+
+.mesh-variant-row span {
+  color: #667276;
+  font-size: 12px;
+}
+
+.mesh-variant-row.active {
+  border-color: #1f6f78;
+  background: #e5f2f2;
+}
+
 .object-list {
   margin-top: 8px;
 }
@@ -571,6 +636,13 @@ a:focus-visible,
 
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .upload-panel,
+  .result-panel,
+  .viewer-column {
+    height: auto;
+    max-height: none;
   }
 
   .viewer-surface {
