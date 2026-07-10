@@ -15,6 +15,7 @@ type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
 type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 type MeshMethod = "poisson" | "ball_pivoting" | "alpha_shape";
+type ViewerMode = "point_cloud" | "mesh" | "gaussian_splat";
 
 type MeshSettings = {
   method: MeshMethod;
@@ -193,6 +194,7 @@ export function App() {
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [jobIdInput, setJobIdInput] = useState("");
   const [pointCloudVariant, setPointCloudVariant] = useState<"raw" | "aligned">("aligned");
+  const [viewerMode, setViewerMode] = useState<ViewerMode>("point_cloud");
   const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
   const [selectedMeshVariantId, setSelectedMeshVariantId] = useState<string | null>(null);
   const [isBuildingMesh, setIsBuildingMesh] = useState(false);
@@ -225,12 +227,24 @@ export function App() {
     meshVariants.find((variant) => variant.id === selectedMeshVariantId) ?? meshVariants[0] ?? null;
   const selectedMeshAsset = selectedMeshVariant?.mesh_asset ?? manifest?.assets.mesh;
   const meshUrl = useMemo(() => {
-    if (!manifest || !selectedMeshAsset || manifest.assets.scene_splat) {
+    if (!manifest || !selectedMeshAsset) {
       return null;
     }
     const cacheKey = selectedMeshVariant?.id ?? "primary";
     return `/api/jobs/${manifest.job_id}/assets/${selectedMeshAsset}?mesh_variant=${encodeURIComponent(cacheKey)}`;
   }, [manifest, selectedMeshAsset, selectedMeshVariant]);
+  const hasPointCloud = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
+  const hasMesh = Boolean(selectedMeshAsset);
+  const hasSplat = Boolean(manifest?.assets.scene_splat);
+  const viewerAsset =
+    viewerMode === "point_cloud"
+      ? selectedPointCloudAsset
+      : viewerMode === "mesh"
+        ? selectedMeshAsset
+        : manifest?.assets.scene_splat;
+  const visiblePointCloudUrl = viewerMode === "point_cloud" ? pointCloudUrl : null;
+  const visibleMeshUrl = viewerMode === "mesh" ? meshUrl : null;
+  const visibleSplatUrl = viewerMode === "gaussian_splat" ? splatUrl : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -258,9 +272,31 @@ export function App() {
     };
   }, []);
 
-  function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false) {
+  function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
     setManifest(nextManifest);
     setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
+    setViewerMode((current) => {
+      const hasPointCloud = Boolean(nextManifest.assets.point_cloud || nextManifest.assets.point_cloud_aligned);
+      const hasMesh = Boolean(nextManifest.assets.mesh);
+      const hasSplat = Boolean(nextManifest.assets.scene_splat);
+      if (preferPointCloud && hasPointCloud) {
+        return "point_cloud";
+      }
+      if (
+        (current === "point_cloud" && hasPointCloud) ||
+        (current === "mesh" && hasMesh) ||
+        (current === "gaussian_splat" && hasSplat)
+      ) {
+        return current;
+      }
+      if (hasPointCloud) {
+        return "point_cloud";
+      }
+      if (hasMesh) {
+        return "mesh";
+      }
+      return "gaussian_splat";
+    });
     const variants = nextManifest.mesh_variants ?? [];
     setSelectedMeshVariantId((current) => {
       if (selectNewestMeshVariant && variants.length > 0) {
@@ -344,7 +380,7 @@ export function App() {
         method: "POST",
         body: form
       });
-      applyManifest(created);
+      applyManifest(created, false, true);
 
       const [status, sceneGraph] = await Promise.all([
         requestJson<JobStatus>(`/api/jobs/${created.job_id}`),
@@ -395,7 +431,7 @@ export function App() {
         requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`)
       ]);
       setJobStatus(status);
-      applyManifest(nextManifest);
+      applyManifest(nextManifest, false, true);
       setScene(sceneGraph);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load job");
@@ -637,10 +673,33 @@ export function App() {
           <div className="viewer-header">
             <div>
               <h2>3D viewer</h2>
-              <span>{manifest?.assets.scene_splat ?? manifest?.assets.mesh ?? selectedPointCloudAsset ?? "No geometry loaded"}</span>
+              <span>{viewerAsset ?? "No geometry loaded"}</span>
             </div>
             <div className="viewer-actions">
-              {manifest?.assets.point_cloud && !manifest.assets.scene_splat && !manifest.assets.mesh && (
+              {(hasPointCloud || hasMesh || hasSplat) && (
+                <div className="variant-toggle" role="group" aria-label="Geometry preview">
+                  {hasPointCloud && (
+                    <button className={viewerMode === "point_cloud" ? "active" : ""} type="button" onClick={() => setViewerMode("point_cloud")}>
+                      Point cloud
+                    </button>
+                  )}
+                  {hasMesh && (
+                    <button className={viewerMode === "mesh" ? "active" : ""} type="button" onClick={() => setViewerMode("mesh")}>
+                      Mesh
+                    </button>
+                  )}
+                  {hasSplat && (
+                    <button
+                      className={viewerMode === "gaussian_splat" ? "active" : ""}
+                      type="button"
+                      onClick={() => setViewerMode("gaussian_splat")}
+                    >
+                      Gaussian splat
+                    </button>
+                  )}
+                </div>
+              )}
+              {hasPointCloud && viewerMode === "point_cloud" && (
                 <div className="variant-toggle" role="group" aria-label="Point cloud view">
                   <button
                     className={pointCloudVariant === "raw" || !hasAlignedPointCloud ? "active" : ""}
@@ -665,7 +724,7 @@ export function App() {
               </button>
             </div>
           </div>
-          <GeometryViewer pointCloudUrl={pointCloudUrl} meshUrl={meshUrl} splatUrl={splatUrl} />
+          <GeometryViewer pointCloudUrl={visiblePointCloudUrl} meshUrl={visibleMeshUrl} splatUrl={visibleSplatUrl} />
         </section>
 
         <aside className="panel result-panel" aria-label="Job results">
