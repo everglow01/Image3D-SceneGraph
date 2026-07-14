@@ -19,7 +19,12 @@ def main() -> None:
     parser.add_argument("--ransac-iterations", type=int, default=400)
     parser.add_argument("--plane-distance", type=float, default=0.0)
     parser.add_argument("--min-plane-inlier-ratio", type=float, default=0.08)
-    parser.add_argument("--plane-index", type=int, default=0)
+    parser.add_argument(
+        "--plane-index",
+        type=int,
+        default=None,
+        help="Use a specific detected plane; by default choose the strongest of three candidates.",
+    )
     parser.add_argument("--target-axis", choices=["x", "y", "z", "-x", "-y", "-z"], default="z")
     parser.add_argument("--keep-plane-height", action="store_true", help="Do not translate the selected plane to target-axis 0.")
     parser.add_argument("--seed", type=int, default=42)
@@ -50,7 +55,7 @@ def align_pointcloud(
     ransac_iterations: int = 400,
     plane_distance: float = 0.0,
     min_plane_inlier_ratio: float = 0.08,
-    plane_index: int = 0,
+    plane_index: int | None = None,
     target_axis: str = "z",
     translate_plane_to_zero: bool = True,
     seed: int = 42,
@@ -59,16 +64,20 @@ def align_pointcloud(
         input_path,
         sample_size=sample_size,
         ransac_iterations=ransac_iterations,
-        max_planes=max(plane_index + 1, 1),
+        max_planes=max(plane_index + 1, 1) if plane_index is not None else 3,
         plane_distance=plane_distance,
         min_plane_inlier_ratio=min_plane_inlier_ratio,
         seed=seed,
     )
     planes = diagnostics["dominant_planes"]
-    if plane_index < 0 or plane_index >= len(planes):
-        raise SystemExit(f"Plane index {plane_index} is not available")
-
-    plane = planes[plane_index]
+    if not planes:
+        raise SystemExit("No dominant plane is available")
+    if plane_index is not None:
+        if plane_index < 0 or plane_index >= len(planes):
+            raise SystemExit(f"Plane index {plane_index} is not available")
+        plane = planes[plane_index]
+    else:
+        plane = max(planes, key=lambda candidate: candidate["inlier_ratio"])
     if plane["inlier_ratio"] < min_plane_inlier_ratio:
         raise SystemExit(
             f"Dominant plane is too weak: ratio={plane['inlier_ratio']:.3f}, "

@@ -245,6 +245,14 @@ class ColmapVggtPointCloudAdapter:
             raise ReconstructionError(f"COLMAP+VGGT runner missing: {script_path}")
 
         image_dir = context.job_dir / "input" / "images"
+        fusion_mode = os.environ.get("IMAGE3D_COLMAP_VGGT_FUSION_MODE", "points")
+        if fusion_mode not in {"points", "tsdf"}:
+            raise ReconstructionError("IMAGE3D_COLMAP_VGGT_FUSION_MODE must be 'points' or 'tsdf'")
+        grouping = os.environ.get("IMAGE3D_COLMAP_VGGT_GROUPING", "sequential")
+        if grouping not in {"sequential", "covisibility"}:
+            raise ReconstructionError(
+                "IMAGE3D_COLMAP_VGGT_GROUPING must be 'sequential' or 'covisibility'"
+            )
         command = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(script_path),
@@ -258,6 +266,12 @@ class ColmapVggtPointCloudAdapter:
             os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
             "--vggt-batch-size",
             str(_positive_int_option(context, "vggt_batch_size", "IMAGE3D_COLMAP_VGGT_BATCH_SIZE", 4)),
+            "--vggt-overlap-size",
+            str(_positive_int_option(context, "colmap_vggt_overlap_size", "IMAGE3D_COLMAP_VGGT_OVERLAP_SIZE", 2)),
+            "--vggt-grouping",
+            grouping,
+            "--fusion-mode",
+            fusion_mode,
             "--max-points",
             str(_positive_int_option(context, "colmap_vggt_max_points", "IMAGE3D_COLMAP_VGGT_MAX_POINTS", 2_000_000)),
             "--conf-percentile",
@@ -341,9 +355,11 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "num_groups",
             "batch_size",
             "vggt_batch_size",
+            "vggt_overlap_size",
             "overlap_size",
             "num_points",
             "max_points",
+            "integrated_frames",
         }:
             metrics[key] = int(value)
         elif key in {
@@ -363,6 +379,11 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "consistency_acceptance_rate",
             "consistency_residual_p50",
             "consistency_residual_p90",
+            "tsdf_voxel_length",
+            "tsdf_sdf_trunc",
+            "tsdf_depth_trunc",
+            "tsdf_full_sparse_diagonal",
+            "tsdf_robust_sparse_diagonal",
         }:
             metrics[key] = float(value)
         elif key in {

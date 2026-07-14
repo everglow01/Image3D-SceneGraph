@@ -5,6 +5,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import align_pointcloud as align_module  # noqa: E402
+
 
 def test_align_pointcloud_rotates_dominant_plane_to_z_axis(tmp_path):
     input_path = tmp_path / "tilted.ply"
@@ -66,6 +74,52 @@ def test_align_pointcloud_rotates_dominant_plane_to_z_axis(tmp_path):
     assert plane["inlier_ratio"] > 0.9
     assert abs(plane["normal"][2]) > 0.99
     assert abs(plane["centroid"][2]) < 0.05
+
+
+def test_align_pointcloud_selects_strongest_candidate_by_default(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.ply"
+    output_path = tmp_path / "aligned.ply"
+    write_ascii_ply(
+        input_path,
+        [
+            (0.0, 0.0, 0.0, 255, 0, 0),
+            (1.0, 0.0, 0.0, 0, 255, 0),
+            (0.0, 1.0, 0.0, 0, 0, 255),
+        ],
+    )
+    candidates = [
+        {
+            "index": 0,
+            "normal": [1.0, 0.0, 0.0],
+            "offset": 0.0,
+            "inlier_count": 21,
+            "inlier_ratio": 0.07,
+            "centroid": [0.0, 0.0, 0.0],
+        },
+        {
+            "index": 1,
+            "normal": [0.0, 1.0, 0.0],
+            "offset": 0.0,
+            "inlier_count": 36,
+            "inlier_ratio": 0.12,
+            "centroid": [0.0, 0.0, 0.0],
+        },
+    ]
+    monkeypatch.setattr(
+        align_module,
+        "analyze_pointcloud",
+        lambda *args, **kwargs: {"dominant_planes": candidates},
+    )
+
+    result = align_module.align_pointcloud(
+        input_path=input_path,
+        output_path=output_path,
+        min_plane_inlier_ratio=0.08,
+    )
+
+    assert result["source_plane"]["index"] == 1
+    assert result["source_plane"]["inlier_ratio"] == 0.12
+    assert output_path.exists()
 
 
 def write_ascii_ply(path: Path, points: list[tuple[float, float, float, int, int, int]]) -> None:

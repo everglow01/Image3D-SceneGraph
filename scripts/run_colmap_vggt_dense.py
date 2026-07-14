@@ -12,12 +12,14 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import open3d as o3d
 import torch
 
 from run_colmap_sparse import build_camera_payload, discover_images, parse_colmap_cameras, run_command
 from run_vggt_pointcloud import (
     DEFAULT_CHECKPOINT_DIR,
     DEFAULT_VGGT_REPO_DIR,
+    build_image_chunks,
     infer_image_group,
     load_padded_rgb_images,
     load_vggt_model,
@@ -27,6 +29,13 @@ from run_vggt_pointcloud import (
     write_json,
     write_ply,
 )
+
+
+# Covisibility graph parameters used only to order images into VGGT windows.
+# A permissive threshold maximises connectivity so the greedy chain rarely has
+# to jump; the cross-view consistency filter uses its own stricter thresholds.
+GROUPING_MIN_SHARED_POINTS = 8
+GROUPING_MAX_NEIGHBORS = 16
 
 
 @dataclass(frozen=True)
@@ -97,6 +106,15 @@ class ConsistencyFilterResult:
 
 
 @dataclass(frozen=True)
+class TsdfParameters:
+    voxel_length: float
+    sdf_trunc: float
+    depth_trunc: float
+    full_diagonal: float
+    robust_diagonal: float
+
+
+@dataclass(frozen=True)
 class CrossViewValidation:
     accepted: np.ndarray
     support_counts: np.ndarray
@@ -115,6 +133,12 @@ def main() -> None:
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="exhaustive")
     parser.add_argument("--vggt-batch-size", type=int, default=4)
+    parser.add_argument("--vggt-overlap-size", type=int, default=2)
+    parser.add_argument("--vggt-grouping", choices=["covisibility", "sequential"], default="sequential")
+    parser.add_argument("--fusion-mode", choices=["tsdf", "points"], default="points")
+    parser.add_argument("--tsdf-voxel-length", type=float, default=0.0)
+    parser.add_argument("--tsdf-sdf-trunc", type=float, default=0.0)
+    parser.add_argument("--tsdf-depth-trunc", type=float, default=0.0)
     parser.add_argument("--max-points", type=int, default=2_000_000)
     parser.add_argument("--conf-percentile", type=float, default=50.0)
     parser.add_argument("--min-scale-observations", type=int, default=20)
@@ -199,15 +223,21 @@ def main() -> None:
     )
     model.eval()
 
+    vggt_groups = build_vggt_groups(
+        registered_paths=registered_paths,
+        registered_by_name=registered_by_name,
+        grouping=args.vggt_grouping,
+        batch_size=args.vggt_batch_size,
+        overlap_size=args.vggt_overlap_size,
+    )
     vggt_started_at = time.perf_counter()
     depth_items = run_vggt_depth_batches(
         model=model,
-        image_paths=registered_paths,
+        groups=vggt_groups,
         load_and_preprocess_images=load_and_preprocess_images,
         pose_encoding_to_extri_intri=pose_encoding_to_extri_intri,
         device=device,
         dtype=dtype,
-        batch_size=args.vggt_batch_size,
     )
     vggt_seconds = time.perf_counter() - vggt_started_at
 
@@ -273,22 +303,88 @@ def main() -> None:
             )
         )
 
-    confidence_threshold = compute_global_confidence_threshold(fusion_frames, args.conf_percentile)
     covisibility_graph = build_covisibility_graph(
-        fusion_frames,
+        [frame.colmap_image for frame in fusion_frames],
         max_neighbors=args.consistency_neighbors,
         min_shared_points=args.consistency_min_shared_points,
     )
-    filtered = filter_points_by_cross_view_consistency(
-        fusion_frames,
-        covisibility_graph=covisibility_graph,
-        confidence_threshold=confidence_threshold,
-        relative_threshold=consistency_relative_threshold,
-        stride=args.consistency_stride,
-    )
-    flat_points, flat_colors = cap_points(filtered.points, filtered.colors, args.max_points, args.seed)
-    if len(flat_points) == 0:
-        raise RuntimeError("Cross-view consistency rejected every dense point")
+
+    tsdf_params: dict[str, float | int] | None = None
+    if args.fusion_mode == "tsdf":
+        tsdf_parameters = derive_tsdf_parameters(
+            points3d,
+            fusion_frames,
+            voxel_length=args.tsdf_voxel_length,
+            sdf_trunc=args.tsdf_sdf_trunc,
+            depth_trunc=args.tsdf_depth_trunc,
+        )
+        tsdf_points, tsdf_colors, tsdf_stats = fuse_frames_tsdf(
+            fusion_frames,
+            confidence_percentile=args.conf_percentile,
+            voxel_length=tsdf_parameters.voxel_length,
+            sdf_trunc=tsdf_parameters.sdf_trunc,
+            depth_trunc=tsdf_parameters.depth_trunc,
+        )
+        validate_tsdf_output(tsdf_stats)
+        flat_points, flat_colors = cap_points(tsdf_points, tsdf_colors, args.max_points, args.seed)
+        if len(flat_points) == 0:
+            raise RuntimeError("TSDF fusion produced no dense points")
+        tsdf_params = {
+            "voxel_length": tsdf_parameters.voxel_length,
+            "sdf_trunc": tsdf_parameters.sdf_trunc,
+            "depth_trunc": tsdf_parameters.depth_trunc,
+            "full_sparse_diagonal": tsdf_parameters.full_diagonal,
+            "robust_sparse_diagonal": tsdf_parameters.robust_diagonal,
+            "integrated_frames": tsdf_stats["integrated_frames"],
+        }
+        consistency_summary = None
+        consistency_payload = {
+            "fusion_mode": "tsdf",
+            "confidence_percentile": args.conf_percentile,
+            "relative_threshold": consistency_relative_threshold,
+            "voxel_length": tsdf_parameters.voxel_length,
+            "sdf_trunc": tsdf_parameters.sdf_trunc,
+            "depth_trunc": tsdf_parameters.depth_trunc,
+            "full_sparse_diagonal": tsdf_parameters.full_diagonal,
+            "robust_sparse_diagonal": tsdf_parameters.robust_diagonal,
+            "integrated_frames": tsdf_stats["integrated_frames"],
+            "confidence_threshold_min": tsdf_stats["confidence_threshold_min"],
+            "confidence_threshold_median": tsdf_stats["confidence_threshold_median"],
+            "confidence_threshold_max": tsdf_stats["confidence_threshold_max"],
+            "fused_points": tsdf_stats["num_points"],
+            "output_points": int(len(flat_points)),
+        }
+    else:
+        confidence_threshold = compute_global_confidence_threshold(fusion_frames, args.conf_percentile)
+        filtered = filter_points_by_cross_view_consistency(
+            fusion_frames,
+            covisibility_graph=covisibility_graph,
+            confidence_threshold=confidence_threshold,
+            relative_threshold=consistency_relative_threshold,
+            stride=args.consistency_stride,
+        )
+        flat_points, flat_colors = cap_points(filtered.points, filtered.colors, args.max_points, args.seed)
+        if len(flat_points) == 0:
+            raise RuntimeError("Cross-view consistency rejected every dense point")
+        consistency_summary = {
+            "candidate_points": filtered.candidate_points,
+            "accepted_points": filtered.accepted_points,
+            "rejected_points": filtered.rejected_points,
+            "unverified_points": filtered.unverified_points,
+            "supported_points": filtered.supported_points,
+            "acceptance_rate": filtered.accepted_points / max(filtered.candidate_points, 1),
+            "residual_p50": percentile_or_zero(filtered.residual_samples, 50),
+            "residual_p90": percentile_or_zero(filtered.residual_samples, 90),
+        }
+        consistency_payload = {
+            "fusion_mode": "points",
+            **build_consistency_payload(
+                filtered,
+                confidence_threshold=confidence_threshold,
+                relative_threshold=consistency_relative_threshold,
+                stride=args.consistency_stride,
+            ),
+        }
 
     write_ply(geometry_dir / "points.ply", flat_points, flat_colors)
     write_json(geometry_dir / "cameras.json", build_camera_payload(text_dir))
@@ -301,36 +397,57 @@ def main() -> None:
         visibility_graph_path,
         build_visibility_graph_payload(fusion_frames, covisibility_graph),
     )
-    write_json(
-        consistency_path,
-        build_consistency_payload(
-            filtered,
-            confidence_threshold=confidence_threshold,
-            relative_threshold=consistency_relative_threshold,
-            stride=args.consistency_stride,
-        ),
-    )
+    write_json(consistency_path, consistency_payload)
     write_json(
         fusion_diagnostics_path,
         {
             "intrinsics_source": "colmap",
             "depth_source": "vggt",
+            "fusion_mode": args.fusion_mode,
             "registered_images": len(registered_paths),
             "scale_fallback": fallback_scale,
             "camera_models": sorted({record["colmap_model"] for record in fusion_camera_records}),
-            "cross_view_filter": {
-                "confidence_threshold": confidence_threshold,
-                "neighbors": args.consistency_neighbors,
-                "min_shared_points": args.consistency_min_shared_points,
-                "relative_threshold": consistency_relative_threshold,
-                "relative_threshold_cap": args.consistency_relative_threshold,
-                "min_relative_threshold": args.consistency_min_relative_threshold,
-                "stride": args.consistency_stride,
-            },
+            "tsdf": tsdf_params,
+            "cross_view_filter": (
+                {
+                    "confidence_threshold": confidence_threshold,
+                    "neighbors": args.consistency_neighbors,
+                    "min_shared_points": args.consistency_min_shared_points,
+                    "relative_threshold": consistency_relative_threshold,
+                    "relative_threshold_cap": args.consistency_relative_threshold,
+                    "min_relative_threshold": args.consistency_min_relative_threshold,
+                    "stride": args.consistency_stride,
+                }
+                if consistency_summary is not None
+                else None
+            ),
             "images": fusion_camera_records,
         },
     )
 
+    consistency_log_lines: list[str]
+    if consistency_summary is not None:
+        consistency_log_lines = [
+            f"consistency_confidence_threshold={confidence_threshold:.6f}",
+            f"consistency_candidates={consistency_summary['candidate_points']}",
+            f"consistency_accepted={consistency_summary['accepted_points']}",
+            f"consistency_rejected={consistency_summary['rejected_points']}",
+            f"consistency_unverified={consistency_summary['unverified_points']}",
+            f"consistency_supported={consistency_summary['supported_points']}",
+            f"consistency_acceptance_rate={consistency_summary['acceptance_rate']:.6f}",
+            f"consistency_relative_threshold={consistency_relative_threshold:.6f}",
+            f"consistency_residual_p50={consistency_summary['residual_p50']:.6f}",
+            f"consistency_residual_p90={consistency_summary['residual_p90']:.6f}",
+            f"consistency_stride={args.consistency_stride}",
+        ]
+    else:
+        consistency_log_lines = ["consistency_status=not_run_tsdf"]
+
+    effective_overlap_size = (
+        args.vggt_overlap_size
+        if args.vggt_grouping == "covisibility" and args.vggt_batch_size < len(registered_paths)
+        else 0
+    )
     elapsed_seconds = time.perf_counter() - started_at
     log_lines = [
         "backend=colmap_vggt",
@@ -345,22 +462,17 @@ def main() -> None:
         f"scale_observations_median={float(np.median([estimate.observation_count for estimate in scale_estimates.values()])):.3f}",
         f"scale_log_mad_median={float(np.median([estimate.log_mad for estimate in scale_estimates.values()])):.6f}",
         "fusion_intrinsics=colmap",
+        f"fusion_mode={args.fusion_mode}",
         f"fusion_diagnostics={fusion_diagnostics_path.relative_to(output_dir).as_posix()}",
         f"visibility_graph={visibility_graph_path.relative_to(output_dir).as_posix()}",
         f"consistency_diagnostics={consistency_path.relative_to(output_dir).as_posix()}",
-        f"consistency_confidence_threshold={confidence_threshold:.6f}",
-        f"consistency_candidates={filtered.candidate_points}",
-        f"consistency_accepted={filtered.accepted_points}",
-        f"consistency_rejected={filtered.rejected_points}",
-        f"consistency_unverified={filtered.unverified_points}",
-        f"consistency_supported={filtered.supported_points}",
-        f"consistency_acceptance_rate={filtered.accepted_points / max(filtered.candidate_points, 1):.6f}",
-        f"consistency_relative_threshold={consistency_relative_threshold:.6f}",
-        f"consistency_residual_p50={percentile_or_zero(filtered.residual_samples, 50):.6f}",
-        f"consistency_residual_p90={percentile_or_zero(filtered.residual_samples, 90):.6f}",
-        f"consistency_stride={args.consistency_stride}",
+        *consistency_log_lines,
         f"matcher={args.matcher}",
         f"vggt_batch_size={args.vggt_batch_size}",
+        f"vggt_overlap_size={args.vggt_overlap_size}",
+        f"overlap_size={effective_overlap_size}",
+        f"vggt_grouping={args.vggt_grouping}",
+        f"num_groups={len(vggt_groups)}",
         f"conf_percentile={args.conf_percentile}",
         f"max_points={args.max_points}",
         f"colmap_seconds={colmap_seconds:.3f}",
@@ -368,6 +480,17 @@ def main() -> None:
         f"elapsed_seconds={elapsed_seconds:.3f}",
         *colmap_logs,
     ]
+    if tsdf_params is not None:
+        log_lines.extend(
+            [
+                f"tsdf_voxel_length={float(tsdf_params['voxel_length']):.8f}",
+                f"tsdf_sdf_trunc={float(tsdf_params['sdf_trunc']):.8f}",
+                f"tsdf_depth_trunc={float(tsdf_params['depth_trunc']):.6f}",
+                f"tsdf_full_sparse_diagonal={float(tsdf_params['full_sparse_diagonal']):.6f}",
+                f"tsdf_robust_sparse_diagonal={float(tsdf_params['robust_sparse_diagonal']):.6f}",
+                f"integrated_frames={int(tsdf_params['integrated_frames'])}",
+            ]
+        )
     (logs_dir / "run.log").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
 
     print(f"wrote {geometry_dir / 'points.ply'}")
@@ -487,18 +610,16 @@ def count_colmap_text_images(path: Path) -> int:
 def run_vggt_depth_batches(
     *,
     model: torch.nn.Module,
-    image_paths: list[Path],
+    groups: list[list[Path]],
     load_and_preprocess_images: Any,
     pose_encoding_to_extri_intri: Any,
     device: str,
     dtype: torch.dtype,
-    batch_size: int,
 ) -> dict[Path, dict[str, Any]]:
-    if batch_size <= 0:
-        raise ValueError("--vggt-batch-size must be positive")
     results: dict[Path, dict[str, Any]] = {}
-    for start in range(0, len(image_paths), batch_size):
-        batch_paths = image_paths[start : start + batch_size]
+    for batch_paths in groups:
+        if not batch_paths:
+            continue
         prediction_np, _seconds = infer_image_group(
             model=model,
             image_paths=batch_paths,
@@ -509,6 +630,10 @@ def run_vggt_depth_batches(
         )
         colors = load_padded_rgb_images(batch_paths, prediction_np["images"].shape[-2:])
         for index, image_path in enumerate(batch_paths):
+            if image_path in results:
+                # An image can appear in overlapping windows; keep the first
+                # window's depth so every image is fused exactly once.
+                continue
             results[image_path] = {
                 "depth": np.squeeze(prediction_np["depth"][index]).astype(np.float32),
                 "confidence": np.squeeze(prediction_np["depth_conf"][index]).astype(np.float32),
@@ -520,6 +645,76 @@ def run_vggt_depth_batches(
         if device == "cuda":
             torch.cuda.empty_cache()
     return results
+
+
+def build_vggt_groups(
+    *,
+    registered_paths: list[Path],
+    registered_by_name: dict[str, ColmapImage],
+    grouping: str,
+    batch_size: int,
+    overlap_size: int,
+) -> list[list[Path]]:
+    """Group registered images into VGGT inference windows.
+
+    ``sequential`` reproduces disjoint discovery-order chunks. ``covisibility``
+    orders images so each window holds co-visible views and uses overlapping
+    sliding windows for seam continuity.
+    """
+    num_images = len(registered_paths)
+    if num_images == 0:
+        return []
+    if batch_size <= 0 or batch_size >= num_images:
+        return [list(registered_paths)]
+
+    if grouping == "sequential":
+        return [
+            list(registered_paths[start : start + batch_size])
+            for start in range(0, num_images, batch_size)
+        ]
+
+    ordered_images = registered_images_in_covisibility_order(
+        [registered_by_name[path.name] for path in registered_paths]
+    )
+    path_by_name = {path.name: path for path in registered_paths}
+    index_chunks = build_image_chunks(len(ordered_images), batch_size, overlap_size)
+    return [[path_by_name[ordered_images[index].name] for index in chunk] for chunk in index_chunks]
+
+
+def registered_images_in_covisibility_order(colmap_images: list[ColmapImage]) -> list[ColmapImage]:
+    graph = build_covisibility_graph(
+        colmap_images,
+        max_neighbors=GROUPING_MAX_NEIGHBORS,
+        min_shared_points=GROUPING_MIN_SHARED_POINTS,
+    )
+    return order_images_by_covisibility(colmap_images, graph)
+
+
+def order_images_by_covisibility(
+    colmap_images: list[ColmapImage],
+    graph: dict[int, list[CovisibilityEdge]],
+) -> list[ColmapImage]:
+    """Greedy covisibility chain: hop to the strongest unvisited neighbor, and
+    jump to the globally best-connected remaining image when a chain dead-ends."""
+    image_by_id = {image.image_id: image for image in colmap_images}
+    strength = {
+        image_id: sum(edge.shared_points for edge in graph.get(image_id, []))
+        for image_id in image_by_id
+    }
+    remaining = set(image_by_id)
+    order: list[ColmapImage] = []
+    current: int | None = None
+    while remaining:
+        if current is None or current not in remaining:
+            current = max(remaining, key=lambda image_id: (strength[image_id], -image_id))
+        order.append(image_by_id[current])
+        remaining.discard(current)
+        current = None
+        for edge in graph.get(order[-1].image_id, []):
+            if edge.target_image_id in remaining:
+                current = edge.target_image_id
+                break
+    return order
 
 
 def estimate_depth_scale(
@@ -738,6 +933,196 @@ def undistort_radial_coordinates(
     return undistorted_x, undistorted_y
 
 
+def derive_tsdf_parameters(
+    points3d: dict[int, np.ndarray],
+    frames: list[FusionFrame],
+    *,
+    voxel_length: float,
+    sdf_trunc: float,
+    depth_trunc: float,
+) -> TsdfParameters:
+    """Resolve TSDF parameters in COLMAP's arbitrary world units.
+
+    Auto voxel sizing uses a percentile-clipped sparse extent so a few bad
+    COLMAP points cannot make the output hundreds of times sparser. Other
+    non-positive arguments are derived from that voxel and the depth maps.
+    """
+    full_diagonal = 0.0
+    robust_diagonal = 0.0
+    if points3d:
+        coords = np.stack(list(points3d.values()))
+        full_extent = coords.max(axis=0) - coords.min(axis=0)
+        full_diagonal = float(np.linalg.norm(full_extent))
+        robust_min = np.percentile(coords, 0.5, axis=0)
+        robust_max = np.percentile(coords, 99.5, axis=0)
+        robust_diagonal = float(np.linalg.norm(robust_max - robust_min))
+    scene_diagonal = robust_diagonal if robust_diagonal > 0 else full_diagonal
+    if scene_diagonal <= 0:
+        scene_diagonal = 1.0
+
+    if voxel_length <= 0:
+        voxel_length = max(scene_diagonal / 1024.0, 1e-6)
+    if sdf_trunc <= 0:
+        sdf_trunc = 5.0 * voxel_length
+    if depth_trunc <= 0:
+        far_samples: list[float] = []
+        for frame in frames:
+            valid = valid_depth_canvas_mask(frame.original_size, frame.image_shape)
+            valid &= np.isfinite(frame.depth) & (frame.depth > 0)
+            if valid.any():
+                far_samples.append(float(np.percentile(frame.depth[valid] * frame.scale, 99)))
+        depth_trunc = 1.5 * (float(np.median(far_samples)) if far_samples else scene_diagonal)
+    return TsdfParameters(
+        voxel_length=voxel_length,
+        sdf_trunc=sdf_trunc,
+        depth_trunc=depth_trunc,
+        full_diagonal=full_diagonal,
+        robust_diagonal=robust_diagonal,
+    )
+
+
+def undistort_to_pinhole(
+    depth: np.ndarray, color: np.ndarray, camera: FusionCamera
+) -> tuple[np.ndarray, np.ndarray]:
+    """Backward-remap a distorted depth/color pair onto the linear pinhole model.
+
+    Returns the inputs unchanged for pinhole cameras. For radial models it uses
+    the existing analytic distortion to find each pinhole pixel's source pixel
+    and samples nearest-neighbour (avoids blending across depth discontinuities),
+    leaving the ``fx, fy, cx, cy`` intrinsic distortion-free for TSDF integrate.
+    """
+    if not camera.radial_distortion:
+        return depth, color
+
+    height, width = depth.shape
+    fx = float(camera.intrinsic[0, 0])
+    fy = float(camera.intrinsic[1, 1])
+    cx = float(camera.intrinsic[0, 2])
+    cy = float(camera.intrinsic[1, 2])
+    yy, xx = np.meshgrid(np.arange(height), np.arange(width), indexing="ij")
+    normalized_x = (xx.astype(np.float32) - cx) / fx
+    normalized_y = (yy.astype(np.float32) - cy) / fy
+    distorted_x, distorted_y = distort_radial_coordinates(
+        normalized_x, normalized_y, camera.radial_distortion
+    )
+    source_u = np.round(distorted_x * fx + cx).astype(np.int64)
+    source_v = np.round(distorted_y * fy + cy).astype(np.int64)
+    in_bounds = (source_u >= 0) & (source_u < width) & (source_v >= 0) & (source_v < height)
+    clipped_u = np.clip(source_u, 0, width - 1)
+    clipped_v = np.clip(source_v, 0, height - 1)
+
+    out_depth = np.where(in_bounds, depth[clipped_v, clipped_u], 0.0).astype(np.float32)
+    sampled_color = color[clipped_v, clipped_u]
+    out_color = np.zeros_like(color)
+    out_color[in_bounds] = sampled_color[in_bounds]
+    return out_depth, out_color
+
+
+def fuse_frames_tsdf(
+    frames: list[FusionFrame],
+    *,
+    confidence_percentile: float,
+    voxel_length: float,
+    sdf_trunc: float,
+    depth_trunc: float,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """Fuse per-frame VGGT depth into one TSDF volume in COLMAP's global frame.
+
+    Confidence is thresholded per frame because independently inferred VGGT
+    windows do not share a calibrated absolute confidence scale.
+    """
+    volume = o3d.pipelines.integration.ScalableTSDFVolume(
+        voxel_length=voxel_length,
+        sdf_trunc=sdf_trunc,
+        color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8,
+    )
+    integrated = 0
+    integrated_valid_pixels = 0
+    confidence_thresholds: list[float] = []
+    for frame in frames:
+        metric_depth = frame.depth.astype(np.float32) * float(frame.scale)
+        valid_canvas = valid_depth_canvas_mask(frame.original_size, frame.image_shape)
+        confidence_valid = valid_canvas & np.isfinite(frame.confidence) & (frame.confidence > 0)
+        if not confidence_valid.any():
+            continue
+        confidence_threshold = float(np.percentile(frame.confidence[confidence_valid], confidence_percentile))
+        valid = valid_canvas & np.isfinite(metric_depth) & (metric_depth > 0)
+        valid &= np.isfinite(frame.confidence) & (frame.confidence >= confidence_threshold)
+        if not valid.any():
+            continue
+        metric_depth = np.where(valid, metric_depth, 0.0).astype(np.float32)
+        depth_map, color_map = undistort_to_pinhole(
+            metric_depth, np.ascontiguousarray(frame.colors, dtype=np.uint8), frame.camera
+        )
+
+        height, width = depth_map.shape
+        color_image = o3d.geometry.Image(np.ascontiguousarray(color_map, dtype=np.uint8))
+        depth_image = o3d.geometry.Image(np.ascontiguousarray(depth_map, dtype=np.float32))
+        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            color_image,
+            depth_image,
+            depth_scale=1.0,
+            depth_trunc=depth_trunc,
+            convert_rgb_to_intensity=False,
+        )
+        intrinsic = o3d.camera.PinholeCameraIntrinsic(
+            width,
+            height,
+            float(frame.camera.intrinsic[0, 0]),
+            float(frame.camera.intrinsic[1, 1]),
+            float(frame.camera.intrinsic[0, 2]),
+            float(frame.camera.intrinsic[1, 2]),
+        )
+        extrinsic = np.eye(4, dtype=np.float64)
+        extrinsic[:3, :3] = qvec_to_rotmat(frame.colmap_image.qvec)
+        extrinsic[:3, 3] = frame.colmap_image.tvec
+        volume.integrate(rgbd, intrinsic, extrinsic)
+        integrated += 1
+        integrated_valid_pixels += int(valid.sum())
+        confidence_thresholds.append(confidence_threshold)
+
+    if integrated == 0:
+        raise RuntimeError("TSDF fusion integrated no frames after confidence filtering")
+
+    cloud = volume.extract_point_cloud()
+    points = np.asarray(cloud.points, dtype=np.float32)
+    raw_colors = np.asarray(cloud.colors)
+    if raw_colors.size:
+        colors = np.clip(np.round(raw_colors * 255.0), 0, 255).astype(np.uint8)
+    else:
+        colors = np.zeros((len(points), 3), dtype=np.uint8)
+    stats = {
+        "input_frames": len(frames),
+        "integrated_frames": integrated,
+        "integrated_valid_pixels": integrated_valid_pixels,
+        "num_points": int(len(points)),
+        "voxel_length": float(voxel_length),
+        "sdf_trunc": float(sdf_trunc),
+        "depth_trunc": float(depth_trunc),
+        "confidence_threshold_min": float(np.min(confidence_thresholds)),
+        "confidence_threshold_median": float(np.median(confidence_thresholds)),
+        "confidence_threshold_max": float(np.max(confidence_thresholds)),
+    }
+    return points, colors, stats
+
+
+def validate_tsdf_output(stats: dict[str, Any]) -> None:
+    input_frames = int(stats["input_frames"])
+    integrated_frames = int(stats["integrated_frames"])
+    num_points = int(stats["num_points"])
+    if integrated_frames < max(1, int(np.ceil(input_frames * 0.9))):
+        raise RuntimeError(
+            "TSDF fusion skipped too many frames: "
+            f"integrated={integrated_frames}, input={input_frames}"
+        )
+    if num_points < max(10_000, integrated_frames * 500):
+        raise RuntimeError(
+            "TSDF fusion output is implausibly sparse: "
+            f"points={num_points}, integrated_frames={integrated_frames}. "
+            "Use --fusion-mode points or reduce --tsdf-voxel-length."
+        )
+
+
 def compute_global_confidence_threshold(frames: list[FusionFrame], percentile: float) -> float:
     confidence_parts: list[np.ndarray] = []
     for frame in frames:
@@ -762,15 +1147,15 @@ def derive_consistency_relative_threshold(
 
 
 def build_covisibility_graph(
-    frames: list[FusionFrame],
+    colmap_images: list[ColmapImage],
     *,
     max_neighbors: int,
     min_shared_points: int,
 ) -> dict[int, list[CovisibilityEdge]]:
     track_images: dict[int, set[int]] = {}
-    for frame in frames:
-        for _x, _y, point3d_id in frame.colmap_image.observations:
-            track_images.setdefault(point3d_id, set()).add(frame.colmap_image.image_id)
+    for image in colmap_images:
+        for _x, _y, point3d_id in image.observations:
+            track_images.setdefault(point3d_id, set()).add(image.image_id)
 
     shared_counts: dict[tuple[int, int], int] = {}
     for image_ids in track_images.values():
@@ -778,12 +1163,12 @@ def build_covisibility_graph(
             key = (first_id, second_id)
             shared_counts[key] = shared_counts.get(key, 0) + 1
 
-    frame_by_id = {frame.colmap_image.image_id: frame for frame in frames}
+    image_by_id = {image.image_id: image for image in colmap_images}
     centers = {
-        image_id: colmap_camera_center(frame.colmap_image)
-        for image_id, frame in frame_by_id.items()
+        image_id: colmap_camera_center(image)
+        for image_id, image in image_by_id.items()
     }
-    candidates: dict[int, list[CovisibilityEdge]] = {image_id: [] for image_id in frame_by_id}
+    candidates: dict[int, list[CovisibilityEdge]] = {image_id: [] for image_id in image_by_id}
     for (first_id, second_id), shared_points in shared_counts.items():
         if shared_points < min_shared_points:
             continue

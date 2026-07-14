@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
@@ -14,15 +15,21 @@ from run_colmap_vggt_dense import (  # noqa: E402
     DepthScaleEstimate,
     FusionFrame,
     FusionCamera,
-    build_fusion_camera,
     build_covisibility_graph,
+    build_fusion_camera,
+    build_vggt_groups,
     derive_consistency_relative_threshold,
+    derive_tsdf_parameters,
     estimate_depth_scale,
+    fuse_frames_tsdf,
     map_original_pixel_to_vggt,
+    order_images_by_covisibility,
     undistort_radial_coordinates,
+    undistort_to_pinhole,
     unproject_depth_with_colmap_pose,
     valid_depth_canvas_mask,
     validate_cross_view_consistency,
+    validate_tsdf_output,
 )
 
 
@@ -120,7 +127,9 @@ def test_covisibility_graph_uses_shared_sparse_tracks():
         make_frame(3, [(0.0, 0.0, 99)]),
     ]
 
-    graph = build_covisibility_graph(frames, max_neighbors=2, min_shared_points=2)
+    graph = build_covisibility_graph(
+        [frame.colmap_image for frame in frames], max_neighbors=2, min_shared_points=2
+    )
 
     assert [(edge.target_image_id, edge.shared_points) for edge in graph[1]] == [(2, 2)]
     assert [(edge.target_image_id, edge.shared_points) for edge in graph[2]] == [(1, 2)]
@@ -150,6 +159,158 @@ def test_consistency_threshold_uses_robust_scale_dispersion_with_bounds():
     )
 
     assert np.isclose(threshold, 0.02)
+
+
+def test_order_images_by_covisibility_starts_at_hub_and_ends_isolated():
+    images = [
+        make_frame(1, [(0.0, 0.0, 10), (0.0, 0.0, 11), (0.0, 0.0, 12)]).colmap_image,
+        make_frame(2, [(0.0, 0.0, 10), (0.0, 0.0, 11), (0.0, 0.0, 12), (0.0, 0.0, 20), (0.0, 0.0, 21)]).colmap_image,
+        make_frame(3, [(0.0, 0.0, 20), (0.0, 0.0, 21)]).colmap_image,
+        make_frame(4, [(0.0, 0.0, 99)]).colmap_image,
+    ]
+    graph = build_covisibility_graph(images, max_neighbors=8, min_shared_points=2)
+
+    order = order_images_by_covisibility(images, graph)
+
+    assert [image.image_id for image in order] == [2, 1, 3, 4]
+
+
+def test_build_vggt_groups_sequential_matches_disjoint_chunks():
+    paths = [Path(f"frame_{i}.jpg") for i in range(5)]
+    registered_by_name = {path.name: make_frame(i, []).colmap_image for i, path in enumerate(paths)}
+
+    groups = build_vggt_groups(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="sequential",
+        batch_size=2,
+        overlap_size=2,
+    )
+
+    assert groups == [paths[0:2], paths[2:4], paths[4:5]]
+
+
+def test_build_vggt_groups_covisibility_covers_every_image_with_overlap():
+    paths = [Path(f"frame_{i}.jpg") for i in range(5)]
+    registered_by_name = {}
+    for i, path in enumerate(paths):
+        shared = [(0.0, 0.0, i), (0.0, 0.0, i + 1)]  # chain: consecutive frames share a track
+        registered_by_name[path.name] = make_frame(i, shared).colmap_image
+
+    groups = build_vggt_groups(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=3,
+        overlap_size=1,
+    )
+
+    assert all(len(group) <= 3 for group in groups)
+    assert {path.name for group in groups for path in group} == {path.name for path in paths}
+    assert len(groups) >= 2  # sliding windows, not a single full pass
+
+
+def test_undistort_to_pinhole_is_identity_without_distortion():
+    depth = np.arange(9, dtype=np.float32).reshape(3, 3)
+    color = np.zeros((3, 3, 3), dtype=np.uint8)
+    camera = FusionCamera(
+        model="PINHOLE",
+        intrinsic=np.array([[3.0, 0.0, 1.0], [0.0, 3.0, 1.0], [0.0, 0.0, 1.0]], dtype=np.float32),
+        radial_distortion=(),
+    )
+
+    out_depth, out_color = undistort_to_pinhole(depth, color, camera)
+
+    assert out_depth is depth
+    assert out_color is color
+
+
+def test_undistort_to_pinhole_preserves_principal_point_pixel():
+    depth = np.arange(121, dtype=np.float32).reshape(11, 11)
+    color = np.zeros((11, 11, 3), dtype=np.uint8)
+    camera = FusionCamera(
+        model="SIMPLE_RADIAL",
+        intrinsic=np.array([[10.0, 0.0, 5.0], [0.0, 10.0, 5.0], [0.0, 0.0, 1.0]], dtype=np.float32),
+        radial_distortion=(0.1,),
+    )
+
+    out_depth, out_color = undistort_to_pinhole(depth, color, camera)
+
+    assert out_depth.shape == depth.shape
+    # The principal point has zero radius, so distortion leaves it untouched.
+    assert np.isclose(out_depth[5, 5], depth[5, 5])
+
+
+def test_fuse_frames_tsdf_reconstructs_a_single_plane():
+    frame = FusionFrame(
+        image_path=Path("plane.jpg"),
+        colmap_image=ColmapImage(
+            image_id=1,
+            qvec=np.array([1.0, 0.0, 0.0, 0.0]),
+            tvec=np.zeros(3),
+            camera_id=1,
+            name="plane.jpg",
+            observations=[],
+        ),
+        camera=FusionCamera(
+            model="PINHOLE",
+            intrinsic=np.array([[14.0, 0.0, 7.0], [0.0, 14.0, 7.0], [0.0, 0.0, 1.0]], dtype=np.float32),
+            radial_distortion=(),
+        ),
+        depth=np.full((14, 14), 1.0, dtype=np.float32),
+        confidence=np.ones((14, 14), dtype=np.float32),
+        colors=np.full((14, 14, 3), 128, dtype=np.uint8),
+        scale=1.0,
+        image_shape=(14, 14),
+        original_size=(14, 14),
+    )
+
+    points, colors, stats = fuse_frames_tsdf(
+        [frame],
+        confidence_percentile=50.0,
+        voxel_length=0.02,
+        sdf_trunc=0.1,
+        depth_trunc=5.0,
+    )
+
+    assert stats["integrated_frames"] == 1
+    assert len(points) > 0
+    assert colors.shape == points.shape
+    assert np.all(np.isfinite(points))
+    # The fused surface should sit at the plane depth (z = 1) in the camera frame.
+    assert abs(float(np.median(points[:, 2])) - 1.0) < 0.1
+
+
+def test_derive_tsdf_parameters_ignores_sparse_outliers():
+    points3d = {
+        index: np.array([index / 10.0, 0.0, 0.0])
+        for index in range(1000)
+    }
+    points3d[1000] = np.array([10_000.0, 0.0, 0.0])
+
+    parameters = derive_tsdf_parameters(
+        points3d,
+        [],
+        voxel_length=0.0,
+        sdf_trunc=0.0,
+        depth_trunc=0.0,
+    )
+
+    assert parameters.full_diagonal > 9_000
+    assert 90 < parameters.robust_diagonal < 110
+    assert np.isclose(parameters.voxel_length, parameters.robust_diagonal / 1024.0)
+    assert np.isclose(parameters.sdf_trunc, 5.0 * parameters.voxel_length)
+    assert parameters.depth_trunc > 0
+
+
+def test_validate_tsdf_output_rejects_sparse_or_incomplete_results():
+    with pytest.raises(RuntimeError, match="skipped too many frames"):
+        validate_tsdf_output({"input_frames": 100, "integrated_frames": 80, "num_points": 1_000_000})
+
+    with pytest.raises(RuntimeError, match="implausibly sparse"):
+        validate_tsdf_output({"input_frames": 100, "integrated_frames": 100, "num_points": 20_000})
+
+    validate_tsdf_output({"input_frames": 100, "integrated_frames": 100, "num_points": 100_000})
 
 
 def make_frame(image_id: int, observations: list[tuple[float, float, int]]) -> FusionFrame:

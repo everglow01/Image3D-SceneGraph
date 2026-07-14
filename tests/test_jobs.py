@@ -316,6 +316,8 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["conf_percentile"] == 45.0
     assert captured_command[captured_command.index("--matcher") + 1] == "exhaustive"
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"
+    assert captured_command[captured_command.index("--vggt-grouping") + 1] == "sequential"
+    assert captured_command[captured_command.index("--fusion-mode") + 1] == "points"
     assert captured_command[captured_command.index("--max-points") + 1] == "1500000"
     assert captured_command[captured_command.index("--conf-percentile") + 1] == "45.0"
 
