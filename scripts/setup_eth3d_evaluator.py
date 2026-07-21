@@ -51,6 +51,7 @@ def main() -> None:
     else:
         print(f"repo_exists={source_dir}")
 
+    patch_legacy_cxx_standard(source_dir / "CMakeLists.txt")
     configure_command = [
         cmake,
         "-S",
@@ -81,6 +82,15 @@ def main() -> None:
     if not evaluator.is_file():
         raise SystemExit(f"Build completed but evaluator was not found at {evaluator}")
     print(f"evaluator={evaluator}")
+
+
+def patch_legacy_cxx_standard(cmake_lists: Path) -> None:
+    content = cmake_lists.read_text(encoding="utf-8")
+    legacy = 'add_definitions("-O2 -msse2 -msse3 -std=c++11")'
+    replacement = 'add_definitions("-O2 -msse2 -msse3")'
+    if legacy in content:
+        cmake_lists.write_text(content.replace(legacy, replacement), encoding="utf-8")
+        print("patched_legacy_cxx11_flag=true")
 
 
 def cmake_requires_legacy_policy(cmake: str) -> bool:
