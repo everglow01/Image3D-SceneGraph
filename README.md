@@ -161,6 +161,60 @@ uv run python scripts/align_pointcloud.py \
 The alignment step preserves the original point cloud and writes a separate aligned PLY. By default it rotates the strongest detected plane to the +Z axis and translates that plane to zero height. The point-cloud viewer uses the same Z-up convention and displays its grid on the XY plane.
 Job creation also runs this alignment as a generic point-cloud postprocess. Any backend that returns a `point_cloud` asset can expose `point_cloud_aligned` in the manifest, and the frontend viewer lets the user switch between Raw and Aligned when the aligned asset exists.
 
+## ETH3D Geometry Evaluation
+
+The optional ETH3D benchmark evaluates geometric reconstruction separately from the API and `JobStore`. Dataset files stay under the ignored `data/` directory and are not redistributed by this repository. The first frozen scene is `pipes`, defined by `benchmarks/eth3d-v1/pipes.json`.
+
+Place the official `pipes` undistorted images, COLMAP calibration, and evaluation scan at:
+
+```text
+data/benchmarks/eth3d/pipes/
+  images/dslr_images_undistorted/
+  dslr_calibration_undistorted/{cameras,images,points3D}.txt
+  dslr_scan_eval/{scan_alignment.mlp,scan1.ply}
+```
+
+The official evaluator is a separate C++ tool that requires Boost, Eigen3, and PCL development packages. Preview its setup without changing the machine:
+
+```bash
+uv run python scripts/setup_eth3d_evaluator.py
+```
+
+After installing the native prerequisites yourself, clone and build it explicitly with:
+
+```bash
+uv run python scripts/setup_eth3d_evaluator.py --install
+```
+
+Run the normal image-only reconstruction first. Do not pass ETH3D reference cameras or scans to this command:
+
+```bash
+env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
+  --image-dir data/benchmarks/eth3d/pipes/images/dslr_images_undistorted \
+  --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
+  --matcher exhaustive \
+  --vggt-batch-size 4 \
+  --vggt-grouping sequential \
+  --fusion-mode points \
+  --seed 42
+```
+
+Then align the reconstruction from corresponding estimated/reference camera centers and call the official evaluator:
+
+```bash
+uv run python scripts/evaluate_eth3d_scene.py \
+  --benchmark benchmarks/eth3d-v1/pipes.json \
+  --reconstruction-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
+  --evaluator-bin external/eth3d-multi-view-evaluation/build/ETH3DMultiViewEvaluation \
+  --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/evaluation \
+  --camera-ransac-threshold 0.05 \
+  --camera-ransac-iterations 1000 \
+  --min-camera-inliers 8 \
+  --seed 42
+```
+
+The evaluator applies one camera-center-derived Sim(3) to the raw reconstruction point cloud. It never fits the reconstruction to the laser scan with ICP. Reported Accuracy, Completeness, and F1 are therefore **GT-camera-Sim(3)-aligned geometry quality**, not evidence that the reconstruction recovered metric scale by itself. Do not use the generic Z-up `points_aligned.ply` as benchmark input; it has a different purpose.
+
 Build a mesh from a generated point cloud:
 
 ```bash

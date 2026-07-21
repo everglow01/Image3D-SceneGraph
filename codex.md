@@ -394,6 +394,23 @@ Output:
 
 ## 13. Evaluation Plan
 
+Geometry reconstruction is evaluated first on a frozen public benchmark, independently from the later semantic benchmark below.
+
+### 13.1 ETH3D geometry benchmark
+
+The first pilot is the ETH3D high-resolution MVS `pipes` training scene: 14 undistorted 6220×4141 images, reference COLMAP cameras, and the official `scan_eval` laser-scan input. The scene contract is versioned in `benchmarks/eth3d-v1/pipes.json`; large data and generated results remain under ignored `data/` and `outputs/` directories.
+
+Protocol:
+
+- Reconstruction receives RGB images only. ETH3D reference cameras and scans are evaluation-only.
+- Match estimated and reference cameras by image name and estimate exactly one global RANSAC + Umeyama Sim(3) from camera centers.
+- Apply that transform once to the raw reconstruction PLY, then use the official ETH3D evaluator for Accuracy, Completeness, and F1 at 1/2/5/10/20/50 cm.
+- Do not use scan ICP, scan-derived scale refinement, per-window GT alignment, GT-guided cropping, or the generic Z-up point cloud.
+- Label results as GT-camera-Sim(3)-aligned geometry quality, not native metric-scale recovery.
+- Stabilize the single-scene runner and result schema before adding multi-scene orchestration or tuning reconstruction algorithms.
+
+### 13.2 Semantic office/tabletop benchmark
+
 Build a small office/tabletop benchmark. It does not need to be large, but it must be consistent.
 
 Suggested dataset:
@@ -594,6 +611,7 @@ Do not begin with training or fine-tuning.
 - User has a Nerfstudio splatfacto checkpoint at `/home/owen/nerfstudio/outputs/drjohnson_hq/splatfacto/2026-06-22_161605/nerfstudio_models/step-000029999.ckpt`, but no browser-ready `.splat/.ply/.ksplat` export was found there.
 - Nerfstudio `ns-export gaussian-splat` successfully exported `/home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq/splat.ply` from that checkpoint; this file is intentionally under ignored `outputs/`.
 - `scripts/register_gaussian_splat.py` can register an exported `.ply/.splat/.ksplat` as a local `nerfstudio_3dgs + gaussian_splat` job.
+- ETH3D high-resolution MVS `pipes` is the first frozen geometry benchmark. Its 14 undistorted 6220×4141 images are the only reconstruction inputs; reference COLMAP poses and `scan_eval` are evaluation-only. Offline evaluation estimates one global camera-center RANSAC Sim(3), then invokes the official ETH3D evaluator. Scan ICP, GT-guided reconstruction, and metric-scale claims are prohibited. Full multi-scene benchmark orchestration is deferred until this single-scene result schema is stable.
 - Phase B voxel/TSDF fusion is available as an experimental opt-in (`--fusion-mode tsdf` or `IMAGE3D_COLMAP_VGGT_FUSION_MODE=tsdf`); the stable default remains cross-view-filtered point fusion (`points`). Per-frame VGGT depth is rescaled to COLMAP, thresholded by a per-frame confidence percentile, pad-masked, undistorted for `SIMPLE_RADIAL`/`RADIAL`, and integrated into an Open3D `ScalableTSDFVolume`. Auto voxel sizing uses the 0.5%-99.5% percentile-clipped COLMAP sparse extent, not the full min/max: job `20260711_082305_16f2872e` showed that sparse outliers inflated the full diagonal from 19.45 to 142.99 and made voxel size 0.1396 instead of 0.0190, collapsing output from millions of points to 48,601. TSDF now rejects runs that integrate under 90% of frames or produce implausibly sparse output rather than recording them as successful. `--fusion-mode points` and `IMAGE3D_COLMAP_VGGT_FUSION_MODE=points` are the production defaults.
 - For the `colmap_vggt` path, poses come entirely from COLMAP's global SfM, so VGGT batching affects depth quality but not global camera drift. Covisibility-ordered overlapping VGGT windows remain experimental (`--vggt-grouping covisibility`, `--vggt-overlap-size 2`); stable API jobs explicitly default to disjoint sequential groups via `IMAGE3D_COLMAP_VGGT_GROUPING=sequential`. The two batching strategies must be compared under the same `points` fusion before covisibility grouping can become the default.
 - Generic point-cloud alignment now analyzes three RANSAC plane candidates and selects the candidate with the strongest global inlier ratio unless `--plane-index` is explicitly set. This fixed the TSDF regression job above, whose first candidate had 7.10% support but whose second candidate had 11.96%, without lowering the 8% plane-quality threshold.

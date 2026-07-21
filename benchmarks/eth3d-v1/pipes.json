@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "eth3d-high-res-mvs-v1",
+  "scene_id": "pipes",
+  "split": "development",
+  "dataset_root": "data/benchmarks/eth3d/pipes",
+  "inputs": {
+    "image_dir": "images/dslr_images_undistorted",
+    "reference_cameras": "dslr_calibration_undistorted/cameras.txt",
+    "reference_images": "dslr_calibration_undistorted/images.txt",
+    "ground_truth_mlp": "dslr_scan_eval/scan_alignment.mlp",
+    "expected_image_count": 14,
+    "expected_image_size": [6220, 4141],
+    "expected_image_names": [
+      "DSC_0634.JPG",
+      "DSC_0635.JPG",
+      "DSC_0636.JPG",
+      "DSC_0637.JPG",
+      "DSC_0638.JPG",
+      "DSC_0639.JPG",
+      "DSC_0640.JPG",
+      "DSC_0641.JPG",
+      "DSC_0642.JPG",
+      "DSC_0643.JPG",
+      "DSC_0644.JPG",
+      "DSC_0645.JPG",
+      "DSC_0646.JPG",
+      "DSC_0647.JPG"
+    ]
+  },
+  "source_archives": {
+    "pipes_dslr_undistorted.7z": "718981351c14e84759fcc73215e7251fce93d6e9ea1fe24f9e15f1028232c12c",
+    "pipes_dslr_scan_eval.7z": "d900ecf9ab3bfda3dddbd78174f1ef90103aa8060d1f403253ad7c9e3dc54f4c"
+  },
+  "evaluation": {
+    "tolerances_meters": [0.01, 0.02, 0.05, 0.1, 0.2, 0.5],
+    "alignment": "camera_centers_sim3_ransac",
+    "transform_direction": "eth3d_reference_from_reconstruction"
+  },
+  "protocol": {
+    "reconstruction_inputs": ["rgb_images"],
+    "reference_cameras_evaluation_only": true,
+    "ground_truth_scan_evaluation_only": true,
+    "scan_based_registration_forbidden": true,
+    "metric_scale_recovery_claimed": false
+  }
+}
