@@ -1,0 +1,331 @@
+ETH3D EXPERIMENT LOG
+====================
+
+Protocol
+--------
+Benchmark: ETH3D High-resolution Multi-view, development split
+Scene: pipes
+Benchmark manifest: benchmarks/eth3d-v1/pipes.json
+Reconstruction input: 14 undistorted RGB images only
+Reference cameras: evaluation-only, used once for camera-centre Sim(3) alignment
+Ground-truth scan: evaluation-only, scored by official ETH3D evaluator
+Forbidden: scan ICP, scan-derived scale fitting, GT-guided crop/filter tuning
+Metric meaning: GT-camera-Sim(3)-aligned geometry quality; not native metric-scale recovery.
+
+B1 — COLMAP + VGGT point-fusion baseline
+-----------------------------------------
+Status: reproducible
+Date: 2026-07-21
+Configuration ID: colmap_vggt_points
+
+Reconstruction command:
+env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
+  --image-dir data/benchmarks/eth3d/pipes/images/dslr_images_undistorted \
+  --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
+  --matcher exhaustive \
+  --vggt-batch-size 4 \
+  --vggt-overlap-size 2 \
+  --vggt-grouping sequential \
+  --fusion-mode points \
+  --max-points 2000000 \
+  --conf-percentile 50 \
+  --device cuda \
+  --seed 42
+
+Reconstruction results:
+- Input images: 14
+- Registered / scaled images: 11 / 14 (78.6%)
+- Unregistered images: DSC_0637.JPG, DSC_0646.JPG, DSC_0647.JPG
+- Output points: 985695
+- COLMAP runtime: 6.873 s
+- VGGT runtime: 9.540 s
+- Total runtime: 25.344 s
+- Cross-view consistency candidates / accepted: 997150 / 985695 (98.8512%)
+- Cross-view residual P50 / P90: 0.007260 / 0.015925 (internal diagnostic; not GT error)
+
+Evaluation command (first run; visualizations enabled):
+uv run python scripts/evaluate_eth3d_scene.py \
+  --benchmark benchmarks/eth3d-v1/pipes.json \
+  --reconstruction-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
+  --evaluator-bin external/eth3d-multi-view-evaluation/build/ETH3DMultiViewEvaluation \
+  --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/evaluation \
+  --camera-ransac-threshold 0.05 \
+  --camera-ransac-iterations 1000 \
+  --min-camera-inliers 8 \
+  --seed 42 \
+  --write-visualizations
+
+Official ETH3D metrics:
+Tolerance   Accuracy   Completeness   F1
+1 cm        0.404080   0.136653       0.204237
+2 cm        0.629273   0.209481       0.314325
+5 cm        0.884757   0.268910       0.412459
+10 cm       0.965447   0.294023       0.450766
+20 cm       0.983562   0.314306       0.476381
+50 cm       0.999445   0.352913       0.521632
+
+Camera-centre Sim(3) alignment:
+- Matched cameras / RANSAC inliers: 11 / 11
+- RANSAC threshold: 0.05 ETH3D reference units
+- Centre residual mean / median / P90 / max:
+  0.00502433 / 0.00201078 / 0.01555286 / 0.01600910
+- Scale, ETH3D reference from reconstruction: 0.2013539139
+- Raw reconstruction SHA-256: 661674d08014b313b6ecc57e02faf15eccbf1ecc827db911da13d398bac33728
+- Aligned reconstruction SHA-256: 17c9b138a28873b5636a3372f2f85de5092a950c791279d4290ea103c914a719
+
+Reproducibility check
+---------------------
+Second evaluation output:
+outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/evaluation_repeat_20260721
+
+The second evaluation used the same frozen reconstruction, benchmark, RANSAC settings,
+and seed, but omitted optional visualization PLY files. It reproduced exactly:
+- sim3.json: byte-equivalent JSON content
+- aligned point-cloud SHA-256: 17c9b138a28873b5636a3372f2f85de5092a950c791279d4290ea103c914a719
+- all official Accuracy, Completeness, and F1 values
+
+The result.json files differ only in evaluator argv paths and visualization arguments due
+to their distinct output directories; this does not affect the aligned geometry or scores.
+
+Interpretation and next action
+------------------------------
+Accuracy is strong at relaxed tolerances, while completeness is the limiting metric.
+The immediate investigation target is the COLMAP registration gap (3 of 14 images), not
+confidence or filtering thresholds. Do not compare a future experiment to B1 unless it
+uses the same ETH3D scene, RGB-only reconstruction protocol, one camera-derived Sim(3),
+official evaluator tolerances, and recorded seed/configuration.
+
+Registration-gap diagnosis (B1)
+-------------------------------
+Evidence source:
+outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction/
+  colmap_vggt/database.db
+
+All 14 images were feature-extracted and exhaustively matched. The three unregistered
+images have substantial SIFT feature counts, so extraction is not the bottleneck:
+- DSC_0637.JPG: 1744 features
+- DSC_0646.JPG: 3366 features
+- DSC_0647.JPG: 3049 features
+
+Their verified two-view geometry is sparse and largely isolated from the 11-image model:
+- DSC_0637.JPG: 136 inliers with DSC_0638.JPG, 60 with DSC_0645.JPG; all other
+  registered-image pairs have zero verified inliers.
+- DSC_0646.JPG: 88 inliers with DSC_0643.JPG; all other registered-image pairs have
+  zero verified inliers.
+- DSC_0647.JPG: 109 inliers with DSC_0643.JPG, plus 25 or fewer with several images.
+
+COLMAP first built the 11-image component, then initialized a separate component using
+DSC_0647.JPG and DSC_0646.JPG. It attempted to add DSC_0643.JPG to that component twice
+and failed, then found no further viable initial pair. The chosen output remains the
+11-image component (1146 sparse points, 0.749424 px mean reprojection error).
+
+Conclusion: the immediate failure is insufficient verified geometric connectivity between
+these three images and the main SfM component, not lack of image features. The next B2
+experiment must vary only COLMAP matching/registration settings while holding VGGT,
+fusion, RGB-only inputs, seed, and the ETH3D evaluation protocol constant.
+
+B2 design — relaxed COLMAP absolute-pose registration
+------------------------------------------------------
+Hypothesis: B1's default COLMAP absolute-pose registration thresholds reject the weak,
+but geometrically verified, bridges from DSC_0637.JPG, DSC_0646.JPG, and DSC_0647.JPG to
+the main model.
+
+Probe command (uses B1's frozen feature/match database; no VGGT or fusion run):
+/usr/bin/colmap mapper \
+  --database_path outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction/colmap_vggt/database.db \
+  --image_path data/benchmarks/eth3d/pipes/images/dslr_images_undistorted \
+  --output_path outputs/benchmarks/eth3d-v1/pipes/registration_probe_relaxed_mapper/sparse \
+  --Mapper.abs_pose_min_num_inliers 15 \
+  --Mapper.abs_pose_min_inlier_ratio 0.10
+
+Only changed variables from B1 COLMAP defaults:
+- Mapper.abs_pose_min_num_inliers: 30 -> 15
+- Mapper.abs_pose_min_inlier_ratio: 0.25 -> 0.10
+
+Probe outcome:
+- One 14/14-image sparse model was produced.
+- Sparse points: 1225, versus B1's 1146.
+- Mean reprojection error: 0.779376 px, versus B1's 0.749424 px.
+- All three formerly missing images are in the same 14-image model.
+
+Decision: B2 is justified as a controlled registration-coverage experiment. Implement
+these two explicit runner options, then rerun the complete COLMAP+VGGT+fusion pipeline
+with no other configuration changes. The official ETH3D evaluation will decide whether
+coverage gains outweigh any geometry-quality cost from the relaxed registration gate.
+
+B2 — relaxed COLMAP registration
+---------------------------------
+Status: accepted improvement over B1 on ETH3D pipes
+Date: 2026-07-21
+Configuration ID: colmap_vggt_points_relaxed_registration
+
+Changed from B1 only:
+- --mapper-abs-pose-min-num-inliers 15 (B1/default: 30)
+- --mapper-abs-pose-min-inlier-ratio 0.10 (B1/default: 0.25)
+
+All of these remained fixed: 14 RGB inputs, exhaustive matching, sequential VGGT groups,
+batch size 4, overlap 2, points fusion, max 2000000 points, confidence percentile 50,
+CUDA, seed 42, camera-centre Sim(3), and official ETH3D tolerances.
+
+B2 reconstruction results:
+- Registered / scaled images: 14 / 14 (B1: 11 / 14)
+- Output points: 1226567 (B1: 985695)
+- COLMAP / VGGT / total runtime: 6.835 s / 12.044 s / 27.934 s
+- Sparse points: 1225 (B1: 1146)
+- Sparse mean reprojection error: 0.779376 px (B1: 0.749424 px)
+- Cross-view consistency candidates / accepted: 1269100 / 1226567 (96.6486%)
+- Cross-view residual P50 / P90: 0.006457 / 0.014796 (internal diagnostic; not GT error)
+
+Official ETH3D comparison:
+Tolerance   B1 F1      B2 F1      Delta F1    B1 complete  B2 complete  Delta complete
+1 cm        0.204237   0.290967   +0.086730   0.136653     0.208319     +0.071666
+2 cm        0.314325   0.443856   +0.129531   0.209481     0.321584     +0.112103
+5 cm        0.412459   0.567320   +0.154861   0.268910     0.408302     +0.139392
+10 cm       0.450766   0.613549   +0.162783   0.294023     0.448307     +0.154284
+20 cm       0.476381   0.646735   +0.170354   0.314306     0.481295     +0.166989
+50 cm       0.521632   0.733617   +0.211985   0.352913     0.579666     +0.226753
+
+B2 accuracy (B1 -> B2):
+- 1 cm: 0.404080 -> 0.482325 (+0.078245)
+- 2 cm: 0.629273 -> 0.716144 (+0.086871)
+- 5 cm: 0.884757 -> 0.929211 (+0.044454)
+- 10 cm: 0.965447 -> 0.971716 (+0.006269)
+- 20 cm: 0.983562 -> 0.985485 (+0.001923)
+- 50 cm: 0.999445 -> 0.998914 (-0.000531)
+
+B2 camera-centre Sim(3):
+- Matched cameras / RANSAC inliers: 14 / 14
+- Residual mean / median / P90 / max: 0.00609717 / 0.00426370 / 0.01136573 / 0.01682959
+- Scale, ETH3D reference from reconstruction: 0.1942725474
+- Aligned reconstruction SHA-256: 17f56f8bc1589334c2488bb66c02d61133a2371354104c23678b3f7c7f72a2ea
+
+Conclusion: retain B2 as the current pipes baseline. Recovering all camera views materially
+improved completeness and F1 without a meaningful accuracy penalty. The relaxed gate has
+only been validated on this one ETH3D scene; it must be re-evaluated on additional scenes
+before being called a general improvement.
+
+B2 reproducibility check
+------------------------
+Second output:
+outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points_relaxed_registration/
+  evaluation_repeat_20260721
+
+With the same frozen B2 reconstruction, benchmark, RANSAC settings, and seed:
+- sim3.json was byte-identical.
+- Aligned point-cloud SHA-256 was identical:
+  17f56f8bc1589334c2488bb66c02d61133a2371354104c23678b3f7c7f72a2ea
+- All six official metric rows were identical.
+- Both official evaluator invocations returned exit code 0.
+- Repository test suite after the B2 runner change: 47 passed.
+
+The two result.json documents differ only in output-directory-specific evaluator argv
+paths. B2's measured improvement over B1 is therefore reproducible for the frozen
+single-scene protocol.
+
+Terrains asset preparation
+--------------------------
+Date: 2026-07-21
+- `terrains_dslr_undistorted.7z` SHA-256:
+  10b57fba67dd644646497263c83e57fd81a6f2954774f670a597a40f0dc43e9d
+- `terrains_dslr_scan_eval.7z` SHA-256:
+  5770b66a49aa249c880272c4cab2e701800f30eee876c8c1215b49ad42293b2c
+- Both archives passed an integrity test before extraction.
+- The extracted scene contains 42 readable undistorted RGB images, matching all 42
+  reference image basenames after normalizing ETH3D's `dslr_images_undistorted/` prefix.
+- The scene has two official image sizes: 18 images at 6223x4148 and 24 at 6215x4147.
+  `benchmarks/eth3d-v1/terrains.json` freezes every image's actual size.
+- `scan_alignment.mlp` references existing `scan1.ply` and `scan2.ply` files.
+- Reconstruction used `--colmap-single-camera 0`, so image-derived intrinsics were not
+  incorrectly shared across two different image sizes. ETH3D reference calibration stayed
+  evaluation-only.
+
+Terrains B1 — default registration baseline
+--------------------------------------------
+Status: reproducible, selected terrains baseline
+Configuration ID: colmap_vggt_points
+
+Reconstruction settings matched pipes B1 except for `--colmap-single-camera 0`, required
+by terrains' two official image sizes. No ETH3D camera or scan path was supplied to the
+reconstruction command.
+
+Reconstruction results:
+- Registered / scaled images: 42 / 42
+- Output points: 2000000 (configured cap)
+- COLMAP / VGGT / total runtime: 38.565 s / 35.739 s / 85.006 s
+- Cross-view candidates / accepted: 3807300 / 3767221 (98.9473%)
+- Cross-view residual P50 / P90: 0.006213 / 0.015592 (internal diagnostic; not GT error)
+
+Official ETH3D metrics:
+Tolerance   Accuracy   Completeness   F1
+1 cm        0.521453   0.303572       0.383743
+2 cm        0.739718   0.537652       0.622703
+5 cm        0.926329   0.707899       0.802516
+10 cm       0.968048   0.760389       0.851745
+20 cm       0.983334   0.806603       0.886244
+50 cm       0.999529   0.864339       0.927031
+
+Camera-centre Sim(3):
+- Matched cameras / RANSAC inliers: 42 / 42
+- Residual mean / median / P90 / max:
+  0.00650526 / 0.00655258 / 0.00916126 / 0.01922080
+- Scale, ETH3D reference from reconstruction: 0.3260250345
+- Raw / aligned PLY SHA-256:
+  10a03d6652f24c77d0627b158bada3778f764d21b50223806e320fb3dc72852e
+  66d19c4cbf1e68e33703bfa9e932879fe8e301beb97d5ba9cb95445820eab8c5
+
+Terrains B2 — relaxed registration transfer test
+-------------------------------------------------
+Status: rejected for terrains; no coverage benefit and lower strict-threshold F1
+Configuration ID: colmap_vggt_points_relaxed_registration
+
+Only changed from terrains B1:
+- --mapper-abs-pose-min-num-inliers 15 (B1/default: 30)
+- --mapper-abs-pose-min-inlier-ratio 0.10 (B1/default: 0.25)
+
+B2 also registered/scaled 42 / 42 images and produced 2000000 points. Therefore it did
+not solve an existing coverage problem. Its 1-5 cm geometry scores were lower:
+Tolerance   B1 F1      B2 F1      Delta F1
+1 cm        0.383743   0.354410   -0.029333
+2 cm        0.622703   0.602077   -0.020626
+5 cm        0.802516   0.799369   -0.003147
+10 cm       0.851745   0.851066   -0.000679
+20 cm       0.886244   0.886076   -0.000168
+50 cm       0.927031   0.927136   +0.000105
+
+B2 retained 42 / 42 camera-centre Sim(3) inliers but yielded a different reconstruction
+and aligned PLY. The small relaxed-gate benefit seen on pipes does not transfer to an
+already fully registered scene.
+
+Terrains B1 reproducibility check
+---------------------------------
+Second output:
+outputs/benchmarks/eth3d-v1/terrains/colmap_vggt_points/evaluation_repeat_20260721
+
+With the same reconstruction, manifest, RANSAC settings, and seed:
+- sim3.json was byte-identical.
+- Aligned PLY SHA-256 was identical:
+  66d19c4cbf1e68e33703bfa9e932879fe8e301beb97d5ba9cb95445820eab8c5
+- All six official metric rows were identical.
+- Both evaluator invocations returned exit code 0.
+- Repository test suite after multi-camera asset validation support: 48 passed.
+
+Cross-scene conclusion after pipes and terrains
+-----------------------------------------------
+The relaxed COLMAP absolute-pose thresholds are a conditional recovery strategy, not a
+new global default. Use B2 only when the default reconstruction has an evidenced image
+registration gap; on pipes it restored 3 missing views and materially improved F1, while
+on fully registered terrains it slightly reduced strict-threshold scores. Future scenes
+must evaluate B1 first and trigger B2 only if registration coverage is incomplete.
+
+Delivery-area availability
+--------------------------
+The locally available archives passed integrity checks:
+- `delivery_area_dslr_jpg.7z` SHA-256:
+  f8190ebdf670935fb93ed2a6e66210a2bcc4633b6f698033855a75cac254f973
+- `delivery_area_dslr_scan_eval.7z` SHA-256:
+  8e07f7a7956a41c1ecc18ca8a61d3fff274c080050301a1b7dff12a3ca5ed5d2
+
+The JPG archive contains `images/dslr_images/`, not the official undistorted image and
+calibration bundle required by this protocol. `delivery_area_dslr_undistorted.7z` is not
+present locally. Delivery_area remains blocked: do not substitute the distorted JPG,
+depth, occlusion, raw scan, or clean scan archives for the missing official asset.

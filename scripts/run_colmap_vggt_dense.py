@@ -132,6 +132,9 @@ def main() -> None:
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="exhaustive")
+    parser.add_argument("--colmap-single-camera", type=int, choices=[0, 1], default=1)
+    parser.add_argument("--mapper-abs-pose-min-num-inliers", type=int, default=30)
+    parser.add_argument("--mapper-abs-pose-min-inlier-ratio", type=float, default=0.25)
     parser.add_argument("--vggt-batch-size", type=int, default=4)
     parser.add_argument("--vggt-overlap-size", type=int, default=2)
     parser.add_argument("--vggt-grouping", choices=["covisibility", "sequential"], default="sequential")
@@ -150,6 +153,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    if args.mapper_abs_pose_min_num_inliers <= 0:
+        raise SystemExit("--mapper-abs-pose-min-num-inliers must be positive")
+    if not 0 < args.mapper_abs_pose_min_inlier_ratio <= 1:
+        raise SystemExit("--mapper-abs-pose-min-inlier-ratio must be between 0 and 1")
     if args.consistency_neighbors <= 0:
         raise SystemExit("--consistency-neighbors must be positive")
     if args.consistency_min_shared_points <= 0:
@@ -199,6 +206,9 @@ def main() -> None:
         sparse_dir=sparse_dir,
         text_dir=text_dir,
         matcher=args.matcher,
+        single_camera=bool(args.colmap_single_camera),
+        mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
+        mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
     )
     colmap_seconds = time.perf_counter() - colmap_started_at
 
@@ -511,6 +521,9 @@ def run_colmap_pipeline(
     sparse_dir: Path,
     text_dir: Path,
     matcher: str,
+    single_camera: bool,
+    mapper_abs_pose_min_num_inliers: int,
+    mapper_abs_pose_min_inlier_ratio: float,
 ) -> list[str]:
     commands = [
         [
@@ -521,7 +534,7 @@ def run_colmap_pipeline(
             "--image_path",
             str(image_dir),
             "--ImageReader.single_camera",
-            "1",
+            str(int(single_camera)),
             "--SiftExtraction.use_gpu",
             "1",
         ],
@@ -542,6 +555,10 @@ def run_colmap_pipeline(
             str(image_dir),
             "--output_path",
             str(sparse_dir),
+            "--Mapper.abs_pose_min_num_inliers",
+            str(mapper_abs_pose_min_num_inliers),
+            "--Mapper.abs_pose_min_inlier_ratio",
+            str(mapper_abs_pose_min_inlier_ratio),
         ],
     ]
     command_logs = [run_command(command) for command in commands]

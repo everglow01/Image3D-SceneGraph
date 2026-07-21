@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from PIL import Image
 
 from align_pointcloud import write_binary_ply
 from analyze_pointcloud import read_ply_points_and_colors
@@ -267,9 +268,26 @@ def validate_benchmark_assets(
         if not path.exists():
             raise FileNotFoundError(f"ETH3D benchmark asset does not exist: {path}")
     expected_names = benchmark["inputs"]["expected_image_names"]
-    actual_names = sorted(path.name for path in image_dir.iterdir() if path.is_file())
-    if actual_names != sorted(expected_names):
+    expected_sizes = benchmark["inputs"].get("expected_image_sizes")
+    if expected_sizes is None:
+        expected_size = benchmark["inputs"].get("expected_image_size")
+        if expected_size is None:
+            raise ValueError("ETH3D manifest must define expected_image_size or expected_image_sizes")
+        expected_sizes = {name: expected_size for name in expected_names}
+    actual_paths = sorted(path for path in image_dir.iterdir() if path.is_file())
+    actual_names = [path.name for path in actual_paths]
+    if len(actual_paths) != benchmark["inputs"]["expected_image_count"] or actual_names != sorted(expected_names):
         raise ValueError(f"ETH3D image set differs from the frozen manifest: {actual_names}")
+    if set(expected_sizes) != set(expected_names):
+        raise ValueError("ETH3D manifest image-size keys differ from expected image names")
+    for path in actual_paths:
+        with Image.open(path) as image:
+            actual_size = list(image.size)
+        if actual_size != expected_sizes[path.name]:
+            raise ValueError(
+                f"ETH3D image size differs from the frozen manifest: {path.name} "
+                f"is {actual_size}, expected {expected_sizes[path.name]}"
+            )
     validate_mlp_scan_paths(ground_truth_mlp)
 
 

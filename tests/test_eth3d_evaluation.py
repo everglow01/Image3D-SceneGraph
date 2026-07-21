@@ -17,6 +17,7 @@ from evaluate_eth3d_scene import (  # noqa: E402
     ensure_empty_output_dir,
     index_images_by_basename,
     parse_evaluator_output,
+    validate_benchmark_assets,
 )
 from geometry_utils import (  # noqa: E402
     decompose_similarity_transform,
@@ -84,7 +85,11 @@ def test_similarity_ransac_rejects_pose_outlier_deterministically() -> None:
     "source,target,error",
     [
         (np.zeros((2, 3)), np.zeros((2, 3)), "At least three"),
-        (np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]]), np.array([[0, 0, 0], [2, 0, 0], [4, 0, 0]]), "collinear"),
+        (
+            np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]]),
+            np.array([[0, 0, 0], [2, 0, 0], [4, 0, 0]]),
+            "collinear",
+        ),
         (np.array([[0, 0, 0], [1, 0, 0], [0, 1, np.nan]]), np.eye(3), "finite"),
     ],
 )
@@ -107,6 +112,38 @@ def test_duplicate_image_basename_is_rejected() -> None:
     images = [{"name": "a/DSC.JPG"}, {"name": "b/DSC.JPG"}]
     with pytest.raises(ValueError, match="Duplicate reconstruction"):
         index_images_by_basename(images, "reconstruction")
+
+
+def test_benchmark_assets_allow_per_image_sizes(tmp_path: Path) -> None:
+    from PIL import Image
+
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    Image.new("RGB", (10, 8)).save(image_dir / "camera_a.JPG")
+    Image.new("RGB", (11, 9)).save(image_dir / "camera_b.JPG")
+    reference_cameras = tmp_path / "cameras.txt"
+    reference_images = tmp_path / "images.txt"
+    ground_truth_mlp = tmp_path / "scan_alignment.mlp"
+    scan = tmp_path / "scan1.ply"
+    reference_cameras.write_text("", encoding="utf-8")
+    reference_images.write_text("", encoding="utf-8")
+    scan.write_text("ply\n", encoding="utf-8")
+    ground_truth_mlp.write_text('<MeshLabProject><MeshGroup><MLMesh filename="scan1.ply" /></MeshGroup></MeshLabProject>', encoding="utf-8")
+    benchmark = {
+        "inputs": {
+            "expected_image_count": 2,
+            "expected_image_names": ["camera_a.JPG", "camera_b.JPG"],
+            "expected_image_sizes": {"camera_a.JPG": [10, 8], "camera_b.JPG": [11, 9]},
+        }
+    }
+
+    validate_benchmark_assets(
+        benchmark,
+        image_dir=image_dir,
+        reference_cameras_path=reference_cameras,
+        reference_images_path=reference_images,
+        ground_truth_mlp=ground_truth_mlp,
+    )
 
 
 def test_parse_evaluator_output_uses_labelled_rows() -> None:

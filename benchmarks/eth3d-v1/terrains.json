@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "eth3d-high-res-mvs-v1",
+  "scene_id": "terrains",
+  "split": "development",
+  "dataset_root": "data/benchmarks/eth3d/terrains",
+  "inputs": {
+    "image_dir": "images/dslr_images_undistorted",
+    "reference_cameras": "dslr_calibration_undistorted/cameras.txt",
+    "reference_images": "dslr_calibration_undistorted/images.txt",
+    "ground_truth_mlp": "dslr_scan_eval/scan_alignment.mlp",
+    "expected_image_count": 42,
+    "expected_image_sizes": {
+      "DSC_0614.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0615.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0616.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0617.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0618.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0619.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0620.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0622.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0623.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0624.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0625.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0626.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0627.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0628.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0629.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0630.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0631.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0632.JPG": [
+        6223,
+        4148
+      ],
+      "DSC_0648.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0649.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0650.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0651.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0652.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0653.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0654.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0655.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0656.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0657.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0658.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0659.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0660.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0661.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0662.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0663.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0664.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0665.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0666.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0667.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0668.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0669.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0670.JPG": [
+        6215,
+        4147
+      ],
+      "DSC_0671.JPG": [
+        6215,
+        4147
+      ]
+    },
+    "expected_image_names": [
+      "DSC_0614.JPG",
+      "DSC_0615.JPG",
+      "DSC_0616.JPG",
+      "DSC_0617.JPG",
+      "DSC_0618.JPG",
+      "DSC_0619.JPG",
+      "DSC_0620.JPG",
+      "DSC_0622.JPG",
+      "DSC_0623.JPG",
+      "DSC_0624.JPG",
+      "DSC_0625.JPG",
+      "DSC_0626.JPG",
+      "DSC_0627.JPG",
+      "DSC_0628.JPG",
+      "DSC_0629.JPG",
+      "DSC_0630.JPG",
+      "DSC_0631.JPG",
+      "DSC_0632.JPG",
+      "DSC_0648.JPG",
+      "DSC_0649.JPG",
+      "DSC_0650.JPG",
+      "DSC_0651.JPG",
+      "DSC_0652.JPG",
+      "DSC_0653.JPG",
+      "DSC_0654.JPG",
+      "DSC_0655.JPG",
+      "DSC_0656.JPG",
+      "DSC_0657.JPG",
+      "DSC_0658.JPG",
+      "DSC_0659.JPG",
+      "DSC_0660.JPG",
+      "DSC_0661.JPG",
+      "DSC_0662.JPG",
+      "DSC_0663.JPG",
+      "DSC_0664.JPG",
+      "DSC_0665.JPG",
+      "DSC_0666.JPG",
+      "DSC_0667.JPG",
+      "DSC_0668.JPG",
+      "DSC_0669.JPG",
+      "DSC_0670.JPG",
+      "DSC_0671.JPG"
+    ]
+  },
+  "source_archives": {
+    "terrains_dslr_undistorted.7z": "10b57fba67dd644646497263c83e57fd81a6f2954774f670a597a40f0dc43e9d",
+    "terrains_dslr_scan_eval.7z": "5770b66a49aa249c880272c4cab2e701800f30eee876c8c1215b49ad42293b2c"
+  },
+  "evaluation": {
+    "tolerances_meters": [
+      0.01,
+      0.02,
+      0.05,
+      0.1,
+      0.2,
+      0.5
+    ],
+    "alignment": "camera_centers_sim3_ransac",
+    "transform_direction": "eth3d_reference_from_reconstruction"
+  },
+  "protocol": {
+    "reconstruction_inputs": [
+      "rgb_images"
+    ],
+    "reference_cameras_evaluation_only": true,
+    "ground_truth_scan_evaluation_only": true,
+    "scan_based_registration_forbidden": true,
+    "metric_scale_recovery_claimed": false
+  }
+}
