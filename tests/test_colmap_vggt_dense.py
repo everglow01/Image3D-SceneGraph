@@ -16,6 +16,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     DepthScaleEstimate,
     FusionFrame,
     FusionCamera,
+    apply_point_budget,
     apply_support_policy,
     build_covisibility_graph,
     build_fusion_camera,
@@ -26,6 +27,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     derive_tsdf_parameters,
     estimate_depth_scale,
     filter_points_by_cross_view_consistency,
+    factorial_arm_name,
     fuse_frames_tsdf,
     map_original_pixel_to_vggt,
     optimize_depth_scale_graph,
@@ -538,6 +540,92 @@ def test_derive_tsdf_parameters_ignores_sparse_outliers():
     assert np.isclose(parameters.voxel_length, parameters.robust_diagonal / 1024.0)
     assert np.isclose(parameters.sdf_trunc, 5.0 * parameters.voxel_length)
     assert parameters.depth_trunc > 0
+
+
+def test_random_point_budget_preserves_seeded_legacy_selection():
+    points = np.arange(90, dtype=np.float32).reshape(30, 3)
+    colors = np.arange(90, dtype=np.uint8).reshape(30, 3)
+    expected_indices = np.random.default_rng(42).choice(30, size=10, replace=False)
+    expected_indices.sort()
+
+    result = apply_point_budget(points, colors, 10, 42, policy="random")
+
+    assert result.applied
+    assert result.policy == "random"
+    assert np.array_equal(result.points, points[expected_indices])
+    assert np.array_equal(result.colors, colors[expected_indices])
+    assert result.spatial_quantization_bits is None
+    assert result.occupied_spatial_codes is None
+
+
+def test_spatially_balanced_point_budget_stratifies_spatial_order():
+    points = np.column_stack(
+        [
+            np.arange(100, dtype=np.float32),
+            np.zeros(100, dtype=np.float32),
+            np.zeros(100, dtype=np.float32),
+        ]
+    )
+    colors = np.arange(300, dtype=np.uint16).reshape(100, 3).astype(np.uint8)
+
+    result = apply_point_budget(points, colors, 10, 42, policy="spatial_balanced")
+
+    assert result.applied
+    assert result.output_points == 10
+    assert result.spatial_quantization_bits == 21
+    assert result.occupied_spatial_codes == 100
+    assert np.array_equal(result.points[:, 0], np.arange(5, 100, 10, dtype=np.float32))
+    selected_color_rows = {tuple(row) for row in result.colors.tolist()}
+    source_color_rows = {tuple(row) for row in colors.tolist()}
+    assert selected_color_rows <= source_color_rows
+
+
+def test_spatially_balanced_point_budget_is_deterministic_and_exact():
+    points = np.random.default_rng(7).normal(size=(1_003, 3)).astype(np.float32)
+    colors = np.arange(1_003 * 3, dtype=np.uint32).reshape(1_003, 3).astype(np.uint8)
+
+    first = apply_point_budget(points, colors, 257, 42, policy="spatial_balanced")
+    second = apply_point_budget(points, colors, 257, 999, policy="spatial_balanced")
+
+    assert first.output_points == 257
+    assert np.array_equal(first.points, second.points)
+    assert np.array_equal(first.colors, second.colors)
+
+
+def test_spatially_balanced_point_budget_rejects_invalid_input():
+    points = np.zeros((3, 3), dtype=np.float32)
+    colors = np.zeros((3, 3), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="matching lengths"):
+        apply_point_budget(points, colors[:2], 2, 42, policy="spatial_balanced")
+    points[1, 0] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        apply_point_budget(points, colors, 2, 42, policy="spatial_balanced")
+
+
+def test_point_budget_is_inactive_below_cap_for_both_policies():
+    points = np.arange(18, dtype=np.float32).reshape(6, 3)
+    colors = np.arange(18, dtype=np.uint8).reshape(6, 3)
+
+    with pytest.raises(ValueError, match="Unknown point-budget policy"):
+        apply_point_budget(points[:2], colors[:2], 10, 42, policy="unknown")
+
+    for policy in ("random", "spatial_balanced"):
+        result = apply_point_budget(points, colors, 10, 42, policy=policy)
+        assert not result.applied
+        assert result.points is points
+        assert result.colors is colors
+
+
+def test_factorial_arm_names_encode_phase_combinations():
+    assert factorial_arm_name("global", "any_support", "random") == "baseline"
+    assert factorial_arm_name("per_frame", "any_support", "random") == "phase1"
+    assert factorial_arm_name("global", "adaptive_two", "random") == "phase2"
+    assert factorial_arm_name("global", "any_support", "spatial_balanced") == "phase3"
+    assert (
+        factorial_arm_name("per_frame", "adaptive_two", "spatial_balanced")
+        == "phase1_phase2_phase3"
+    )
 
 
 def test_validate_tsdf_output_rejects_sparse_or_incomplete_results():

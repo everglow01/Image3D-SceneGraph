@@ -665,3 +665,105 @@ All combined evaluations were repeated from frozen point clouds. Repeats had byt
 - pipes: b7f54d95a4f0f9fa98b7e74c86a908425aeefe56880ca0edaa17bf1ef2416648
 - terrains: 4beb2ea597ce8046bc0789da2fe0af0e0e9b52e628e0f491b6d533345354cdd7
 - delivery_area: ebdf87480ea00b389ad60d3a6430c1ce4ebaeef86f30552a847d40443e49bf03
+
+Phase 3 spatial point-budget ablation — strict paired 2x2x2 factorial result
+----------------------------------------------------------------------------
+Status: accepted candidate; improves every active paired F1 cell; default pending wider
+validation
+Date: 2026-07-22
+Configuration ID: phase3_spatial_budget_factorial
+
+Hypothesis: the final fixed-size point budget should not be selected by independent uniform
+random draws. Sorting accepted points along a 21-bit-per-axis Morton space-filling curve and
+selecting the midpoint of each equal-mass rank stratum should reduce random spatial holes and
+clumps while preserving the reconstruction's empirical point-density distribution. The policy
+uses only reconstructed XYZ coordinates, returns exactly the same point budget, and never reads
+ETH3D reference cameras, scans, alignment, or evaluator scores.
+
+The initial implementation considered equal quotas across occupied voxels, but this was rejected
+before scoring because it could overrepresent isolated sparse noise and would confound point
+budgeting with a new outlier policy. The tested `spatial_balanced` implementation is instead
+Morton midpoint stratification: normalize into an isotropic reconstruction bounding cube,
+quantize each axis to 21 bits, stable-sort 63-bit Morton codes, and choose the midpoint rank of
+each of K equal-mass strata. The production `random` policy and seed-42 selection remain
+byte-compatible with the previous cap implementation.
+
+Each valid scene reconstruction generated the complete 2x2x2 factorial from one in-memory set of
+COLMAP cameras, VGGT depths/confidences, sparse per-frame scales, covisibility graph, consistency
+threshold, and seed. Factors were:
+- Phase 1: `global` versus `per_frame` confidence threshold scope;
+- Phase 2: `any_support` versus `adaptive_two` consistency support;
+- Phase 3: `random` versus `spatial_balanced` final point budget.
+
+All arms used confidence percentile 50, max 2000000 points, sequential VGGT groups, batch size 4,
+and seed 42. `pipes` used accepted B2 registration (single-camera COLMAP, relaxed pose thresholds);
+`terrains` used B1 multi-camera COLMAP and registered/scaled 42/42; `delivery_area` used B1
+single-camera COLMAP and registered/scaled 44/44. Two invalid terrains attempts accidentally used
+single-camera COLMAP and registered 18/42; they were rejected before evaluation and deleted. No
+GT score selected a reconstruction, cap parameter, or scene-specific policy.
+
+Primary F1 values at 1/2/5 cm (random arm / spatial arm / Phase 3 delta):
+- pipes baseline: 0.279567/0.279567 (+0.000000);
+  0.435889/0.435889 (+0.000000); 0.565288/0.565288 (+0.000000).
+  The cap was inactive: 1226630 accepted points were below 2000000.
+- terrains baseline: 0.392651/0.398916 (+0.006265);
+  0.628127/0.633500 (+0.005373); 0.803699/0.805803 (+0.002104).
+- delivery_area baseline: 0.085149/0.087716 (+0.002567);
+  0.240852/0.246510 (+0.005658); 0.529969/0.535143 (+0.005174).
+
+Phase 3 F1 effects at 1/2/5/10/20/50 cm, conditioned on upstream Phase 1/2 state:
+- pipes, all four upstream states: +0.000000 at every threshold because no 2M cap was active.
+- terrains, baseline: +0.006265 / +0.005373 / +0.002104 / +0.001116 / +0.000620 / +0.000336.
+- terrains, Phase 1: +0.005882 / +0.005164 / +0.001939 / +0.001001 / +0.000392 / +0.000579.
+- terrains, Phase 2: +0.006035 / +0.004628 / +0.001906 / +0.000705 / +0.000552 / +0.000491.
+- terrains, Phase 1+2: +0.005826 / +0.005606 / +0.001981 / +0.001229 / +0.000793 / +0.000873.
+- delivery_area, baseline: +0.002567 / +0.005658 / +0.005174 / +0.001763 / +0.000533 / +0.000175.
+- delivery_area, Phase 1: +0.002614 / +0.005881 / +0.004987 / +0.001995 / +0.000941 / +0.000780.
+- delivery_area, Phase 2: +0.002183 / +0.005236 / +0.004248 / +0.001491 / +0.000442 / +0.000419.
+- delivery_area, Phase 1+2: +0.002198 / +0.005159 / +0.004499 / +0.001823 / +0.000598 / +0.000302.
+
+Baseline-to-Phase-3 Accuracy / Completeness / F1 deltas at 1/2/5/10/20/50 cm:
+- terrains: +0.000894/+0.007666/+0.006265; +0.001436/+0.007335/+0.005373;
+  +0.000707/+0.002869/+0.002104; +0.000489/+0.001477/+0.001116;
+  +0.000270/+0.000847/+0.000620; -0.000006/+0.000589/+0.000336.
+- delivery_area: +0.001132/+0.002146/+0.002567; +0.001851/+0.006743/+0.005658;
+  +0.002715/+0.006876/+0.005174; +0.001653/+0.001771/+0.001763;
+  +0.000710/+0.000419/+0.000533; +0.000164/+0.000178/+0.000175.
+
+Three-phase all-on F1 delta from stable `global + any_support + random` baseline at
+1/2/5/10/20/50 cm:
+- pipes: -0.006225 / +0.025811 / +0.115142 / +0.163388 / +0.238014 / +0.235595
+  (Phase 3 inactive, so this is the Phase 1+2 result for this reconstruction).
+- terrains: +0.000707 / -0.017318 / -0.029584 / -0.031686 / -0.033832 / -0.037082.
+- delivery_area: +0.007931 / +0.022002 / +0.032588 / +0.021981 / +0.030767 / +0.018622.
+
+The Phase 1xPhase 3 and Phase 2xPhase 3 interactions are small relative to Phase 3's main effect.
+At 2 cm they were -0.000209/-0.000745 on terrains and +0.000223/-0.000422 on delivery_area.
+The three-way 2 cm interaction was +0.001187 on terrains and -0.000300 on delivery_area. Phase 3
+therefore composes robustly with either upstream policy, but it cannot overcome Phase 1's
+cross-scene confidence-scope failure on terrains.
+
+A separately labelled 1000000-point activation/sensitivity comparison used the baseline upstream
+filter only. Spatial-minus-random F1 deltas at 1/2/5/10/20/50 cm were:
+- pipes: +0.000916 / +0.000610 / +0.000350 / +0.000248 / +0.000221 / +0.000091.
+- terrains: +0.009923 / +0.011136 / +0.005381 / +0.002566 / +0.001188 / +0.000477.
+- delivery_area: +0.002478 / +0.008700 / +0.009717 / +0.004093 / +0.000762 / +0.000423.
+This is evidence that the mechanism activates on pipes when a cap exists; it is not used to
+replace the frozen 2M primary comparison or to tune a budget from GT.
+
+All three all-on evaluations were repeated from frozen PLYs. Each repeated byte-identical metric
+rows and Sim(3), evaluator return code 0, and identical aligned PLY SHA-256:
+- pipes: 13b59c05fbfa58c3f81da61a8df2db12357abc3045ed76772879c4e56ea4c118
+- terrains: dd5ff00e23cc09743c4a1cf1e954bbee2dcd9a3c5785dc923534947c5cf64d9f
+- delivery_area: 7f351cd0d9bd14e0400e0dc0165e867ec4d88b3e47711194b239893df58b51fb
+
+Decision:
+- Accept `spatial_balanced` as the strongest Phase 3 candidate: in every active main-factorial
+  pair (four upstream Phase 1/2 states x six thresholds x two capped scenes = 48 comparisons)
+  it improved F1; it also improved all 18 active 1M sensitivity values. Improvements
+  primarily come from better Completeness, while Accuracy is usually also non-regressive.
+- Keep `random` as the stable default in this commit. Only two primary scenes activated the 2M
+  cap, so changing a production default requires a further non-ETH3D real-world/large-scene
+  validation rather than treating an inactive pipes result as a third independent confirmation.
+- Keep Phase 1 experimental. Phase 3 narrows but does not reverse Phase 1's terrains regression.
+  No runtime selector may use ETH3D GT to enable any phase.

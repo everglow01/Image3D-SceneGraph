@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
-from itertools import combinations
+from itertools import combinations, product
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -120,6 +120,18 @@ class ConsistencyFilterResult:
 
 
 @dataclass(frozen=True)
+class PointBudgetResult:
+    points: np.ndarray
+    colors: np.ndarray
+    policy: str
+    input_points: int
+    output_points: int
+    applied: bool
+    spatial_quantization_bits: int | None
+    occupied_spatial_codes: int | None
+
+
+@dataclass(frozen=True)
 class TsdfParameters:
     voxel_length: float
     sdf_trunc: float
@@ -157,6 +169,13 @@ def main() -> None:
     parser.add_argument("--tsdf-sdf-trunc", type=float, default=0.0)
     parser.add_argument("--tsdf-depth-trunc", type=float, default=0.0)
     parser.add_argument("--max-points", type=int, default=2_000_000)
+    parser.add_argument(
+        "--point-budget-policy",
+        choices=["random", "spatial_balanced"],
+        default="random",
+    )
+    parser.add_argument("--factorial-output-dir", type=Path)
+    parser.add_argument("--point-budget-sensitivity-output-dir", type=Path)
     parser.add_argument("--conf-percentile", type=float, default=50.0)
     parser.add_argument(
         "--confidence-threshold-scope", choices=["global", "per_frame"], default="global"
@@ -406,7 +425,15 @@ def main() -> None:
             depth_trunc=tsdf_parameters.depth_trunc,
         )
         validate_tsdf_output(tsdf_stats)
-        flat_points, flat_colors = cap_points(tsdf_points, tsdf_colors, args.max_points, args.seed)
+        point_budget_result = apply_point_budget(
+            tsdf_points,
+            tsdf_colors,
+            args.max_points,
+            args.seed,
+            policy=args.point_budget_policy,
+        )
+        flat_points = point_budget_result.points
+        flat_colors = point_budget_result.colors
         if len(flat_points) == 0:
             raise RuntimeError("TSDF fusion produced no dense points")
         tsdf_params = {
@@ -474,6 +501,7 @@ def main() -> None:
                 comparison_filtered.colors,
                 args.max_points,
                 args.seed,
+                policy=args.point_budget_policy,
             )
             args.confidence_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
             write_ply(args.confidence_comparison_ply, comparison_points, comparison_colors)
@@ -505,6 +533,7 @@ def main() -> None:
                 comparison_filtered.colors,
                 args.max_points,
                 args.seed,
+                policy=args.point_budget_policy,
             )
             args.support_policy_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
             write_ply(
@@ -552,6 +581,7 @@ def main() -> None:
                 comparison_filtered.colors,
                 args.max_points,
                 args.seed,
+                policy=args.point_budget_policy,
             )
             args.joint_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
             write_ply(args.joint_comparison_ply, comparison_points, comparison_colors)
@@ -569,7 +599,98 @@ def main() -> None:
                 "output_points": int(len(comparison_points)),
             }
             comparison_summaries.append(comparison_summary)
-        flat_points, flat_colors = cap_points(filtered.points, filtered.colors, args.max_points, args.seed)
+        factorial_summaries: list[dict[str, Any]] = []
+        if args.factorial_output_dir is not None:
+            args.factorial_output_dir.mkdir(parents=True, exist_ok=True)
+            cameras_payload = build_camera_payload(text_dir)
+            for scope, support_policy in product(
+                ("global", "per_frame"),
+                ("any_support", "adaptive_two"),
+            ):
+                if (
+                    scope == args.confidence_threshold_scope
+                    and support_policy == args.consistency_support_policy
+                ):
+                    arm_filtered = filtered
+                else:
+                    arm_thresholds = compute_confidence_thresholds(
+                        fusion_frames,
+                        args.conf_percentile,
+                        scope=scope,
+                    )
+                    arm_filtered = filter_points_by_cross_view_consistency(
+                        fusion_frames,
+                        covisibility_graph=covisibility_graph,
+                        confidence_thresholds=arm_thresholds,
+                        relative_threshold=consistency_relative_threshold,
+                        support_policy=support_policy,
+                        stride=args.consistency_stride,
+                    )
+                for budget_policy in ("random", "spatial_balanced"):
+                    budget_result = apply_point_budget(
+                        arm_filtered.points,
+                        arm_filtered.colors,
+                        args.max_points,
+                        args.seed,
+                        policy=budget_policy,
+                    )
+                    arm_name = factorial_arm_name(scope, support_policy, budget_policy)
+                    arm_dir = args.factorial_output_dir / arm_name
+                    geometry_output_dir = arm_dir / "geometry"
+                    geometry_output_dir.mkdir(parents=True, exist_ok=True)
+                    points_path = geometry_output_dir / "points.ply"
+                    cameras_path = geometry_output_dir / "cameras.json"
+                    write_ply(points_path, budget_result.points, budget_result.colors)
+                    write_json(cameras_path, cameras_payload)
+                    factorial_summaries.append(
+                        {
+                            "arm": arm_name,
+                            "confidence_threshold_scope": scope,
+                            "support_policy": support_policy,
+                            "point_budget_policy": budget_policy,
+                            "path": str(points_path),
+                            "candidate_points": arm_filtered.candidate_points,
+                            "accepted_points": arm_filtered.accepted_points,
+                            **point_budget_diagnostics(budget_result),
+                        }
+                    )
+        sensitivity_summaries: list[dict[str, Any]] = []
+        if args.point_budget_sensitivity_output_dir is not None:
+            args.point_budget_sensitivity_output_dir.mkdir(parents=True, exist_ok=True)
+            cameras_payload = build_camera_payload(text_dir)
+            sensitivity_budget = max(1, args.max_points // 2)
+            for budget_policy in ("random", "spatial_balanced"):
+                budget_result = apply_point_budget(
+                    filtered.points,
+                    filtered.colors,
+                    sensitivity_budget,
+                    args.seed,
+                    policy=budget_policy,
+                )
+                arm_dir = args.point_budget_sensitivity_output_dir / budget_policy
+                geometry_output_dir = arm_dir / "geometry"
+                geometry_output_dir.mkdir(parents=True, exist_ok=True)
+                points_path = geometry_output_dir / "points.ply"
+                cameras_path = geometry_output_dir / "cameras.json"
+                write_ply(points_path, budget_result.points, budget_result.colors)
+                write_json(cameras_path, cameras_payload)
+                sensitivity_summaries.append(
+                    {
+                        "point_budget_policy": budget_policy,
+                        "max_points": sensitivity_budget,
+                        "path": str(points_path),
+                        **point_budget_diagnostics(budget_result),
+                    }
+                )
+        point_budget_result = apply_point_budget(
+            filtered.points,
+            filtered.colors,
+            args.max_points,
+            args.seed,
+            policy=args.point_budget_policy,
+        )
+        flat_points = point_budget_result.points
+        flat_colors = point_budget_result.colors
         if len(flat_points) == 0:
             raise RuntimeError("Cross-view consistency rejected every dense point")
         consistency_summary = {
@@ -647,6 +768,11 @@ def main() -> None:
             "scale_fallback": fallback_scale,
             "camera_models": sorted({record["colmap_model"] for record in fusion_camera_records}),
             "tsdf": tsdf_params,
+            "point_budget": point_budget_diagnostics(point_budget_result),
+            "factorial_outputs": factorial_summaries if args.fusion_mode == "points" else [],
+            "point_budget_sensitivity_outputs": (
+                sensitivity_summaries if args.fusion_mode == "points" else []
+            ),
             "cross_view_filter": (
                 {
                     "confidence_threshold": confidence_threshold,
@@ -741,6 +867,14 @@ def main() -> None:
         f"conf_percentile={args.conf_percentile}",
         f"confidence_threshold_scope={effective_confidence_threshold_scope}",
         f"max_points={args.max_points}",
+        f"point_budget_policy={point_budget_result.policy}",
+        f"point_budget_input_points={point_budget_result.input_points}",
+        f"point_budget_output_points={point_budget_result.output_points}",
+        f"point_budget_applied={str(point_budget_result.applied).lower()}",
+        f"point_budget_quantization_bits={point_budget_result.spatial_quantization_bits or 0}",
+        f"point_budget_occupied_codes={point_budget_result.occupied_spatial_codes or 0}",
+        f"factorial_output_count={len(factorial_summaries) if args.fusion_mode == 'points' else 0}",
+        f"point_budget_sensitivity_output_count={len(sensitivity_summaries) if args.fusion_mode == 'points' else 0}",
         f"colmap_seconds={colmap_seconds:.3f}",
         f"vggt_seconds={vggt_seconds:.3f}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
@@ -2047,18 +2181,143 @@ def colmap_camera_center(image: ColmapImage) -> np.ndarray:
     return -(qvec_to_rotmat(image.qvec).T @ image.tvec)
 
 
+def factorial_arm_name(
+    confidence_scope: str,
+    support_policy: str,
+    point_budget_policy: str,
+) -> str:
+    phase_parts = []
+    if confidence_scope == "per_frame":
+        phase_parts.append("phase1")
+    if support_policy == "adaptive_two":
+        phase_parts.append("phase2")
+    if point_budget_policy == "spatial_balanced":
+        phase_parts.append("phase3")
+    return "_".join(phase_parts) if phase_parts else "baseline"
+
+
+def point_budget_diagnostics(result: PointBudgetResult) -> dict[str, Any]:
+    return {
+        "policy": result.policy,
+        "input_points": result.input_points,
+        "output_points": result.output_points,
+        "applied": result.applied,
+        "spatial_quantization_bits": result.spatial_quantization_bits,
+        "occupied_spatial_codes": result.occupied_spatial_codes,
+    }
+
+
+def apply_point_budget(
+    points: np.ndarray,
+    colors: np.ndarray,
+    max_points: int,
+    seed: int,
+    *,
+    policy: str = "random",
+) -> PointBudgetResult:
+    if len(points) != len(colors):
+        raise ValueError("Point-budget points and colors must have matching lengths")
+    if policy not in {"random", "spatial_balanced"}:
+        raise ValueError(f"Unknown point-budget policy: {policy}")
+    input_points = len(points)
+    if max_points <= 0 or input_points <= max_points:
+        return PointBudgetResult(
+            points=points,
+            colors=colors,
+            policy=policy,
+            input_points=input_points,
+            output_points=input_points,
+            applied=False,
+            spatial_quantization_bits=None,
+            occupied_spatial_codes=None,
+        )
+    if policy == "random":
+        rng = np.random.default_rng(seed)
+        selected = rng.choice(input_points, size=max_points, replace=False)
+        selected.sort()
+        quantization_bits = None
+        occupied_codes = None
+    else:
+        selected, quantization_bits, occupied_codes = morton_stratified_indices(
+            points,
+            max_points,
+        )
+    return PointBudgetResult(
+        points=points[selected],
+        colors=colors[selected],
+        policy=policy,
+        input_points=input_points,
+        output_points=len(selected),
+        applied=True,
+        spatial_quantization_bits=quantization_bits,
+        occupied_spatial_codes=occupied_codes,
+    )
+
+
+def morton_stratified_indices(
+    points: np.ndarray,
+    max_points: int,
+) -> tuple[np.ndarray, int, int]:
+    """Select midpoints of equal-mass strata in deterministic Morton order."""
+    if max_points <= 0 or len(points) <= max_points:
+        raise ValueError("Spatial balancing requires 0 < max_points < len(points)")
+    if not np.isfinite(points).all():
+        raise ValueError("Point-budget input contains non-finite coordinates")
+
+    quantization_bits = 21
+    quantization_max = (1 << quantization_bits) - 1
+    lower = points.min(axis=0).astype(np.float64)
+    extent = points.max(axis=0).astype(np.float64) - lower
+    side = float(np.max(extent))
+    if side > 0:
+        quantized = np.floor(
+            (points.astype(np.float64) - lower) * (quantization_max / side)
+        ).astype(np.uint64)
+        np.minimum(quantized, quantization_max, out=quantized)
+    else:
+        quantized = np.zeros(points.shape, dtype=np.uint64)
+
+    morton_codes = (
+        spread_morton_bits(quantized[:, 0])
+        | (spread_morton_bits(quantized[:, 1]) << np.uint64(1))
+        | (spread_morton_bits(quantized[:, 2]) << np.uint64(2))
+    )
+    order = np.argsort(morton_codes, kind="stable")
+    ranks = (
+        (2 * np.arange(max_points, dtype=np.int64) + 1) * len(points)
+        // (2 * max_points)
+    )
+    selected = np.sort(order[ranks].astype(np.int64))
+    occupied_codes = int(np.count_nonzero(np.diff(morton_codes[order])) + 1)
+    return selected, quantization_bits, occupied_codes
+
+
+def spread_morton_bits(values: np.ndarray) -> np.ndarray:
+    values = values.astype(np.uint64, copy=True) & np.uint64(0x1FFFFF)
+    values = (values | (values << np.uint64(32))) & np.uint64(0x1F00000000FFFF)
+    values = (values | (values << np.uint64(16))) & np.uint64(0x1F0000FF0000FF)
+    values = (values | (values << np.uint64(8))) & np.uint64(0x100F00F00F00F00F)
+    values = (values | (values << np.uint64(4))) & np.uint64(0x10C30C30C30C30C3)
+    values = (values | (values << np.uint64(2))) & np.uint64(0x1249249249249249)
+    return values
+
+
 def cap_points(
     points: np.ndarray,
     colors: np.ndarray,
     max_points: int,
     seed: int,
+    *,
+    policy: str = "random",
 ) -> tuple[np.ndarray, np.ndarray]:
-    if max_points <= 0 or len(points) <= max_points:
-        return points, colors
-    rng = np.random.default_rng(seed)
-    selected = rng.choice(len(points), size=max_points, replace=False)
-    selected.sort()
-    return points[selected], colors[selected]
+    result = apply_point_budget(
+        points,
+        colors,
+        max_points,
+        seed,
+        policy=policy,
+    )
+    return result.points, result.colors
 
 
 def diagnostic_sample(values: np.ndarray, max_samples: int) -> np.ndarray:

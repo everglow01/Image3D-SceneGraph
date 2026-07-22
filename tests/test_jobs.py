@@ -276,6 +276,14 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
                     "vggt_batch_size=4",
                     "conf_percentile=45.0",
                     "max_points=1500000",
+                    "point_budget_policy=random",
+                    "point_budget_input_points=2000000",
+                    "point_budget_output_points=1500000",
+                    "point_budget_applied=true",
+                    "point_budget_quantization_bits=0",
+                    "point_budget_occupied_codes=0",
+                    "factorial_output_count=0",
+                    "point_budget_sensitivity_output_count=0",
                 ]
             )
             + "\n",
@@ -313,6 +321,11 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["scale_median"] == 0.25
     assert manifest["metrics"]["vggt_batch_size"] == 4
     assert manifest["metrics"]["max_points"] == 1500000
+    assert manifest["metrics"]["point_budget_policy"] == "random"
+    assert manifest["metrics"]["point_budget_input_points"] == 2000000
+    assert manifest["metrics"]["point_budget_output_points"] == 1500000
+    assert manifest["metrics"]["point_budget_applied"] is True
+    assert manifest["metrics"]["factorial_output_count"] == 0
     assert manifest["metrics"]["conf_percentile"] == 45.0
     assert captured_command[captured_command.index("--matcher") + 1] == "exhaustive"
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"

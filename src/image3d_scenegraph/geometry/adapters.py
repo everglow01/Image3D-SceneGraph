@@ -360,8 +360,16 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "num_points",
             "max_points",
             "integrated_frames",
+            "point_budget_input_points",
+            "point_budget_output_points",
+            "point_budget_quantization_bits",
+            "point_budget_occupied_codes",
+            "factorial_output_count",
+            "point_budget_sensitivity_output_count",
         }:
             metrics[key] = int(value)
+        elif key == "point_budget_applied":
+            metrics[key] = value.lower() == "true"
         elif key in {
             "conf_percentile",
             "model_load_seconds",
