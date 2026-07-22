@@ -329,3 +329,199 @@ The JPG archive contains `images/dslr_images/`, not the official undistorted ima
 calibration bundle required by this protocol. `delivery_area_dslr_undistorted.7z` is not
 present locally. Delivery_area remains blocked: do not substitute the distorted JPG,
 depth, occlusion, raw scan, or clean scan archives for the missing official asset.
+
+Delivery-area asset preparation
+-------------------------------
+Date: 2026-07-21
+- `delivery_area_dslr_undistorted.7z` SHA-256:
+  9acf5efec4b99a69b89ebb87b403259730756c1a510307c92e5f2ce2d22658f3
+- `delivery_area_dslr_scan_eval.7z` SHA-256:
+  8e07f7a7956a41c1ecc18ca8a61d3fff274c080050301a1b7dff12a3ca5ed5d2
+- Both archives passed an integrity test before extraction.
+- The extracted scene contains 44 readable undistorted RGB images at 6208x4135.
+- All 44 image basenames match the ETH3D reference images after normalizing the
+  `dslr_images_undistorted/` prefix.
+- The official reference calibration contains one 6208x4135 PINHOLE camera and 44 images.
+- `scan_alignment.mlp` references existing `scan1.ply` and `scan2.ply` files.
+- `benchmarks/eth3d-v1/delivery_area.json` freezes these validated assets and preserves the
+  RGB-only reconstruction / evaluation-only reference-camera and scan protocol.
+
+Delivery-area B1 — default registration baseline
+-------------------------------------------------
+Status: reproducible, selected delivery_area baseline
+Date: 2026-07-21
+Configuration ID: colmap_vggt_points
+
+Reconstruction used only the 44 validated undistorted RGB images with the frozen B1
+settings: exhaustive matcher; `--colmap-single-camera 1`; sequential VGGT grouping;
+batch size 4; overlap 2; points fusion; max 2000000 points; confidence percentile 50;
+CUDA; and seed 42. No ETH3D reference-camera or scan asset was supplied to reconstruction.
+
+Reconstruction results:
+- Registered / scaled images: 44 / 44
+- Output points: 2000000 (configured cap)
+- Sparse COLMAP points: 14403
+- COLMAP / VGGT / total runtime: 44.079 s / 37.758 s / 92.882 s
+- Per-frame sparse-COLMAP depth scale median / min / max: 9.093465 / 6.116016 / 12.314879
+- Median sparse scale observations / log-MAD: 1340 / 0.011295
+- Cross-view candidates / accepted: 3988600 / 3929208 (98.5110%)
+- Cross-view residual P50 / P90: 0.007123 / 0.015220 (internal diagnostic; not GT error)
+
+Official ETH3D metrics:
+Tolerance   Accuracy   Completeness   F1
+1 cm        0.167257   0.054520       0.082235
+2 cm        0.304057   0.186455       0.231158
+5 cm        0.552874   0.479803       0.513754
+10 cm       0.814094   0.626006       0.707767
+20 cm       0.963887   0.706029       0.815050
+50 cm       0.993815   0.787291       0.878580
+
+Camera-centre Sim(3):
+- Matched cameras / RANSAC inliers: 44 / 43
+- Residual mean / median / P90 / max:
+  0.02400501 / 0.02442732 / 0.03946257 / 0.05645988
+- Scale, ETH3D reference from reconstruction: 0.8418533950
+- Aligned reconstruction SHA-256: 5b979ec6ff9285b60cd6417bb0eb3958a9bab4e3722b4f7320568cf0d3e20962
+
+B2 decision:
+- B1 fully registered and scaled all 44 images, so it has no demonstrated registration
+  coverage gap.
+- The conditional B2 relaxed-registration strategy is therefore not run for delivery_area;
+  this follows the cross-scene policy established by pipes and terrains rather than making
+  B2 a global default.
+
+B1 reproducibility check:
+- Second evaluation output:
+  `outputs/benchmarks/eth3d-v1/delivery_area/colmap_vggt_points/evaluation_repeat_20260721`
+- The frozen reconstruction, benchmark, RANSAC settings, and seed reproduced exactly:
+  byte-identical `sim3.json`; the same aligned PLY SHA-256 above; all six official metric
+  rows; and evaluator return code 0.
+
+Interpretation:
+- Unlike pipes, the limiting factor is not image registration: B1 reached 44 / 44 coverage.
+- Delivery_area's 5 cm F1 is 0.513754, with low 1 cm completeness (0.054520). This is an
+  evaluation result for GT-camera-Sim(3)-aligned geometry quality, not native metric-scale
+  recovery. It motivates the next controlled research stage: improve global depth-scale
+  consistency and geometry-aware fusion without using ETH3D cameras or scans in the
+  reconstruction path.
+
+Global depth-scale graph ablation — pipes development result
+-------------------------------------------------------------
+Status: rejected configuration; do not transfer to terrains or delivery_area
+Date: 2026-07-21
+Configuration ID: colmap_vggt_points_global_scale_graph
+
+Hypothesis: sparse-COLMAP unary scale anchors plus RGB-derived dense cross-view constraints
+would reduce inter-frame depth-scale drift and improve strict ETH3D geometry without using
+reference cameras, scans, Sim(3), or evaluator values in reconstruction.
+
+Changed from the accepted pipes B2 baseline only:
+- `--depth-scale-mode global_graph`
+
+Frozen settings retained from pipes B2: 14 undistorted RGB inputs; exhaustive matcher;
+`--mapper-abs-pose-min-num-inliers 15`; `--mapper-abs-pose-min-inlier-ratio 0.10`;
+sequential VGGT grouping; batch size 4; overlap 2; points fusion; max 2000000 points;
+confidence percentile 50; CUDA; and seed 42.
+
+The graph used the runner defaults fixed before evaluation: five IRLS iterations; pair
+weight 1.0; Huber delta 0.05; and at most 256 deterministic samples per directed
+covisibility edge. All constraints came from reconstruction-time COLMAP/VGGT data.
+
+Graph diagnostics:
+- Registered / scaled images: 14 / 14
+- Connected components / sparse-anchored images / fallback images: 1 / 14 / 0
+- Final accepted pair constraints: 6595 across 54 directed edges
+- Final valid / occluded samples: 8091 / 1496
+- Per-frame optimized-to-initial scale ratio min / median / max:
+  0.993914 / 1.000000 / 1.003080
+- Objective history: 0.017075, 0.005119, 0.005303, 0.007103, 0.005666
+- Output points: 1229798 (pipes B2: 1226567)
+- COLMAP / VGGT / total runtime: 7.410 s / 12.131 s / 28.786 s
+
+Official ETH3D comparison:
+Tolerance   B2 F1      Graph F1   Delta F1    B2 accuracy  Graph accuracy  Delta accuracy
+1 cm        0.290967   0.279777   -0.011190   0.482325     0.469547        -0.012778
+2 cm        0.443856   0.423160   -0.020696   0.716144     0.695333        -0.020811
+5 cm        0.567320   0.563158   -0.004162   0.929211     0.909442        -0.019769
+10 cm       0.613549   0.612955   -0.000594   0.971716     0.964192        -0.007524
+20 cm       0.646735   0.646182   -0.000553   0.985485     0.982568        -0.002917
+50 cm       0.733617   0.733718   +0.000101   0.998914     0.998651        -0.000263
+
+Completeness changed by -0.009069 / -0.017465 / -0.000442 / +0.000981 /
++0.000085 / +0.000215 at 1/2/5/10/20/50 cm respectively.
+
+Decision: reject this graph configuration at the development stage. It reduces strict and
+mid-range accuracy/F1 despite complete registration and modest, deterministic scale changes.
+The insignificant 50 cm F1 increase and higher point count do not constitute an improvement.
+Do not run this configuration on terrains or delivery_area, and retain the frozen per-frame
+scale baseline. A future graph refinement must be a new controlled hypothesis rather than a
+retune using ETH3D scan results.
+
+Per-frame confidence percentile ablation — strict paired multi-scene result
+-------------------------------------------------------------------------
+Status: mixed; retain as experimental mode, do not replace the global default
+Date: 2026-07-22
+Configuration ID: confidence_scope_paired
+
+Hypothesis: confidence values from independently inferred VGGT windows are not calibrated on
+one absolute scale, so applying the frozen 50th percentile separately to each frame could
+preserve useful views that a pooled global threshold suppresses. Reconstruction remained
+RGB-only; ETH3D reference cameras and scans were used only after both point clouds existed.
+
+A first full-pipeline run showed promising results, but its independently rerun COLMAP camera
+solutions differed from the historical baselines. Those scores were not used for attribution.
+The final ablation therefore generated `global` and `per_frame` point clouds from the same
+in-memory COLMAP solution, VGGT depth/confidence maps, sparse depth scales, covisibility graph,
+consistency thresholds, cap, and seed. Both alternatives used the same exported cameras and
+therefore exactly the same evaluation Sim(3). The only changed behavior was confidence scope:
+- global: pool all valid confidence values and apply one 50th-percentile threshold to every
+  source and target frame (frozen baseline behavior);
+- per_frame: derive each frame's 50th-percentile threshold from its valid non-padding canvas,
+  use the source threshold for candidate selection, and the target threshold when validating
+  a cross-view projection.
+
+Frozen scene settings were retained: `pipes` used its accepted B2 registration thresholds;
+`terrains` and `delivery_area` used B1; all used sequential VGGT groups, batch size 4, points
+fusion, max 2000000 points, CUDA, and seed 42. No percentile or geometry threshold was changed
+between scenes or after seeing official scores.
+
+Strict paired official ETH3D F1 comparison:
+Scene           Threshold   Global      Per-frame   Delta
+pipes           1 cm        0.286576    0.280969    -0.005607
+                2 cm        0.439970    0.470696    +0.030726
+                5 cm        0.566345    0.692110    +0.125765
+terrains        1 cm        0.360793    0.364867    +0.004074
+                2 cm        0.608633    0.587755    -0.020878
+                5 cm        0.800780    0.766357    -0.034423
+delivery_area   1 cm        0.081399    0.088571    +0.007172
+                2 cm        0.232457    0.254675    +0.022218
+                5 cm        0.522141    0.555037    +0.032896
+
+Full paired deltas (Accuracy / Completeness / F1) at 1/2/5/10/20/50 cm:
+- pipes: -0.043108/+0.003330/-0.005607; -0.061154/+0.051152/+0.030726;
+  -0.062483/+0.169668/+0.125765; -0.038947/+0.236440/+0.176062;
+  -0.010198/+0.332307/+0.240326; -0.001952/+0.363297/+0.235621.
+- terrains: -0.006338/+0.007297/+0.004074; -0.011605/-0.024897/-0.020878;
+  -0.013089/-0.045092/-0.034423; -0.010097/-0.051210/-0.036714;
+  -0.002006/-0.055845/-0.035494; -0.001851/-0.062089/-0.037674.
+- delivery_area: +0.023384/+0.003907/+0.007172; +0.036552/+0.015308/+0.022218;
+  +0.045542/+0.023508/+0.032896; +0.033225/+0.020674/+0.025725;
+  +0.004954/+0.042218/+0.029383; -0.001551/+0.029373/+0.017359.
+
+Per-frame threshold min / median / max:
+- pipes: 1.000000 / 3.421013 / 5.592968
+- terrains: 1.552459 / 5.587507 / 11.283216
+- delivery_area: 1.000000 / 2.562815 / 12.408440
+
+Interpretation and decision:
+- The hypothesis is supported on pipes and delivery_area. Pipes exhibits an explicit
+  Accuracy-Completeness trade-off: it loses strict 1 cm F1 but gains substantial coverage and
+  F1 from 2 cm onward. Delivery_area improves both Accuracy and Completeness through 20 cm.
+- It does not generalize to terrains: only 1 cm F1 rises slightly, while 2-50 cm completeness
+  and F1 regress. More points or broader confidence normalization is therefore not universally
+  better.
+- Keep `--confidence-threshold-scope per_frame` as an experimental, reproducible strategy and
+  preserve `global` as the stable default. Do not choose scope from ETH3D scan scores at run
+  time and do not retune the percentile. A future automatic policy needs an RGB-derived,
+  pre-evaluation diagnostic explaining when window confidence distributions are genuinely
+  incomparable.

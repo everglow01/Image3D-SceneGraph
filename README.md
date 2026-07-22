@@ -137,7 +137,7 @@ env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_colmap_vggt_dense.py \
 ```
 
 This path uses COLMAP for global camera poses and VGGT for dense depth. The first scale alignment baseline estimates a per-image depth scale from COLMAP sparse observations and VGGT depth samples, then fuses all depth maps in COLMAP's global frame.
-For large image sets, increase `--max-points` to keep the fused cloud dense enough for inspection. Lower `--conf-percentile` keeps more VGGT depth samples but can introduce more noisy points.
+For large image sets, increase `--max-points` to keep the fused cloud dense enough for inspection. Lower `--conf-percentile` keeps more VGGT depth samples but can introduce more noisy points. The stable points path applies that percentile globally. `--confidence-threshold-scope per_frame` is an experimental alternative for independently calibrated VGGT windows; it improved two of three ETH3D scenes but regressed `terrains`, so it is not the default.
 
 Analyze a generated point cloud before attempting coordinate alignment:
 

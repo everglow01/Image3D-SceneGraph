@@ -12,17 +12,22 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from run_colmap_vggt_dense import (  # noqa: E402
     ColmapImage,
+    CovisibilityEdge,
     DepthScaleEstimate,
     FusionFrame,
     FusionCamera,
     build_covisibility_graph,
     build_fusion_camera,
     build_vggt_groups,
+    compute_confidence_thresholds,
+    compute_frame_confidence_thresholds,
     derive_consistency_relative_threshold,
     derive_tsdf_parameters,
     estimate_depth_scale,
+    filter_points_by_cross_view_consistency,
     fuse_frames_tsdf,
     map_original_pixel_to_vggt,
+    optimize_depth_scale_graph,
     order_images_by_covisibility,
     undistort_radial_coordinates,
     undistort_to_pinhole,
@@ -141,7 +146,7 @@ def test_cross_view_validation_rejects_conflicts_but_keeps_occlusions():
     validation = validate_cross_view_consistency(
         np.array([[0.0, 0.0, 2.0], [0.0, 0.0, 3.0], [0.0, 0.0, 1.0]], dtype=np.float32),
         neighbors=[neighbor],
-        confidence_threshold=0.5,
+        confidence_thresholds={neighbor.colmap_image.image_id: 0.5},
         relative_threshold=0.1,
     )
 
@@ -151,7 +156,140 @@ def test_cross_view_validation_rejects_conflicts_but_keeps_occlusions():
     assert validation.occluded_counts.tolist() == [0, 1, 0]
 
 
-def test_consistency_threshold_uses_robust_scale_dispersion_with_bounds():
+
+def test_frame_confidence_thresholds_are_independent_per_frame():
+    first = make_frame(1, [])
+    second = make_frame(2, [])
+    first = FusionFrame(
+        image_path=first.image_path,
+        colmap_image=first.colmap_image,
+        camera=first.camera,
+        depth=first.depth,
+        confidence=np.tile(np.array([1.0, 3.0], dtype=np.float32), (14, 7)),
+        colors=first.colors,
+        scale=first.scale,
+        image_shape=first.image_shape,
+        original_size=first.original_size,
+    )
+    second = FusionFrame(
+        image_path=second.image_path,
+        colmap_image=second.colmap_image,
+        camera=second.camera,
+        depth=second.depth,
+        confidence=np.tile(np.array([100.0, 300.0], dtype=np.float32), (14, 7)),
+        colors=second.colors,
+        scale=second.scale,
+        image_shape=second.image_shape,
+        original_size=second.original_size,
+    )
+
+    thresholds = compute_frame_confidence_thresholds([first, second], 50.0)
+
+    assert thresholds == {1: 2.0, 2: 200.0}
+
+
+def test_global_confidence_scope_preserves_one_pooled_threshold():
+    first = make_frame(1, [])
+    second = make_frame(2, [])
+    first = FusionFrame(
+        image_path=first.image_path,
+        colmap_image=first.colmap_image,
+        camera=first.camera,
+        depth=first.depth,
+        confidence=np.ones((14, 14), dtype=np.float32),
+        colors=first.colors,
+        scale=first.scale,
+        image_shape=first.image_shape,
+        original_size=first.original_size,
+    )
+    second = FusionFrame(
+        image_path=second.image_path,
+        colmap_image=second.colmap_image,
+        camera=second.camera,
+        depth=second.depth,
+        confidence=np.full((14, 14), 100.0, dtype=np.float32),
+        colors=second.colors,
+        scale=second.scale,
+        image_shape=second.image_shape,
+        original_size=second.original_size,
+    )
+
+    thresholds = compute_confidence_thresholds([first, second], 50.0, scope="global")
+
+    assert thresholds == {1: 50.5, 2: 50.5}
+
+
+def test_points_filter_uses_source_frame_thresholds():
+    first = make_frame(1, [])
+    second = make_frame(2, [])
+    first = FusionFrame(
+        image_path=first.image_path,
+        colmap_image=first.colmap_image,
+        camera=first.camera,
+        depth=first.depth,
+        confidence=np.tile(np.array([1.0, 3.0], dtype=np.float32), (14, 7)),
+        colors=first.colors,
+        scale=first.scale,
+        image_shape=first.image_shape,
+        original_size=first.original_size,
+    )
+    second = FusionFrame(
+        image_path=second.image_path,
+        colmap_image=second.colmap_image,
+        camera=second.camera,
+        depth=second.depth,
+        confidence=np.tile(np.array([100.0, 300.0], dtype=np.float32), (14, 7)),
+        colors=second.colors,
+        scale=second.scale,
+        image_shape=second.image_shape,
+        original_size=second.original_size,
+    )
+
+    filtered = filter_points_by_cross_view_consistency(
+        [first, second],
+        covisibility_graph={1: [], 2: []},
+        confidence_thresholds={1: 2.0, 2: 200.0},
+        relative_threshold=0.1,
+        stride=1,
+    )
+
+    assert filtered.candidate_points == 196
+    assert [record["confidence_threshold"] for record in filtered.image_records] == [2.0, 200.0]
+
+
+def test_cross_view_validation_uses_each_neighbor_threshold():
+    neighbor = make_frame(2, [])
+    neighbor = FusionFrame(
+        image_path=neighbor.image_path,
+        colmap_image=neighbor.colmap_image,
+        camera=neighbor.camera,
+        depth=neighbor.depth,
+        confidence=np.full((14, 14), 10.0, dtype=np.float32),
+        colors=neighbor.colors,
+        scale=neighbor.scale,
+        image_shape=neighbor.image_shape,
+        original_size=neighbor.original_size,
+    )
+    source_points = np.array([[0.0, 0.0, 2.0]], dtype=np.float32)
+
+    accepted = validate_cross_view_consistency(
+        source_points,
+        neighbors=[neighbor],
+        confidence_thresholds={2: 5.0},
+        relative_threshold=0.1,
+    )
+    unverified = validate_cross_view_consistency(
+        source_points,
+        neighbors=[neighbor],
+        confidence_thresholds={2: 20.0},
+        relative_threshold=0.1,
+    )
+
+    assert accepted.support_counts.tolist() == [1]
+    assert unverified.support_counts.tolist() == [0]
+    assert unverified.visible_counts.tolist() == [0]
+    assert unverified.accepted.tolist() == [True]
+
     threshold = derive_consistency_relative_threshold(
         [DepthScaleEstimate(1.0, 100, 0.006), DepthScaleEstimate(1.0, 100, 0.006)],
         min_threshold=0.02,
@@ -311,6 +449,71 @@ def test_validate_tsdf_output_rejects_sparse_or_incomplete_results():
         validate_tsdf_output({"input_frames": 100, "integrated_frames": 100, "num_points": 20_000})
 
     validate_tsdf_output({"input_frames": 100, "integrated_frames": 100, "num_points": 100_000})
+
+
+def test_global_scale_graph_recovers_pairwise_scale_relation():
+    frames = [make_frame(1, []), make_frame(2, [])]
+    second = frames[1]
+    frames[1] = FusionFrame(
+        image_path=second.image_path,
+        colmap_image=ColmapImage(
+            image_id=2,
+            qvec=second.colmap_image.qvec,
+            tvec=np.array([-1.0, 0.0, 0.0]),
+            camera_id=second.colmap_image.camera_id,
+            name=second.colmap_image.name,
+            observations=[],
+        ),
+        camera=second.camera,
+        depth=np.full((14, 14), 1.0, dtype=np.float32),
+        confidence=second.confidence,
+        colors=second.colors,
+        scale=1.0,
+        image_shape=second.image_shape,
+        original_size=second.original_size,
+    )
+    graph = {1: [CovisibilityEdge(target_image_id=2, shared_points=1, baseline=1.0)], 2: []}
+    estimates = {"frame_1.jpg": DepthScaleEstimate(1.0, 100, 0.01)}
+
+    result = optimize_depth_scale_graph(
+        frames=frames,
+        covisibility_graph=graph,
+        scale_estimates=estimates,
+        fallback_scale=1.0,
+        confidence_threshold=0.5,
+        relative_threshold=0.1,
+        iterations=5,
+        pair_weight=10.0,
+        huber_delta=0.1,
+        max_pairs_per_edge=32,
+    )
+
+    assert np.isclose(result.scales[1], 1.0, atol=1e-4)
+    assert np.isclose(result.scales[2], 2.0, atol=1e-3)
+    assert result.pair_constraint_count > 0
+    assert result.component_count == 1
+    assert result.fallback_image_count == 0
+
+
+def test_global_scale_graph_pins_unanchored_component_to_fallback():
+    frames = [make_frame(1, []), make_frame(2, [])]
+    result = optimize_depth_scale_graph(
+        frames=frames,
+        covisibility_graph={1: [], 2: []},
+        scale_estimates={"frame_1.jpg": DepthScaleEstimate(1.0, 100, 0.01)},
+        fallback_scale=3.0,
+        confidence_threshold=0.5,
+        relative_threshold=0.1,
+        iterations=3,
+        pair_weight=0.0,
+        huber_delta=0.1,
+        max_pairs_per_edge=8,
+    )
+
+    assert np.isclose(result.scales[1], 1.0, atol=1e-4)
+    assert np.isclose(result.scales[2], 3.0, atol=1e-4)
+    assert result.component_count == 2
+    assert result.fallback_image_count == 1
 
 
 def make_frame(image_id: int, observations: list[tuple[float, float, int]]) -> FusionFrame:
