@@ -397,6 +397,8 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "consistency_unverified",
             "consistency_supported",
             "consistency_stride",
+            "consistency_multi_visible",
+            "consistency_policy_rejected_supported",
         }:
             metrics[key] = int(value)
         else:

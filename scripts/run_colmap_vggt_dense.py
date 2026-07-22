@@ -115,6 +115,8 @@ class ConsistencyFilterResult:
     supported_points: int
     residual_samples: np.ndarray
     image_records: list[dict[str, Any]]
+    multi_visible_points: int
+    policy_rejected_supported_points: int
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,13 @@ def main() -> None:
     parser.add_argument("--consistency-relative-threshold", type=float, default=0.08)
     parser.add_argument("--consistency-min-relative-threshold", type=float, default=0.02)
     parser.add_argument("--consistency-stride", type=int, default=1)
+    parser.add_argument(
+        "--consistency-support-policy",
+        choices=["any_support", "adaptive_two"],
+        default="any_support",
+    )
+    parser.add_argument("--support-policy-comparison-ply", type=Path)
+    parser.add_argument("--joint-comparison-ply", type=Path)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -438,9 +447,11 @@ def main() -> None:
             covisibility_graph=covisibility_graph,
             confidence_thresholds=confidence_thresholds,
             relative_threshold=consistency_relative_threshold,
+            support_policy=args.consistency_support_policy,
             stride=args.consistency_stride,
         )
         comparison_summary: dict[str, Any] | None = None
+        comparison_summaries: list[dict[str, Any]] = []
         if args.confidence_comparison_ply is not None:
             comparison_scope = (
                 "global" if args.confidence_threshold_scope == "per_frame" else "per_frame"
@@ -455,6 +466,7 @@ def main() -> None:
                 covisibility_graph=covisibility_graph,
                 confidence_thresholds=comparison_thresholds,
                 relative_threshold=consistency_relative_threshold,
+                support_policy=args.consistency_support_policy,
                 stride=args.consistency_stride,
             )
             comparison_points, comparison_colors = cap_points(
@@ -466,12 +478,97 @@ def main() -> None:
             args.confidence_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
             write_ply(args.confidence_comparison_ply, comparison_points, comparison_colors)
             comparison_summary = {
+                "kind": "confidence_threshold_scope",
                 "scope": comparison_scope,
                 "path": str(args.confidence_comparison_ply),
                 "candidate_points": comparison_filtered.candidate_points,
                 "accepted_points": comparison_filtered.accepted_points,
                 "output_points": int(len(comparison_points)),
             }
+            comparison_summaries.append(comparison_summary)
+        if args.support_policy_comparison_ply is not None:
+            comparison_policy = (
+                "any_support"
+                if args.consistency_support_policy == "adaptive_two"
+                else "adaptive_two"
+            )
+            comparison_filtered = filter_points_by_cross_view_consistency(
+                fusion_frames,
+                covisibility_graph=covisibility_graph,
+                confidence_thresholds=confidence_thresholds,
+                relative_threshold=consistency_relative_threshold,
+                support_policy=comparison_policy,
+                stride=args.consistency_stride,
+            )
+            comparison_points, comparison_colors = cap_points(
+                comparison_filtered.points,
+                comparison_filtered.colors,
+                args.max_points,
+                args.seed,
+            )
+            args.support_policy_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
+            write_ply(
+                args.support_policy_comparison_ply,
+                comparison_points,
+                comparison_colors,
+            )
+            comparison_summary = {
+                "kind": "support_policy",
+                "support_policy": comparison_policy,
+                "path": str(args.support_policy_comparison_ply),
+                "candidate_points": comparison_filtered.candidate_points,
+                "accepted_points": comparison_filtered.accepted_points,
+                "multi_visible_points": comparison_filtered.multi_visible_points,
+                "policy_rejected_supported_points": (
+                    comparison_filtered.policy_rejected_supported_points
+                ),
+                "output_points": int(len(comparison_points)),
+            }
+            comparison_summaries.append(comparison_summary)
+        if args.joint_comparison_ply is not None:
+            comparison_scope = (
+                "global" if args.confidence_threshold_scope == "per_frame" else "per_frame"
+            )
+            comparison_policy = (
+                "any_support"
+                if args.consistency_support_policy == "adaptive_two"
+                else "adaptive_two"
+            )
+            comparison_thresholds = compute_confidence_thresholds(
+                fusion_frames,
+                args.conf_percentile,
+                scope=comparison_scope,
+            )
+            comparison_filtered = filter_points_by_cross_view_consistency(
+                fusion_frames,
+                covisibility_graph=covisibility_graph,
+                confidence_thresholds=comparison_thresholds,
+                relative_threshold=consistency_relative_threshold,
+                support_policy=comparison_policy,
+                stride=args.consistency_stride,
+            )
+            comparison_points, comparison_colors = cap_points(
+                comparison_filtered.points,
+                comparison_filtered.colors,
+                args.max_points,
+                args.seed,
+            )
+            args.joint_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
+            write_ply(args.joint_comparison_ply, comparison_points, comparison_colors)
+            comparison_summary = {
+                "kind": "joint_confidence_support",
+                "confidence_threshold_scope": comparison_scope,
+                "support_policy": comparison_policy,
+                "path": str(args.joint_comparison_ply),
+                "candidate_points": comparison_filtered.candidate_points,
+                "accepted_points": comparison_filtered.accepted_points,
+                "multi_visible_points": comparison_filtered.multi_visible_points,
+                "policy_rejected_supported_points": (
+                    comparison_filtered.policy_rejected_supported_points
+                ),
+                "output_points": int(len(comparison_points)),
+            }
+            comparison_summaries.append(comparison_summary)
         flat_points, flat_colors = cap_points(filtered.points, filtered.colors, args.max_points, args.seed)
         if len(flat_points) == 0:
             raise RuntimeError("Cross-view consistency rejected every dense point")
@@ -481,6 +578,8 @@ def main() -> None:
             "rejected_points": filtered.rejected_points,
             "unverified_points": filtered.unverified_points,
             "supported_points": filtered.supported_points,
+            "multi_visible_points": filtered.multi_visible_points,
+            "policy_rejected_supported_points": filtered.policy_rejected_supported_points,
             "acceptance_rate": filtered.accepted_points / max(filtered.candidate_points, 1),
             "residual_p50": percentile_or_zero(filtered.residual_samples, 50),
             "residual_p90": percentile_or_zero(filtered.residual_samples, 90),
@@ -492,6 +591,7 @@ def main() -> None:
                 confidence_thresholds=confidence_thresholds,
                 confidence_percentile=args.conf_percentile,
                 confidence_threshold_scope=args.confidence_threshold_scope,
+                support_policy=args.consistency_support_policy,
                 relative_threshold=consistency_relative_threshold,
                 stride=args.consistency_stride,
             ),
@@ -555,6 +655,7 @@ def main() -> None:
                     "confidence_threshold_min": float(np.min(confidence_threshold_values)),
                     "confidence_threshold_median": confidence_threshold,
                     "confidence_threshold_max": float(np.max(confidence_threshold_values)),
+                    "support_policy": args.consistency_support_policy,
                     "neighbors": args.consistency_neighbors,
                     "min_shared_points": args.consistency_min_shared_points,
                     "relative_threshold": consistency_relative_threshold,
@@ -562,6 +663,7 @@ def main() -> None:
                     "min_relative_threshold": args.consistency_min_relative_threshold,
                     "stride": args.consistency_stride,
                     "comparison": comparison_summary,
+                    "comparisons": comparison_summaries,
                 }
                 if consistency_summary is not None
                 else None
@@ -584,6 +686,9 @@ def main() -> None:
             f"consistency_rejected={consistency_summary['rejected_points']}",
             f"consistency_unverified={consistency_summary['unverified_points']}",
             f"consistency_supported={consistency_summary['supported_points']}",
+            f"consistency_multi_visible={consistency_summary['multi_visible_points']}",
+            f"consistency_policy_rejected_supported={consistency_summary['policy_rejected_supported_points']}",
+            f"consistency_support_policy={args.consistency_support_policy}",
             f"consistency_acceptance_rate={consistency_summary['acceptance_rate']:.6f}",
             f"consistency_relative_threshold={consistency_relative_threshold:.6f}",
             f"consistency_residual_p50={consistency_summary['residual_p50']:.6f}",
@@ -1685,6 +1790,7 @@ def filter_points_by_cross_view_consistency(
     covisibility_graph: dict[int, list[CovisibilityEdge]],
     confidence_thresholds: Mapping[int, float],
     relative_threshold: float,
+    support_policy: str = "any_support",
     stride: int,
 ) -> ConsistencyFilterResult:
     frame_by_id = {frame.colmap_image.image_id: frame for frame in frames}
@@ -1697,6 +1803,8 @@ def filter_points_by_cross_view_consistency(
     rejected_points = 0
     unverified_points = 0
     supported_points = 0
+    multi_visible_points = 0
+    policy_rejected_supported_points = 0
 
     for frame in frames:
         confidence_threshold = confidence_thresholds[frame.colmap_image.image_id]
@@ -1727,11 +1835,14 @@ def filter_points_by_cross_view_consistency(
             neighbors=neighbors,
             confidence_thresholds=confidence_thresholds,
             relative_threshold=relative_threshold,
+            support_policy=support_policy,
         )
         accepted = validation.accepted
         supported = accepted & (validation.support_counts > 0)
         unverified = accepted & (validation.visible_counts == 0)
         rejected = ~accepted
+        multi_visible = validation.visible_counts >= 2
+        policy_rejected_supported = rejected & (validation.support_counts > 0)
         accepted_residuals = validation.mean_relative_error[supported]
 
         point_parts.append(source_points[accepted])
@@ -1742,6 +1853,8 @@ def filter_points_by_cross_view_consistency(
         rejected_points += int(rejected.sum())
         unverified_points += int(unverified.sum())
         supported_points += int(supported.sum())
+        multi_visible_points += int(multi_visible.sum())
+        policy_rejected_supported_points += int(policy_rejected_supported.sum())
         image_records.append(
             {
                 "image": frame.image_path.name,
@@ -1751,6 +1864,8 @@ def filter_points_by_cross_view_consistency(
                 "rejected_points": int(rejected.sum()),
                 "unverified_points": int(unverified.sum()),
                 "supported_points": int(supported.sum()),
+                "multi_visible_points": int(multi_visible.sum()),
+                "policy_rejected_supported_points": int(policy_rejected_supported.sum()),
                 "median_relative_error": percentile_or_zero(accepted_residuals, 50),
                 "p90_relative_error": percentile_or_zero(accepted_residuals, 90),
             }
@@ -1768,6 +1883,8 @@ def filter_points_by_cross_view_consistency(
         supported_points=supported_points,
         residual_samples=np.concatenate(residual_samples) if residual_samples else np.empty(0, dtype=np.float32),
         image_records=image_records,
+        multi_visible_points=multi_visible_points,
+        policy_rejected_supported_points=policy_rejected_supported_points,
     )
 
 
@@ -1777,6 +1894,7 @@ def validate_cross_view_consistency(
     neighbors: list[FusionFrame],
     confidence_thresholds: Mapping[int, float],
     relative_threshold: float,
+    support_policy: str = "any_support",
 ) -> CrossViewValidation:
     point_count = len(source_points)
     support_counts = np.zeros(point_count, dtype=np.int16)
@@ -1811,7 +1929,11 @@ def validate_cross_view_consistency(
         occluded_counts += occluded
         residual_sums += np.where(visible, relative_error, 0.0)
 
-    accepted = (support_counts > 0) | (visible_counts == 0)
+    accepted = apply_support_policy(
+        support_counts,
+        visible_counts,
+        policy=support_policy,
+    )
     mean_relative_error = np.divide(
         residual_sums,
         visible_counts,
@@ -1825,6 +1947,20 @@ def validate_cross_view_consistency(
         occluded_counts=occluded_counts,
         mean_relative_error=mean_relative_error,
     )
+
+
+def apply_support_policy(
+    support_counts: np.ndarray,
+    visible_counts: np.ndarray,
+    *,
+    policy: str,
+) -> np.ndarray:
+    if policy == "any_support":
+        return (support_counts > 0) | (visible_counts == 0)
+    if policy == "adaptive_two":
+        required_supports = np.minimum(visible_counts, 2)
+        return support_counts >= required_supports
+    raise ValueError(f"Unknown cross-view support policy: {policy}")
 
 
 def project_world_points_to_depth_canvas(
@@ -1942,6 +2078,7 @@ def build_consistency_payload(
     confidence_thresholds: Mapping[int, float],
     confidence_percentile: float,
     confidence_threshold_scope: str = "per_frame",
+    support_policy: str = "any_support",
     relative_threshold: float,
     stride: int,
 ) -> dict[str, Any]:
@@ -1954,6 +2091,7 @@ def build_consistency_payload(
         "confidence_threshold_min": float(np.min(threshold_values)),
         "confidence_threshold_median": threshold_median,
         "confidence_threshold_max": float(np.max(threshold_values)),
+        "support_policy": support_policy,
         "relative_threshold": relative_threshold,
         "stride": stride,
         "candidate_points": filtered.candidate_points,
@@ -1961,6 +2099,8 @@ def build_consistency_payload(
         "rejected_points": filtered.rejected_points,
         "unverified_points": filtered.unverified_points,
         "supported_points": filtered.supported_points,
+        "multi_visible_points": filtered.multi_visible_points,
+        "policy_rejected_supported_points": filtered.policy_rejected_supported_points,
         "acceptance_rate": filtered.accepted_points / max(filtered.candidate_points, 1),
         "residual_p50": percentile_or_zero(filtered.residual_samples, 50),
         "residual_p90": percentile_or_zero(filtered.residual_samples, 90),

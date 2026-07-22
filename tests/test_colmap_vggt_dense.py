@@ -16,6 +16,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     DepthScaleEstimate,
     FusionFrame,
     FusionCamera,
+    apply_support_policy,
     build_covisibility_graph,
     build_fusion_camera,
     build_vggt_groups,
@@ -155,6 +156,104 @@ def test_cross_view_validation_rejects_conflicts_but_keeps_occlusions():
     assert validation.visible_counts.tolist() == [1, 0, 1]
     assert validation.occluded_counts.tolist() == [0, 1, 0]
 
+
+
+def test_adaptive_support_policy_requires_two_when_two_views_are_visible():
+    support_counts = np.array([0, 1, 1, 2, 2], dtype=np.int16)
+    visible_counts = np.array([0, 1, 2, 2, 3], dtype=np.int16)
+
+    any_support = apply_support_policy(
+        support_counts,
+        visible_counts,
+        policy="any_support",
+    )
+    adaptive = apply_support_policy(
+        support_counts,
+        visible_counts,
+        policy="adaptive_two",
+    )
+
+    assert any_support.tolist() == [True, True, True, True, True]
+    assert adaptive.tolist() == [True, True, False, True, True]
+
+
+def test_adaptive_support_policy_does_not_count_occluded_or_low_confidence_views():
+    supporting = make_frame(2, [])
+    occluding = make_frame(3, [])
+    low_confidence = make_frame(4, [])
+    occluding = FusionFrame(
+        image_path=occluding.image_path,
+        colmap_image=occluding.colmap_image,
+        camera=occluding.camera,
+        depth=np.full((14, 14), 1.0, dtype=np.float32),
+        confidence=occluding.confidence,
+        colors=occluding.colors,
+        scale=occluding.scale,
+        image_shape=occluding.image_shape,
+        original_size=occluding.original_size,
+    )
+    low_confidence = FusionFrame(
+        image_path=low_confidence.image_path,
+        colmap_image=low_confidence.colmap_image,
+        camera=low_confidence.camera,
+        depth=low_confidence.depth,
+        confidence=np.zeros((14, 14), dtype=np.float32),
+        colors=low_confidence.colors,
+        scale=low_confidence.scale,
+        image_shape=low_confidence.image_shape,
+        original_size=low_confidence.original_size,
+    )
+
+    validation = validate_cross_view_consistency(
+        np.array([[0.0, 0.0, 2.0]], dtype=np.float32),
+        neighbors=[supporting, occluding, low_confidence],
+        confidence_thresholds={2: 0.5, 3: 0.5, 4: 0.5},
+        relative_threshold=0.1,
+        support_policy="adaptive_two",
+    )
+
+    assert validation.support_counts.tolist() == [1]
+    assert validation.visible_counts.tolist() == [1]
+    assert validation.occluded_counts.tolist() == [1]
+    assert validation.accepted.tolist() == [True]
+
+
+def test_adaptive_support_policy_rejects_single_support_with_visible_conflict():
+    supporting = make_frame(2, [])
+    conflicting = make_frame(3, [])
+    conflicting = FusionFrame(
+        image_path=conflicting.image_path,
+        colmap_image=conflicting.colmap_image,
+        camera=conflicting.camera,
+        depth=np.full((14, 14), 3.0, dtype=np.float32),
+        confidence=conflicting.confidence,
+        colors=conflicting.colors,
+        scale=conflicting.scale,
+        image_shape=conflicting.image_shape,
+        original_size=conflicting.original_size,
+    )
+    source_points = np.array([[0.0, 0.0, 2.0]], dtype=np.float32)
+    thresholds = {2: 0.5, 3: 0.5}
+
+    baseline = validate_cross_view_consistency(
+        source_points,
+        neighbors=[supporting, conflicting],
+        confidence_thresholds=thresholds,
+        relative_threshold=0.1,
+        support_policy="any_support",
+    )
+    adaptive = validate_cross_view_consistency(
+        source_points,
+        neighbors=[supporting, conflicting],
+        confidence_thresholds=thresholds,
+        relative_threshold=0.1,
+        support_policy="adaptive_two",
+    )
+
+    assert baseline.support_counts.tolist() == [1]
+    assert baseline.visible_counts.tolist() == [2]
+    assert baseline.accepted.tolist() == [True]
+    assert adaptive.accepted.tolist() == [False]
 
 
 def test_frame_confidence_thresholds_are_independent_per_frame():

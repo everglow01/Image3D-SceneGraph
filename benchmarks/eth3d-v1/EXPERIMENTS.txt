@@ -525,3 +525,143 @@ Interpretation and decision:
   time and do not retune the percentile. A future automatic policy needs an RGB-derived,
   pre-evaluation diagnostic explaining when window confidence distributions are genuinely
   incomparable.
+
+Adaptive multi-view support ablation — strict paired multi-scene result
+-----------------------------------------------------------------------
+Status: accepted as an experimental accuracy-priority mode; default unchanged
+Date: 2026-07-22
+Configuration ID: adaptive_support_paired
+
+Hypothesis: the baseline accepts a dense point after any one visible neighbor supports it. When
+at least two high-confidence, non-occluded neighbors actually observe a point, requiring two
+supports should reject accidental single-view agreements and improve Accuracy without imposing
+extra requirements on points that have only zero or one usable neighbor.
+
+The candidate `adaptive_two` policy uses the fixed rule `required_supports = min(visible_count,
+2)`. Thus zero-visible points remain accepted as unverified, one-visible points require one
+support, and points with two or more visible neighbors require two supports. Low-confidence,
+out-of-bounds, invalid, and occluded projections do not count as visible. The baseline
+`any_support` rule remains `(support_count > 0) or (visible_count == 0)`.
+
+Every comparison was strictly paired. One reconstruction run generated baseline and candidate
+point clouds from the same in-memory COLMAP cameras, VGGT depths/confidences, per-frame sparse
+scales, global 50th-percentile confidence threshold, covisibility graph, relative-depth
+threshold, point cap, and seed. `pipes` retained accepted B2 registration settings;
+`terrains` and `delivery_area` retained B1. No support count or threshold was tuned after
+scoring pipes, and ETH3D assets remained evaluation-only.
+
+Strict paired official ETH3D F1 comparison:
+Scene           Threshold   Any-support  Adaptive-two  Delta
+pipes           1 cm        0.278901     0.279155      +0.000254
+                2 cm        0.435354     0.436945      +0.001591
+                5 cm        0.565165     0.567042      +0.001877
+terrains        1 cm        0.354508     0.355851      +0.001343
+                2 cm        0.602683     0.605414      +0.002731
+                5 cm        0.799677     0.803167      +0.003490
+delivery_area   1 cm        0.084100     0.083929      -0.000171
+                2 cm        0.234295     0.234440      +0.000145
+                5 cm        0.515523     0.517294      +0.001771
+
+Full paired deltas (Accuracy / Completeness / F1) at 1/2/5/10/20/50 cm:
+- pipes: +0.020753/-0.003494/+0.000254; +0.024941/-0.003248/+0.001591;
+  +0.017767/-0.001451/+0.001877; +0.008815/-0.000565/+0.001217;
+  +0.002693/-0.000154/+0.000440; +0.000038/+0.000000/+0.000010.
+- terrains: +0.008387/-0.001032/+0.001343; +0.009502/-0.000960/+0.002731;
+  +0.009477/-0.000057/+0.003490; +0.006726/+0.000316/+0.002799;
+  +0.004127/+0.000040/+0.001702; +0.000050/-0.000068/-0.000018.
+- delivery_area: +0.002257/-0.000398/-0.000171; +0.004323/-0.001397/+0.000145;
+  +0.006192/-0.001472/+0.001771; +0.008354/-0.001654/+0.002059;
+  +0.007415/-0.000227/+0.002486; +0.002306/+0.000327/+0.001104.
+
+Candidate support diagnostics (candidates / multi-visible / single-supported policy rejects):
+- pipes: 1269100 / 864016 / 38282; adaptive output 1188163 points.
+- terrains: 3807300 / 2967952 / 42207; adaptive output capped at 2000000 points.
+- delivery_area: 3988600 / 3033791 / 102770; adaptive output capped at 2000000 points.
+
+All three adaptive evaluations were repeated from the frozen point clouds. Each repeat had a
+byte-identical `sim3.json`, identical aligned PLY SHA-256, identical six metric rows, and
+return code 0. Aligned candidate hashes were:
+- pipes: 6a8e4fee64a97058fd7617d5d818796b60d41c3557666c24270d0d610cce5029
+- terrains: 3a6d62761e9b9a088e138c4c9f5021f3ee55a96d36ab6cd4f4fe699de56fb69f
+- delivery_area: abb6c680d82c9a756024cceb5ffdd95579d39991c7d196e4c1304ad195dee8f1
+
+Interpretation and decision:
+- The mechanism transfers: Accuracy rises at every reported threshold on all three scenes,
+  while Completeness changes are small and usually negative. The 2/5 cm F1 deltas are positive
+  on all three scenes, so the fixed development criterion is met without retuning.
+- The gain is small, and delivery_area loses 0.000171 F1 at 1 cm. Keep
+  `--consistency-support-policy adaptive_two` as an experimental accuracy-priority mode rather
+  than replacing the stable `any_support` default. It may be appropriate when surface precision
+  is preferred over maximum coverage; it is not evidence for a universally superior default.
+
+Phase 1 + Phase 2 combination — strict paired 2x2 factorial result
+------------------------------------------------------------------
+Status: mixed; retain both controls as independent experiments, defaults unchanged
+Date: 2026-07-22
+Configuration ID: phase1_phase2_factorial
+
+Question: do per-frame confidence thresholding (Phase 1) and adaptive two-view support
+(Phase 2) compose into a generally better point-fusion policy? A strict 2x2 factorial run
+was used instead of adding results from separate reconstructions. Each scene generated all
+four point clouds from one in-memory COLMAP solution, VGGT depth/confidence set, sparse depth
+scales, covisibility graph, relative-depth threshold, point cap, and seed:
+- baseline: `global + any_support`;
+- Phase 1: `per_frame + any_support`;
+- Phase 2: `global + adaptive_two`;
+- combined: `per_frame + adaptive_two`.
+
+`pipes` retained B2 registration; `terrains` and `delivery_area` retained B1. Confidence
+percentile 50, support count 2, consistency thresholds, and all other settings were frozen.
+No ETH3D camera or scan data entered reconstruction and no parameter was changed after scores.
+
+F1 at 1/2/5 cm (baseline / Phase 1 / Phase 2 / combined; combined delta from baseline):
+- pipes: 0.286328/0.281429/0.286693/0.278981 (-0.007347);
+  0.440163/0.471561/0.441481/0.465278 (+0.025115);
+  0.566427/0.692116/0.568265/0.681372 (+0.114945).
+- terrains: 0.370228/0.371833/0.372255/0.373750 (+0.003522);
+  0.614641/0.591639/0.617734/0.595945 (-0.018696);
+  0.801262/0.767229/0.804803/0.770722 (-0.030540).
+- delivery_area: 0.082888/0.088215/0.083300/0.087428 (+0.004540);
+  0.241363/0.258997/0.242048/0.254585 (+0.013222);
+  0.525631/0.558544/0.527671/0.554394 (+0.028763).
+
+Full combined deltas from baseline (Accuracy / Completeness / F1) at
+1/2/5/10/20/50 cm:
+- pipes: -0.021228/-0.003485/-0.007347; -0.035753/+0.036397/+0.025115;
+  -0.043321/+0.146808/+0.114945; -0.028040/+0.212694/+0.163769;
+  -0.009670/+0.328056/+0.238018; -0.002050/+0.363270/+0.235538.
+- terrains: +0.006226/+0.002309/+0.003522; +0.002585/-0.028670/-0.018696;
+  +0.002417/-0.047369/-0.030540; -0.002023/-0.051008/-0.033668;
+  +0.000476/-0.055743/-0.034498; -0.000748/-0.062719/-0.037573.
+- delivery_area: +0.025188/+0.001519/+0.004540; +0.040370/+0.002054/+0.013222;
+  +0.049437/+0.013968/+0.028763; +0.030477/+0.008227/+0.016441;
+  +0.008150/+0.043115/+0.031191; -0.000351/+0.030172/+0.018324.
+
+F1 interaction term, defined as `combined - Phase1 - Phase2 + baseline`, at
+1/2/5/10/20/50 cm:
+- pipes: -0.002813 / -0.007601 / -0.012582 / -0.013235 / -0.003193 / -0.000037.
+- terrains: -0.000110 / +0.001213 / -0.000048 / +0.000638 / +0.000065 / +0.001952.
+- delivery_area: -0.001199 / -0.005097 / -0.006190 / -0.004279 / -0.002081 / -0.000554.
+
+Point counts (baseline / Phase 1 / Phase 2 / combined):
+- pipes: 1226661 / 1275199 / 1189231 / 1224934.
+- terrains: all outputs capped at 2000000; combined accepted 3638068 of 3807300 candidates.
+- delivery_area: all outputs capped at 2000000; combined accepted 3800919 of 4079250 candidates.
+
+Interpretation and decision:
+- The policies address different failure modes, but their gains are not additive. Phase 2's
+  precision-oriented rejection partly removes points preserved by Phase 1, yielding negative
+  interaction on pipes and delivery_area. The combined policy still materially improves pipes
+  from 2 cm onward and delivery_area at every tolerance.
+- On terrains, Phase 2 recovers only a small fraction of Phase 1's completeness regression;
+  combined 2-50 cm F1 remains below baseline. The dominant cross-scene risk is therefore the
+  Phase 1 confidence-scope choice, not inadequate support filtering.
+- Do not make `per_frame + adaptive_two` a global default. Keep `global + any_support` stable,
+  keep both flags independently auditable, and do not select a scene policy from ETH3D GT.
+  A future automatic confidence-scope selector must use reconstruction-only diagnostics.
+
+All combined evaluations were repeated from frozen point clouds. Repeats had byte-identical
+`sim3.json`, identical metric rows, evaluator return code 0, and these aligned PLY SHA-256 values:
+- pipes: b7f54d95a4f0f9fa98b7e74c86a908425aeefe56880ca0edaa17bf1ef2416648
+- terrains: 4beb2ea597ce8046bc0789da2fe0af0e0e9b52e628e0f491b6d533345354cdd7
+- delivery_area: ebdf87480ea00b389ad60d3a6430c1ce4ebaeef86f30552a847d40443e49bf03
