@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "eth3d-high-res-mvs-v1",
+  "scene_id": "delivery_area",
+  "split": "development",
+  "dataset_root": "data/benchmarks/eth3d/delivery_area",
+  "inputs": {
+    "image_dir": "images/dslr_images_undistorted",
+    "reference_cameras": "dslr_calibration_undistorted/cameras.txt",
+    "reference_images": "dslr_calibration_undistorted/images.txt",
+    "ground_truth_mlp": "dslr_scan_eval/scan_alignment.mlp",
+    "expected_image_count": 44,
+    "expected_image_size": [6208, 4135],
+    "expected_image_names": [
+      "DSC_0675.JPG", "DSC_0676.JPG", "DSC_0677.JPG", "DSC_0678.JPG",
+      "DSC_0679.JPG", "DSC_0680.JPG", "DSC_0681.JPG", "DSC_0682.JPG",
+      "DSC_0683.JPG", "DSC_0684.JPG", "DSC_0685.JPG", "DSC_0686.JPG",
+      "DSC_0687.JPG", "DSC_0688.JPG", "DSC_0689.JPG", "DSC_0690.JPG",
+      "DSC_0691.JPG", "DSC_0692.JPG", "DSC_0693.JPG", "DSC_0694.JPG",
+      "DSC_0695.JPG", "DSC_0696.JPG", "DSC_0697.JPG", "DSC_0698.JPG",
+      "DSC_0699.JPG", "DSC_0700.JPG", "DSC_0701.JPG", "DSC_0702.JPG",
+      "DSC_0703.JPG", "DSC_0704.JPG", "DSC_0705.JPG", "DSC_0706.JPG",
+      "DSC_0707.JPG", "DSC_0708.JPG", "DSC_0709.JPG", "DSC_0710.JPG",
+      "DSC_0711.JPG", "DSC_0712.JPG", "DSC_0713.JPG", "DSC_0714.JPG",
+      "DSC_0715.JPG", "DSC_0716.JPG", "DSC_0717.JPG", "DSC_0718.JPG"
+    ]
+  },
+  "source_archives": {
+    "delivery_area_dslr_undistorted.7z": "9acf5efec4b99a69b89ebb87b403259730756c1a510307c92e5f2ce2d22658f3",
+    "delivery_area_dslr_scan_eval.7z": "8e07f7a7956a41c1ecc18ca8a61d3fff274c080050301a1b7dff12a3ca5ed5d2"
+  },
+  "evaluation": {
+    "tolerances_meters": [0.01, 0.02, 0.05, 0.1, 0.2, 0.5],
+    "alignment": "camera_centers_sim3_ransac",
+    "transform_direction": "eth3d_reference_from_reconstruction"
+  },
+  "protocol": {
+    "reconstruction_inputs": ["rgb_images"],
+    "reference_cameras_evaluation_only": true,
+    "ground_truth_scan_evaluation_only": true,
+    "scan_based_registration_forbidden": true,
+    "metric_scale_recovery_claimed": false
+  }
+}

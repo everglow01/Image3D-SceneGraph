@@ -137,7 +137,9 @@ env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_colmap_vggt_dense.py \
 ```
 
 This path uses COLMAP for global camera poses and VGGT for dense depth. The first scale alignment baseline estimates a per-image depth scale from COLMAP sparse observations and VGGT depth samples, then fuses all depth maps in COLMAP's global frame.
-For large image sets, increase `--max-points` to keep the fused cloud dense enough for inspection. Lower `--conf-percentile` keeps more VGGT depth samples but can introduce more noisy points.
+For large image sets, increase `--max-points` to keep the fused cloud dense enough for inspection. Lower `--conf-percentile` keeps more VGGT depth samples but can introduce more noisy points. The stable points path applies that percentile globally. `--confidence-threshold-scope per_frame` is an experimental alternative for independently calibrated VGGT windows; it improved two of three ETH3D scenes but regressed `terrains`, so it is not the default. `--consistency-support-policy adaptive_two` is an experimental accuracy-priority filter: points visible in two or more usable neighbors require two supports, while points with zero or one usable neighbor retain the baseline requirement. It improved 2/5 cm F1 slightly on all three ETH3D scenes but remains opt-in because the gain is small and can reduce strict completeness. Combining both experimental modes preserved the same mixed pattern—improvements on `pipes` and `delivery_area`, but lower 2-50 cm F1 on `terrains`—so the stable filtering defaults remain `global + any_support`.
+
+The final point cap uses deterministic seeded random sampling by default. `--point-budget-policy spatial_balanced` is the Phase 3 experimental alternative: it orders accepted points along a Morton space-filling curve and keeps equal-mass stratum midpoints, producing exactly the same requested point count without GT input. In strict paired 2M-point tests it improved 1/2/5 cm F1 by `+0.006265/+0.005373/+0.002104` on `terrains` and `+0.002567/+0.005658/+0.005174` on `delivery_area`; `pipes` was below the 2M cap and therefore unchanged, while a separate 1M activation check improved all six thresholds. The policy also remained positive when combined with either confidence scope and support policy. It is retained as the strongest Phase 3 candidate, but `random` remains the stable default pending validation on another capped non-ETH3D scene.
 
 Analyze a generated point cloud before attempting coordinate alignment:
 
@@ -160,6 +162,60 @@ uv run python scripts/align_pointcloud.py \
 
 The alignment step preserves the original point cloud and writes a separate aligned PLY. By default it rotates the strongest detected plane to the +Z axis and translates that plane to zero height. The point-cloud viewer uses the same Z-up convention and displays its grid on the XY plane.
 Job creation also runs this alignment as a generic point-cloud postprocess. Any backend that returns a `point_cloud` asset can expose `point_cloud_aligned` in the manifest, and the frontend viewer lets the user switch between Raw and Aligned when the aligned asset exists.
+
+## ETH3D Geometry Evaluation
+
+The optional ETH3D benchmark evaluates geometric reconstruction separately from the API and `JobStore`. Dataset files stay under the ignored `data/` directory and are not redistributed by this repository. The first frozen scene is `pipes`, defined by `benchmarks/eth3d-v1/pipes.json`.
+
+Place the official `pipes` undistorted images, COLMAP calibration, and evaluation scan at:
+
+```text
+data/benchmarks/eth3d/pipes/
+  images/dslr_images_undistorted/
+  dslr_calibration_undistorted/{cameras,images,points3D}.txt
+  dslr_scan_eval/{scan_alignment.mlp,scan1.ply}
+```
+
+The official evaluator is a separate C++ tool that requires Boost, Eigen3, and PCL development packages. Preview its setup without changing the machine:
+
+```bash
+uv run python scripts/setup_eth3d_evaluator.py
+```
+
+After installing the native prerequisites yourself, clone and build it explicitly with:
+
+```bash
+uv run python scripts/setup_eth3d_evaluator.py --install
+```
+
+Run the normal image-only reconstruction first. Do not pass ETH3D reference cameras or scans to this command:
+
+```bash
+env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
+  --image-dir data/benchmarks/eth3d/pipes/images/dslr_images_undistorted \
+  --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
+  --matcher exhaustive \
+  --vggt-batch-size 4 \
+  --vggt-grouping sequential \
+  --fusion-mode points \
+  --seed 42
+```
+
+Then align the reconstruction from corresponding estimated/reference camera centers and call the official evaluator:
+
+```bash
+uv run python scripts/evaluate_eth3d_scene.py \
+  --benchmark benchmarks/eth3d-v1/pipes.json \
+  --reconstruction-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
+  --evaluator-bin external/eth3d-multi-view-evaluation/build/ETH3DMultiViewEvaluation \
+  --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/evaluation \
+  --camera-ransac-threshold 0.05 \
+  --camera-ransac-iterations 1000 \
+  --min-camera-inliers 8 \
+  --seed 42
+```
+
+The evaluator applies one camera-center-derived Sim(3) to the raw reconstruction point cloud. It never fits the reconstruction to the laser scan with ICP. Reported Accuracy, Completeness, and F1 are therefore **GT-camera-Sim(3)-aligned geometry quality**, not evidence that the reconstruction recovered metric scale by itself. Do not use the generic Z-up `points_aligned.ply` as benchmark input; it has a different purpose.
 
 Build a mesh from a generated point cloud:
 

@@ -6,10 +6,10 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
-from itertools import combinations
+from dataclasses import dataclass, replace
+from itertools import combinations, product
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import open3d as o3d
@@ -53,6 +53,18 @@ class DepthScaleEstimate:
     scale: float
     observation_count: int
     log_mad: float
+
+
+@dataclass(frozen=True)
+class DepthScaleGraphResult:
+    scales: dict[int, float]
+    image_records: dict[int, dict[str, Any]]
+    component_count: int
+    anchored_image_count: int
+    fallback_image_count: int
+    pair_constraint_count: int
+    objective_history: list[float]
+    edge_records: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -103,6 +115,20 @@ class ConsistencyFilterResult:
     supported_points: int
     residual_samples: np.ndarray
     image_records: list[dict[str, Any]]
+    multi_visible_points: int
+    policy_rejected_supported_points: int
+
+
+@dataclass(frozen=True)
+class PointBudgetResult:
+    points: np.ndarray
+    colors: np.ndarray
+    policy: str
+    input_points: int
+    output_points: int
+    applied: bool
+    spatial_quantization_bits: int | None
+    occupied_spatial_codes: int | None
 
 
 @dataclass(frozen=True)
@@ -132,6 +158,9 @@ def main() -> None:
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="exhaustive")
+    parser.add_argument("--colmap-single-camera", type=int, choices=[0, 1], default=1)
+    parser.add_argument("--mapper-abs-pose-min-num-inliers", type=int, default=30)
+    parser.add_argument("--mapper-abs-pose-min-inlier-ratio", type=float, default=0.25)
     parser.add_argument("--vggt-batch-size", type=int, default=4)
     parser.add_argument("--vggt-overlap-size", type=int, default=2)
     parser.add_argument("--vggt-grouping", choices=["covisibility", "sequential"], default="sequential")
@@ -140,16 +169,45 @@ def main() -> None:
     parser.add_argument("--tsdf-sdf-trunc", type=float, default=0.0)
     parser.add_argument("--tsdf-depth-trunc", type=float, default=0.0)
     parser.add_argument("--max-points", type=int, default=2_000_000)
+    parser.add_argument(
+        "--point-budget-policy",
+        choices=["random", "spatial_balanced"],
+        default="random",
+    )
+    parser.add_argument("--factorial-output-dir", type=Path)
+    parser.add_argument("--point-budget-sensitivity-output-dir", type=Path)
     parser.add_argument("--conf-percentile", type=float, default=50.0)
+    parser.add_argument(
+        "--confidence-threshold-scope", choices=["global", "per_frame"], default="global"
+    )
+    parser.add_argument("--confidence-comparison-ply", type=Path)
     parser.add_argument("--min-scale-observations", type=int, default=20)
+    parser.add_argument("--depth-scale-mode", choices=["per_frame", "global_graph"], default="per_frame")
+    parser.add_argument("--scale-graph-iterations", type=int, default=5)
+    parser.add_argument("--scale-graph-pair-weight", type=float, default=1.0)
+    parser.add_argument("--scale-graph-huber-delta", type=float, default=0.05)
+    parser.add_argument("--scale-graph-max-pairs-per-edge", type=int, default=256)
     parser.add_argument("--consistency-neighbors", type=int, default=6)
     parser.add_argument("--consistency-min-shared-points", type=int, default=20)
     parser.add_argument("--consistency-relative-threshold", type=float, default=0.08)
     parser.add_argument("--consistency-min-relative-threshold", type=float, default=0.02)
     parser.add_argument("--consistency-stride", type=int, default=1)
+    parser.add_argument(
+        "--consistency-support-policy",
+        choices=["any_support", "adaptive_two"],
+        default="any_support",
+    )
+    parser.add_argument("--support-policy-comparison-ply", type=Path)
+    parser.add_argument("--joint-comparison-ply", type=Path)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    if args.mapper_abs_pose_min_num_inliers <= 0:
+        raise SystemExit("--mapper-abs-pose-min-num-inliers must be positive")
+    if not 0 < args.mapper_abs_pose_min_inlier_ratio <= 1:
+        raise SystemExit("--mapper-abs-pose-min-inlier-ratio must be between 0 and 1")
+    if not 0 <= args.conf_percentile < 100:
+        raise SystemExit("--conf-percentile must be between 0 and 100")
     if args.consistency_neighbors <= 0:
         raise SystemExit("--consistency-neighbors must be positive")
     if args.consistency_min_shared_points <= 0:
@@ -163,6 +221,14 @@ def main() -> None:
         )
     if args.consistency_stride <= 0:
         raise SystemExit("--consistency-stride must be positive")
+    if args.scale_graph_iterations <= 0:
+        raise SystemExit("--scale-graph-iterations must be positive")
+    if args.scale_graph_pair_weight < 0:
+        raise SystemExit("--scale-graph-pair-weight must be non-negative")
+    if args.scale_graph_huber_delta <= 0:
+        raise SystemExit("--scale-graph-huber-delta must be positive")
+    if args.scale_graph_max_pairs_per_edge <= 0:
+        raise SystemExit("--scale-graph-max-pairs-per-edge must be positive")
 
     started_at = time.perf_counter()
     colmap = shutil.which("colmap")
@@ -199,6 +265,9 @@ def main() -> None:
         sparse_dir=sparse_dir,
         text_dir=text_dir,
         matcher=args.matcher,
+        single_camera=bool(args.colmap_single_camera),
+        mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
+        mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
     )
     colmap_seconds = time.perf_counter() - colmap_started_at
 
@@ -308,8 +377,38 @@ def main() -> None:
         max_neighbors=args.consistency_neighbors,
         min_shared_points=args.consistency_min_shared_points,
     )
+    scale_graph_result: DepthScaleGraphResult | None = None
+    if args.depth_scale_mode == "global_graph":
+        scale_graph_result = optimize_depth_scale_graph(
+            frames=fusion_frames,
+            covisibility_graph=covisibility_graph,
+            scale_estimates=scale_estimates,
+            fallback_scale=fallback_scale,
+            confidence_threshold=compute_global_confidence_threshold(fusion_frames, args.conf_percentile),
+            relative_threshold=consistency_relative_threshold,
+            iterations=args.scale_graph_iterations,
+            pair_weight=args.scale_graph_pair_weight,
+            huber_delta=args.scale_graph_huber_delta,
+            max_pairs_per_edge=args.scale_graph_max_pairs_per_edge,
+        )
+        fusion_frames = [
+            replace(frame, scale=scale_graph_result.scales[frame.colmap_image.image_id])
+            for frame in fusion_frames
+        ]
+        used_scales = [frame.scale for frame in fusion_frames]
+        records_by_id = scale_graph_result.image_records
+        for record, frame in zip(fusion_camera_records, fusion_frames, strict=True):
+            graph_record = records_by_id[frame.colmap_image.image_id]
+            record["depth_scale_initial"] = graph_record["initial_scale"]
+            record["depth_scale"] = frame.scale
+            record["depth_scale_graph_component"] = graph_record["component"]
+            record["depth_scale_graph_anchor"] = graph_record["anchored"]
+            record["depth_scale_graph_fallback"] = graph_record["fallback"]
 
     tsdf_params: dict[str, float | int] | None = None
+    effective_confidence_threshold_scope = (
+        "per_frame" if args.fusion_mode == "tsdf" else args.confidence_threshold_scope
+    )
     if args.fusion_mode == "tsdf":
         tsdf_parameters = derive_tsdf_parameters(
             points3d,
@@ -326,7 +425,15 @@ def main() -> None:
             depth_trunc=tsdf_parameters.depth_trunc,
         )
         validate_tsdf_output(tsdf_stats)
-        flat_points, flat_colors = cap_points(tsdf_points, tsdf_colors, args.max_points, args.seed)
+        point_budget_result = apply_point_budget(
+            tsdf_points,
+            tsdf_colors,
+            args.max_points,
+            args.seed,
+            policy=args.point_budget_policy,
+        )
+        flat_points = point_budget_result.points
+        flat_colors = point_budget_result.colors
         if len(flat_points) == 0:
             raise RuntimeError("TSDF fusion produced no dense points")
         tsdf_params = {
@@ -355,15 +462,235 @@ def main() -> None:
             "output_points": int(len(flat_points)),
         }
     else:
-        confidence_threshold = compute_global_confidence_threshold(fusion_frames, args.conf_percentile)
+        confidence_thresholds = compute_confidence_thresholds(
+            fusion_frames,
+            args.conf_percentile,
+            scope=args.confidence_threshold_scope,
+        )
+        confidence_threshold_values = np.asarray(list(confidence_thresholds.values()), dtype=np.float64)
+        confidence_threshold = float(np.median(confidence_threshold_values))
         filtered = filter_points_by_cross_view_consistency(
             fusion_frames,
             covisibility_graph=covisibility_graph,
-            confidence_threshold=confidence_threshold,
+            confidence_thresholds=confidence_thresholds,
             relative_threshold=consistency_relative_threshold,
+            support_policy=args.consistency_support_policy,
             stride=args.consistency_stride,
         )
-        flat_points, flat_colors = cap_points(filtered.points, filtered.colors, args.max_points, args.seed)
+        comparison_summary: dict[str, Any] | None = None
+        comparison_summaries: list[dict[str, Any]] = []
+        if args.confidence_comparison_ply is not None:
+            comparison_scope = (
+                "global" if args.confidence_threshold_scope == "per_frame" else "per_frame"
+            )
+            comparison_thresholds = compute_confidence_thresholds(
+                fusion_frames,
+                args.conf_percentile,
+                scope=comparison_scope,
+            )
+            comparison_filtered = filter_points_by_cross_view_consistency(
+                fusion_frames,
+                covisibility_graph=covisibility_graph,
+                confidence_thresholds=comparison_thresholds,
+                relative_threshold=consistency_relative_threshold,
+                support_policy=args.consistency_support_policy,
+                stride=args.consistency_stride,
+            )
+            comparison_points, comparison_colors = cap_points(
+                comparison_filtered.points,
+                comparison_filtered.colors,
+                args.max_points,
+                args.seed,
+                policy=args.point_budget_policy,
+            )
+            args.confidence_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
+            write_ply(args.confidence_comparison_ply, comparison_points, comparison_colors)
+            comparison_summary = {
+                "kind": "confidence_threshold_scope",
+                "scope": comparison_scope,
+                "path": str(args.confidence_comparison_ply),
+                "candidate_points": comparison_filtered.candidate_points,
+                "accepted_points": comparison_filtered.accepted_points,
+                "output_points": int(len(comparison_points)),
+            }
+            comparison_summaries.append(comparison_summary)
+        if args.support_policy_comparison_ply is not None:
+            comparison_policy = (
+                "any_support"
+                if args.consistency_support_policy == "adaptive_two"
+                else "adaptive_two"
+            )
+            comparison_filtered = filter_points_by_cross_view_consistency(
+                fusion_frames,
+                covisibility_graph=covisibility_graph,
+                confidence_thresholds=confidence_thresholds,
+                relative_threshold=consistency_relative_threshold,
+                support_policy=comparison_policy,
+                stride=args.consistency_stride,
+            )
+            comparison_points, comparison_colors = cap_points(
+                comparison_filtered.points,
+                comparison_filtered.colors,
+                args.max_points,
+                args.seed,
+                policy=args.point_budget_policy,
+            )
+            args.support_policy_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
+            write_ply(
+                args.support_policy_comparison_ply,
+                comparison_points,
+                comparison_colors,
+            )
+            comparison_summary = {
+                "kind": "support_policy",
+                "support_policy": comparison_policy,
+                "path": str(args.support_policy_comparison_ply),
+                "candidate_points": comparison_filtered.candidate_points,
+                "accepted_points": comparison_filtered.accepted_points,
+                "multi_visible_points": comparison_filtered.multi_visible_points,
+                "policy_rejected_supported_points": (
+                    comparison_filtered.policy_rejected_supported_points
+                ),
+                "output_points": int(len(comparison_points)),
+            }
+            comparison_summaries.append(comparison_summary)
+        if args.joint_comparison_ply is not None:
+            comparison_scope = (
+                "global" if args.confidence_threshold_scope == "per_frame" else "per_frame"
+            )
+            comparison_policy = (
+                "any_support"
+                if args.consistency_support_policy == "adaptive_two"
+                else "adaptive_two"
+            )
+            comparison_thresholds = compute_confidence_thresholds(
+                fusion_frames,
+                args.conf_percentile,
+                scope=comparison_scope,
+            )
+            comparison_filtered = filter_points_by_cross_view_consistency(
+                fusion_frames,
+                covisibility_graph=covisibility_graph,
+                confidence_thresholds=comparison_thresholds,
+                relative_threshold=consistency_relative_threshold,
+                support_policy=comparison_policy,
+                stride=args.consistency_stride,
+            )
+            comparison_points, comparison_colors = cap_points(
+                comparison_filtered.points,
+                comparison_filtered.colors,
+                args.max_points,
+                args.seed,
+                policy=args.point_budget_policy,
+            )
+            args.joint_comparison_ply.parent.mkdir(parents=True, exist_ok=True)
+            write_ply(args.joint_comparison_ply, comparison_points, comparison_colors)
+            comparison_summary = {
+                "kind": "joint_confidence_support",
+                "confidence_threshold_scope": comparison_scope,
+                "support_policy": comparison_policy,
+                "path": str(args.joint_comparison_ply),
+                "candidate_points": comparison_filtered.candidate_points,
+                "accepted_points": comparison_filtered.accepted_points,
+                "multi_visible_points": comparison_filtered.multi_visible_points,
+                "policy_rejected_supported_points": (
+                    comparison_filtered.policy_rejected_supported_points
+                ),
+                "output_points": int(len(comparison_points)),
+            }
+            comparison_summaries.append(comparison_summary)
+        factorial_summaries: list[dict[str, Any]] = []
+        if args.factorial_output_dir is not None:
+            args.factorial_output_dir.mkdir(parents=True, exist_ok=True)
+            cameras_payload = build_camera_payload(text_dir)
+            for scope, support_policy in product(
+                ("global", "per_frame"),
+                ("any_support", "adaptive_two"),
+            ):
+                if (
+                    scope == args.confidence_threshold_scope
+                    and support_policy == args.consistency_support_policy
+                ):
+                    arm_filtered = filtered
+                else:
+                    arm_thresholds = compute_confidence_thresholds(
+                        fusion_frames,
+                        args.conf_percentile,
+                        scope=scope,
+                    )
+                    arm_filtered = filter_points_by_cross_view_consistency(
+                        fusion_frames,
+                        covisibility_graph=covisibility_graph,
+                        confidence_thresholds=arm_thresholds,
+                        relative_threshold=consistency_relative_threshold,
+                        support_policy=support_policy,
+                        stride=args.consistency_stride,
+                    )
+                for budget_policy in ("random", "spatial_balanced"):
+                    budget_result = apply_point_budget(
+                        arm_filtered.points,
+                        arm_filtered.colors,
+                        args.max_points,
+                        args.seed,
+                        policy=budget_policy,
+                    )
+                    arm_name = factorial_arm_name(scope, support_policy, budget_policy)
+                    arm_dir = args.factorial_output_dir / arm_name
+                    geometry_output_dir = arm_dir / "geometry"
+                    geometry_output_dir.mkdir(parents=True, exist_ok=True)
+                    points_path = geometry_output_dir / "points.ply"
+                    cameras_path = geometry_output_dir / "cameras.json"
+                    write_ply(points_path, budget_result.points, budget_result.colors)
+                    write_json(cameras_path, cameras_payload)
+                    factorial_summaries.append(
+                        {
+                            "arm": arm_name,
+                            "confidence_threshold_scope": scope,
+                            "support_policy": support_policy,
+                            "point_budget_policy": budget_policy,
+                            "path": str(points_path),
+                            "candidate_points": arm_filtered.candidate_points,
+                            "accepted_points": arm_filtered.accepted_points,
+                            **point_budget_diagnostics(budget_result),
+                        }
+                    )
+        sensitivity_summaries: list[dict[str, Any]] = []
+        if args.point_budget_sensitivity_output_dir is not None:
+            args.point_budget_sensitivity_output_dir.mkdir(parents=True, exist_ok=True)
+            cameras_payload = build_camera_payload(text_dir)
+            sensitivity_budget = max(1, args.max_points // 2)
+            for budget_policy in ("random", "spatial_balanced"):
+                budget_result = apply_point_budget(
+                    filtered.points,
+                    filtered.colors,
+                    sensitivity_budget,
+                    args.seed,
+                    policy=budget_policy,
+                )
+                arm_dir = args.point_budget_sensitivity_output_dir / budget_policy
+                geometry_output_dir = arm_dir / "geometry"
+                geometry_output_dir.mkdir(parents=True, exist_ok=True)
+                points_path = geometry_output_dir / "points.ply"
+                cameras_path = geometry_output_dir / "cameras.json"
+                write_ply(points_path, budget_result.points, budget_result.colors)
+                write_json(cameras_path, cameras_payload)
+                sensitivity_summaries.append(
+                    {
+                        "point_budget_policy": budget_policy,
+                        "max_points": sensitivity_budget,
+                        "path": str(points_path),
+                        **point_budget_diagnostics(budget_result),
+                    }
+                )
+        point_budget_result = apply_point_budget(
+            filtered.points,
+            filtered.colors,
+            args.max_points,
+            args.seed,
+            policy=args.point_budget_policy,
+        )
+        flat_points = point_budget_result.points
+        flat_colors = point_budget_result.colors
         if len(flat_points) == 0:
             raise RuntimeError("Cross-view consistency rejected every dense point")
         consistency_summary = {
@@ -372,6 +699,8 @@ def main() -> None:
             "rejected_points": filtered.rejected_points,
             "unverified_points": filtered.unverified_points,
             "supported_points": filtered.supported_points,
+            "multi_visible_points": filtered.multi_visible_points,
+            "policy_rejected_supported_points": filtered.policy_rejected_supported_points,
             "acceptance_rate": filtered.accepted_points / max(filtered.candidate_points, 1),
             "residual_p50": percentile_or_zero(filtered.residual_samples, 50),
             "residual_p90": percentile_or_zero(filtered.residual_samples, 90),
@@ -380,7 +709,10 @@ def main() -> None:
             "fusion_mode": "points",
             **build_consistency_payload(
                 filtered,
-                confidence_threshold=confidence_threshold,
+                confidence_thresholds=confidence_thresholds,
+                confidence_percentile=args.conf_percentile,
+                confidence_threshold_scope=args.confidence_threshold_scope,
+                support_policy=args.consistency_support_policy,
                 relative_threshold=consistency_relative_threshold,
                 stride=args.consistency_stride,
             ),
@@ -393,6 +725,28 @@ def main() -> None:
     visibility_graph_path = diagnostics_dir / "visibility_graph.json"
     consistency_path = diagnostics_dir / "consistency.json"
     fusion_diagnostics_path = diagnostics_dir / "fusion.json"
+    scale_graph_path = diagnostics_dir / "depth_scale_graph.json"
+    if scale_graph_result is not None:
+        write_json(
+            scale_graph_path,
+            {
+                "mode": args.depth_scale_mode,
+                "iterations": args.scale_graph_iterations,
+                "pair_weight": args.scale_graph_pair_weight,
+                "huber_delta": args.scale_graph_huber_delta,
+                "max_pairs_per_edge": args.scale_graph_max_pairs_per_edge,
+                "component_count": scale_graph_result.component_count,
+                "anchored_image_count": scale_graph_result.anchored_image_count,
+                "fallback_image_count": scale_graph_result.fallback_image_count,
+                "pair_constraint_count": scale_graph_result.pair_constraint_count,
+                "objective_history": scale_graph_result.objective_history,
+                "images": [
+                    scale_graph_result.image_records[frame.colmap_image.image_id]
+                    for frame in fusion_frames
+                ],
+                "edges": scale_graph_result.edge_records,
+            },
+        )
     write_json(
         visibility_graph_path,
         build_visibility_graph_payload(fusion_frames, covisibility_graph),
@@ -404,19 +758,38 @@ def main() -> None:
             "intrinsics_source": "colmap",
             "depth_source": "vggt",
             "fusion_mode": args.fusion_mode,
+            "depth_scale_mode": args.depth_scale_mode,
+            "depth_scale_graph": (
+                scale_graph_path.relative_to(output_dir).as_posix()
+                if scale_graph_result is not None
+                else None
+            ),
             "registered_images": len(registered_paths),
             "scale_fallback": fallback_scale,
             "camera_models": sorted({record["colmap_model"] for record in fusion_camera_records}),
             "tsdf": tsdf_params,
+            "point_budget": point_budget_diagnostics(point_budget_result),
+            "factorial_outputs": factorial_summaries if args.fusion_mode == "points" else [],
+            "point_budget_sensitivity_outputs": (
+                sensitivity_summaries if args.fusion_mode == "points" else []
+            ),
             "cross_view_filter": (
                 {
                     "confidence_threshold": confidence_threshold,
+                    "confidence_threshold_scope": args.confidence_threshold_scope,
+                    "confidence_percentile": args.conf_percentile,
+                    "confidence_threshold_min": float(np.min(confidence_threshold_values)),
+                    "confidence_threshold_median": confidence_threshold,
+                    "confidence_threshold_max": float(np.max(confidence_threshold_values)),
+                    "support_policy": args.consistency_support_policy,
                     "neighbors": args.consistency_neighbors,
                     "min_shared_points": args.consistency_min_shared_points,
                     "relative_threshold": consistency_relative_threshold,
                     "relative_threshold_cap": args.consistency_relative_threshold,
                     "min_relative_threshold": args.consistency_min_relative_threshold,
                     "stride": args.consistency_stride,
+                    "comparison": comparison_summary,
+                    "comparisons": comparison_summaries,
                 }
                 if consistency_summary is not None
                 else None
@@ -429,11 +802,19 @@ def main() -> None:
     if consistency_summary is not None:
         consistency_log_lines = [
             f"consistency_confidence_threshold={confidence_threshold:.6f}",
+            f"consistency_confidence_threshold_scope={effective_confidence_threshold_scope}",
+            f"consistency_confidence_percentile={args.conf_percentile:.6f}",
+            f"consistency_confidence_threshold_min={float(np.min(confidence_threshold_values)):.6f}",
+            f"consistency_confidence_threshold_median={confidence_threshold:.6f}",
+            f"consistency_confidence_threshold_max={float(np.max(confidence_threshold_values)):.6f}",
             f"consistency_candidates={consistency_summary['candidate_points']}",
             f"consistency_accepted={consistency_summary['accepted_points']}",
             f"consistency_rejected={consistency_summary['rejected_points']}",
             f"consistency_unverified={consistency_summary['unverified_points']}",
             f"consistency_supported={consistency_summary['supported_points']}",
+            f"consistency_multi_visible={consistency_summary['multi_visible_points']}",
+            f"consistency_policy_rejected_supported={consistency_summary['policy_rejected_supported_points']}",
+            f"consistency_support_policy={args.consistency_support_policy}",
             f"consistency_acceptance_rate={consistency_summary['acceptance_rate']:.6f}",
             f"consistency_relative_threshold={consistency_relative_threshold:.6f}",
             f"consistency_residual_p50={consistency_summary['residual_p50']:.6f}",
@@ -461,11 +842,21 @@ def main() -> None:
         f"scale_max={float(np.max(used_scales)):.6f}",
         f"scale_observations_median={float(np.median([estimate.observation_count for estimate in scale_estimates.values()])):.3f}",
         f"scale_log_mad_median={float(np.median([estimate.log_mad for estimate in scale_estimates.values()])):.6f}",
+        f"depth_scale_mode={args.depth_scale_mode}",
+        f"scale_graph_components={scale_graph_result.component_count if scale_graph_result is not None else 0}",
+        f"scale_graph_anchored_images={scale_graph_result.anchored_image_count if scale_graph_result is not None else 0}",
+        f"scale_graph_fallback_images={scale_graph_result.fallback_image_count if scale_graph_result is not None else 0}",
+        f"scale_graph_pair_constraints={scale_graph_result.pair_constraint_count if scale_graph_result is not None else 0}",
         "fusion_intrinsics=colmap",
         f"fusion_mode={args.fusion_mode}",
         f"fusion_diagnostics={fusion_diagnostics_path.relative_to(output_dir).as_posix()}",
         f"visibility_graph={visibility_graph_path.relative_to(output_dir).as_posix()}",
         f"consistency_diagnostics={consistency_path.relative_to(output_dir).as_posix()}",
+        *(
+            [f"depth_scale_graph_diagnostics={scale_graph_path.relative_to(output_dir).as_posix()}"]
+            if scale_graph_result is not None
+            else []
+        ),
         *consistency_log_lines,
         f"matcher={args.matcher}",
         f"vggt_batch_size={args.vggt_batch_size}",
@@ -474,7 +865,16 @@ def main() -> None:
         f"vggt_grouping={args.vggt_grouping}",
         f"num_groups={len(vggt_groups)}",
         f"conf_percentile={args.conf_percentile}",
+        f"confidence_threshold_scope={effective_confidence_threshold_scope}",
         f"max_points={args.max_points}",
+        f"point_budget_policy={point_budget_result.policy}",
+        f"point_budget_input_points={point_budget_result.input_points}",
+        f"point_budget_output_points={point_budget_result.output_points}",
+        f"point_budget_applied={str(point_budget_result.applied).lower()}",
+        f"point_budget_quantization_bits={point_budget_result.spatial_quantization_bits or 0}",
+        f"point_budget_occupied_codes={point_budget_result.occupied_spatial_codes or 0}",
+        f"factorial_output_count={len(factorial_summaries) if args.fusion_mode == 'points' else 0}",
+        f"point_budget_sensitivity_output_count={len(sensitivity_summaries) if args.fusion_mode == 'points' else 0}",
         f"colmap_seconds={colmap_seconds:.3f}",
         f"vggt_seconds={vggt_seconds:.3f}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
@@ -511,6 +911,9 @@ def run_colmap_pipeline(
     sparse_dir: Path,
     text_dir: Path,
     matcher: str,
+    single_camera: bool,
+    mapper_abs_pose_min_num_inliers: int,
+    mapper_abs_pose_min_inlier_ratio: float,
 ) -> list[str]:
     commands = [
         [
@@ -521,7 +924,7 @@ def run_colmap_pipeline(
             "--image_path",
             str(image_dir),
             "--ImageReader.single_camera",
-            "1",
+            str(int(single_camera)),
             "--SiftExtraction.use_gpu",
             "1",
         ],
@@ -542,6 +945,10 @@ def run_colmap_pipeline(
             str(image_dir),
             "--output_path",
             str(sparse_dir),
+            "--Mapper.abs_pose_min_num_inliers",
+            str(mapper_abs_pose_min_num_inliers),
+            "--Mapper.abs_pose_min_inlier_ratio",
+            str(mapper_abs_pose_min_inlier_ratio),
         ],
     ]
     command_logs = [run_command(command) for command in commands]
@@ -752,6 +1159,276 @@ def estimate_depth_scale(
         observation_count=len(ratios),
         log_mad=float(np.median(np.abs(log_ratios - median_log_ratio))),
     )
+
+
+def optimize_depth_scale_graph(
+    *,
+    frames: list[FusionFrame],
+    covisibility_graph: dict[int, list[CovisibilityEdge]],
+    scale_estimates: dict[str, DepthScaleEstimate],
+    fallback_scale: float,
+    confidence_threshold: float,
+    relative_threshold: float,
+    iterations: int,
+    pair_weight: float,
+    huber_delta: float,
+    max_pairs_per_edge: int,
+) -> DepthScaleGraphResult:
+    frame_by_id = {frame.colmap_image.image_id: frame for frame in frames}
+    image_ids = sorted(frame_by_id)
+    index_by_id = {image_id: index for index, image_id in enumerate(image_ids)}
+    initial_scales = {
+        frame.colmap_image.image_id: frame.scale
+        for frame in frames
+    }
+    components = scale_graph_components(image_ids, covisibility_graph)
+    component_by_id = {
+        image_id: component_index
+        for component_index, component in enumerate(components)
+        for image_id in component
+    }
+    anchored_ids = {
+        frame.colmap_image.image_id
+        for frame in frames
+        if frame.image_path.name in scale_estimates
+    }
+    fallback_ids: set[int] = set()
+    for component in components:
+        if not (set(component) & anchored_ids):
+            fallback_ids.update(component)
+
+    log_scales = np.log(np.asarray([initial_scales[image_id] for image_id in image_ids], dtype=np.float64))
+    objective_history: list[float] = []
+    edge_records: list[dict[str, Any]] = []
+    pair_constraint_count = 0
+    for _iteration in range(iterations):
+        residuals: list[float] = []
+        jacobians: list[np.ndarray] = []
+        weights: list[float] = []
+        for component in components:
+            if set(component) & anchored_ids:
+                continue
+            image_index = index_by_id[min(component)]
+            residual = log_scales[image_index] - np.log(fallback_scale)
+            row = np.zeros(len(image_ids), dtype=np.float64)
+            row[image_index] = 1.0
+            residuals.append(residual)
+            jacobians.append(row)
+            weights.append(1.0)
+        for frame in frames:
+            estimate = scale_estimates.get(frame.image_path.name)
+            if estimate is None:
+                continue
+            image_index = index_by_id[frame.colmap_image.image_id]
+            target = float(np.log(estimate.scale))
+            residual = log_scales[image_index] - target
+            row = np.zeros(len(image_ids), dtype=np.float64)
+            row[image_index] = 1.0
+            base_weight = min(4.0, 1.0 + np.log10(max(estimate.observation_count, 1)))
+            base_weight /= 1.0 + 10.0 * max(estimate.log_mad, 0.0)
+            residuals.append(residual)
+            jacobians.append(row)
+            weights.append(base_weight * huber_weight(residual, huber_delta))
+
+        iteration_edges: list[dict[str, Any]] = []
+        if pair_weight > 0:
+            for source_id in image_ids:
+                source = frame_by_id[source_id]
+                source_index = index_by_id[source_id]
+                for edge in covisibility_graph.get(source_id, []):
+                    target = frame_by_id.get(edge.target_image_id)
+                    if target is None:
+                        continue
+                    target_index = index_by_id[target.colmap_image.image_id]
+                    samples = select_scale_graph_source_pixels(
+                        source,
+                        confidence_threshold=confidence_threshold,
+                        max_samples=max_pairs_per_edge,
+                    )
+                    if len(samples) == 0:
+                        continue
+                    sample_u = samples[:, 0]
+                    sample_v = samples[:, 1]
+                    residual, valid, occluded = evaluate_scale_graph_pair(
+                        source=source,
+                        target=target,
+                        source_log_scale=log_scales[source_index],
+                        target_log_scale=log_scales[target_index],
+                        u=sample_u,
+                        v=sample_v,
+                        relative_threshold=relative_threshold,
+                        confidence_threshold=confidence_threshold,
+                        detect_occlusions=_iteration > 0,
+                    )
+                    accepted = valid & ~occluded
+                    edge_record = {
+                        "source_image_id": source_id,
+                        "target_image_id": target.colmap_image.image_id,
+                        "shared_points": edge.shared_points,
+                        "sample_count": int(len(samples)),
+                        "valid_count": int(valid.sum()),
+                        "occluded_count": int(occluded.sum()),
+                        "accepted_count": int(accepted.sum()),
+                    }
+                    iteration_edges.append(edge_record)
+                    if not accepted.any():
+                        continue
+                    epsilon = 1e-3
+                    perturbed, perturbed_valid, perturbed_occluded = evaluate_scale_graph_pair(
+                        source=source,
+                        target=target,
+                        source_log_scale=log_scales[source_index] + epsilon,
+                        target_log_scale=log_scales[target_index],
+                        u=sample_u,
+                        v=sample_v,
+                        relative_threshold=relative_threshold,
+                        confidence_threshold=confidence_threshold,
+                        detect_occlusions=_iteration > 0,
+                    )
+                    derivative_source = np.zeros(len(samples), dtype=np.float64)
+                    derivative_mask = accepted & perturbed_valid & ~perturbed_occluded
+                    derivative_source[derivative_mask] = (
+                        perturbed[derivative_mask] - residual[derivative_mask]
+                    ) / epsilon
+                    edge_weight = pair_weight / max(int(accepted.sum()), 1)
+                    for sample_index in np.flatnonzero(accepted):
+                        row = np.zeros(len(image_ids), dtype=np.float64)
+                        row[source_index] = derivative_source[sample_index]
+                        row[target_index] = 1.0
+                        sample_residual = float(residual[sample_index])
+                        residuals.append(sample_residual)
+                        jacobians.append(row)
+                        weights.append(edge_weight * huber_weight(sample_residual, huber_delta))
+        edge_records = iteration_edges
+        pair_constraint_count = sum(record["accepted_count"] for record in edge_records)
+        if not residuals:
+            raise RuntimeError("Depth-scale graph has no constraints")
+        residual_array = np.asarray(residuals, dtype=np.float64)
+        jacobian_array = np.stack(jacobians)
+        weight_array = np.asarray(weights, dtype=np.float64)
+        objective_history.append(float(np.sum(weight_array * huber_loss(residual_array, huber_delta))))
+        normal = jacobian_array.T @ (weight_array[:, None] * jacobian_array)
+        gradient = jacobian_array.T @ (weight_array * residual_array)
+        normal.flat[:: len(image_ids) + 1] += 1e-6
+        delta = np.linalg.solve(normal, -gradient)
+        log_scales += delta
+        if float(np.max(np.abs(delta))) < 1e-5:
+            break
+
+    scales = {image_id: float(np.exp(log_scales[index_by_id[image_id]])) for image_id in image_ids}
+    image_records = {
+        image_id: {
+            "image": frame_by_id[image_id].image_path.name,
+            "component": component_by_id[image_id],
+            "anchored": image_id in anchored_ids,
+            "fallback": image_id in fallback_ids,
+            "initial_scale": initial_scales[image_id],
+            "optimized_scale": scales[image_id],
+        }
+        for image_id in image_ids
+    }
+    return DepthScaleGraphResult(
+        scales=scales,
+        image_records=image_records,
+        component_count=len(components),
+        anchored_image_count=len(anchored_ids),
+        fallback_image_count=len(fallback_ids),
+        pair_constraint_count=pair_constraint_count,
+        objective_history=objective_history,
+        edge_records=edge_records,
+    )
+
+
+def scale_graph_components(
+    image_ids: list[int],
+    graph: dict[int, list[CovisibilityEdge]],
+) -> list[list[int]]:
+    adjacent = {image_id: set() for image_id in image_ids}
+    for source_id, edges in graph.items():
+        for edge in edges:
+            if source_id in adjacent and edge.target_image_id in adjacent:
+                adjacent[source_id].add(edge.target_image_id)
+                adjacent[edge.target_image_id].add(source_id)
+    components: list[list[int]] = []
+    unseen = set(image_ids)
+    while unseen:
+        pending = [min(unseen)]
+        component: list[int] = []
+        while pending:
+            image_id = pending.pop()
+            if image_id not in unseen:
+                continue
+            unseen.remove(image_id)
+            component.append(image_id)
+            pending.extend(sorted(adjacent[image_id] & unseen, reverse=True))
+        components.append(sorted(component))
+    return components
+
+
+def select_scale_graph_source_pixels(
+    frame: FusionFrame,
+    *,
+    confidence_threshold: float,
+    max_samples: int,
+) -> np.ndarray:
+    valid = valid_depth_canvas_mask(frame.original_size, frame.image_shape)
+    valid &= np.isfinite(frame.depth) & (frame.depth > 1e-6)
+    valid &= np.isfinite(frame.confidence) & (frame.confidence >= confidence_threshold)
+    flat_indices = np.flatnonzero(valid)
+    if len(flat_indices) == 0:
+        return np.empty((0, 2), dtype=np.float32)
+    selection = flat_indices[np.linspace(0, len(flat_indices) - 1, min(len(flat_indices), max_samples), dtype=np.int64)]
+    height, width = frame.depth.shape
+    return np.stack([selection % width, selection // width], axis=1).astype(np.float32)
+
+
+def evaluate_scale_graph_pair(
+    *,
+    source: FusionFrame,
+    target: FusionFrame,
+    source_log_scale: float,
+    target_log_scale: float,
+    u: np.ndarray,
+    v: np.ndarray,
+    relative_threshold: float,
+    confidence_threshold: float,
+    detect_occlusions: bool,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    source_depth = source.depth[v.astype(np.int32), u.astype(np.int32)] * np.exp(source_log_scale)
+    world_points = unproject_depth_pixels_with_colmap_pose(
+        depth=source_depth,
+        u=u,
+        v=v,
+        camera=source.camera,
+        qvec=source.colmap_image.qvec,
+        tvec=source.colmap_image.tvec,
+    )
+    target_u, target_v, projected_depth = project_world_points_to_depth_canvas(
+        world_points,
+        camera=target.camera,
+        qvec=target.colmap_image.qvec,
+        tvec=target.colmap_image.tvec,
+    )
+    observed_depth, in_bounds = sample_bilinear(target.depth, target_u, target_v)
+    observed_confidence, _ = sample_bilinear(target.confidence, target_u, target_v)
+    valid = in_bounds & valid_depth_canvas_coordinates(target_u, target_v, target.original_size, target.image_shape)
+    valid &= np.isfinite(projected_depth) & (projected_depth > 1e-6)
+    valid &= np.isfinite(observed_depth) & (observed_depth > 1e-6)
+    valid &= np.isfinite(observed_confidence) & (observed_confidence >= confidence_threshold)
+    scaled_observed = observed_depth * np.exp(target_log_scale)
+    occluded = valid & (scaled_observed < projected_depth * (1 - relative_threshold)) if detect_occlusions else np.zeros(len(valid), dtype=bool)
+    residual = np.log(np.maximum(scaled_observed, 1e-6)) - np.log(np.maximum(projected_depth, 1e-6))
+    return residual.astype(np.float64), valid, occluded
+
+
+def huber_loss(residuals: np.ndarray, delta: float) -> np.ndarray:
+    absolute = np.abs(residuals)
+    return np.where(absolute <= delta, 0.5 * residuals * residuals, delta * (absolute - 0.5 * delta))
+
+
+def huber_weight(residual: float, delta: float) -> float:
+    absolute = abs(residual)
+    return 1.0 if absolute <= delta else delta / absolute
 
 
 def build_fusion_camera(
@@ -1123,6 +1800,35 @@ def validate_tsdf_output(stats: dict[str, Any]) -> None:
         )
 
 
+def compute_confidence_thresholds(
+    frames: list[FusionFrame], percentile: float, *, scope: str
+) -> dict[int, float]:
+    if scope == "per_frame":
+        return compute_frame_confidence_thresholds(frames, percentile)
+    global_threshold = compute_global_confidence_threshold(frames, percentile)
+    return {
+        frame.colmap_image.image_id: global_threshold
+        for frame in frames
+    }
+
+
+def compute_frame_confidence_thresholds(
+    frames: list[FusionFrame], percentile: float
+) -> dict[int, float]:
+    thresholds: dict[int, float] = {}
+    for frame in frames:
+        valid_canvas = valid_depth_canvas_mask(frame.original_size, frame.image_shape)
+        valid = valid_canvas & np.isfinite(frame.confidence) & (frame.confidence > 0)
+        if not valid.any():
+            raise RuntimeError(
+                f"No positive VGGT depth confidence values were available for {frame.image_path.name}"
+            )
+        thresholds[frame.colmap_image.image_id] = float(
+            np.percentile(frame.confidence[valid], percentile)
+        )
+    return thresholds
+
+
 def compute_global_confidence_threshold(frames: list[FusionFrame], percentile: float) -> float:
     confidence_parts: list[np.ndarray] = []
     for frame in frames:
@@ -1216,8 +1922,9 @@ def filter_points_by_cross_view_consistency(
     frames: list[FusionFrame],
     *,
     covisibility_graph: dict[int, list[CovisibilityEdge]],
-    confidence_threshold: float,
+    confidence_thresholds: Mapping[int, float],
     relative_threshold: float,
+    support_policy: str = "any_support",
     stride: int,
 ) -> ConsistencyFilterResult:
     frame_by_id = {frame.colmap_image.image_id: frame for frame in frames}
@@ -1230,8 +1937,11 @@ def filter_points_by_cross_view_consistency(
     rejected_points = 0
     unverified_points = 0
     supported_points = 0
+    multi_visible_points = 0
+    policy_rejected_supported_points = 0
 
     for frame in frames:
+        confidence_threshold = confidence_thresholds[frame.colmap_image.image_id]
         valid = valid_depth_canvas_mask(frame.original_size, frame.image_shape)
         valid &= np.isfinite(frame.depth) & (frame.depth > 0)
         valid &= np.isfinite(frame.confidence) & (frame.confidence >= confidence_threshold)
@@ -1257,13 +1967,16 @@ def filter_points_by_cross_view_consistency(
         validation = validate_cross_view_consistency(
             source_points,
             neighbors=neighbors,
-            confidence_threshold=confidence_threshold,
+            confidence_thresholds=confidence_thresholds,
             relative_threshold=relative_threshold,
+            support_policy=support_policy,
         )
         accepted = validation.accepted
         supported = accepted & (validation.support_counts > 0)
         unverified = accepted & (validation.visible_counts == 0)
         rejected = ~accepted
+        multi_visible = validation.visible_counts >= 2
+        policy_rejected_supported = rejected & (validation.support_counts > 0)
         accepted_residuals = validation.mean_relative_error[supported]
 
         point_parts.append(source_points[accepted])
@@ -1274,14 +1987,19 @@ def filter_points_by_cross_view_consistency(
         rejected_points += int(rejected.sum())
         unverified_points += int(unverified.sum())
         supported_points += int(supported.sum())
+        multi_visible_points += int(multi_visible.sum())
+        policy_rejected_supported_points += int(policy_rejected_supported.sum())
         image_records.append(
             {
                 "image": frame.image_path.name,
+                "confidence_threshold": confidence_threshold,
                 "candidate_points": int(len(source_points)),
                 "accepted_points": int(accepted.sum()),
                 "rejected_points": int(rejected.sum()),
                 "unverified_points": int(unverified.sum()),
                 "supported_points": int(supported.sum()),
+                "multi_visible_points": int(multi_visible.sum()),
+                "policy_rejected_supported_points": int(policy_rejected_supported.sum()),
                 "median_relative_error": percentile_or_zero(accepted_residuals, 50),
                 "p90_relative_error": percentile_or_zero(accepted_residuals, 90),
             }
@@ -1299,6 +2017,8 @@ def filter_points_by_cross_view_consistency(
         supported_points=supported_points,
         residual_samples=np.concatenate(residual_samples) if residual_samples else np.empty(0, dtype=np.float32),
         image_records=image_records,
+        multi_visible_points=multi_visible_points,
+        policy_rejected_supported_points=policy_rejected_supported_points,
     )
 
 
@@ -1306,8 +2026,9 @@ def validate_cross_view_consistency(
     source_points: np.ndarray,
     *,
     neighbors: list[FusionFrame],
-    confidence_threshold: float,
+    confidence_thresholds: Mapping[int, float],
     relative_threshold: float,
+    support_policy: str = "any_support",
 ) -> CrossViewValidation:
     point_count = len(source_points)
     support_counts = np.zeros(point_count, dtype=np.int16)
@@ -1327,7 +2048,9 @@ def validate_cross_view_consistency(
         valid = in_bounds & valid_depth_canvas_coordinates(u, v, neighbor.original_size, neighbor.image_shape)
         valid &= np.isfinite(projected_depth) & (projected_depth > 0)
         valid &= np.isfinite(observed_depth) & (observed_depth > 0)
-        valid &= np.isfinite(observed_confidence) & (observed_confidence >= confidence_threshold)
+        valid &= np.isfinite(observed_confidence) & (
+            observed_confidence >= confidence_thresholds[neighbor.colmap_image.image_id]
+        )
         observed_depth *= neighbor.scale
         relative_error = np.abs(observed_depth - projected_depth) / np.maximum(
             np.maximum(observed_depth, projected_depth), 1e-6
@@ -1340,7 +2063,11 @@ def validate_cross_view_consistency(
         occluded_counts += occluded
         residual_sums += np.where(visible, relative_error, 0.0)
 
-    accepted = (support_counts > 0) | (visible_counts == 0)
+    accepted = apply_support_policy(
+        support_counts,
+        visible_counts,
+        policy=support_policy,
+    )
     mean_relative_error = np.divide(
         residual_sums,
         visible_counts,
@@ -1354,6 +2081,20 @@ def validate_cross_view_consistency(
         occluded_counts=occluded_counts,
         mean_relative_error=mean_relative_error,
     )
+
+
+def apply_support_policy(
+    support_counts: np.ndarray,
+    visible_counts: np.ndarray,
+    *,
+    policy: str,
+) -> np.ndarray:
+    if policy == "any_support":
+        return (support_counts > 0) | (visible_counts == 0)
+    if policy == "adaptive_two":
+        required_supports = np.minimum(visible_counts, 2)
+        return support_counts >= required_supports
+    raise ValueError(f"Unknown cross-view support policy: {policy}")
 
 
 def project_world_points_to_depth_canvas(
@@ -1440,18 +2181,143 @@ def colmap_camera_center(image: ColmapImage) -> np.ndarray:
     return -(qvec_to_rotmat(image.qvec).T @ image.tvec)
 
 
+def factorial_arm_name(
+    confidence_scope: str,
+    support_policy: str,
+    point_budget_policy: str,
+) -> str:
+    phase_parts = []
+    if confidence_scope == "per_frame":
+        phase_parts.append("phase1")
+    if support_policy == "adaptive_two":
+        phase_parts.append("phase2")
+    if point_budget_policy == "spatial_balanced":
+        phase_parts.append("phase3")
+    return "_".join(phase_parts) if phase_parts else "baseline"
+
+
+def point_budget_diagnostics(result: PointBudgetResult) -> dict[str, Any]:
+    return {
+        "policy": result.policy,
+        "input_points": result.input_points,
+        "output_points": result.output_points,
+        "applied": result.applied,
+        "spatial_quantization_bits": result.spatial_quantization_bits,
+        "occupied_spatial_codes": result.occupied_spatial_codes,
+    }
+
+
+def apply_point_budget(
+    points: np.ndarray,
+    colors: np.ndarray,
+    max_points: int,
+    seed: int,
+    *,
+    policy: str = "random",
+) -> PointBudgetResult:
+    if len(points) != len(colors):
+        raise ValueError("Point-budget points and colors must have matching lengths")
+    if policy not in {"random", "spatial_balanced"}:
+        raise ValueError(f"Unknown point-budget policy: {policy}")
+    input_points = len(points)
+    if max_points <= 0 or input_points <= max_points:
+        return PointBudgetResult(
+            points=points,
+            colors=colors,
+            policy=policy,
+            input_points=input_points,
+            output_points=input_points,
+            applied=False,
+            spatial_quantization_bits=None,
+            occupied_spatial_codes=None,
+        )
+    if policy == "random":
+        rng = np.random.default_rng(seed)
+        selected = rng.choice(input_points, size=max_points, replace=False)
+        selected.sort()
+        quantization_bits = None
+        occupied_codes = None
+    else:
+        selected, quantization_bits, occupied_codes = morton_stratified_indices(
+            points,
+            max_points,
+        )
+    return PointBudgetResult(
+        points=points[selected],
+        colors=colors[selected],
+        policy=policy,
+        input_points=input_points,
+        output_points=len(selected),
+        applied=True,
+        spatial_quantization_bits=quantization_bits,
+        occupied_spatial_codes=occupied_codes,
+    )
+
+
+def morton_stratified_indices(
+    points: np.ndarray,
+    max_points: int,
+) -> tuple[np.ndarray, int, int]:
+    """Select midpoints of equal-mass strata in deterministic Morton order."""
+    if max_points <= 0 or len(points) <= max_points:
+        raise ValueError("Spatial balancing requires 0 < max_points < len(points)")
+    if not np.isfinite(points).all():
+        raise ValueError("Point-budget input contains non-finite coordinates")
+
+    quantization_bits = 21
+    quantization_max = (1 << quantization_bits) - 1
+    lower = points.min(axis=0).astype(np.float64)
+    extent = points.max(axis=0).astype(np.float64) - lower
+    side = float(np.max(extent))
+    if side > 0:
+        quantized = np.floor(
+            (points.astype(np.float64) - lower) * (quantization_max / side)
+        ).astype(np.uint64)
+        np.minimum(quantized, quantization_max, out=quantized)
+    else:
+        quantized = np.zeros(points.shape, dtype=np.uint64)
+
+    morton_codes = (
+        spread_morton_bits(quantized[:, 0])
+        | (spread_morton_bits(quantized[:, 1]) << np.uint64(1))
+        | (spread_morton_bits(quantized[:, 2]) << np.uint64(2))
+    )
+    order = np.argsort(morton_codes, kind="stable")
+    ranks = (
+        (2 * np.arange(max_points, dtype=np.int64) + 1) * len(points)
+        // (2 * max_points)
+    )
+    selected = np.sort(order[ranks].astype(np.int64))
+    occupied_codes = int(np.count_nonzero(np.diff(morton_codes[order])) + 1)
+    return selected, quantization_bits, occupied_codes
+
+
+def spread_morton_bits(values: np.ndarray) -> np.ndarray:
+    values = values.astype(np.uint64, copy=True) & np.uint64(0x1FFFFF)
+    values = (values | (values << np.uint64(32))) & np.uint64(0x1F00000000FFFF)
+    values = (values | (values << np.uint64(16))) & np.uint64(0x1F0000FF0000FF)
+    values = (values | (values << np.uint64(8))) & np.uint64(0x100F00F00F00F00F)
+    values = (values | (values << np.uint64(4))) & np.uint64(0x10C30C30C30C30C3)
+    values = (values | (values << np.uint64(2))) & np.uint64(0x1249249249249249)
+    return values
+
+
 def cap_points(
     points: np.ndarray,
     colors: np.ndarray,
     max_points: int,
     seed: int,
+    *,
+    policy: str = "random",
 ) -> tuple[np.ndarray, np.ndarray]:
-    if max_points <= 0 or len(points) <= max_points:
-        return points, colors
-    rng = np.random.default_rng(seed)
-    selected = rng.choice(len(points), size=max_points, replace=False)
-    selected.sort()
-    return points[selected], colors[selected]
+    result = apply_point_budget(
+        points,
+        colors,
+        max_points,
+        seed,
+        policy=policy,
+    )
+    return result.points, result.colors
 
 
 def diagnostic_sample(values: np.ndarray, max_samples: int) -> np.ndarray:
@@ -1468,12 +2334,23 @@ def percentile_or_zero(values: np.ndarray, percentile: float) -> float:
 def build_consistency_payload(
     filtered: ConsistencyFilterResult,
     *,
-    confidence_threshold: float,
+    confidence_thresholds: Mapping[int, float],
+    confidence_percentile: float,
+    confidence_threshold_scope: str = "per_frame",
+    support_policy: str = "any_support",
     relative_threshold: float,
     stride: int,
 ) -> dict[str, Any]:
+    threshold_values = np.asarray(list(confidence_thresholds.values()), dtype=np.float64)
+    threshold_median = float(np.median(threshold_values))
     return {
-        "confidence_threshold": confidence_threshold,
+        "confidence_threshold": threshold_median,
+        "confidence_threshold_scope": confidence_threshold_scope,
+        "confidence_percentile": confidence_percentile,
+        "confidence_threshold_min": float(np.min(threshold_values)),
+        "confidence_threshold_median": threshold_median,
+        "confidence_threshold_max": float(np.max(threshold_values)),
+        "support_policy": support_policy,
         "relative_threshold": relative_threshold,
         "stride": stride,
         "candidate_points": filtered.candidate_points,
@@ -1481,6 +2358,8 @@ def build_consistency_payload(
         "rejected_points": filtered.rejected_points,
         "unverified_points": filtered.unverified_points,
         "supported_points": filtered.supported_points,
+        "multi_visible_points": filtered.multi_visible_points,
+        "policy_rejected_supported_points": filtered.policy_rejected_supported_points,
         "acceptance_rate": filtered.accepted_points / max(filtered.candidate_points, 1),
         "residual_p50": percentile_or_zero(filtered.residual_samples, 50),
         "residual_p90": percentile_or_zero(filtered.residual_samples, 90),

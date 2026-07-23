@@ -13,6 +13,8 @@ import torch
 from PIL import Image
 from safetensors.torch import load_file
 
+from geometry_utils import estimate_similarity_transform, transform_points
+
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 DEFAULT_CHECKPOINT_DIR = Path("checkpoints/vggt/facebook--VGGT-1B")
@@ -366,29 +368,6 @@ def camera_centers(extrinsic: np.ndarray) -> np.ndarray:
     return -np.einsum("nij,nj->ni", np.transpose(rotations, (0, 2, 1)), translations)
 
 
-def estimate_similarity_transform(source_points: np.ndarray, target_points: np.ndarray) -> np.ndarray:
-    source_centroid = source_points.mean(axis=0)
-    target_centroid = target_points.mean(axis=0)
-    source_centered = source_points - source_centroid
-    target_centered = target_points - target_centroid
-    covariance = source_centered.T @ target_centered
-    u, _s, vt = np.linalg.svd(covariance)
-    rotation = vt.T @ u.T
-    if np.linalg.det(rotation) < 0:
-        vt[-1, :] *= -1
-        rotation = vt.T @ u.T
-    source_variance = np.sum(source_centered * source_centered)
-    scale = 1.0
-    if source_variance > 1e-8:
-        scale = float(np.sum(_s) / source_variance)
-    translation = target_centroid - scale * rotation @ source_centroid
-
-    transform = np.eye(4, dtype=np.float32)
-    transform[:3, :3] = (scale * rotation).astype(np.float32)
-    transform[:3, 3] = translation.astype(np.float32)
-    return transform
-
-
 def transform_extrinsic_by_similarity(
     local_extrinsic: np.ndarray,
     global_from_local: np.ndarray,
@@ -418,16 +397,6 @@ def to_homogeneous_extrinsic(extrinsic: np.ndarray) -> np.ndarray:
     matrix = np.eye(4, dtype=np.float32)
     matrix[:3, :4] = extrinsic.astype(np.float32)
     return matrix
-
-
-def transform_points(points: np.ndarray, global_from_local: np.ndarray) -> np.ndarray:
-    flat_points = points.reshape(-1, 3)
-    homogeneous = np.concatenate(
-        [flat_points, np.ones((len(flat_points), 1), dtype=flat_points.dtype)],
-        axis=1,
-    )
-    transformed = homogeneous @ global_from_local.T
-    return transformed[:, :3].reshape(points.shape).astype(np.float32)
 
 
 def load_padded_rgb_images(image_paths: list[Path], image_shape: tuple[int, int]) -> np.ndarray:
