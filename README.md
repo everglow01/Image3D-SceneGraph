@@ -153,6 +153,14 @@ all-on:   Per frame + Adaptive two-view + Spatial balanced  (optional)
 
 Record each job ID. A loaded job displays its effective policies and point-budget counts from persisted manifest metrics, and its log and diagnostics remain available in the downloadable bundle. For a 225-image folder, COLMAP+VGGT processes every image that COLMAP registers; the standalone VGGT `Max images` control does not apply. The current API is synchronous and reads uploads into backend memory, exhaustive COLMAP matching examines 25,200 unordered image pairs, and depth batch `4` requires roughly 57 VGGT groups if all images register. `Max points` limits only the final PLY after filtering—it does not bound peak candidate-array or cross-view-filtering memory. Validate the setup on a representative subset before committing to each full run.
 
+COLMAP+VGGT runs also write `diagnostics/vggt_groups.json`. The shared schema records each group's members and first-member reference, source order, actual consecutive overlap, sparse shared-track count, camera-center distance in COLMAP's arbitrary reconstruction units, and camera view-axis angle. It labels zero-track and below-8-track reference links as `disconnected` and `weak`. Sequential grouping intentionally uses disjoint chunks, so a nonzero requested overlap is reported as `ignored_by_sequential_grouping` rather than as active overlap. For a retained job with COLMAP text outputs, generate or byte-check the same diagnostics without rerunning reconstruction:
+
+```bash
+uv run python scripts/generate_vggt_group_diagnostics.py \
+  --job-dir outputs/jobs/{job_id} \
+  --write  # use --check after freezing the artifact
+```
+
 Analyze a generated point cloud before attempting coordinate alignment:
 
 ```bash

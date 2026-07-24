@@ -126,3 +126,45 @@ Limitations
 - Screenshots do not establish causality or quantitative geometry quality.
 - Historical environment variables, checkpoint SHA-256, and source commit were not
   persisted by the original job and are recorded as not_recorded rather than guessed.
+
+G1.2 — VGGT group quality diagnostics
+--------------------------------------
+Date: 2026-07-24
+Status: accepted; retained-job diagnostics reproduce deterministically
+
+Diagnostic command:
+uv run python scripts/generate_vggt_group_diagnostics.py \
+  --job-dir outputs/jobs/20260723_070028_024e9f25 \
+  --write
+
+Verification command: repeat the command with `--check`.
+Diagnostic path: outputs/jobs/20260723_070028_024e9f25/diagnostics/vggt_groups.json
+
+Schema and interpretation:
+- Sequential and covisibility grouping use the same schema.
+- Each group records members, the first-member reference, source order, actual overlap
+  with the previous group, sparse shared tracks to the reference, COLMAP camera-center
+  distance, and camera view-axis angle.
+- Camera-center distance is in the reconstruction's arbitrary COLMAP units, not metres.
+- `connected` means at least 8 shared sparse tracks with the reference; `weak` means
+  1-7; `disconnected` means zero. This is diagnostic classification, not a new
+  grouping rule or a geometry-quality score.
+
+Retained sequential result:
+- Images / groups: 225 / 57
+- Group sizes: 56 groups of 4 and one final group of 1
+- Requested / effective overlap: 2 / 0
+- Overlap status: ignored_by_sequential_grouping
+- Non-reference links: 76 connected, 6 weak, 86 disconnected
+- Multi-image groups with no reference-connected member: 13
+- Final singleton group: group 56; it is incomplete but is not classified as a bad link
+- Shared tracks among non-reference links: min / median / max = 0 / 0 / 966
+- Camera-center distance: min / median / max = 0.091653 / 1.619042 / 7.761943
+- View-axis angle (degrees): min / median / max = 1.327796 / 52.076664 / 170.877907
+
+Conclusion:
+The filename-sequential baseline contains many groups whose members have no sparse-track
+connection to their first-member reference, and the configured overlap did not activate.
+This motivates the already scheduled G1.3 scale-disagreement metric and G1.5 grouping-rule
+work. G1.2 does not change the stable sequential default, select a new grouping rule, rerun
+reconstruction, or attribute the frozen bookshelf/monitor displacement to a single cause.

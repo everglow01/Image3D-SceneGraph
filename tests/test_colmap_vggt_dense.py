@@ -20,6 +20,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     apply_support_policy,
     build_covisibility_graph,
     build_fusion_camera,
+    build_vggt_group_diagnostics,
     build_vggt_groups,
     compute_confidence_thresholds,
     compute_frame_confidence_thresholds,
@@ -449,6 +450,151 @@ def test_build_vggt_groups_covisibility_covers_every_image_with_overlap():
     assert len(groups) >= 2  # sliding windows, not a single full pass
 
 
+def test_vggt_group_diagnostics_report_empty_input():
+    payload = build_vggt_group_diagnostics(
+        groups=[],
+        registered_by_name={},
+        grouping="covisibility",
+        batch_size=4,
+        requested_overlap_size=2,
+    )
+
+    assert payload["image_count"] == 0
+    assert payload["group_count"] == 0
+    assert payload["groups"] == []
+    assert payload["overlap"] == {
+        "requested_size": 2,
+        "effective_size": 0,
+        "applied": False,
+        "status": "not_applicable_no_groups",
+    }
+
+
+def test_vggt_group_diagnostics_report_sequential_overlap_was_ignored():
+    paths = [Path(f"frame_{i}.jpg") for i in range(5)]
+    registered_by_name = {
+        path.name: make_colmap_image(i + 1, observations=[])
+        for i, path in enumerate(paths)
+    }
+    groups = build_vggt_groups(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="sequential",
+        batch_size=2,
+        overlap_size=1,
+    )
+
+    payload = build_vggt_group_diagnostics(
+        groups=groups,
+        registered_by_name=registered_by_name,
+        grouping="sequential",
+        batch_size=2,
+        requested_overlap_size=1,
+    )
+
+    assert payload["schema_version"] == 1
+    assert payload["order_source"] == "input_discovery_order"
+    assert payload["overlap"] == {
+        "requested_size": 1,
+        "effective_size": 0,
+        "applied": False,
+        "status": "ignored_by_sequential_grouping",
+    }
+    assert payload["group_count"] == 3
+    assert payload["groups"][-1]["size"] == 1
+    assert payload["groups"][-1]["incomplete"] is True
+    assert payload["groups"][-1]["effective_overlap_with_previous"] == 0
+
+
+def test_vggt_group_diagnostics_share_schema_and_include_weak_or_empty_links():
+    paths = [Path(f"frame_{i}.jpg") for i in range(4)]
+    registered_by_name = {
+        paths[0].name: make_colmap_image(1, observations=[(0.0, 0.0, i) for i in range(3)]),
+        paths[1].name: make_colmap_image(2, observations=[(0.0, 0.0, i) for i in range(3)]),
+        paths[2].name: make_colmap_image(3, observations=[]),
+        paths[3].name: make_colmap_image(4, observations=[]),
+    }
+    covisibility_groups = build_vggt_groups(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=3,
+        overlap_size=1,
+    )
+    sequential_groups = build_vggt_groups(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="sequential",
+        batch_size=3,
+        overlap_size=1,
+    )
+
+    covisibility = build_vggt_group_diagnostics(
+        groups=covisibility_groups,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=3,
+        requested_overlap_size=1,
+    )
+    sequential = build_vggt_group_diagnostics(
+        groups=sequential_groups,
+        registered_by_name=registered_by_name,
+        grouping="sequential",
+        batch_size=3,
+        requested_overlap_size=1,
+    )
+
+    assert covisibility.keys() == sequential.keys()
+    assert covisibility["groups"][0].keys() == sequential["groups"][0].keys()
+    assert covisibility["groups"][0]["members"][0].keys() == sequential["groups"][0]["members"][0].keys()
+    assert covisibility["overlap"] == {
+        "requested_size": 1,
+        "effective_size": 1,
+        "applied": True,
+        "status": "applied",
+    }
+    assert covisibility["groups"][-1]["size"] == 2
+    assert covisibility["groups"][-1]["incomplete"] is True
+    assert covisibility["groups"][-1]["effective_overlap_with_previous"] == 1
+    first_members = covisibility["groups"][0]["members"]
+    assert first_members[1]["shared_tracks_with_reference"] == 3
+    assert first_members[1]["connection_status"] == "weak"
+    assert first_members[2]["shared_tracks_with_reference"] == 0
+    assert first_members[2]["connection_status"] == "disconnected"
+    assert first_members[1]["camera_center_distance"] == pytest.approx(1.0)
+    assert first_members[1]["view_angle_degrees"] == pytest.approx(0.0)
+    assert first_members[0]["is_reference"] is True
+    assert first_members[0]["shared_tracks_with_reference"] is None
+    assert covisibility["groups"][0]["reference"] == {
+        "image": "frame_0.jpg",
+        "image_id": 1,
+    }
+
+
+def test_vggt_group_diagnostics_report_camera_view_angle():
+    paths = [Path("reference.jpg"), Path("turned.jpg")]
+    registered_by_name = {
+        paths[0].name: make_colmap_image(1, observations=[]),
+        paths[1].name: make_colmap_image(
+            2,
+            observations=[],
+            qvec=np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0]),
+        ),
+    }
+
+    payload = build_vggt_group_diagnostics(
+        groups=[paths],
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=4,
+        requested_overlap_size=2,
+    )
+
+    assert payload["order_source"] == "input_discovery_order"
+    assert payload["overlap"]["status"] == "not_applicable_single_group"
+    assert payload["groups"][0]["members"][1]["view_angle_degrees"] == pytest.approx(90.0)
+
+
 def test_undistort_to_pinhole_is_identity_without_distortion():
     depth = np.arange(9, dtype=np.float32).reshape(3, 3)
     color = np.zeros((3, 3, 3), dtype=np.uint8)
@@ -701,6 +847,22 @@ def test_global_scale_graph_pins_unanchored_component_to_fallback():
     assert np.isclose(result.scales[2], 3.0, atol=1e-4)
     assert result.component_count == 2
     assert result.fallback_image_count == 1
+
+
+def make_colmap_image(
+    image_id: int,
+    observations: list[tuple[float, float, int]],
+    *,
+    qvec: np.ndarray | None = None,
+) -> ColmapImage:
+    return ColmapImage(
+        image_id=image_id,
+        qvec=np.array([1.0, 0.0, 0.0, 0.0]) if qvec is None else qvec,
+        tvec=np.array([-float(image_id - 1), 0.0, 0.0]),
+        camera_id=1,
+        name=f"frame_{image_id - 1}.jpg",
+        observations=observations,
+    )
 
 
 def make_frame(image_id: int, observations: list[tuple[float, float, int]]) -> FusionFrame:

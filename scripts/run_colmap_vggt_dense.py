@@ -247,12 +247,14 @@ def main() -> None:
 
     output_dir = args.output_dir
     geometry_dir = output_dir / "geometry"
+    diagnostics_dir = output_dir / "diagnostics"
     logs_dir = output_dir / "logs"
     work_dir = output_dir / "colmap_vggt"
     sparse_dir = work_dir / "sparse"
     text_dir = work_dir / "sparse_txt"
     database_path = work_dir / "database.db"
     geometry_dir.mkdir(parents=True, exist_ok=True)
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
     text_dir.mkdir(parents=True, exist_ok=True)
@@ -298,6 +300,17 @@ def main() -> None:
         grouping=args.vggt_grouping,
         batch_size=args.vggt_batch_size,
         overlap_size=args.vggt_overlap_size,
+    )
+    vggt_groups_path = diagnostics_dir / "vggt_groups.json"
+    write_json(
+        vggt_groups_path,
+        build_vggt_group_diagnostics(
+            groups=vggt_groups,
+            registered_by_name=registered_by_name,
+            grouping=args.vggt_grouping,
+            batch_size=args.vggt_batch_size,
+            requested_overlap_size=args.vggt_overlap_size,
+        ),
     )
     vggt_started_at = time.perf_counter()
     depth_items = run_vggt_depth_batches(
@@ -720,8 +733,6 @@ def main() -> None:
 
     write_ply(geometry_dir / "points.ply", flat_points, flat_colors)
     write_json(geometry_dir / "cameras.json", build_camera_payload(text_dir))
-    diagnostics_dir = output_dir / "diagnostics"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     visibility_graph_path = diagnostics_dir / "visibility_graph.json"
     consistency_path = diagnostics_dir / "consistency.json"
     fusion_diagnostics_path = diagnostics_dir / "fusion.json"
@@ -851,6 +862,7 @@ def main() -> None:
         f"fusion_mode={args.fusion_mode}",
         f"fusion_diagnostics={fusion_diagnostics_path.relative_to(output_dir).as_posix()}",
         f"visibility_graph={visibility_graph_path.relative_to(output_dir).as_posix()}",
+        f"vggt_group_diagnostics={vggt_groups_path.relative_to(output_dir).as_posix()}",
         f"consistency_diagnostics={consistency_path.relative_to(output_dir).as_posix()}",
         *(
             [f"depth_scale_graph_diagnostics={scale_graph_path.relative_to(output_dir).as_posix()}"]
@@ -897,6 +909,7 @@ def main() -> None:
     print(f"wrote {geometry_dir / 'cameras.json'}")
     print(f"wrote {fusion_diagnostics_path}")
     print(f"wrote {visibility_graph_path}")
+    print(f"wrote {vggt_groups_path}")
     print(f"wrote {consistency_path}")
     print(f"registered_images={len(registered_paths)}")
     print(f"scaled_images={len(scale_estimates)}")
@@ -1086,6 +1099,131 @@ def build_vggt_groups(
     path_by_name = {path.name: path for path in registered_paths}
     index_chunks = build_image_chunks(len(ordered_images), batch_size, overlap_size)
     return [[path_by_name[ordered_images[index].name] for index in chunk] for chunk in index_chunks]
+
+
+def build_vggt_group_diagnostics(
+    *,
+    groups: list[list[Path]],
+    registered_by_name: Mapping[str, ColmapImage],
+    grouping: str,
+    batch_size: int,
+    requested_overlap_size: int,
+) -> dict[str, Any]:
+    if grouping == "sequential" or len(groups) <= 1:
+        order_source = "input_discovery_order"
+    else:
+        order_source = "greedy_covisibility_order"
+    ordered_names: list[str] = []
+    for group in groups:
+        for path in group:
+            if path.name not in ordered_names:
+                ordered_names.append(path.name)
+    order_index = {name: index for index, name in enumerate(ordered_names)}
+
+    actual_overlaps = [
+        len({path.name for path in groups[index - 1]} & {path.name for path in groups[index]})
+        for index in range(1, len(groups))
+    ]
+    if not groups:
+        effective_overlap_size = 0
+        overlap_status = "not_applicable_no_groups"
+    elif len(groups) == 1:
+        effective_overlap_size = 0
+        overlap_status = "not_applicable_single_group"
+    elif grouping == "sequential":
+        effective_overlap_size = 0
+        overlap_status = (
+            "ignored_by_sequential_grouping" if requested_overlap_size > 0 else "disabled"
+        )
+    else:
+        effective_overlap_size = requested_overlap_size
+        overlap_status = "applied" if requested_overlap_size > 0 else "disabled"
+
+    group_records: list[dict[str, Any]] = []
+    previous_names: set[str] = set()
+    for group_index, group in enumerate(groups):
+        reference_path = group[0]
+        reference = registered_by_name[reference_path.name]
+        reference_tracks = {point_id for _x, _y, point_id in reference.observations}
+        reference_center = colmap_camera_center(reference)
+        reference_axis = colmap_camera_view_axis(reference)
+        members: list[dict[str, Any]] = []
+        for position, path in enumerate(group):
+            image = registered_by_name[path.name]
+            if position == 0:
+                shared_tracks: int | None = None
+                center_distance: float | None = None
+                view_angle: float | None = None
+                connection_status = "reference"
+            else:
+                image_tracks = {point_id for _x, _y, point_id in image.observations}
+                shared_tracks = len(reference_tracks & image_tracks)
+                center_distance = float(
+                    np.linalg.norm(reference_center - colmap_camera_center(image))
+                )
+                cosine = float(np.clip(reference_axis @ colmap_camera_view_axis(image), -1.0, 1.0))
+                view_angle = float(np.degrees(np.arccos(cosine)))
+                if shared_tracks == 0:
+                    connection_status = "disconnected"
+                elif shared_tracks < GROUPING_MIN_SHARED_POINTS:
+                    connection_status = "weak"
+                else:
+                    connection_status = "connected"
+            members.append(
+                {
+                    "image": path.name,
+                    "image_id": image.image_id,
+                    "group_position": position,
+                    "source_order_index": order_index[path.name],
+                    "is_reference": position == 0,
+                    "shared_tracks_with_reference": shared_tracks,
+                    "camera_center_distance": center_distance,
+                    "view_angle_degrees": view_angle,
+                    "connection_status": connection_status,
+                }
+            )
+
+        group_names = {path.name for path in group}
+        group_records.append(
+            {
+                "group_index": group_index,
+                "order_source": order_source,
+                "size": len(group),
+                "incomplete": batch_size > 0 and len(group) < batch_size,
+                "effective_overlap_with_previous": (
+                    len(group_names & previous_names) if group_index > 0 else 0
+                ),
+                "reference": {
+                    "image": reference_path.name,
+                    "image_id": reference.image_id,
+                },
+                "reference_selection": "first_group_member",
+                "members": members,
+            }
+        )
+        previous_names = group_names
+
+    return {
+        "schema_version": 1,
+        "grouping": grouping,
+        "order_source": order_source,
+        "image_count": len(ordered_names),
+        "group_count": len(groups),
+        "batch_size": batch_size,
+        "strong_connection_min_shared_tracks": GROUPING_MIN_SHARED_POINTS,
+        "overlap": {
+            "requested_size": requested_overlap_size,
+            "effective_size": effective_overlap_size,
+            "applied": overlap_status == "applied",
+            "status": overlap_status,
+        },
+        "actual_consecutive_overlap_sizes": actual_overlaps,
+        "groups": group_records,
+    }
+
+
+def colmap_camera_view_axis(image: ColmapImage) -> np.ndarray:
+    return qvec_to_rotmat(image.qvec).T[:, 2]
 
 
 def registered_images_in_covisibility_order(colmap_images: list[ColmapImage]) -> list[ColmapImage]:
