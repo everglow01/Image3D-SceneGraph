@@ -324,6 +324,7 @@ class ColmapVggtPointCloudAdapter:
         cameras_path = context.job_dir / "geometry" / "cameras.json"
         fusion_diagnostics_path = context.job_dir / "diagnostics" / "fusion.json"
         visibility_graph_path = context.job_dir / "diagnostics" / "visibility_graph.json"
+        scale_disagreement_path = context.job_dir / "diagnostics" / "scale_disagreement.json"
         consistency_path = context.job_dir / "diagnostics" / "consistency.json"
         if not all(
             path.exists()
@@ -332,6 +333,7 @@ class ColmapVggtPointCloudAdapter:
                 cameras_path,
                 fusion_diagnostics_path,
                 visibility_graph_path,
+                scale_disagreement_path,
                 consistency_path,
             ]
         ):
@@ -356,6 +358,7 @@ class ColmapVggtPointCloudAdapter:
                 "cameras": "geometry/cameras.json",
                 "fusion_diagnostics": "diagnostics/fusion.json",
                 "visibility_graph": "diagnostics/visibility_graph.json",
+                "scale_disagreement_diagnostics": "diagnostics/scale_disagreement.json",
                 "consistency_diagnostics": "diagnostics/consistency.json",
             },
             metrics=metrics,

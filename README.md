@@ -161,6 +161,14 @@ uv run python scripts/generate_vggt_group_diagnostics.py \
   --write  # use --check after freezing the artifact
 ```
 
+`diagnostics/scale_disagreement.json` reports `abs(log(scale_a) - log(scale_b))` p50/p90/p95 over every unique image pair sharing at least 8 sparse COLMAP tracks, split into pairs that do or do not occur together in a VGGT group. Only pairs with sparse-COLMAP scale estimates at both ends are included; these arbitrary-scale consistency statistics are not metric-scale recovery. A retained job can be generated or byte-checked without reconstruction:
+
+```bash
+uv run python scripts/generate_scale_disagreement_diagnostics.py \
+  --job-dir outputs/jobs/{job_id} \
+  --write  # use --check after freezing the artifact
+```
+
 Analyze a generated point cloud before attempting coordinate alignment:
 
 ```bash

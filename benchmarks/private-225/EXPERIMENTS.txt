@@ -168,3 +168,38 @@ connection to their first-member reference, and the configured overlap did not a
 This motivates the already scheduled G1.3 scale-disagreement metric and G1.5 grouping-rule
 work. G1.2 does not change the stable sequential default, select a new grouping rule, rerun
 reconstruction, or attribute the frozen bookshelf/monitor displacement to a single cause.
+
+G1.3 — Strong-covisibility scale disagreement
+---------------------------------------------
+Date: 2026-07-24
+Status: accepted; retained-job diagnostics reproduce deterministically
+
+Diagnostic command:
+uv run python scripts/generate_scale_disagreement_diagnostics.py \
+  --job-dir outputs/jobs/20260723_070028_024e9f25 \
+  --write
+
+Verification command: repeat the command with `--check`.
+Diagnostic path: outputs/jobs/20260723_070028_024e9f25/diagnostics/scale_disagreement.json
+
+Definition:
+- Each undirected image pair is counted once when it shares at least 8 COLMAP sparse tracks.
+- Both images must have a sparse-COLMAP depth-scale estimate; fallback scales are excluded.
+- Disagreement is abs(log(scale_a) - log(scale_b)).
+- `within_group` means both images occur together in at least one VGGT group;
+  `group_boundary` means they never occur together in a group.
+- The graph is not truncated to the six consistency-filter neighbors.
+
+Retained sequential result:
+Partition       edges  p50       p90       p95
+All             7592   0.215103  0.539624  0.646946
+Within group     178   0.018302  0.057369  0.067673
+Group boundary  7414   0.220614  0.543721  0.650124
+
+Conclusion:
+Strong-covisibility pairs crossing the filename-sequential group partition have much larger
+per-frame depth-scale disagreement than pairs processed in the same group. This reproduces
+the scheduled boundary-jump observation without rerunning reconstruction. It is an
+association diagnostic, not proof that grouping alone caused the bookshelf/monitor defect,
+and it does not recover or validate metric scale. No grouping, fusion, or stable default was
+changed.

@@ -20,6 +20,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     apply_support_policy,
     build_covisibility_graph,
     build_fusion_camera,
+    build_scale_disagreement_diagnostics,
     build_vggt_group_diagnostics,
     build_vggt_groups,
     compute_confidence_thresholds,
@@ -593,6 +594,75 @@ def test_vggt_group_diagnostics_report_camera_view_angle():
     assert payload["order_source"] == "input_discovery_order"
     assert payload["overlap"]["status"] == "not_applicable_single_group"
     assert payload["groups"][0]["members"][1]["view_angle_degrees"] == pytest.approx(90.0)
+
+
+def test_scale_disagreement_diagnostics_use_only_strong_unique_edges():
+    shared_strong = [(0.0, 0.0, point_id) for point_id in range(8)]
+    images = [
+        make_colmap_image(1, observations=shared_strong + [(0.0, 0.0, 20)]),
+        make_colmap_image(2, observations=shared_strong + [(0.0, 0.0, 30)]),
+        make_colmap_image(
+            3,
+            observations=[(0.0, 0.0, point_id) for point_id in range(4)]
+            + [(0.0, 0.0, 20), (0.0, 0.0, 30)],
+        ),
+    ]
+    payload = build_scale_disagreement_diagnostics(
+        colmap_images=images,
+        groups=[[Path("frame_0.jpg"), Path("frame_1.jpg")], [Path("frame_2.jpg")]],
+        scales_by_name={"frame_0.jpg": 1.0, "frame_1.jpg": 2.0, "frame_2.jpg": 8.0},
+        min_shared_tracks=8,
+    )
+
+    assert payload["edge_definition"] == {
+        "undirected": True,
+        "min_shared_tracks": 8,
+        "requires_scale_at_both_ends": True,
+    }
+    assert payload["all"]["edge_count"] == 1
+    assert payload["within_group"]["edge_count"] == 1
+    assert payload["group_boundary"]["edge_count"] == 0
+    assert payload["all"]["log_scale_difference_p50"] == pytest.approx(np.log(2.0))
+    assert payload["edges"] == [
+        {
+            "first_image": "frame_0.jpg",
+            "first_image_id": 1,
+            "second_image": "frame_1.jpg",
+            "second_image_id": 2,
+            "shared_tracks": 8,
+            "classification": "within_group",
+            "log_scale_difference": pytest.approx(np.log(2.0)),
+        }
+    ]
+
+
+def test_scale_disagreement_diagnostics_split_boundary_edges_deterministically():
+    tracks_01 = [(0.0, 0.0, point_id) for point_id in range(8)]
+    tracks_12 = [(0.0, 0.0, point_id) for point_id in range(8, 16)]
+    images = [
+        make_colmap_image(1, observations=tracks_01),
+        make_colmap_image(2, observations=tracks_01 + tracks_12),
+        make_colmap_image(3, observations=tracks_12),
+    ]
+    kwargs = {
+        "colmap_images": list(reversed(images)),
+        "groups": [[Path("frame_0.jpg"), Path("frame_1.jpg")], [Path("frame_2.jpg")]],
+        "scales_by_name": {"frame_2.jpg": 8.0, "frame_1.jpg": 2.0, "frame_0.jpg": 1.0},
+        "min_shared_tracks": 8,
+    }
+
+    first = build_scale_disagreement_diagnostics(**kwargs)
+    second = build_scale_disagreement_diagnostics(**kwargs)
+
+    assert first == second
+    assert first["all"]["edge_count"] == 2
+    assert first["within_group"]["edge_count"] == 1
+    assert first["group_boundary"]["edge_count"] == 1
+    assert first["group_boundary"]["log_scale_difference_p50"] == pytest.approx(np.log(4.0))
+    assert [edge["classification"] for edge in first["edges"]] == [
+        "within_group",
+        "group_boundary",
+    ]
 
 
 def test_undistort_to_pinhole_is_identity_without_distortion():

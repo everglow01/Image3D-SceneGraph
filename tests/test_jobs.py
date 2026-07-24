@@ -263,6 +263,7 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
         (job_dir / "diagnostics" / "fusion.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "visibility_graph.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "diagnostics" / "scale_disagreement.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "consistency.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "logs" / "run.log").write_text(
             "\n".join(
@@ -319,6 +320,7 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["assets"]["cameras"] == "geometry/cameras.json"
     assert manifest["assets"]["fusion_diagnostics"] == "diagnostics/fusion.json"
     assert manifest["assets"]["visibility_graph"] == "diagnostics/visibility_graph.json"
+    assert manifest["assets"]["scale_disagreement_diagnostics"] == "diagnostics/scale_disagreement.json"
     assert manifest["assets"]["consistency_diagnostics"] == "diagnostics/consistency.json"
     assert manifest["metrics"]["registered_images"] == 2
     assert manifest["metrics"]["scaled_images"] == 2
@@ -388,6 +390,7 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
         (job_dir / "diagnostics" / "fusion.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "visibility_graph.json").write_text("{}\n", encoding="utf-8")
+        (job_dir / "diagnostics" / "scale_disagreement.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "consistency.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "logs" / "run.log").write_text(
             "\n".join(

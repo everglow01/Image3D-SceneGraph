@@ -385,6 +385,16 @@ def main() -> None:
             )
         )
 
+    scale_disagreement_path = diagnostics_dir / "scale_disagreement.json"
+    write_json(
+        scale_disagreement_path,
+        build_scale_disagreement_diagnostics(
+            colmap_images=colmap_images,
+            groups=vggt_groups,
+            scales_by_name={name: estimate.scale for name, estimate in scale_estimates.items()},
+        ),
+    )
+
     covisibility_graph = build_covisibility_graph(
         [frame.colmap_image for frame in fusion_frames],
         max_neighbors=args.consistency_neighbors,
@@ -863,6 +873,7 @@ def main() -> None:
         f"fusion_diagnostics={fusion_diagnostics_path.relative_to(output_dir).as_posix()}",
         f"visibility_graph={visibility_graph_path.relative_to(output_dir).as_posix()}",
         f"vggt_group_diagnostics={vggt_groups_path.relative_to(output_dir).as_posix()}",
+        f"scale_disagreement_diagnostics={scale_disagreement_path.relative_to(output_dir).as_posix()}",
         f"consistency_diagnostics={consistency_path.relative_to(output_dir).as_posix()}",
         *(
             [f"depth_scale_graph_diagnostics={scale_graph_path.relative_to(output_dir).as_posix()}"]
@@ -910,6 +921,7 @@ def main() -> None:
     print(f"wrote {fusion_diagnostics_path}")
     print(f"wrote {visibility_graph_path}")
     print(f"wrote {vggt_groups_path}")
+    print(f"wrote {scale_disagreement_path}")
     print(f"wrote {consistency_path}")
     print(f"registered_images={len(registered_paths)}")
     print(f"scaled_images={len(scale_estimates)}")
@@ -1219,6 +1231,102 @@ def build_vggt_group_diagnostics(
         },
         "actual_consecutive_overlap_sizes": actual_overlaps,
         "groups": group_records,
+    }
+
+
+def build_scale_disagreement_diagnostics(
+    *,
+    colmap_images: list[ColmapImage],
+    groups: list[list[Path]],
+    scales_by_name: Mapping[str, float],
+    min_shared_tracks: int = GROUPING_MIN_SHARED_POINTS,
+) -> dict[str, Any]:
+    image_by_id = {image.image_id: image for image in colmap_images}
+    graph = build_covisibility_graph(
+        colmap_images,
+        max_neighbors=max(len(colmap_images) - 1, 0),
+        min_shared_points=min_shared_tracks,
+    )
+    group_sets = [{path.name for path in group} for group in groups]
+    edges: list[dict[str, Any]] = []
+    for first_id in sorted(graph):
+        for edge in graph[first_id]:
+            second_id = edge.target_image_id
+            if first_id >= second_id:
+                continue
+            shared_tracks = edge.shared_points
+            first = image_by_id[first_id]
+            second = image_by_id[second_id]
+            if (
+                shared_tracks < min_shared_tracks
+                or first.name not in scales_by_name
+                or second.name not in scales_by_name
+            ):
+                continue
+            first_scale = float(scales_by_name[first.name])
+            second_scale = float(scales_by_name[second.name])
+            if not (np.isfinite(first_scale) and first_scale > 0):
+                raise ValueError(f"invalid depth scale for {first.name}: {first_scale}")
+            if not (np.isfinite(second_scale) and second_scale > 0):
+                raise ValueError(f"invalid depth scale for {second.name}: {second_scale}")
+            classification = (
+                "within_group"
+                if any({first.name, second.name} <= group_names for group_names in group_sets)
+                else "group_boundary"
+            )
+            edges.append(
+                {
+                    "first_image": first.name,
+                    "first_image_id": first_id,
+                    "second_image": second.name,
+                    "second_image_id": second_id,
+                    "shared_tracks": shared_tracks,
+                    "classification": classification,
+                    "log_scale_difference": abs(
+                        float(np.log(first_scale) - np.log(second_scale))
+                    ),
+                }
+            )
+
+    def summarize(selected: list[dict[str, Any]]) -> dict[str, Any]:
+        differences = np.asarray(
+            [edge["log_scale_difference"] for edge in selected], dtype=np.float64
+        )
+        return {
+            "edge_count": len(selected),
+            "log_scale_difference_p50": (
+                float(np.percentile(differences, 50)) if len(differences) else None
+            ),
+            "log_scale_difference_p90": (
+                float(np.percentile(differences, 90)) if len(differences) else None
+            ),
+            "log_scale_difference_p95": (
+                float(np.percentile(differences, 95)) if len(differences) else None
+            ),
+        }
+
+    return {
+        "schema_version": 1,
+        "metric": "absolute_log_depth_scale_difference",
+        "scale_source": "sparse_colmap",
+        "world_scale": "arbitrary",
+        "edge_definition": {
+            "undirected": True,
+            "min_shared_tracks": min_shared_tracks,
+            "requires_scale_at_both_ends": True,
+        },
+        "classification": {
+            "within_group": "both images occur together in at least one VGGT group",
+            "group_boundary": "images never occur together in a VGGT group",
+        },
+        "all": summarize(edges),
+        "within_group": summarize(
+            [edge for edge in edges if edge["classification"] == "within_group"]
+        ),
+        "group_boundary": summarize(
+            [edge for edge in edges if edge["classification"] == "group_boundary"]
+        ),
+        "edges": edges,
     }
 
 
