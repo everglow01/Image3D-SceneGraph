@@ -16,6 +16,9 @@ type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 type MeshMethod = "poisson" | "ball_pivoting" | "alpha_shape";
 type ViewerMode = "point_cloud" | "mesh" | "gaussian_splat";
+type ConfidenceThresholdScope = "global" | "per_frame";
+type ConsistencySupportPolicy = "any_support" | "adaptive_two";
+type PointBudgetPolicy = "random" | "spatial_balanced";
 
 type MeshSettings = {
   method: MeshMethod;
@@ -85,6 +88,12 @@ type Manifest = {
     consistency_acceptance_rate?: number;
     consistency_rejected?: number;
     consistency_residual_p90?: number;
+    confidence_threshold_scope?: ConfidenceThresholdScope;
+    consistency_support_policy?: ConsistencySupportPolicy;
+    point_budget_policy?: PointBudgetPolicy;
+    point_budget_input_points?: number;
+    point_budget_output_points?: number;
+    point_budget_applied?: boolean;
     mesh_status?: string;
     mesh_vertices?: number;
     mesh_triangles?: number;
@@ -192,6 +201,11 @@ export function App() {
   const [colmapVggtBatchSize, setColmapVggtBatchSize] = useState(4);
   const [colmapVggtMaxPoints, setColmapVggtMaxPoints] = useState(2_000_000);
   const [colmapVggtConfPercentile, setColmapVggtConfPercentile] = useState(50);
+  const [confidenceThresholdScope, setConfidenceThresholdScope] =
+    useState<ConfidenceThresholdScope>("global");
+  const [consistencySupportPolicy, setConsistencySupportPolicy] =
+    useState<ConsistencySupportPolicy>("any_support");
+  const [pointBudgetPolicy, setPointBudgetPolicy] = useState<PointBudgetPolicy>("random");
   const [files, setFiles] = useState<File[]>([]);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -377,6 +391,9 @@ export function App() {
         form.append("vggt_batch_size", String(colmapVggtBatchSize));
         form.append("colmap_vggt_max_points", String(colmapVggtMaxPoints));
         form.append("colmap_vggt_conf_percentile", String(colmapVggtConfPercentile));
+        form.append("colmap_vggt_confidence_threshold_scope", confidenceThresholdScope);
+        form.append("colmap_vggt_consistency_support_policy", consistencySupportPolicy);
+        form.append("colmap_vggt_point_budget_policy", pointBudgetPolicy);
       }
       for (const file of files) {
         form.append("files", file, getUploadName(file));
@@ -584,41 +601,84 @@ export function App() {
             )}
 
             {geometryBackend === "colmap_vggt" && (
-              <div className="numeric-grid">
-                <label>
-                  <span>Max points</span>
-                  <input
-                    type="number"
-                    min={100000}
-                    max={10000000}
-                    step={100000}
-                    value={colmapVggtMaxPoints}
-                    onChange={(event) => setColmapVggtMaxPoints(Number(event.target.value))}
-                  />
-                </label>
-                <label>
-                  <span>Depth batch</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={8}
-                    step={1}
-                    value={colmapVggtBatchSize}
-                    onChange={(event) => setColmapVggtBatchSize(Number(event.target.value))}
-                  />
-                </label>
-                <label>
-                  <span>Confidence</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={95}
-                    step={5}
-                    value={colmapVggtConfPercentile}
-                    onChange={(event) => setColmapVggtConfPercentile(Number(event.target.value))}
-                  />
-                </label>
-              </div>
+              <>
+                <div className="numeric-grid">
+                  <label>
+                    <span>Max points</span>
+                    <input
+                      type="number"
+                      min={100000}
+                      max={10000000}
+                      step={100000}
+                      value={colmapVggtMaxPoints}
+                      onChange={(event) => setColmapVggtMaxPoints(Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>Depth batch</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={8}
+                      step={1}
+                      value={colmapVggtBatchSize}
+                      onChange={(event) => setColmapVggtBatchSize(Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>Confidence</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={95}
+                      step={5}
+                      value={colmapVggtConfPercentile}
+                      onChange={(event) => setColmapVggtConfPercentile(Number(event.target.value))}
+                    />
+                  </label>
+                </div>
+
+                <section className="ablation-controls" aria-labelledby="ablation-controls-title">
+                  <div>
+                    <strong id="ablation-controls-title">Dense-fusion ablations</strong>
+                    <small>Baseline: global + any support + random. Each phase is independent.</small>
+                  </div>
+                  <label>
+                    <span>Phase 1 · Confidence scope</span>
+                    <select
+                      value={confidenceThresholdScope}
+                      onChange={(event) =>
+                        setConfidenceThresholdScope(event.target.value as ConfidenceThresholdScope)
+                      }
+                    >
+                      <option value="global">Global (baseline)</option>
+                      <option value="per_frame">Per frame</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Phase 2 · Consistency support</span>
+                    <select
+                      value={consistencySupportPolicy}
+                      onChange={(event) =>
+                        setConsistencySupportPolicy(event.target.value as ConsistencySupportPolicy)
+                      }
+                    >
+                      <option value="any_support">Any support (baseline)</option>
+                      <option value="adaptive_two">Adaptive two-view</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Phase 3 · Point budget</span>
+                    <select
+                      value={pointBudgetPolicy}
+                      onChange={(event) => setPointBudgetPolicy(event.target.value as PointBudgetPolicy)}
+                    >
+                      <option value="random">Random (baseline)</option>
+                      <option value="spatial_balanced">Spatial balanced</option>
+                    </select>
+                  </label>
+                </section>
+              </>
             )}
           </div>
 
@@ -810,6 +870,31 @@ export function App() {
                 {currentStatus?.metrics.consistency_residual_p90 === undefined
                   ? "-"
                   : `${(currentStatus.metrics.consistency_residual_p90 * 100).toFixed(2)}%`}
+              </dd>
+            </div>
+            <div>
+              <dt>Confidence scope</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.confidence_threshold_scope)}</dd>
+            </div>
+            <div>
+              <dt>Support policy</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.consistency_support_policy)}</dd>
+            </div>
+            <div>
+              <dt>Point budget</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.point_budget_policy)}</dd>
+            </div>
+            <div>
+              <dt>Budget applied</dt>
+              <dd>{formatBudgetApplied(currentStatus?.metrics.point_budget_applied)}</dd>
+            </div>
+            <div>
+              <dt>Budget points</dt>
+              <dd>
+                {formatPointBudget(
+                  currentStatus?.metrics.point_budget_input_points,
+                  currentStatus?.metrics.point_budget_output_points
+                )}
               </dd>
             </div>
             <div>
@@ -1173,6 +1258,24 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
   return (await response.json()) as T;
+}
+
+function formatPolicy(value: string | undefined) {
+  return value?.replaceAll("_", " ") ?? "-";
+}
+
+function formatBudgetApplied(value: boolean | undefined) {
+  if (value === undefined) {
+    return "-";
+  }
+  return value ? "yes" : "no";
+}
+
+function formatPointBudget(inputPoints: number | undefined, outputPoints: number | undefined) {
+  if (inputPoints === undefined || outputPoints === undefined) {
+    return "-";
+  }
+  return `${inputPoints.toLocaleString()} → ${outputPoints.toLocaleString()}`;
 }
 
 function formatBytes(bytes: number) {

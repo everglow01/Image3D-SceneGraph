@@ -5,7 +5,23 @@ import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 
 type PointCloudViewerProps = {
   sourceUrl: string | null;
+  viewArtifactStem?: string;
 };
+
+type PointCloudViewState = {
+  schemaVersion: 1;
+  cameraPosition: [number, number, number];
+  controlsTarget: [number, number, number];
+  cameraUp: [number, number, number];
+  fov: number;
+  near: number;
+  far: number;
+  axisSigns: AxisSigns;
+  pointSize: number;
+  captureViewport: [number, number];
+};
+
+const G1_CAPTURE_VIEWPORT: [number, number] = [1600, 1000];
 
 type AxisSigns = {
   x: 1 | -1;
@@ -13,14 +29,17 @@ type AxisSigns = {
   z: 1 | -1;
 };
 
-export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
+export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-view" }: PointCloudViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointsRef = useRef<THREE.Points | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [viewerState, setViewerState] = useState("idle");
+  const [viewMessage, setViewMessage] = useState("");
+  const [artifactName, setArtifactName] = useState(viewArtifactStem);
   const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: 1, z: 1 });
   const [pointSize, setPointSize] = useState(0.035);
 
@@ -39,7 +58,7 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
     camera.position.set(1.8, -2.4, 1.5);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -188,6 +207,106 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
     }));
   }
 
+  function currentViewState(): PointCloudViewState | null {
+    const container = containerRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!container || !camera || !controls || viewerState !== "ready") {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      cameraPosition: camera.position.toArray() as [number, number, number],
+      controlsTarget: controls.target.toArray() as [number, number, number],
+      cameraUp: camera.up.toArray() as [number, number, number],
+      fov: camera.fov,
+      near: camera.near,
+      far: camera.far,
+      axisSigns,
+      pointSize,
+      captureViewport: G1_CAPTURE_VIEWPORT
+    };
+  }
+
+  function exportViewState() {
+    const state = currentViewState();
+    if (!state) {
+      return;
+    }
+    const blob = new Blob([`${JSON.stringify(state, null, 2)}\n`], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${artifactName || viewArtifactStem}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setViewMessage("View state exported");
+  }
+
+  function capturePng() {
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const scene = sceneRef.current;
+    if (!renderer || !camera || !scene || viewerState !== "ready") {
+      return;
+    }
+    const originalSize = renderer.getSize(new THREE.Vector2());
+    const originalPixelRatio = renderer.getPixelRatio();
+    const originalAspect = camera.aspect;
+    renderer.setPixelRatio(1);
+    renderer.setSize(G1_CAPTURE_VIEWPORT[0], G1_CAPTURE_VIEWPORT[1], false);
+    camera.aspect = G1_CAPTURE_VIEWPORT[0] / G1_CAPTURE_VIEWPORT[1];
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    const url = renderer.domElement.toDataURL("image/png");
+    renderer.setPixelRatio(originalPixelRatio);
+    renderer.setSize(originalSize.x, originalSize.y, false);
+    camera.aspect = originalAspect;
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${artifactName || viewArtifactStem}.png`;
+    anchor.click();
+    setViewMessage("PNG captured at 1600×1000");
+  }
+
+  function applyViewState(state: PointCloudViewState) {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls || viewerState !== "ready" || state.schemaVersion !== 1) {
+      throw new Error("Point cloud must be ready and view schema must be version 1");
+    }
+    camera.position.fromArray(state.cameraPosition);
+    camera.up.fromArray(state.cameraUp);
+    camera.fov = state.fov;
+    camera.near = state.near;
+    camera.far = state.far;
+    camera.updateProjectionMatrix();
+    controls.target.fromArray(state.controlsTarget);
+    controls.update();
+    setAxisSigns(state.axisSigns);
+    setPointSize(state.pointSize);
+  }
+
+  async function importViewState(file: File | undefined) {
+    if (!file) {
+      return;
+    }
+    try {
+      applyViewState(JSON.parse(await file.text()) as PointCloudViewState);
+      setViewMessage(`Loaded ${file.name}`);
+    } catch {
+      setViewMessage("Invalid view state");
+    } finally {
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
+    }
+  }
+
   return (
     <div className="viewer-surface" ref={containerRef}>
       <div className="pointcloud-toolbar" aria-label="Point cloud coordinate controls">
@@ -212,6 +331,45 @@ export function PointCloudViewer({ sourceUrl }: PointCloudViewerProps) {
         >
           Z
         </button>
+        <input
+          aria-label="View artifact name"
+          className="viewer-artifact-name"
+          onChange={(event) => setArtifactName(event.target.value)}
+          value={artifactName}
+        />
+        <button
+          className="viewer-tool-button"
+          disabled={viewerState !== "ready"}
+          onClick={() => importInputRef.current?.click()}
+          type="button"
+        >
+          Load view
+        </button>
+        <button
+          className="viewer-tool-button"
+          disabled={viewerState !== "ready"}
+          onClick={exportViewState}
+          type="button"
+        >
+          Save view
+        </button>
+        <button
+          className="viewer-tool-button"
+          disabled={viewerState !== "ready"}
+          onClick={capturePng}
+          type="button"
+        >
+          Capture PNG
+        </button>
+        <input
+          accept="application/json,.json"
+          aria-label="Load point cloud view state"
+          hidden
+          onChange={(event) => void importViewState(event.target.files?.[0])}
+          ref={importInputRef}
+          type="file"
+        />
+        {viewMessage && <span className="viewer-tool-message">{viewMessage}</span>}
         <label className="point-size-control">
           <span>Point</span>
           <input

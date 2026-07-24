@@ -275,8 +275,10 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
                     "scale_median=0.25",
                     "vggt_batch_size=4",
                     "conf_percentile=45.0",
+                    "confidence_threshold_scope=per_frame",
+                    "consistency_support_policy=adaptive_two",
                     "max_points=1500000",
-                    "point_budget_policy=random",
+                    "point_budget_policy=spatial_balanced",
                     "point_budget_input_points=2000000",
                     "point_budget_output_points=1500000",
                     "point_budget_applied=true",
@@ -306,6 +308,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
             "vggt_batch_size": 4,
             "colmap_vggt_max_points": 1_500_000,
             "colmap_vggt_conf_percentile": 45.0,
+            "colmap_vggt_confidence_threshold_scope": "per_frame",
+            "colmap_vggt_consistency_support_policy": "adaptive_two",
+            "colmap_vggt_point_budget_policy": "spatial_balanced",
         },
     )
 
@@ -321,7 +326,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["scale_median"] == 0.25
     assert manifest["metrics"]["vggt_batch_size"] == 4
     assert manifest["metrics"]["max_points"] == 1500000
-    assert manifest["metrics"]["point_budget_policy"] == "random"
+    assert manifest["metrics"]["confidence_threshold_scope"] == "per_frame"
+    assert manifest["metrics"]["consistency_support_policy"] == "adaptive_two"
+    assert manifest["metrics"]["point_budget_policy"] == "spatial_balanced"
     assert manifest["metrics"]["point_budget_input_points"] == 2000000
     assert manifest["metrics"]["point_budget_output_points"] == 1500000
     assert manifest["metrics"]["point_budget_applied"] is True
@@ -333,6 +340,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert captured_command[captured_command.index("--fusion-mode") + 1] == "points"
     assert captured_command[captured_command.index("--max-points") + 1] == "1500000"
     assert captured_command[captured_command.index("--conf-percentile") + 1] == "45.0"
+    assert captured_command[captured_command.index("--confidence-threshold-scope") + 1] == "per_frame"
+    assert captured_command[captured_command.index("--consistency-support-policy") + 1] == "adaptive_two"
+    assert captured_command[captured_command.index("--point-budget-policy") + 1] == "spatial_balanced"
 
 
 def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch):
@@ -421,6 +431,10 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
     assert manifest["mesh_variants"][0]["mesh_asset"] == "geometry/mesh.glb"
     assert any(str(command[1]).endswith("run_colmap_vggt_dense.py") for command in captured_commands)
     assert any(str(command[1]).endswith("mesh_from_pointcloud.py") for command in captured_commands)
+    points_command = next(command for command in captured_commands if str(command[1]).endswith("run_colmap_vggt_dense.py"))
+    assert points_command[points_command.index("--confidence-threshold-scope") + 1] == "global"
+    assert points_command[points_command.index("--consistency-support-policy") + 1] == "any_support"
+    assert points_command[points_command.index("--point-budget-policy") + 1] == "random"
     mesh_command = next(command for command in captured_commands if str(command[1]).endswith("mesh_from_pointcloud.py"))
     assert "--edge-trim-factor" in mesh_command
     assert "--radius-outlier-radius" in mesh_command

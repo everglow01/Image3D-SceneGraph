@@ -141,6 +141,18 @@ For large image sets, increase `--max-points` to keep the fused cloud dense enou
 
 The final point cap uses deterministic seeded random sampling by default. `--point-budget-policy spatial_balanced` is the Phase 3 experimental alternative: it orders accepted points along a Morton space-filling curve and keeps equal-mass stratum midpoints, producing exactly the same requested point count without GT input. In strict paired 2M-point tests it improved 1/2/5 cm F1 by `+0.006265/+0.005373/+0.002104` on `terrains` and `+0.002567/+0.005658/+0.005174` on `delivery_area`; `pipes` was below the 2M cap and therefore unchanged, while a separate 1M activation check improved all six thresholds. The policy also remained positive when combined with either confidence scope and support policy. It is retained as the strongest Phase 3 candidate, but `random` remains the stable default pending validation on another capped non-ETH3D scene.
 
+The frontend exposes the three COLMAP+VGGT ablation factors as independent controls, so all eight Phase 1×2×3 combinations remain available. The stable baseline is `Global + Any support + Random`. For a controlled private-dataset comparison, keep the images, depth batch, confidence percentile, maximum points, output type, and environment unchanged, and create separate jobs in this order:
+
+```text
+baseline: Global    + Any support       + Random
+Phase 1:  Per frame + Any support       + Random
+Phase 2:  Global    + Adaptive two-view + Random
+Phase 3:  Global    + Any support       + Spatial balanced
+all-on:   Per frame + Adaptive two-view + Spatial balanced  (optional)
+```
+
+Record each job ID. A loaded job displays its effective policies and point-budget counts from persisted manifest metrics, and its log and diagnostics remain available in the downloadable bundle. For a 225-image folder, COLMAP+VGGT processes every image that COLMAP registers; the standalone VGGT `Max images` control does not apply. The current API is synchronous and reads uploads into backend memory, exhaustive COLMAP matching examines 25,200 unordered image pairs, and depth batch `4` requires roughly 57 VGGT groups if all images register. `Max points` limits only the final PLY after filtering—it does not bound peak candidate-array or cross-view-filtering memory. Validate the setup on a representative subset before committing to each full run.
+
 Analyze a generated point cloud before attempting coordinate alignment:
 
 ```bash

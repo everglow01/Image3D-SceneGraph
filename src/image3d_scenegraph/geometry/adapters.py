@@ -22,7 +22,7 @@ class ReconstructionContext:
     job_dir: Path
     mode: str
     input_assets: list[dict[str, Any]]
-    options: dict[str, int | float]
+    options: dict[str, int | float | str]
 
 
 @dataclass(frozen=True)
@@ -276,6 +276,30 @@ class ColmapVggtPointCloudAdapter:
             str(_positive_int_option(context, "colmap_vggt_max_points", "IMAGE3D_COLMAP_VGGT_MAX_POINTS", 2_000_000)),
             "--conf-percentile",
             str(_percentile_option(context, "colmap_vggt_conf_percentile", "IMAGE3D_COLMAP_VGGT_CONF_PERCENTILE", 50.0)),
+            "--confidence-threshold-scope",
+            _choice_option(
+                context,
+                "colmap_vggt_confidence_threshold_scope",
+                "IMAGE3D_COLMAP_VGGT_CONFIDENCE_THRESHOLD_SCOPE",
+                "global",
+                {"global", "per_frame"},
+            ),
+            "--consistency-support-policy",
+            _choice_option(
+                context,
+                "colmap_vggt_consistency_support_policy",
+                "IMAGE3D_COLMAP_VGGT_CONSISTENCY_SUPPORT_POLICY",
+                "any_support",
+                {"any_support", "adaptive_two"},
+            ),
+            "--point-budget-policy",
+            _choice_option(
+                context,
+                "colmap_vggt_point_budget_policy",
+                "IMAGE3D_COLMAP_VGGT_POINT_BUDGET_POLICY",
+                "random",
+                {"random", "spatial_balanced"},
+            ),
         ]
 
         env = os.environ.copy()
@@ -431,6 +455,20 @@ def _percentile_option(context: ReconstructionContext, key: str, env_key: str, d
     value = float(value)
     if value < 0 or value >= 100:
         raise ReconstructionError(f"{key} must be between 0 and 99")
+    return value
+
+
+def _choice_option(
+    context: ReconstructionContext,
+    key: str,
+    env_key: str,
+    default: str,
+    choices: set[str],
+) -> str:
+    value = str(context.options.get(key, os.environ.get(env_key, default)))
+    if value not in choices:
+        allowed = ", ".join(sorted(choices))
+        raise ReconstructionError(f"{key} must be one of: {allowed}")
     return value
 
 

@@ -1,0 +1,128 @@
+PRIVATE 225-IMAGE SCENE EXPERIMENT LOG
+======================================
+
+Protocol
+--------
+Task: G1.1 freeze the pre-optimization private-scene diagnostic baseline
+Job: 20260723_070028_024e9f25
+Date: 2026-07-23
+Status: accepted; deterministic evidence and four fixed qualitative views complete
+Reconstruction input: 225 private RGB images only
+Ground truth: none
+World scale: arbitrary; this record does not demonstrate metric-scale recovery
+Forbidden: GT-guided filtering/tuning, scan alignment, or changing retained geometry
+
+G1.1 — COLMAP + VGGT all-on reference
+----------------------------------------
+Configuration ID: private_225_all_on_20260723
+
+Authoritative retained runner command:
+/home/owen/Image3D-SceneGraph/.venv/bin/python /home/owen/Image3D-SceneGraph/scripts/run_colmap_vggt_dense.py --image-dir outputs/jobs/20260723_070028_024e9f25/input/images --output-dir outputs/jobs/20260723_070028_024e9f25 --device cuda --matcher exhaustive --vggt-batch-size 4 --vggt-overlap-size 2 --vggt-grouping sequential --fusion-mode points --max-points 30000000 --conf-percentile 50.0 --confidence-threshold-scope per_frame --consistency-support-policy adaptive_two --point-budget-policy spatial_balanced
+
+The manifest metrics.command field is not the reconstruction command; it records the
+last COLMAP model-converter subcommand. The runner= line in logs/run.log is authoritative.
+
+Evidence command:
+uv run python scripts/freeze_g11_baseline.py \
+  --job-dir outputs/jobs/20260723_070028_024e9f25 \
+  --views benchmarks/private-225/g1_1_views.json \
+  --write
+
+Evidence paths:
+- Full deterministic evidence: outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_1_baseline.json
+- Fixed view definitions: benchmarks/private-225/g1_1_views.json
+- Screenshots: outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_1_screenshots/
+
+Input identity:
+- Images: 225
+- Total bytes: 136439737
+- Ordered input-inventory SHA-256: e5da57f2de2cce9bc385663f0e2fd3e86a3476d9c1645782198269a8d41a3a20
+- Individual filename/path/size/SHA-256 records are in g1_1_baseline.json.
+
+Effective configuration:
+- Matcher: exhaustive
+- VGGT grouping: sequential
+- Batch size: 4
+- Requested overlap: 2
+- Effective overlap: 0 (sequential grouping did not apply the requested overlap)
+- Number of VGGT groups: 57
+- Fusion intrinsics / mode: COLMAP / points
+- Confidence percentile / scope: 50 / per_frame
+- Consistency support policy: adaptive_two
+- Final point cap / policy: 30000000 / spatial_balanced
+
+Reconstruction results:
+- Registered / scaled images: 225 / 225
+- COLMAP sparse points: 43892
+- Output points: 17101794
+- COLMAP runtime: 212.903 s
+- VGGT runtime: 72.347 s
+- Total elapsed runtime: 308.304 s
+- Visibility graph directed edges: 1344
+
+Depth-scale distribution over 225 images:
+Statistic     min       p05       p25       p50       p75       p95       max
+Scale         3.484544  4.267700  5.616249  6.649687  7.550396  8.896935  10.405122
+Observations  56        160       528       957       1641      2743      4035
+Log-MAD       0.001670  0.003567  0.006376  0.010604  0.019296  0.039256  0.072542
+
+Cross-view consistency/support summary:
+- Candidate points: 19580437
+- Accepted points: 17101794 (87.3412% of candidates)
+- Rejected points: 2478643
+- Supported accepted points: 12294033
+- Unverified accepted points: 4807761 (28.1126% of accepted points)
+- Multi-visible points: 9854555
+- Policy-rejected supported points: 933627
+- Relative residual P50 / P90: 0.008267 / 0.018270
+
+These are aggregate and per-image diagnostic categories, not retained per-final-point
+support provenance. Per-point attribution is scheduled for G1.14.
+
+Phase 3 activation
+------------------
+The selected point-budget policy was spatial_balanced, but it did not activate:
+- Point-budget input: 17101794
+- Point-budget output: 17101794
+- Applied: false
+- Cap: 30000000
+
+No point was selected or removed by Phase 3 in this job. Its policy name must not be
+interpreted as a cause of, or an improvement to, the observed geometry.
+
+Raw / Aligned qualitative baseline
+----------------------------------
+- Raw PLY SHA-256: d1d316ae320342ded0377d96565f9ef8705e7e1f434d80275784b9a8be52dce9
+- Aligned PLY SHA-256: 156172226a75680b049a97f61e376c0a7047f682fd7128563ee7cbc3c28f2702
+- The user confirmed that bookshelf/monitor displacement is visible in both Raw and Aligned.
+- Aligned is one global rigid upright transform. It cannot repair or create local duplicate layers.
+- This is qualitative evidence only. G1.4 owns plane RMS, normal dispersion, thickness,
+  repeated-layer count, and coverage metrics.
+
+Required fixed views and screenshot evidence:
+- bookshelf_raw:
+  20260723_070028_024e9f25_g1_1_bookshelf_raw.png
+  1600x1000; SHA-256 b7cc3d9e05f1c2d10f4b72bed2b240fb244b3c69f6325c1616d210fbbb4dbca8
+- bookshelf_aligned:
+  20260723_070028_024e9f25_g1_1_bookshelf_aligned.png
+  1600x1000; SHA-256 3c65caf69bd0bca3ca52e11cae58375d18868e47dafdc2e6d3fcf66866907520
+- monitor_raw:
+  20260723_070028_024e9f25_g1_1_monitor_raw.png
+  1600x1000; SHA-256 ea516cf251e9614ba400bda44c5974c82dcd4c7b883b630cc701e2b855f24c79
+- monitor_aligned:
+  20260723_070028_024e9f25_g1_1_monitor_aligned.png
+  1600x1000; SHA-256 006db1d381a2a3fb922db1094f17041ec23d78cf816a63173ce54c7bbc41c863
+
+Fixed-view status: accepted. All four stored states reproduce the manually selected
+bookshelf/monitor observations in the prescribed Raw/Aligned clouds. All screenshots
+use the prescribed names and 1600x1000 capture viewport; the evidence freezer reports
+views_complete=true in both --write and --check modes.
+
+Limitations
+-----------
+- This private scene has no geometric GT; no accuracy/completeness/F1 claim is made.
+- Scale is arbitrary.
+- No GT was supplied to reconstruction or used for baseline selection.
+- Screenshots do not establish causality or quantitative geometry quality.
+- Historical environment variables, checkpoint SHA-256, and source commit were not
+  persisted by the original job and are recorded as not_recorded rather than guessed.

@@ -226,6 +226,25 @@ h3 {
   gap: 8px;
 }
 
+.ablation-controls {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d4dcde;
+  border-radius: 8px;
+  background: #f4f7f7;
+  padding: 10px;
+}
+
+.ablation-controls > div {
+  display: grid;
+  gap: 4px;
+}
+
+.ablation-controls strong {
+  color: #26363a;
+  font-size: 12px;
+}
+
 .file-drop input {
   display: none;
 }
@@ -432,6 +451,24 @@ h3 {
 .viewer-tool-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.viewer-artifact-name {
+  width: 180px;
+  min-height: 32px;
+  border: 1px solid rgba(214, 221, 223, 0.72);
+  border-radius: 8px;
+  background: rgba(251, 252, 252, 0.9);
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.viewer-tool-message {
+  border-radius: 8px;
+  background: rgba(251, 252, 252, 0.9);
+  color: #4e5d61;
+  padding: 8px;
+  font-size: 12px;
 }
 
 .point-size-control {

@@ -48,6 +48,15 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
         colmap_vggt_overlap_size: Annotated[int | None, Form()] = None,
         colmap_vggt_max_points: Annotated[int | None, Form()] = None,
         colmap_vggt_conf_percentile: Annotated[float | None, Form()] = None,
+        colmap_vggt_confidence_threshold_scope: Annotated[
+            Literal["global", "per_frame"] | None, Form()
+        ] = None,
+        colmap_vggt_consistency_support_policy: Annotated[
+            Literal["any_support", "adaptive_two"] | None, Form()
+        ] = None,
+        colmap_vggt_point_budget_policy: Annotated[
+            Literal["random", "spatial_balanced"] | None, Form()
+        ] = None,
     ) -> dict:
         uploaded: list[UploadedInput] = []
         for file in files:
@@ -68,6 +77,21 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
                 "colmap_vggt_overlap_size": colmap_vggt_overlap_size,
                 "colmap_vggt_max_points": colmap_vggt_max_points,
                 "colmap_vggt_conf_percentile": colmap_vggt_conf_percentile,
+                "colmap_vggt_confidence_threshold_scope": (
+                    colmap_vggt_confidence_threshold_scope
+                    if geometry_backend == "colmap_vggt"
+                    else None
+                ),
+                "colmap_vggt_consistency_support_policy": (
+                    colmap_vggt_consistency_support_policy
+                    if geometry_backend == "colmap_vggt"
+                    else None
+                ),
+                "colmap_vggt_point_budget_policy": (
+                    colmap_vggt_point_budget_policy
+                    if geometry_backend == "colmap_vggt"
+                    else None
+                ),
             }.items()
             if value is not None
         }

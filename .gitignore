@@ -69,3 +69,6 @@ Thumbs.db
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+
+CLAUDE.md
+plan.md

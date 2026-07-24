@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "job_id": "20260723_070028_024e9f25",
+  "instructions": "Load the matching Raw or Aligned cloud and import the stored state to reproduce the named observation. Screenshots were captured at 1600x1000 with the exact artifact names below.",
+  "views": [
+    {
+      "name": "bookshelf_raw",
+      "variant": "raw",
+      "screenshot": "diagnostics/g1_1_screenshots/20260723_070028_024e9f25_g1_1_bookshelf_raw.png",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [
+          -3.2412994586223567,
+          2.8636041239309225,
+          -3.746639406963272
+        ],
+        "controlsTarget": [
+          -0.9119318744102498,
+          3.987331666590982,
+          -4.704158446911356
+        ],
+        "cameraUp": [
+          0,
+          0,
+          1
+        ],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {
+          "x": 1,
+          "y": -1,
+          "z": -1
+        },
+        "pointSize": 0.035,
+        "captureViewport": [
+          1600,
+          1000
+        ]
+      }
+    },
+    {
+      "name": "bookshelf_aligned",
+      "variant": "aligned",
+      "screenshot": "diagnostics/g1_1_screenshots/20260723_070028_024e9f25_g1_1_bookshelf_aligned.png",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [
+          -3.237532315372065,
+          4.667922139945995,
+          1.6434839166218813
+        ],
+        "controlsTarget": [
+          -2.000740541234308,
+          5.156408992430897,
+          1.4854879303918689
+        ],
+        "cameraUp": [
+          0,
+          0,
+          1
+        ],
+        "fov": 55,
+        "near": 0.09755897481267738,
+        "far": 975.5897481267738,
+        "axisSigns": {
+          "x": 1,
+          "y": -1,
+          "z": -1
+        },
+        "pointSize": 0.035,
+        "captureViewport": [
+          1600,
+          1000
+        ]
+      }
+    },
+    {
+      "name": "monitor_raw",
+      "variant": "raw",
+      "screenshot": "diagnostics/g1_1_screenshots/20260723_070028_024e9f25_g1_1_monitor_raw.png",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [
+          0.6695656227058518,
+          1.2690263212040434,
+          -3.060039061327229
+        ],
+        "controlsTarget": [
+          0.676840462581049,
+          1.3959684877499916,
+          -3.3535383044277647
+        ],
+        "cameraUp": [
+          0,
+          0,
+          1
+        ],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {
+          "x": 1,
+          "y": -1,
+          "z": -1
+        },
+        "pointSize": 0.035,
+        "captureViewport": [
+          1600,
+          1000
+        ]
+      }
+    },
+    {
+      "name": "monitor_aligned",
+      "variant": "aligned",
+      "screenshot": "diagnostics/g1_1_screenshots/20260723_070028_024e9f25_g1_1_monitor_aligned.png",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [
+          0.3006676013481336,
+          3.298361135075673,
+          -0.2776573331697507
+        ],
+        "controlsTarget": [
+          0.6201597404505003,
+          5.089796906938898,
+          -0.19235097408964538
+        ],
+        "cameraUp": [
+          0,
+          0,
+          1
+        ],
+        "fov": 55,
+        "near": 0.09755897481267738,
+        "far": 975.5897481267738,
+        "axisSigns": {
+          "x": 1,
+          "y": -1,
+          "z": -1
+        },
+        "pointSize": 0.035,
+        "captureViewport": [
+          1600,
+          1000
+        ]
+      }
+    }
+  ]
+}
