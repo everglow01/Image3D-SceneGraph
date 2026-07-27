@@ -169,6 +169,59 @@ This motivates the already scheduled G1.3 scale-disagreement metric and G1.5 gro
 work. G1.2 does not change the stable sequential default, select a new grouping rule, rerun
 reconstruction, or attribute the frozen bookshelf/monitor displacement to a single cause.
 
+G1.4 — Fixed-ROI geometry quality diagnostics
+--------------------------------------------
+Date: 2026-07-27
+Status: accepted; retained Raw/Aligned diagnostics reproduce byte-for-byte
+
+Definition and commands:
+- Fixed ROI definition: benchmarks/private-225/g1_4_rois.json
+- Tool: scripts/evaluate_fixed_roi_quality.py
+- Aligned evaluation:
+  uv run python scripts/evaluate_fixed_roi_quality.py \
+    --input outputs/jobs/20260723_070028_024e9f25/geometry/points_aligned.ply \
+    --rois benchmarks/private-225/g1_4_rois.json \
+    --output outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_4_aligned.json
+- Raw evaluation uses the retained alignment transform only to select the identical points:
+  uv run python scripts/evaluate_fixed_roi_quality.py \
+    --input outputs/jobs/20260723_070028_024e9f25/geometry/points.ply \
+    --rois benchmarks/private-225/g1_4_rois.json \
+    --selection-transform outputs/jobs/20260723_070028_024e9f25/diagnostics/alignment.json \
+    --output outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_4_raw.json
+
+Metric definition:
+- ROIs are frozen Aligned-Ply coordinate boxes selected from the accepted G1.1 views;
+  they are not frontend-centered/display-coordinate boxes.
+- Dominant plane: fixed-seed RANSAC on at most 50,000 selected points, then SVD refit.
+  `robust_plane.rms_distance` is the RMS of all selected inliers within 0.03 arbitrary units.
+- Normal dispersion: P50/P90 angular deviation of grid-local SVD normals from the refit
+  dominant normal. Thickness is the selected ROI's normal-distance P95-P05.
+- Repeated layers: count non-maximum-suppressed normal-distance histogram peaks, with
+  0.02 bin width and at least 0.05 separation. Coverage is occupied cells in a 20x20
+  robust plane-coordinate grid. These are arbitrary-scale diagnostic measures, not metres.
+
+Retained results:
+Variant  ROI        points  plane RMS  normal P50/P90 deg  thickness P05-P95  layers  coverage
+Raw      monitor    92115   0.014045   11.702820/83.781630  0.518581           5       0.9900
+Raw      bookshelf  72858   0.016594   36.417167/79.837709  0.710391           7       0.6600
+Aligned  monitor    92115   0.014044   11.171644/83.586650  0.518576           5       0.9875
+Aligned  bookshelf  72858   0.016594   36.888929/81.716063  0.710391           7       0.6625
+
+Evidence:
+- outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_4_raw.json
+  SHA-256 32d1da433101edf3c3b22656995ebe9ef5963da200d31bfb52070191aca0eaab
+- outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_4_aligned.json
+  SHA-256 d2430cddc0f6f2b4b54f2603a37b1b7f923de5599c22f27b73c007c1d27abeb6
+
+Interpretation and limits:
+The two representations select the same retained points, so the near-identical values are
+expected under the single rigid alignment. The nonzero thickness, high normal dispersion,
+and multiple normal-distance peaks quantify local multi-layer/non-planar structure in both;
+they do not identify a reconstruction cause or establish metric accuracy. Empty and
+low-point ROIs return explicit status rather than a favorable score; the fixed tracked ROI
+boxes prevent improving this retained comparison by silently shrinking an ROI.
+
+
 G1.3 — Strong-covisibility scale disagreement
 ---------------------------------------------
 Date: 2026-07-24
