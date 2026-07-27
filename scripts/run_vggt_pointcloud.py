@@ -301,13 +301,29 @@ def infer_image_group(
     pose_encoding_to_extri_intri: Any,
     device: str,
     dtype: torch.dtype,
+    frames_chunk_size: int | None = None,
 ) -> tuple[dict[str, np.ndarray], float]:
     images = load_and_preprocess_images([str(path) for path in image_paths], mode="pad").to(device)
     infer_started_at = time.perf_counter()
     autocast_context = torch.cuda.amp.autocast(dtype=dtype) if device == "cuda" else nullcontext()
-    with torch.no_grad():
-        with autocast_context:
-            predictions = model(images)
+    depth_head = getattr(model, "depth_head", None)
+    original_forward = depth_head.forward.__func__ if depth_head is not None else None
+    patched = False
+    if depth_head is not None and frames_chunk_size is not None and original_forward is not None:
+        # VGGT's DPT depth head supports frames_chunk_size to process frames in
+        # chunks and lower peak activation memory. The default (8) never chunks a
+        # 4-view group, so we force it before model(images) runs.
+        import functools
+
+        depth_head.forward = functools.partial(original_forward, depth_head, frames_chunk_size=frames_chunk_size)
+        patched = True
+    try:
+        with torch.no_grad():
+            with autocast_context:
+                predictions = model(images)
+    finally:
+        if patched:
+            depth_head.forward = original_forward.__get__(depth_head)
     infer_seconds = time.perf_counter() - infer_started_at
 
     extrinsic, intrinsic = pose_encoding_to_extri_intri(predictions["pose_enc"], images.shape[-2:])

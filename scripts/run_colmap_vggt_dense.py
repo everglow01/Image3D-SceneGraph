@@ -178,6 +178,12 @@ def main() -> None:
     parser.add_argument("--vggt-batch-size", type=int, default=4)
     parser.add_argument("--vggt-overlap-size", type=int, default=2)
     parser.add_argument("--vggt-grouping", choices=["covisibility", "sequential"], default="sequential")
+    parser.add_argument(
+        "--vggt-frames-chunk-size",
+        type=int,
+        default=None,
+        help="Process VGGT depth-head frames in chunks of this size to lower peak GPU memory.",
+    )
     parser.add_argument("--fusion-mode", choices=["tsdf", "points"], default="points")
     parser.add_argument("--tsdf-voxel-length", type=float, default=0.0)
     parser.add_argument("--tsdf-sdf-trunc", type=float, default=0.0)
@@ -243,6 +249,8 @@ def main() -> None:
         raise SystemExit("--scale-graph-huber-delta must be positive")
     if args.scale_graph_max_pairs_per_edge <= 0:
         raise SystemExit("--scale-graph-max-pairs-per-edge must be positive")
+    if args.vggt_frames_chunk_size is not None and args.vggt_frames_chunk_size <= 0:
+        raise SystemExit("--vggt-frames-chunk-size must be positive")
 
     started_at = time.perf_counter()
     colmap = shutil.which("colmap")
@@ -345,6 +353,7 @@ def main() -> None:
         pose_encoding_to_extri_intri=pose_encoding_to_extri_intri,
         device=device,
         dtype=dtype,
+        frames_chunk_size=args.vggt_frames_chunk_size,
     )
     vggt_seconds = time.perf_counter() - vggt_started_at
 
@@ -913,6 +922,7 @@ def main() -> None:
         f"vggt_overlap_size={args.vggt_overlap_size}",
         f"overlap_size={effective_overlap_size}",
         f"vggt_grouping={args.vggt_grouping}",
+        f"vggt_frames_chunk_size={args.vggt_frames_chunk_size}",
         f"num_groups={len(vggt_groups)}",
         f"conf_percentile={args.conf_percentile}",
         f"confidence_threshold_scope={effective_confidence_threshold_scope}",
@@ -1075,6 +1085,7 @@ def run_vggt_depth_batches(
     pose_encoding_to_extri_intri: Any,
     device: str,
     dtype: torch.dtype,
+    frames_chunk_size: int | None = None,
 ) -> dict[Path, dict[str, Any]]:
     results: dict[Path, dict[str, Any]] = {}
     for batch_paths in groups:
@@ -1087,6 +1098,7 @@ def run_vggt_depth_batches(
             pose_encoding_to_extri_intri=pose_encoding_to_extri_intri,
             device=device,
             dtype=dtype,
+            frames_chunk_size=frames_chunk_size,
         )
         colors = load_padded_rgb_images(batch_paths, prediction_np["images"].shape[-2:])
         for index, image_path in enumerate(batch_paths):

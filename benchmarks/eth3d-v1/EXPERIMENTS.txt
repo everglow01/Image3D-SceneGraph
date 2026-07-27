@@ -839,10 +839,40 @@ Private-225:
 - Covisibility arm FAILED with CUDA OutOfMemoryError in the VGGT depth head (DPT pos_embed
   allocation, tried 526 MiB). This is a real 8 GB GPU ceiling on 4-view covisibility batches
   of 6 MP images whose content is more correlated than sequential's arbitrary mix, not a
-  grouping-rule defect. The failure evidence is retained under
-  outputs/experiments/g1_7/private_225/covisibility_reconstruction/ and
-  outputs/experiments/g1_7/private_225/covisibility.stderr.log. Reducing batch to 3 would
-  change two variables (batch + grouping) and break the paired protocol, so it was not done.
+  grouping-rule defect. Reducing batch to 3 would change two variables (batch + grouping)
+  and break the paired protocol, so it was not done at first run.
+
+Private-225 covisibility re-run with depth-head frame chunking (2026-07-27):
+- Root cause confirmed: VGGT's DPT depth head has a built-in frames_chunk_size parameter
+  (default 8) that the model call site never set, so a 4-view group was never chunked.
+  Setting --vggt-frames-chunk-size 2 processes the depth head in 2-frame slices, lowering
+  peak activation memory without changing the model, weights, or fusion math.
+- Covisibility arm then completed: 17746411 points, 89 groups, elapsed 136.260 s,
+  gpu_peak 3.78 GiB (lower than the 4.26 GiB sequential arm), exit 0.
+- Command (only addition vs the failed run is --vggt-frames-chunk-size 2):
+  env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
+    --image-dir outputs/jobs/20260723_070028_024e9f25/input/images \
+    --output-dir outputs/experiments/g1_7/private_225/covisibility_reconstruction \
+    --colmap-model-dir outputs/jobs/20260723_070028_024e9f25/colmap_vggt/sparse_txt \
+    --device cuda --matcher exhaustive --vggt-batch-size 4 --vggt-overlap-size 2 \
+    --vggt-grouping covisibility --vggt-frames-chunk-size 2 --fusion-mode points \
+    --max-points 30000000 --conf-percentile 50.0 --confidence-threshold-scope per_frame \
+    --consistency-support-policy adaptive_two --point-budget-policy spatial_balanced --seed 42
+
+Private-225 paired G1.4 Raw ROI (sequential vs covisibility):
+Variant        ROI         points   plane RMS   layers  coverage
+sequential     monitor     92115    0.014045    5       0.9900
+sequential     bookshelf   72858    0.016594    7       0.6600
+covisibility   monitor     107363   0.014644    5       1.0000
+covisibility   bookshelf   106584   0.016434    4       0.7175
+- The bookshelf parallel-layer count dropped 7 -> 4, the local defect G1.1-G1.4 tracked.
+  Monitor plane RMS rose slightly (0.014045 -> 0.014644) but layers stayed 5 and coverage
+  reached 1.0. This is qualitative support for covisibility on the private defect, not a
+  causal proof or metric-scale claim.
+- ETH3D remained mixed (see paired F1 table above), so the covisibility candidate is
+  retained as experimental; the sequential default is unchanged. The chunked run is not
+  used to retune ETH3D because it changes a memory mechanism, not the algorithm.
+
 
 Sequential arm PLY SHA-256 (byte-identical to phase3_factorial frozen baselines, proving
 the only changed factor was grouping):
