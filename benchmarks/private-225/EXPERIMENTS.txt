@@ -352,3 +352,75 @@ Evidence:
 - `outputs/experiments/g1_8/private_225/capture.time.log`
 - Focused dense-runner tests: 38 passed. Full Python suite: 83 passed with one existing
   Starlette/httpx deprecation warning.
+
+G1.9 — Overlap-depth disagreement diagnostics
+----------------------------------------------
+Date: 2026-07-27
+Status: accepted diagnostic; scale-dominant decision gate failed, so G1.10 is blocked
+
+Protocol:
+- Read only the retained G1.8 NPZ predictions; reconstruction, first-wins point cloud, and
+  stable defaults were not changed.
+- Compare every pair of predictions for the same image on its identical VGGT canvas. Valid
+  pixels exclude padding, non-finite/non-positive depth, and either prediction's lower 50%
+  confidence. Same-image canvas comparison needs no reprojection, distortion mapping, or
+  occlusion classification; these are recorded as not applicable rather than inferred.
+- Split common reliable pixels deterministically by checkerboard parity. Fit one median
+  anchored log-depth offset on even-parity pixels and report only odd-parity held-out
+  residuals. This tests scale-only explanatory power without training-pixel leakage.
+- Each pair records raw/sparse-anchored/scale-fitted log-depth and inverse-depth statistics,
+  confidence strata, first-wins/role attribution, pixel exclusions, and a 16x16 three-channel
+  spatial residual grid. Fixed bookshelf/monitor ROI membership is computed by unprojecting
+  the first sparse-anchored prediction with the frozen COLMAP camera/pose and applying the
+  frozen Raw-to-Aligned transform; no GT or ROI-dependent fitting is used.
+
+Private-225 result (188/188 pairs evaluated):
+Metric (pair median)                Raw       Sparse-anchored  Scale-fitted held-out
+absolute log-depth p50              0.188617  0.006621         0.004588
+absolute log-depth p90              N/A       0.015855         0.013252
+- Extra scale-only fit reduced aggregate p50/p90 by 30.71%/16.42%; 80.32%/75.53% of pairs
+  improved individually. This misses the frozen scale-dominant gate of at least 50% median
+  p50 reduction and 30% median p90 reduction.
+- First-wins pairs had anchored/fitted p50 0.007208/0.005409 versus
+  0.005920/0.003533 for non-first-wins pairs. This shows measurable order attribution, not
+  proof that a specific alternative selection improves final geometry.
+- Lower/higher joint-confidence anchored p50 was 0.006587/0.006399; disagreement is not
+  concentrated only in the lower confidence half.
+- Median post-fit spatial grid p90-p10 spread was 0.013355, so a scalar offset leaves spatially
+  varying residual structure.
+- Bookshelf: 40 observed pairs / 56,933 held-out pixels; anchored/fitted p50
+  0.009245/0.008689 (6.02% reduction). Monitor: 29 pairs / 30,192 pixels;
+  0.006134/0.005141 (16.18% reduction). The tracked bookshelf region is therefore even less
+  scale-dominant than the scene aggregate.
+
+Cross-scene transfer (all RGB-only reconstruction data; no ETH3D GT in diagnostics):
+Scene          pairs  anchored p50/p90  fitted p50/p90   p50/p90 reduction  gate
+pipes          7      .008410/.022128   .008547/.021616  -1.62%/2.32%       fail
+terrains       48     .005826/.016365   .005365/.015663   7.91%/4.29%       fail
+delivery_area  39     .006282/.017130   .004642/.013849  26.12%/19.15%     fail
+private-225    188    .006621/.015855   .004588/.013252  30.71%/16.42%     fail
+
+Decision:
+- No frozen scene passes the predeclared scale-dominant gate, and pipes slightly regresses
+  held-out p50. Do not implement G1.10 overlap-window scale reconciliation and do not retune
+  its thresholds from these results.
+- Residual spatial spread and weak private fixed-ROI scale gains support the planned G1.18
+  canvas/intrinsics audit before adding scale freedom. G1.14 support attribution remains a
+  later alternative, but confidence stratification alone does not identify support as the
+  primary cause here.
+- Covisibility remains experimental and sequential remains the stable default. Scale is
+  arbitrary; these values are consistency diagnostics, not metres or metric-scale recovery.
+
+Evidence:
+- `scripts/evaluate_vggt_overlap_predictions.py`
+- `tests/test_evaluate_vggt_overlap_predictions.py`
+- `outputs/experiments/g1_9/private_225/overlap_depth_disagreement.json`
+  SHA-256 e131940585d3659273af7fab9dd598bb1f674d7fae0fa9c84917b5769ca97b49
+- `outputs/experiments/g1_9/pipes/overlap_depth_disagreement.json`
+  SHA-256 4942d8e6b736e086d6155c3f2d7626c7763fb47cc8c13c47e7e864a632bfd1da
+- `outputs/experiments/g1_9/terrains/overlap_depth_disagreement.json`
+  SHA-256 3c823509fa352803b1fc11519d5079568bb9b0c81fb25711208f4d493e266910
+- `outputs/experiments/g1_9/delivery_area/overlap_depth_disagreement.json`
+  SHA-256 00ed52c204d2840415013f115f008b6afdcf5939d5938780b127b214299c8a83
+- All four evaluator `--check` runs passed before final schema extension; focused tests passed
+  after the final schema extension. Full Python suite: 86 passed with one existing warning.
