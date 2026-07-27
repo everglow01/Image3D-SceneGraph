@@ -248,10 +248,25 @@ class ColmapVggtPointCloudAdapter:
         fusion_mode = os.environ.get("IMAGE3D_COLMAP_VGGT_FUSION_MODE", "points")
         if fusion_mode not in {"points", "tsdf"}:
             raise ReconstructionError("IMAGE3D_COLMAP_VGGT_FUSION_MODE must be 'points' or 'tsdf'")
-        grouping = os.environ.get("IMAGE3D_COLMAP_VGGT_GROUPING", "sequential")
-        if grouping not in {"sequential", "covisibility"}:
+        grouping = _choice_option(
+            context,
+            "colmap_vggt_grouping",
+            "IMAGE3D_COLMAP_VGGT_GROUPING",
+            "sequential",
+            {"sequential", "covisibility"},
+        )
+        batch_size = _positive_int_option(
+            context, "vggt_batch_size", "IMAGE3D_COLMAP_VGGT_BATCH_SIZE", 4
+        )
+        overlap_size = _positive_int_option(
+            context,
+            "colmap_vggt_overlap_size",
+            "IMAGE3D_COLMAP_VGGT_OVERLAP_SIZE",
+            2,
+        )
+        if batch_size < 2 or overlap_size >= batch_size:
             raise ReconstructionError(
-                "IMAGE3D_COLMAP_VGGT_GROUPING must be 'sequential' or 'covisibility'"
+                "colmap_vggt_overlap_size must be smaller than vggt_batch_size, which must be at least 2"
             )
         command = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
@@ -265,9 +280,9 @@ class ColmapVggtPointCloudAdapter:
             "--matcher",
             os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
             "--vggt-batch-size",
-            str(_positive_int_option(context, "vggt_batch_size", "IMAGE3D_COLMAP_VGGT_BATCH_SIZE", 4)),
+            str(batch_size),
             "--vggt-overlap-size",
-            str(_positive_int_option(context, "colmap_vggt_overlap_size", "IMAGE3D_COLMAP_VGGT_OVERLAP_SIZE", 2)),
+            str(overlap_size),
             "--vggt-grouping",
             grouping,
             "--fusion-mode",

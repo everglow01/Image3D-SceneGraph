@@ -275,6 +275,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
                     "num_points=99",
                     "scale_median=0.25",
                     "vggt_batch_size=4",
+                    "vggt_overlap_size=1",
+                    "overlap_size=1",
+                    "vggt_grouping=covisibility",
                     "conf_percentile=45.0",
                     "confidence_threshold_scope=per_frame",
                     "consistency_support_policy=adaptive_two",
@@ -307,6 +310,8 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
         output_type="point_cloud",
         options={
             "vggt_batch_size": 4,
+            "colmap_vggt_grouping": "covisibility",
+            "colmap_vggt_overlap_size": 1,
             "colmap_vggt_max_points": 1_500_000,
             "colmap_vggt_conf_percentile": 45.0,
             "colmap_vggt_confidence_threshold_scope": "per_frame",
@@ -327,6 +332,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["num_points"] == 99
     assert manifest["metrics"]["scale_median"] == 0.25
     assert manifest["metrics"]["vggt_batch_size"] == 4
+    assert manifest["metrics"]["vggt_grouping"] == "covisibility"
+    assert manifest["metrics"]["vggt_overlap_size"] == 1
+    assert manifest["metrics"]["overlap_size"] == 1
     assert manifest["metrics"]["max_points"] == 1500000
     assert manifest["metrics"]["confidence_threshold_scope"] == "per_frame"
     assert manifest["metrics"]["consistency_support_policy"] == "adaptive_two"
@@ -338,13 +346,30 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["conf_percentile"] == 45.0
     assert captured_command[captured_command.index("--matcher") + 1] == "exhaustive"
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"
-    assert captured_command[captured_command.index("--vggt-grouping") + 1] == "sequential"
+    assert captured_command[captured_command.index("--vggt-overlap-size") + 1] == "1"
+    assert captured_command[captured_command.index("--vggt-grouping") + 1] == "covisibility"
     assert captured_command[captured_command.index("--fusion-mode") + 1] == "points"
     assert captured_command[captured_command.index("--max-points") + 1] == "1500000"
     assert captured_command[captured_command.index("--conf-percentile") + 1] == "45.0"
     assert captured_command[captured_command.index("--confidence-threshold-scope") + 1] == "per_frame"
     assert captured_command[captured_command.index("--consistency-support-policy") + 1] == "adaptive_two"
     assert captured_command[captured_command.index("--point-budget-policy") + 1] == "spatial_balanced"
+
+
+def test_reject_colmap_vggt_overlap_not_smaller_than_batch(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="colmap_vggt_overlap_size must be smaller"):
+        store.create_job(
+            "multi_image",
+            [
+                UploadedInput(filename="first.jpg", content=b"first"),
+                UploadedInput(filename="second.jpg", content=b"second"),
+            ],
+            geometry_backend="colmap_vggt",
+            output_type="point_cloud",
+            options={"vggt_batch_size": 4, "colmap_vggt_overlap_size": 4},
+        )
 
 
 def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch):
@@ -435,6 +460,8 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
     assert any(str(command[1]).endswith("run_colmap_vggt_dense.py") for command in captured_commands)
     assert any(str(command[1]).endswith("mesh_from_pointcloud.py") for command in captured_commands)
     points_command = next(command for command in captured_commands if str(command[1]).endswith("run_colmap_vggt_dense.py"))
+    assert points_command[points_command.index("--vggt-grouping") + 1] == "sequential"
+    assert points_command[points_command.index("--vggt-overlap-size") + 1] == "2"
     assert points_command[points_command.index("--confidence-threshold-scope") + 1] == "global"
     assert points_command[points_command.index("--consistency-support-policy") + 1] == "any_support"
     assert points_command[points_command.index("--point-budget-policy") + 1] == "random"

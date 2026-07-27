@@ -19,6 +19,7 @@ type ViewerMode = "point_cloud" | "mesh" | "gaussian_splat";
 type ConfidenceThresholdScope = "global" | "per_frame";
 type ConsistencySupportPolicy = "any_support" | "adaptive_two";
 type PointBudgetPolicy = "random" | "spatial_balanced";
+type ColmapVggtGrouping = "sequential" | "covisibility";
 
 type MeshSettings = {
   method: MeshMethod;
@@ -82,6 +83,8 @@ type Manifest = {
     num_groups?: number;
     batch_size?: number;
     vggt_batch_size?: number;
+    vggt_grouping?: ColmapVggtGrouping;
+    vggt_overlap_size?: number;
     overlap_size?: number;
     alignment_status?: string;
     alignment_plane_inlier_ratio?: number;
@@ -199,6 +202,9 @@ export function App() {
   const [vggtBatchSize, setVggtBatchSize] = useState(8);
   const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
   const [colmapVggtBatchSize, setColmapVggtBatchSize] = useState(4);
+  const [colmapVggtGrouping, setColmapVggtGrouping] =
+    useState<ColmapVggtGrouping>("sequential");
+  const [colmapVggtOverlapSize, setColmapVggtOverlapSize] = useState(2);
   const [colmapVggtMaxPoints, setColmapVggtMaxPoints] = useState(2_000_000);
   const [colmapVggtConfPercentile, setColmapVggtConfPercentile] = useState(50);
   const [confidenceThresholdScope, setConfidenceThresholdScope] =
@@ -365,6 +371,7 @@ export function App() {
     if (geometryBackend === "colmap_vggt") {
       const optionError = validateColmapVggtOptions(
         colmapVggtBatchSize,
+        colmapVggtOverlapSize,
         colmapVggtMaxPoints,
         colmapVggtConfPercentile
       );
@@ -389,6 +396,8 @@ export function App() {
       }
       if (geometryBackend === "colmap_vggt") {
         form.append("vggt_batch_size", String(colmapVggtBatchSize));
+        form.append("colmap_vggt_grouping", colmapVggtGrouping);
+        form.append("colmap_vggt_overlap_size", String(colmapVggtOverlapSize));
         form.append("colmap_vggt_max_points", String(colmapVggtMaxPoints));
         form.append("colmap_vggt_conf_percentile", String(colmapVggtConfPercentile));
         form.append("colmap_vggt_confidence_threshold_scope", confidenceThresholdScope);
@@ -618,11 +627,34 @@ export function App() {
                     <span>Depth batch</span>
                     <input
                       type="number"
-                      min={1}
+                      min={2}
                       max={8}
                       step={1}
                       value={colmapVggtBatchSize}
                       onChange={(event) => setColmapVggtBatchSize(Number(event.target.value))}
+                    />
+                  </label>
+                  <label>
+                    <span>Grouping</span>
+                    <select
+                      value={colmapVggtGrouping}
+                      onChange={(event) =>
+                        setColmapVggtGrouping(event.target.value as ColmapVggtGrouping)
+                      }
+                    >
+                      <option value="sequential">Sequential (baseline)</option>
+                      <option value="covisibility">Covisibility</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Group overlap</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={7}
+                      step={1}
+                      value={colmapVggtOverlapSize}
+                      onChange={(event) => setColmapVggtOverlapSize(Number(event.target.value))}
                     />
                   </label>
                   <label>
@@ -843,6 +875,10 @@ export function App() {
             <div>
               <dt>Batch</dt>
               <dd>{currentStatus?.metrics.batch_size ?? currentStatus?.metrics.vggt_batch_size ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Grouping</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.vggt_grouping)}</dd>
             </div>
             <div>
               <dt>Overlap</dt>
@@ -1193,9 +1229,20 @@ function validateVggtOptions(maxImages: number, batchSize: number, overlapSize: 
   return null;
 }
 
-function validateColmapVggtOptions(batchSize: number, maxPoints: number, confPercentile: number) {
-  if (!Number.isInteger(batchSize) || batchSize <= 0) {
-    return "COLMAP+VGGT depth batch must be a positive integer.";
+function validateColmapVggtOptions(
+  batchSize: number,
+  overlapSize: number,
+  maxPoints: number,
+  confPercentile: number
+) {
+  if (!Number.isInteger(batchSize) || batchSize < 2) {
+    return "COLMAP+VGGT depth batch must be an integer of at least 2.";
+  }
+  if (!Number.isInteger(overlapSize) || overlapSize <= 0) {
+    return "COLMAP+VGGT group overlap must be a positive integer.";
+  }
+  if (overlapSize >= batchSize) {
+    return "COLMAP+VGGT group overlap must be smaller than depth batch.";
   }
   if (!Number.isInteger(maxPoints) || maxPoints <= 0) {
     return "COLMAP+VGGT max points must be a positive integer.";
