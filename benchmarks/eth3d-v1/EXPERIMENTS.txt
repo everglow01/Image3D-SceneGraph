@@ -767,3 +767,106 @@ Decision:
   validation rather than treating an inactive pipes result as a third independent confirmation.
 - Keep Phase 1 experimental. Phase 3 narrows but does not reverse Phase 1's terrains regression.
   No runtime selector may use ETH3D GT to enable any phase.
+
+G1.7 — Sequential vs covisibility grouping strict paired result
+--------------------------------------------------------------
+Date: 2026-07-27
+Status: accepted; covisibility grouping is a scene-dependent candidate, default unchanged
+
+Hypothesis: filename-sequential VGGT groups cross strong covisibility edges, so per-frame
+depth scales jump at group boundaries (G1.3). Grouping by direct sparse-track covisibility
+(G1.5) should reduce those boundary jumps and improve geometry where sequential drifts.
+The experiment changed only grouping; COLMAP sparse model, batch size, overlap request,
+fusion, confidence, support, point budget, and seed were frozen and shared between arms.
+
+Protocol:
+- Each scene reused a single frozen COLMAP sparse text model; both arms copied it via
+  `--colmap-model-dir`, so camera poses could not differ between arms. G1.7 sequential
+  PLYs were byte-identical to the phase3_factorial frozen baselines (SHAs below).
+- ETH3D arms: pipes/terrains/delivery_area, 4-view batch, overlap request 2, points
+  fusion, global confidence, any_support, random point budget, 2000000 cap, seed 42.
+  Private-225 arm: G1.1 all-on upstream policy (per_frame confidence, adaptive_two support,
+  spatial_balanced budget, 30000000 cap, exhaustive matcher, seed 42).
+- ETH3D evaluation: one camera-center RANSAC Sim(3) per arm, then the official
+  ETH3DMultiViewEvaluation at 1/2/5/10/20/50 cm. Scan ICP, GT-guided cropping, and per-window
+  GT alignment are forbidden. Results are GT-camera-Sim(3)-aligned geometry quality, not
+  native metric-scale recovery.
+- GPU peak memory and wall time come from PyTorch max_memory_allocated and /usr/bin/time -v.
+
+Reconstruction commands (reusable):
+- ETH3D sequential arm (per scene; substitute image-dir / colmap-model-dir / output-dir):
+  env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
+    --image-dir <images> --output-dir <dir>/sequential_reconstruction \
+    --colmap-model-dir <frozen_sparse_txt> --device cuda --matcher exhaustive \
+    --vggt-batch-size 4 --vggt-overlap-size 2 --vggt-grouping sequential \
+    --fusion-mode points --max-points 2000000 --conf-percentile 50.0 \
+    --confidence-threshold-scope global --consistency-support-policy any_support \
+    --point-budget-policy random --seed 42
+- ETH3D covisibility arm: identical except --vggt-grouping covisibility.
+- Private-225 arms: same pair with per_frame / adaptive_two / spatial_balanced / 30000000.
+- ETH3D evaluation:
+  env -u LD_LIBRARY_PATH uv run python scripts/evaluate_eth3d_scene.py \
+    --benchmark benchmarks/eth3d-v1/<scene>.json \
+    --reconstruction-dir <dir>/<grouping>_reconstruction \
+    --evaluator-bin external/eth3d-multi-view-evaluation/build/ETH3DMultiViewEvaluation \
+    --output-dir <dir>/evaluations/<grouping> --seed 42
+
+Paired ETH3D F1 deltas (covisibility minus sequential) at 1/2/5/10/20/50 cm:
+- pipes:         +0.015915 / -0.000236 / -0.008602 / -0.013451 / -0.001375 / +0.024113
+- terrains:      +0.015348 / +0.009003 / +0.005389 / +0.008129 / +0.003701 / -0.010602
+- delivery_area: -0.001015 / +0.005627 / -0.000377 / +0.006647 / +0.003622 / +0.001856
+
+Accuracy deltas at 1/2/5 cm: pipes +0.032375/-0.011143/-0.041261;
+terrains +0.010391/+0.007226/+0.007664; delivery_area -0.015145/-0.007733/+0.019908.
+Completeness deltas at 1/2/5 cm: pipes +0.010248/+0.002103/-0.000639;
+terrains +0.015890/+0.009657/+0.003910; delivery_area +0.000859/+0.010741/-0.013903.
+Full 1-50 cm Accuracy/Completeness/F1 per arm are in each result.json.
+
+Runtime and GPU peak (reused COLMAP model, so colmap_seconds is copy time, not SfM):
+Scene/grouping  groups  points     vggt_s  elapsed_s  gpu_peak_GiB
+pipes seq            4  1226630     12.514   23.698    3.971
+pipes cov            5  1228997     17.149   26.169    3.971
+terrains seq        11  2000000     36.299   46.495    3.971
+terrains cov        19  2000000     74.456   74.456    3.971
+delivery_area seq   11  2000000     38.337   47.525    3.971
+delivery_area cov   20  2000000     78.997   78.997    3.971
+
+Private-225:
+- Sequential arm succeeded and reproduced the G1.1 frozen point count (17101794) and G1.4
+  Raw ROI metrics byte-for-byte (monitor 92115 pts RMS 0.014044 5 layers 0.99 coverage;
+  bookshelf 72858 pts RMS 0.016594 7 layers 0.66 coverage), elapsed 89.441 s,
+  gpu_peak 3.971 GiB, 57 groups.
+- Covisibility arm FAILED with CUDA OutOfMemoryError in the VGGT depth head (DPT pos_embed
+  allocation, tried 526 MiB). This is a real 8 GB GPU ceiling on 4-view covisibility batches
+  of 6 MP images whose content is more correlated than sequential's arbitrary mix, not a
+  grouping-rule defect. The failure evidence is retained under
+  outputs/experiments/g1_7/private_225/covisibility_reconstruction/ and
+  outputs/experiments/g1_7/private_225/covisibility.stderr.log. Reducing batch to 3 would
+  change two variables (batch + grouping) and break the paired protocol, so it was not done.
+
+Sequential arm PLY SHA-256 (byte-identical to phase3_factorial frozen baselines, proving
+the only changed factor was grouping):
+- pipes:         3e1ba040008b9b803c15f4aae9ab52a479f2bf24244a106d0e3252a8f833c1dc
+- terrains:      3879850f67a9716561e0b98d1914c6e8fc14187dc42f7778ba27e59adae17211
+- delivery_area: 17f7481f8d0ccaf5511d5e5a812ff06a59ae3dc42bd3eac8db19a2d2c3d2af9e
+
+Evidence paths (all under git-ignored outputs/):
+- Reconstructions: outputs/experiments/g1_7/{pipes,terrains,delivery_area}/{sequential,covisibility}_reconstruction/
+- ETH3D evaluations: outputs/experiments/g1_7/{pipes,terrains,delivery_area}/evaluations/covisibility/result.json
+  (sequential baselines reused from outputs/benchmarks/eth3d-v1/*/phase3_factorial/evaluations/arms/baseline/)
+- Private ROI: outputs/experiments/g1_7/private_225/evaluations/sequential_g1_4_raw.json
+- Private covisibility failure: outputs/experiments/g1_7/private_225/covisibility.stderr.log
+
+Interpretation and decision:
+- Covisibility grouping is not a uniform improvement. It slightly raises terrains F1 at
+  1-20 cm and delivery_area at 2/10/20/50 cm, but regresses pipes mid-range F1 (5/10 cm)
+  and delivery_area 1/5 cm. The private-scene arm could not complete on the 8 GB GPU.
+- Covisibility roughly doubles VGGT runtime on terrains/delivery_area (more groups, more
+  overlap-frame re-inference) with no consistent ETH3D gain. GPU peak memory is unchanged
+  because batch size is unchanged.
+- The stable sequential default is retained. Covisibility stays an experimental candidate.
+  Per plan.md G1.7, a single private screenshot does not select a default; the mixed ETH3D
+  deltas and the private OOM failure argue against promoting covisibility now.
+- Next planned direction (G1.8-G1.13) is cross-window depth reconciliation, not grouping
+  tuning. If covisibility is revisited, it must first solve the 8 GB OOM on large correlated
+  batches without lowering batch size, and show a non-regressive multi-scene ETH3D gain.

@@ -141,6 +141,23 @@ class CrossViewValidation:
     mean_relative_error: np.ndarray
 
 
+def prepare_colmap_text_model(
+    *,
+    source_dir: Path | None,
+    text_dir: Path,
+    run_pipeline: Any,
+) -> tuple[list[str], str]:
+    if source_dir is None:
+        return run_pipeline(), "reconstructed"
+    source_dir = source_dir.resolve()
+    required = [source_dir / name for name in ("cameras.txt", "images.txt", "points3D.txt")]
+    if not all(path.is_file() for path in required):
+        raise ValueError(f"--colmap-model-dir is missing a COLMAP text model: {source_dir}")
+    for path in required:
+        shutil.copy2(path, text_dir / path.name)
+    return [f"colmap_model_source={source_dir}"], "reused_text_model"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fuse VGGT dense depth with COLMAP global camera poses.")
     parser.add_argument("--image-dir", required=True, type=Path)
@@ -150,6 +167,11 @@ def main() -> None:
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="exhaustive")
+    parser.add_argument(
+        "--colmap-model-dir",
+        type=Path,
+        help="Reuse an existing COLMAP text model instead of rerunning sparse reconstruction.",
+    )
     parser.add_argument("--colmap-single-camera", type=int, choices=[0, 1], default=1)
     parser.add_argument("--mapper-abs-pose-min-num-inliers", type=int, default=30)
     parser.add_argument("--mapper-abs-pose-min-inlier-ratio", type=float, default=0.25)
@@ -252,17 +274,24 @@ def main() -> None:
     text_dir.mkdir(parents=True, exist_ok=True)
 
     colmap_started_at = time.perf_counter()
-    colmap_logs = run_colmap_pipeline(
-        colmap=colmap,
-        image_dir=args.image_dir,
-        database_path=database_path,
-        sparse_dir=sparse_dir,
-        text_dir=text_dir,
-        matcher=args.matcher,
-        single_camera=bool(args.colmap_single_camera),
-        mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
-        mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
-    )
+    try:
+        colmap_logs, colmap_source = prepare_colmap_text_model(
+            source_dir=args.colmap_model_dir,
+            text_dir=text_dir,
+            run_pipeline=lambda: run_colmap_pipeline(
+                colmap=colmap,
+                image_dir=args.image_dir,
+                database_path=database_path,
+                sparse_dir=sparse_dir,
+                text_dir=text_dir,
+                matcher=args.matcher,
+                single_camera=bool(args.colmap_single_camera),
+                mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
+                mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
+            ),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     colmap_seconds = time.perf_counter() - colmap_started_at
 
     colmap_images = parse_colmap_images_with_points(text_dir / "images.txt")
@@ -276,6 +305,8 @@ def main() -> None:
         raise RuntimeError("COLMAP did not register any input images")
 
     device = select_device(args.device)
+    if device == "cuda":
+        torch.cuda.reset_peak_memory_stats()
     dtype = select_dtype(device, args.precision)
     model = load_vggt_model(
         model_cls=VGGT,
@@ -845,6 +876,7 @@ def main() -> None:
         else 0
     )
     elapsed_seconds = time.perf_counter() - started_at
+    gpu_peak_memory_bytes = torch.cuda.max_memory_allocated() if device == "cuda" else 0
     log_lines = [
         "backend=colmap_vggt",
         f"num_images={len(image_paths)}",
@@ -876,6 +908,7 @@ def main() -> None:
         ),
         *consistency_log_lines,
         f"matcher={args.matcher}",
+        f"colmap_source={colmap_source}",
         f"vggt_batch_size={args.vggt_batch_size}",
         f"vggt_overlap_size={args.vggt_overlap_size}",
         f"overlap_size={effective_overlap_size}",
@@ -894,6 +927,7 @@ def main() -> None:
         f"point_budget_sensitivity_output_count={len(sensitivity_summaries) if args.fusion_mode == 'points' else 0}",
         f"colmap_seconds={colmap_seconds:.3f}",
         f"vggt_seconds={vggt_seconds:.3f}",
+        f"gpu_peak_memory_bytes={gpu_peak_memory_bytes}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
         *colmap_logs,
     ]

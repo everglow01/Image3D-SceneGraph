@@ -408,6 +408,7 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "point_budget_occupied_codes",
             "factorial_output_count",
             "point_budget_sensitivity_output_count",
+            "gpu_peak_memory_bytes",
         }:
             metrics[key] = int(value)
         elif key == "point_budget_applied":

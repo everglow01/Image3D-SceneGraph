@@ -37,6 +37,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     fuse_frames_tsdf,
     map_original_pixel_to_vggt,
     optimize_depth_scale_graph,
+    prepare_colmap_text_model,
     undistort_radial_coordinates,
     undistort_to_pinhole,
     unproject_depth_with_colmap_pose,
@@ -46,7 +47,27 @@ from run_colmap_vggt_dense import (  # noqa: E402
 )
 
 
-def test_build_fusion_camera_maps_colmap_intrinsics_into_vggt_canvas():
+def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    for name in ("cameras.txt", "images.txt", "points3D.txt"):
+        (source / name).write_text(name, encoding="utf-8")
+
+    logs, mode = prepare_colmap_text_model(
+        source_dir=source,
+        text_dir=target,
+        run_pipeline=lambda: pytest.fail("COLMAP pipeline should not run"),
+    )
+
+    assert mode == "reused_text_model"
+    assert logs == [f"colmap_model_source={source.resolve()}"]
+    assert {path.name: path.read_text(encoding="utf-8") for path in target.iterdir()} == {
+        name: name for name in ("cameras.txt", "images.txt", "points3D.txt")
+    }
+
+
     camera = build_fusion_camera(
         colmap_camera={
             "camera_id": 1,
