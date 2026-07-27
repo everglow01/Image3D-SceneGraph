@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import resource
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,13 @@ class VggtImageTransform:
     pad_top: int
     resized_width: int
     resized_height: int
+
+
+@dataclass(frozen=True)
+class VggtWindowPredictionCapture:
+    records: list[dict[str, Any]]
+    write_seconds: float
+    bytes_written: int
 
 
 @dataclass(frozen=True)
@@ -183,6 +191,11 @@ def main() -> None:
         type=int,
         default=None,
         help="Process VGGT depth-head frames in chunks of this size to lower peak GPU memory.",
+    )
+    parser.add_argument(
+        "--retain-vggt-window-predictions",
+        action="store_true",
+        help="Save every VGGT window depth/confidence prediction for overlap diagnostics.",
     )
     parser.add_argument("--fusion-mode", choices=["tsdf", "points"], default="points")
     parser.add_argument("--tsdf-voxel-length", type=float, default=0.0)
@@ -346,7 +359,7 @@ def main() -> None:
         ),
     )
     vggt_started_at = time.perf_counter()
-    depth_items = run_vggt_depth_batches(
+    depth_items, window_prediction_capture = run_vggt_depth_batches(
         model=model,
         groups=vggt_groups,
         load_and_preprocess_images=load_and_preprocess_images,
@@ -354,6 +367,15 @@ def main() -> None:
         device=device,
         dtype=dtype,
         frames_chunk_size=args.vggt_frames_chunk_size,
+        capture_dir=(
+            diagnostics_dir / "vggt_window_predictions"
+            if args.retain_vggt_window_predictions
+            else None
+        ),
+        selection_records=group_selection.records,
+        registered_by_name=registered_by_name,
+        points3d=points3d,
+        min_scale_observations=args.min_scale_observations,
     )
     vggt_seconds = time.perf_counter() - vggt_started_at
 
@@ -428,6 +450,34 @@ def main() -> None:
             scales_by_name={name: estimate.scale for name, estimate in scale_estimates.items()},
         ),
     )
+    window_predictions_path = diagnostics_dir / "vggt_window_predictions.json"
+    if window_prediction_capture is not None:
+        prediction_counts: dict[str, int] = {}
+        for record in window_prediction_capture.records:
+            image_name = str(record["image"])
+            prediction_counts[image_name] = prediction_counts.get(image_name, 0) + 1
+        write_json(
+            window_predictions_path,
+            {
+                "schema_version": 1,
+                "fusion_policy": "first_wins",
+                "capture_enabled": True,
+                "grouping": args.vggt_grouping,
+                "batch_size": args.vggt_batch_size,
+                "requested_overlap_size": args.vggt_overlap_size,
+                "frames_chunk_size": args.vggt_frames_chunk_size,
+                "group_count": len(vggt_groups),
+                "registered_image_count": len(registered_paths),
+                "prediction_count": len(window_prediction_capture.records),
+                "unique_image_count": len(prediction_counts),
+                "overlap_image_count": sum(count > 1 for count in prediction_counts.values()),
+                "max_predictions_per_image": max(prediction_counts.values(), default=0),
+                "bytes_written": window_prediction_capture.bytes_written,
+                "write_seconds": window_prediction_capture.write_seconds,
+                "max_resident_set_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                "predictions": window_prediction_capture.records,
+            },
+        )
 
     covisibility_graph = build_covisibility_graph(
         [frame.colmap_image for frame in fusion_frames],
@@ -824,6 +874,11 @@ def main() -> None:
             "camera_models": sorted({record["colmap_model"] for record in fusion_camera_records}),
             "tsdf": tsdf_params,
             "point_budget": point_budget_diagnostics(point_budget_result),
+            "vggt_window_predictions": (
+                window_predictions_path.relative_to(output_dir).as_posix()
+                if window_prediction_capture is not None
+                else None
+            ),
             "factorial_outputs": factorial_summaries if args.fusion_mode == "points" else [],
             "point_budget_sensitivity_outputs": (
                 sensitivity_summaries if args.fusion_mode == "points" else []
@@ -923,6 +978,15 @@ def main() -> None:
         f"overlap_size={effective_overlap_size}",
         f"vggt_grouping={args.vggt_grouping}",
         f"vggt_frames_chunk_size={args.vggt_frames_chunk_size}",
+        f"vggt_window_prediction_capture={str(window_prediction_capture is not None).lower()}",
+        f"vggt_window_prediction_count={len(window_prediction_capture.records) if window_prediction_capture is not None else 0}",
+        f"vggt_window_prediction_bytes={window_prediction_capture.bytes_written if window_prediction_capture is not None else 0}",
+        f"vggt_window_prediction_write_seconds={window_prediction_capture.write_seconds if window_prediction_capture is not None else 0.0:.3f}",
+        *(
+            [f"vggt_window_prediction_diagnostics={window_predictions_path.relative_to(output_dir).as_posix()}"]
+            if window_prediction_capture is not None
+            else []
+        ),
         f"num_groups={len(vggt_groups)}",
         f"conf_percentile={args.conf_percentile}",
         f"confidence_threshold_scope={effective_confidence_threshold_scope}",
@@ -1077,6 +1141,24 @@ def count_colmap_text_images(path: Path) -> int:
     return len(data_lines) // 2
 
 
+def vggt_window_member_role(
+    *,
+    position: int,
+    selection_record: Mapping[str, Any] | None,
+) -> str:
+    if position == 0:
+        return "reference"
+    if selection_record is None:
+        return "fresh"
+    overlap_end = 1 + int(selection_record["selected_overlap_size"])
+    fresh_end = overlap_end + int(selection_record["selected_fresh_size"])
+    if position < overlap_end:
+        return "overlap"
+    if position < fresh_end:
+        return "fresh"
+    return "fallback"
+
+
 def run_vggt_depth_batches(
     *,
     model: torch.nn.Module,
@@ -1086,9 +1168,25 @@ def run_vggt_depth_batches(
     device: str,
     dtype: torch.dtype,
     frames_chunk_size: int | None = None,
-) -> dict[Path, dict[str, Any]]:
+    capture_dir: Path | None = None,
+    selection_records: list[dict[str, Any]] | None = None,
+    registered_by_name: Mapping[str, ColmapImage] | None = None,
+    points3d: dict[int, np.ndarray] | None = None,
+    min_scale_observations: int = 20,
+) -> tuple[dict[Path, dict[str, Any]], VggtWindowPredictionCapture | None]:
+    if capture_dir is not None and (registered_by_name is None or points3d is None):
+        raise ValueError("capturing VGGT window predictions requires COLMAP images and points")
+    if capture_dir is not None:
+        capture_dir.mkdir(parents=True, exist_ok=False)
+
+    selection_by_index = {
+        int(record["group_index"]): record for record in selection_records or []
+    }
     results: dict[Path, dict[str, Any]] = {}
-    for batch_paths in groups:
+    capture_records: list[dict[str, Any]] = []
+    capture_write_seconds = 0.0
+    capture_bytes = 0
+    for group_index, batch_paths in enumerate(groups):
         if not batch_paths:
             continue
         prediction_np, _seconds = infer_image_group(
@@ -1101,22 +1199,119 @@ def run_vggt_depth_batches(
             frames_chunk_size=frames_chunk_size,
         )
         colors = load_padded_rgb_images(batch_paths, prediction_np["images"].shape[-2:])
-        for index, image_path in enumerate(batch_paths):
-            if image_path in results:
-                # An image can appear in overlapping windows; keep the first
-                # window's depth so every image is fused exactly once.
+        image_shape = tuple(int(value) for value in prediction_np["images"].shape[-2:])
+        selection_record = selection_by_index.get(group_index)
+        for position, image_path in enumerate(batch_paths):
+            depth = np.squeeze(prediction_np["depth"][position]).astype(np.float32)
+            confidence = np.squeeze(prediction_np["depth_conf"][position]).astype(np.float32)
+            intrinsic = prediction_np["intrinsic"][position].astype(np.float32)
+            original_size = read_image_size(image_path)
+            first_prediction = image_path not in results
+
+            if capture_dir is not None:
+                colmap_image = registered_by_name[image_path.name]
+                transform = build_vggt_image_transform(original_size, image_shape)
+                scale_estimate = estimate_depth_scale(
+                    colmap_image=colmap_image,
+                    points3d=points3d,
+                    depth=depth,
+                    image_shape=image_shape,
+                    original_size=original_size,
+                    min_observations=min_scale_observations,
+                )
+                filename = (
+                    f"group_{group_index:04d}_position_{position:02d}_"
+                    f"image_{colmap_image.image_id}.npz"
+                )
+                prediction_path = capture_dir / filename
+                write_started_at = time.perf_counter()
+                np.savez_compressed(
+                    prediction_path,
+                    depth=depth,
+                    confidence=confidence,
+                    intrinsic=intrinsic,
+                )
+                capture_write_seconds += time.perf_counter() - write_started_at
+                file_bytes = prediction_path.stat().st_size
+                capture_bytes += file_bytes
+                capture_records.append(
+                    {
+                        "image": image_path.name,
+                        "image_path": image_path.as_posix(),
+                        "image_id": colmap_image.image_id,
+                        "group_index": group_index,
+                        "group_position": position,
+                        "role": vggt_window_member_role(
+                            position=position,
+                            selection_record=selection_record,
+                        ),
+                        "group_selection": (
+                            {
+                                key: selection_record[key]
+                                for key in (
+                                    "reference",
+                                    "reference_selection",
+                                    "requested_overlap_size",
+                                    "selected_overlap_size",
+                                    "selected_fresh_size",
+                                    "selected_fallback_size",
+                                    "fallback",
+                                )
+                            }
+                            if selection_record is not None
+                            else None
+                        ),
+                        "selected_for_first_wins": first_prediction,
+                        "prediction_file": filename,
+                        "file_bytes": file_bytes,
+                        "depth_dtype": str(depth.dtype),
+                        "confidence_dtype": str(confidence.dtype),
+                        "intrinsic": intrinsic.tolist(),
+                        "image_shape": list(image_shape),
+                        "original_size": list(original_size),
+                        "canvas_transform": {
+                            "scale_x": transform.scale_x,
+                            "scale_y": transform.scale_y,
+                            "pad_left": transform.pad_left,
+                            "pad_top": transform.pad_top,
+                            "pad_right": image_shape[1] - transform.pad_left - transform.resized_width,
+                            "pad_bottom": image_shape[0] - transform.pad_top - transform.resized_height,
+                            "resized_width": transform.resized_width,
+                            "resized_height": transform.resized_height,
+                        },
+                        "sparse_scale_anchor": (
+                            {
+                                "scale": scale_estimate.scale,
+                                "observation_count": scale_estimate.observation_count,
+                                "log_mad": scale_estimate.log_mad,
+                            }
+                            if scale_estimate is not None
+                            else None
+                        ),
+                    }
+                )
+
+            if not first_prediction:
                 continue
             results[image_path] = {
-                "depth": np.squeeze(prediction_np["depth"][index]).astype(np.float32),
-                "confidence": np.squeeze(prediction_np["depth_conf"][index]).astype(np.float32),
-                "intrinsic": prediction_np["intrinsic"][index].astype(np.float32),
-                "colors": colors[index],
-                "image_shape": prediction_np["images"].shape[-2:],
-                "original_size": read_image_size(image_path),
+                "depth": depth,
+                "confidence": confidence,
+                "intrinsic": intrinsic,
+                "colors": colors[position],
+                "image_shape": image_shape,
+                "original_size": original_size,
             }
         if device == "cuda":
             torch.cuda.empty_cache()
-    return results
+
+    capture = None
+    if capture_dir is not None:
+        capture = VggtWindowPredictionCapture(
+            records=capture_records,
+            write_seconds=capture_write_seconds,
+            bytes_written=capture_bytes,
+        )
+    return results, capture
 
 
 def estimate_depth_scale(

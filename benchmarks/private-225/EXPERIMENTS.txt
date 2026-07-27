@@ -307,3 +307,48 @@ Evidence:
   fallback. G1.7 remains responsible for the strict sequential-vs-covisibility
   reconstruction comparison, including fixed G1.4 ROI metrics, runtime, memory, and
   transfer-scene results.
+
+G1.8 — Retained overlap-window predictions
+-------------------------------------------
+Date: 2026-07-27
+Status: accepted; diagnostic capture preserves the G1.7 first-wins point cloud byte-for-byte
+
+Frozen run:
+- Input: the same 225 images and frozen COLMAP text model used by G1.7.
+- Configuration: covisibility, batch 4, requested overlap 2, DPT frames chunk 2,
+  points fusion, per_frame confidence, adaptive_two support, spatial_balanced budget,
+  30,000,000 point cap, seed 42.
+- Only addition: `--retain-vggt-window-predictions`.
+- Prediction arrays were written after each inferred group to ignored
+  `diagnostics/vggt_window_predictions/*.npz`; no extra VGGT inference was performed.
+- Production fusion remained `first_wins`: 225 selected predictions and each registered
+  image contributed at most once.
+
+Acceptance result:
+- Main PLY SHA-256 for both G1.7 baseline and G1.8 capture:
+  `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`.
+- 89 groups yielded 353 retained predictions for 225 unique images. The inventory exactly
+  matches every member occurrence in `vggt_groups.json`; 88 images have multiple predictions
+  and the maximum multiplicity is 6.
+- Prediction multiplicity: 137 images ×1, 62 ×2, 17 ×3, 5 ×4, 3 ×5, 1 ×6.
+- Roles: 89 reference, 102 fresh, 128 overlap, 34 fallback. All 353 predictions have a
+  COLMAP-sparse scale anchor with scale, observation count, and log-MAD.
+- Stored arrays: float32 depth/confidence and VGGT intrinsic; JSON records image/group/position,
+  selection role and grouping decision, first-wins selection, original/canvas size, resize and
+  padding transform, sparse scale anchor, file name, and byte count.
+- Capture files: 564,479,333 bytes (540 MiB by `du`); JSON index: 555,163 bytes.
+- Array write time: 25.622 s. VGGT stage: 133.647 s versus 115.615 s for G1.7; runner elapsed:
+  153.392 s versus 136.260 s. GPU peak was unchanged at 3,784,986,112 bytes.
+- `/usr/bin/time -v`: wall 155.86 s, maximum RSS 8,757,828 KiB, exit 0. The prior G1.7
+  chunked run recorded 8,933,756 KiB maximum RSS, so capture did not increase observed peak RSS.
+- No prediction selection, correction, reconciliation, fusion, API, frontend, or stable default
+  changed. Scale remains arbitrary and no GT entered reconstruction.
+
+Evidence:
+- `outputs/experiments/g1_8/private_225/capture_reconstruction/diagnostics/vggt_window_predictions.json`
+  SHA-256 a251e2f8d89facd2ede2877e1f04d71bb9d54c052a4728b9ba9ef5040d7bcbc6
+- `outputs/experiments/g1_8/private_225/capture_reconstruction/diagnostics/vggt_window_predictions/`
+- `outputs/experiments/g1_8/private_225/capture_reconstruction/logs/run.log`
+- `outputs/experiments/g1_8/private_225/capture.time.log`
+- Focused dense-runner tests: 38 passed. Full Python suite: 83 passed with one existing
+  Starlette/httpx deprecation warning.

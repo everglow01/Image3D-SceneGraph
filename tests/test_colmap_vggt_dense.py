@@ -38,6 +38,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     map_original_pixel_to_vggt,
     optimize_depth_scale_graph,
     prepare_colmap_text_model,
+    run_vggt_depth_batches,
     undistort_radial_coordinates,
     undistort_to_pinhole,
     unproject_depth_with_colmap_pose,
@@ -87,6 +88,129 @@ def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):
     u, v = map_original_pixel_to_vggt(725.0, 375.0, (1000, 500), (518, 518))
     assert np.isclose((u - camera.intrinsic[0, 2]) / camera.intrinsic[0, 0], 0.225)
     assert np.isclose((v - camera.intrinsic[1, 2]) / camera.intrinsic[1, 1], 0.125)
+
+
+def test_run_vggt_depth_batches_retains_overlap_without_changing_first_wins(
+    tmp_path, monkeypatch
+):
+    image_a = tmp_path / "a.png"
+    image_b = tmp_path / "b.png"
+    image_c = tmp_path / "c.png"
+    for path in (image_a, image_b, image_c):
+        path.write_bytes(b"unused")
+
+    calls: list[list[Path]] = []
+
+    def fake_infer_image_group(*, image_paths, **_kwargs):
+        calls.append(image_paths)
+        call_value = float(len(calls))
+        frame_count = len(image_paths)
+        return (
+            {
+                "depth": np.full((frame_count, 2, 2, 1), call_value, dtype=np.float32),
+                "depth_conf": np.full((frame_count, 2, 2), call_value + 0.5, dtype=np.float32),
+                "intrinsic": np.repeat(np.eye(3, dtype=np.float32)[None], frame_count, axis=0),
+                "images": np.zeros((frame_count, 3, 2, 2), dtype=np.float32),
+            },
+            0.0,
+        )
+
+    monkeypatch.setattr("run_colmap_vggt_dense.infer_image_group", fake_infer_image_group)
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.load_padded_rgb_images",
+        lambda paths, _shape: np.zeros((len(paths), 2, 2, 3), dtype=np.uint8),
+    )
+    monkeypatch.setattr("run_colmap_vggt_dense.read_image_size", lambda _path: (2, 2))
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.estimate_depth_scale",
+        lambda **_kwargs: DepthScaleEstimate(2.0, 12, 0.03),
+    )
+
+    images = {
+        name: ColmapImage(
+            image_id=index,
+            qvec=np.array([1.0, 0.0, 0.0, 0.0]),
+            tvec=np.zeros(3),
+            camera_id=1,
+            name=name,
+            observations=[],
+        )
+        for index, name in enumerate(("a.png", "b.png", "c.png"), start=1)
+    }
+    groups = [[image_a, image_b], [image_b, image_c]]
+    selection_records = [
+        {
+            "group_index": 0,
+            "reference": "a.png",
+            "reference_selection": "uncovered_covisibility_seed",
+            "requested_overlap_size": 1,
+            "selected_overlap_size": 0,
+            "selected_fresh_size": 1,
+            "selected_fallback_size": 0,
+            "fallback": "none",
+        },
+        {
+            "group_index": 1,
+            "reference": "b.png",
+            "reference_selection": "strongest_previous_group_bridge",
+            "requested_overlap_size": 1,
+            "selected_overlap_size": 1,
+            "selected_fresh_size": 0,
+            "selected_fallback_size": 0,
+            "fallback": "none",
+        },
+    ]
+
+    baseline, no_capture = run_vggt_depth_batches(
+        model=object(),
+        groups=groups,
+        load_and_preprocess_images=None,
+        pose_encoding_to_extri_intri=None,
+        device="cpu",
+        dtype=np.float32,
+    )
+    calls.clear()
+    captured, capture = run_vggt_depth_batches(
+        model=object(),
+        groups=groups,
+        load_and_preprocess_images=None,
+        pose_encoding_to_extri_intri=None,
+        device="cpu",
+        dtype=np.float32,
+        capture_dir=tmp_path / "capture",
+        selection_records=selection_records,
+        registered_by_name=images,
+        points3d={},
+    )
+
+    assert no_capture is None
+    assert len(calls) == len(groups)
+    assert list(captured) == list(baseline)
+    for image_path in baseline:
+        for key in ("depth", "confidence", "intrinsic", "colors"):
+            assert np.array_equal(captured[image_path][key], baseline[image_path][key])
+        assert captured[image_path]["image_shape"] == baseline[image_path]["image_shape"]
+        assert captured[image_path]["original_size"] == baseline[image_path]["original_size"]
+    assert float(captured[image_b]["depth"][0, 0]) == 1.0
+
+    assert capture is not None
+    assert len(capture.records) == 4
+    assert capture.bytes_written == sum(
+        (tmp_path / "capture" / record["prediction_file"]).stat().st_size
+        for record in capture.records
+    )
+    b_records = [record for record in capture.records if record["image"] == "b.png"]
+    assert [record["selected_for_first_wins"] for record in b_records] == [True, False]
+    assert [record["role"] for record in b_records] == ["fresh", "reference"]
+    assert b_records[1]["group_selection"]["selected_overlap_size"] == 1
+    assert b_records[1]["sparse_scale_anchor"] == {
+        "scale": 2.0,
+        "observation_count": 12,
+        "log_mad": 0.03,
+    }
+    with np.load(tmp_path / "capture" / b_records[1]["prediction_file"]) as payload:
+        assert float(payload["depth"][0, 0]) == 2.0
+        assert set(payload.files) == {"depth", "confidence", "intrinsic"}
 
 
 def test_undistort_radial_coordinates_inverts_colmap_radial_model():
