@@ -23,6 +23,7 @@ from image3d_scenegraph.geometry.grouping import (
     build_covisibility_graph,
     build_scale_disagreement_diagnostics,
     build_vggt_group_diagnostics,
+    build_vggt_group_selection,
     build_vggt_groups,
     colmap_camera_center,
     colmap_camera_view_axis,
@@ -285,13 +286,14 @@ def main() -> None:
     )
     model.eval()
 
-    vggt_groups = build_vggt_groups(
+    group_selection = build_vggt_group_selection(
         registered_paths=registered_paths,
         registered_by_name=registered_by_name,
         grouping=args.vggt_grouping,
         batch_size=args.vggt_batch_size,
         overlap_size=args.vggt_overlap_size,
     )
+    vggt_groups = group_selection.groups
     vggt_groups_path = diagnostics_dir / "vggt_groups.json"
     write_json(
         vggt_groups_path,
@@ -301,6 +303,7 @@ def main() -> None:
             grouping=args.vggt_grouping,
             batch_size=args.vggt_batch_size,
             requested_overlap_size=args.vggt_overlap_size,
+            selection_records=group_selection.records,
         ),
     )
     vggt_started_at = time.perf_counter()

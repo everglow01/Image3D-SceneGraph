@@ -31,6 +31,12 @@ class CovisibilityEdge:
     baseline: float
 
 
+@dataclass(frozen=True)
+class VggtGroupSelection:
+    groups: list[list[Path]]
+    records: list[dict[str, Any]]
+
+
 def parse_colmap_images_with_points(path: Path) -> list[ColmapImage]:
     images: list[ColmapImage] = []
     data_lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
@@ -168,23 +174,131 @@ def build_vggt_groups(
     batch_size: int,
     overlap_size: int,
 ) -> list[list[Path]]:
-    if not registered_paths:
-        return []
-    if batch_size <= 0 or batch_size >= len(registered_paths):
-        return [list(registered_paths)]
-    if grouping == "sequential":
-        return [list(registered_paths[start : start + batch_size]) for start in range(0, len(registered_paths), batch_size)]
+    return build_vggt_group_selection(
+        registered_paths=registered_paths,
+        registered_by_name=registered_by_name,
+        grouping=grouping,
+        batch_size=batch_size,
+        overlap_size=overlap_size,
+    ).groups
 
-    ordered_images = order_images_by_covisibility(
-        [registered_by_name[path.name] for path in registered_paths],
-        build_covisibility_graph(
-            [registered_by_name[path.name] for path in registered_paths],
-            max_neighbors=GROUPING_MAX_NEIGHBORS,
-            min_shared_points=GROUPING_MIN_SHARED_POINTS,
-        ),
+
+def build_vggt_group_selection(
+    *,
+    registered_paths: list[Path],
+    registered_by_name: Mapping[str, ColmapImage],
+    grouping: str,
+    batch_size: int,
+    overlap_size: int,
+) -> VggtGroupSelection:
+    """Build deterministic local groups, preferring direct sparse-track links."""
+    if not registered_paths:
+        return VggtGroupSelection(groups=[], records=[])
+    if batch_size <= 0 or batch_size >= len(registered_paths):
+        return VggtGroupSelection(groups=[list(registered_paths)], records=[])
+    if grouping == "sequential":
+        return VggtGroupSelection(
+            groups=[list(registered_paths[start : start + batch_size]) for start in range(0, len(registered_paths), batch_size)],
+            records=[],
+        )
+    if grouping != "covisibility":
+        raise ValueError(f"unknown VGGT grouping: {grouping}")
+
+    registered_images = [registered_by_name[path.name] for path in registered_paths]
+    image_by_id = {image.image_id: image for image in registered_images}
+    graph = build_covisibility_graph(
+        registered_images,
+        max_neighbors=GROUPING_MAX_NEIGHBORS,
+        min_shared_points=GROUPING_MIN_SHARED_POINTS,
     )
+    if batch_size == 1:
+        raise ValueError("--batch-size must be at least 2 when more than one image is used")
+    if overlap_size <= 0:
+        raise ValueError("--overlap-size must be positive when --batch-size is active")
+    if overlap_size >= batch_size:
+        raise ValueError("--overlap-size must be smaller than --batch-size")
+
+    edge_by_target = {
+        image_id: {edge.target_image_id: edge for edge in edges}
+        for image_id, edges in graph.items()
+    }
     path_by_name = {path.name: path for path in registered_paths}
-    return [[path_by_name[ordered_images[index].name] for index in chunk] for chunk in build_image_chunks(len(ordered_images), batch_size, overlap_size)]
+    remaining = set(image_by_id)
+    previous_group: list[int] = []
+    groups: list[list[Path]] = []
+    records: list[dict[str, Any]] = []
+
+    def edge_priority(reference_id: int, target_id: int) -> tuple[float, float, float, int]:
+        edge = edge_by_target[reference_id].get(target_id)
+        if edge is None:
+            edge = edge_by_target[target_id][reference_id]
+        reference_axis = colmap_camera_view_axis(image_by_id[reference_id])
+        target_axis = colmap_camera_view_axis(image_by_id[target_id])
+        view_angle = float(np.degrees(np.arccos(np.clip(reference_axis @ target_axis, -1.0, 1.0))))
+        return edge.shared_points, edge.baseline, -view_angle, -target_id
+
+    while remaining:
+        bridge_candidates = [
+            (edge_priority(reference_id, previous_id), reference_id)
+            for previous_id in previous_group
+            for reference_id in remaining
+            if reference_id in edge_by_target[previous_id]
+        ]
+        if bridge_candidates:
+            reference_id = max(bridge_candidates)[1]
+            reference_selection = "strongest_previous_group_bridge"
+        else:
+            reference_id = max(
+                remaining,
+                key=lambda image_id: (
+                    sum(target_id in remaining for target_id in edge_by_target[image_id]),
+                    sum(edge.shared_points for edge in graph[image_id]),
+                    -image_id,
+                ),
+            )
+            reference_selection = "uncovered_covisibility_seed"
+
+        overlap_ids = sorted(
+            (image_id for image_id in previous_group if image_id in edge_by_target[reference_id]),
+            key=lambda image_id: edge_priority(reference_id, image_id),
+            reverse=True,
+        )[:overlap_size]
+        fresh_ids = sorted(
+            (image_id for image_id in remaining - {reference_id} if image_id in edge_by_target[reference_id]),
+            key=lambda image_id: edge_priority(reference_id, image_id),
+            reverse=True,
+        )[: batch_size - 1 - len(overlap_ids)]
+        fallback_ids = sorted(
+            remaining - {reference_id, *fresh_ids},
+            key=lambda image_id: (
+                sum(target_id in remaining for target_id in edge_by_target[image_id]),
+                sum(edge.shared_points for edge in graph[image_id]),
+                -image_id,
+            ),
+            reverse=True,
+        )[: batch_size - 1 - len(overlap_ids) - len(fresh_ids)]
+        group_ids = [reference_id, *overlap_ids, *fresh_ids, *fallback_ids]
+        remaining.difference_update(group_ids)
+        groups.append([path_by_name[image_by_id[image_id].name] for image_id in group_ids])
+        records.append(
+            {
+                "group_index": len(groups) - 1,
+                "reference": image_by_id[reference_id].name,
+                "reference_selection": reference_selection,
+                "requested_overlap_size": overlap_size,
+                "selected_overlap_size": len(overlap_ids),
+                "selected_fresh_size": len(fresh_ids),
+                "selected_fallback_size": len(fallback_ids),
+                "fallback": (
+                    "direct_covisibility_unavailable"
+                    if fallback_ids
+                    else "none"
+                ),
+            }
+        )
+        previous_group = group_ids
+
+    return VggtGroupSelection(groups=groups, records=records)
 
 
 def build_vggt_group_diagnostics(
@@ -194,6 +308,7 @@ def build_vggt_group_diagnostics(
     grouping: str,
     batch_size: int,
     requested_overlap_size: int,
+    selection_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     order_source = "input_discovery_order" if grouping == "sequential" or len(groups) <= 1 else "greedy_covisibility_order"
     ordered_names = list(dict.fromkeys(path.name for group in groups for path in group))
@@ -211,6 +326,9 @@ def build_vggt_group_diagnostics(
         overlap_status = "applied" if requested_overlap_size > 0 else "disabled"
 
     group_records: list[dict[str, Any]] = []
+    selection_by_index = {
+        record["group_index"]: record for record in selection_records or []
+    }
     previous_names: set[str] = set()
     for group_index, group in enumerate(groups):
         reference_path = group[0]
@@ -237,13 +355,17 @@ def build_vggt_group_diagnostics(
                 "view_angle_degrees": view_angle, "connection_status": connection_status,
             })
         group_names = {path.name for path in group}
-        group_records.append({
+        group_record = {
             "group_index": group_index, "order_source": order_source, "size": len(group),
             "incomplete": batch_size > 0 and len(group) < batch_size,
             "effective_overlap_with_previous": len(group_names & previous_names) if group_index else 0,
             "reference": {"image": reference_path.name, "image_id": reference.image_id},
-            "reference_selection": "first_group_member", "members": members,
-        })
+            "reference_selection": selection_by_index.get(group_index, {}).get("reference_selection", "first_group_member"),
+            "members": members,
+        }
+        if group_index in selection_by_index:
+            group_record["selection"] = selection_by_index[group_index]
+        group_records.append(group_record)
         previous_names = group_names
 
     return {

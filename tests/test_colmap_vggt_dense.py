@@ -16,6 +16,7 @@ from image3d_scenegraph.geometry.grouping import (  # noqa: E402
     build_covisibility_graph,
     build_scale_disagreement_diagnostics,
     build_vggt_group_diagnostics,
+    build_vggt_group_selection,
     build_vggt_groups,
     order_images_by_covisibility,
 )
@@ -453,7 +454,67 @@ def test_build_vggt_groups_covisibility_covers_every_image_with_overlap():
     assert len(groups) >= 2  # sliding windows, not a single full pass
 
 
-def test_vggt_group_diagnostics_report_empty_input():
+def test_covisibility_selection_is_deterministic_and_keeps_direct_links():
+    paths = [Path(f"frame_{i}.jpg") for i in range(5)]
+    registered_by_name = {
+        paths[0].name: make_colmap_image(1, observations=[(0.0, 0.0, point_id) for point_id in range(10)]),
+        paths[1].name: make_colmap_image(2, observations=[(0.0, 0.0, point_id) for point_id in range(10)]),
+        paths[2].name: make_colmap_image(3, observations=[(0.0, 0.0, point_id) for point_id in range(10)]),
+        paths[3].name: make_colmap_image(4, observations=[(0.0, 0.0, point_id) for point_id in range(10)]),
+        paths[4].name: make_colmap_image(5, observations=[]),
+    }
+
+    first = build_vggt_group_selection(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=4,
+        overlap_size=2,
+    )
+    second = build_vggt_group_selection(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=4,
+        overlap_size=2,
+    )
+
+    assert first == second
+    assert {path.name for group in first.groups for path in group} == {path.name for path in paths}
+    assert {path.name for path in first.groups[0]} == {path.name for path in paths[:4]}
+    assert first.records[0]["fallback"] == "none"
+    assert first.records[-1]["fallback"] == "none"
+    diagnostics = build_vggt_group_diagnostics(
+        groups=first.groups,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=4,
+        requested_overlap_size=2,
+        selection_records=first.records,
+    )
+    assert diagnostics["groups"][0]["selection"] == first.records[0]
+
+
+def test_covisibility_selection_reports_direct_covisibility_fallback():
+    paths = [Path(f"frame_{i}.jpg") for i in range(3)]
+    registered_by_name = {
+        path.name: make_colmap_image(index + 1, observations=[])
+        for index, path in enumerate(paths)
+    }
+
+    selection = build_vggt_group_selection(
+        registered_paths=paths,
+        registered_by_name=registered_by_name,
+        grouping="covisibility",
+        batch_size=2,
+        overlap_size=1,
+    )
+
+    assert selection.groups == [paths[:2], paths[2:]]
+    assert selection.records[0]["fallback"] == "direct_covisibility_unavailable"
+    assert selection.records[0]["selected_fallback_size"] == 1
+
+
     payload = build_vggt_group_diagnostics(
         groups=[],
         registered_by_name={},
@@ -556,9 +617,9 @@ def test_vggt_group_diagnostics_share_schema_and_include_weak_or_empty_links():
         "applied": True,
         "status": "applied",
     }
-    assert covisibility["groups"][-1]["size"] == 2
+    assert covisibility["groups"][-1]["size"] == 1
     assert covisibility["groups"][-1]["incomplete"] is True
-    assert covisibility["groups"][-1]["effective_overlap_with_previous"] == 1
+    assert covisibility["groups"][-1]["effective_overlap_with_previous"] == 0
     first_members = covisibility["groups"][0]["members"]
     assert first_members[1]["shared_tracks_with_reference"] == 3
     assert first_members[1]["connection_status"] == "weak"

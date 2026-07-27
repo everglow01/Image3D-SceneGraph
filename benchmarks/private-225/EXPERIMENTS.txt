@@ -256,3 +256,54 @@ the scheduled boundary-jump observation without rerunning reconstruction. It is 
 association diagnostic, not proof that grouping alone caused the bookshelf/monitor defect,
 and it does not recover or validate metric scale. No grouping, fusion, or stable default was
 changed.
+
+G1.5 — Frozen covisibility group-selection rule
+------------------------------------------------
+Date: 2026-07-27
+Status: accepted as a deterministic grouping rule; no reconstruction has been rerun
+
+Candidate command:
+uv run python scripts/evaluate_vggt_group_selection.py \
+  --job-dir outputs/jobs/20260723_070028_024e9f25 \
+  --vggt-grouping covisibility \
+  --vggt-batch-size 4 \
+  --vggt-overlap-size 2 \
+  --output outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_5_covisibility_groups.json
+
+Rule and fallback:
+- The next group reference first prefers an uncovered image with the strongest direct
+  sparse-track bridge to the previous group; without one, it uses the uncovered image with
+  the most uncovered direct covisibility neighbors, then total shared-track strength and ID.
+- A reference ranks direct neighbors by shared sparse tracks, then camera baseline, then
+  smaller view-axis angle and ID. Up to the requested number of prior-group direct neighbors
+  is retained as overlap; remaining slots take uncovered direct neighbors.
+- If a 4-view group cannot be filled with direct covisibility neighbors, the remaining slots
+  take deterministic uncovered candidates and the selection record explicitly reports
+  `direct_covisibility_unavailable`. All 225 registered images remain covered.
+- The stable `sequential` default is unchanged. This is a frozen candidate rule, not a
+  default decision, reconstruction result, causal explanation, or metric-scale claim.
+
+Retained no-rerun selection result (225 images, 4-view target, overlap request 2):
+- Groups / sizes: 89; 88 groups of 4 and one final singleton.
+- Reference selection: 84 strongest-previous-group bridges and 5 uncovered-covisibility
+  seeds. Fallback was explicit in 16 groups.
+- Non-reference links: 234 connected, 3 weak, 27 disconnected; 3 multi-image groups have
+  no reference-connected member. The sequential baseline had 76 connected, 6 weak, 86
+  disconnected, and 13 such groups.
+- Consecutive overlap: 51 transitions of 2 images, 26 of 1, and 11 of 0. Zero-overlap
+  transitions are retained as explicit graph-component/fallback behavior, not silently
+  bridged by unrelated images.
+- Reclassifying the frozen sparse-COLMAP depth scales under these candidate groups yields
+  402 within-group strong edges with log-scale-difference p50/p90/p95
+  0.178969/0.446348/0.585274, and 7,190 group-boundary edges at
+  0.216895/0.542510/0.650651. This is a selection-only association diagnostic: it does not
+  use candidate VGGT depths and cannot predict a reconstruction improvement.
+
+Evidence:
+- `outputs/jobs/20260723_070028_024e9f25/diagnostics/g1_5_covisibility_groups.json`
+  SHA-256 ea273db245a9d1596a4dff364af712a8a249ee93c7954b2fc191b2fe3b1c0d86
+- Repeating the command to a temporary output reproduced the evidence byte-for-byte.
+- Unit tests cover deterministic direct-neighbor selection and explicit disconnected
+  fallback. G1.7 remains responsible for the strict sequential-vs-covisibility
+  reconstruction comparison, including fixed G1.4 ROI metrics, runtime, memory, and
+  transfer-scene results.
