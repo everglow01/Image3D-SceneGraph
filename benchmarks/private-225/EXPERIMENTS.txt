@@ -424,3 +424,106 @@ Evidence:
   SHA-256 00ed52c204d2840415013f115f008b6afdcf5939d5938780b127b214299c8a83
 - All four evaluator `--check` runs passed before final schema extension; focused tests passed
   after the final schema extension. Full Python suite: 86 passed with one existing warning.
+
+G1.18 — VGGT canvas and camera-coordinate audit
+------------------------------------------------
+Date: 2026-07-27
+Status: accepted diagnostic; production round-trip passed, pixel-center convention routed to G1.19
+
+Protocol:
+- Read only the frozen G1.8 private capture and G1.9 ETH3D captures. No VGGT/COLMAP
+  reconstruction, depth selection, filtering, point fusion, or GT-guided operation was run.
+- Cross-check every retained image's actual source size, recorded original/canvas size, integer
+  resize divisible by 14, symmetric padding, fusion intrinsic, radial coefficients, and frozen
+  COLMAP camera/image/point inventories.
+- Project each valid sparse COLMAP point into the 518x518 depth canvas using the production
+  camera-from-world pose and radial model, backproject with the production inverse radial model,
+  then project again. The fixed implementation gate is maximum 0.001 canvas pixels.
+- Report sparse observation reprojection separately because it includes the frozen COLMAP bundle-
+  adjustment residual; it is a sanity distribution, not the implementation round-trip gate.
+- Document both coordinate mappings. Production currently uses `u = scale*x + pad`; PIL's resize
+  sampling is equivalent to `(x + 0.5)*scale - 0.5 + pad`, leaving a deterministic constant
+  subpixel offset. G1.18 only identifies this candidate and does not alter production intrinsics.
+
+Results:
+Scene          sparse points  round-trip max (px)  sparse reproj p50/p90 (canvas px)  |center offset| x/y (px)
+private-225    259,979        0.000252             0.192833 / 0.605535                0.295095 / 0.298077
+pipes            4,176        0.000105             0.051559 / 0.145794                0.458360 / 0.457740
+terrains         34,510        0.000275             0.042647 / 0.136784                0.458381 / 0.457811
+delivery_area    59,420        0.000152             0.053795 / 0.150696                0.458280 / 0.457678
+- All four scenes passed the predeclared 0.001-pixel projection/backprojection gate. Maximum
+  world-coordinate relative round-trip error was 3.17e-7 or lower.
+- Capture, fusion, source-image, and frozen COLMAP inventories matched in every scene. All audited
+  cameras use `SIMPLE_RADIAL`; distortion projection and iterative inverse correction were
+  exercised by the sparse-point round trips.
+- The current chain is internally self-consistent, so G1.18 found no coordinate inversion,
+  padding-bound, pose-direction, or radial round-trip failure.
+- Internal self-consistency cannot validate the shared pixel-center assumption because projection
+  and backprojection use the same convention. The measured 0.295-0.458 px X and 0.298-0.458 px Y
+  production-minus-PIL offsets are therefore passed to G1.19 as a diagnostic intrinsics candidate,
+  not declared to cause the G1.9 spatial residual or private bookshelf defect.
+- Production fusion and stable defaults remain unchanged. ETH3D reference cameras/scans were not
+  read; scale remains arbitrary and no metric-accuracy claim is made.
+
+Evidence:
+- `scripts/audit_vggt_canvas_coordinates.py`
+- `tests/test_audit_vggt_canvas_coordinates.py`
+- `outputs/experiments/g1_18/private_225/canvas_coordinate_audit.json`
+  SHA-256 3085c7ab09b920bf4b1bb7fdac336459a2d2ce8c7cad54a1e9c7b4c250feaa3d
+- `outputs/experiments/g1_18/pipes/canvas_coordinate_audit.json`
+  SHA-256 d244e4ff3d63a1aca018bd609c2c94fda09b4d235d2a8b6d0aa3b0927b78670e
+- `outputs/experiments/g1_18/terrains/canvas_coordinate_audit.json`
+  SHA-256 38940d4ee91730f430c21ec2206fcc951a69a5a151a982fc1fa7bf6616ebdac0
+- `outputs/experiments/g1_18/delivery_area/canvas_coordinate_audit.json`
+  SHA-256 c97b38fa64450e6798a635f7d2e29c3757cc9dce552f187942121ee45310f41f
+- Focused tests: 2 passed. Full Python suite: 88 passed with one existing Starlette/httpx
+  deprecation warning. All four audit `--check` runs passed; `py_compile`, IDE diagnostics, and
+  `git diff --check` passed.
+
+G1.19 — Diagnostic intrinsics candidate reprojection
+----------------------------------------------------
+Date: 2026-07-27
+Status: accepted diagnostic; only pixel-center COLMAP opens G1.20 single-factor ablation
+
+Protocol:
+- Read only the same frozen G1.8/G1.9 capture, fusion, source-image, and COLMAP text-model
+  artifacts used by G1.18. No inference, reconstruction, dense point fusion, or GT was used.
+- Use the identical sparse COLMAP points, camera-from-world poses, radial coefficients, and VGGT
+  canvas for every candidate. The target is each COLMAP sparse observation mapped to the retained
+  canvas with PIL resize pixel-center semantics.
+- Predeclared candidates: current production COLMAP intrinsic; pixel-center-corrected COLMAP
+  principal point; retained first-wins VGGT intrinsic; and VGGT focal lengths with corrected
+  COLMAP principal point. Invalid VGGT intrinsics fall back explicitly and are counted.
+- Edge observations have maximum normalized canvas-axis radius >= 0.75. G1.20 opens only if a
+  candidate improves edge p90 in at least 3/4 scenes, achieves at least 20% cross-scene median
+  edge-p90 reduction, never regresses a scene's all-pixel p50 by over 5%, and has at most 5%
+  fallback. Passing only authorizes a production-point-cloud single-factor ablation.
+
+Results:
+Scene          production all p50/p90  pixel-center all p50/p90  production edge p90  pixel-center edge p90  edge reduction
+private-225    .458988 / .796870       .192834 / .605538         .814593              .611530                24.93%
+pipes          .649475 / .721073       .051547 / .145789         .721481              .145859                79.78%
+terrains       .648843 / .713757       .042645 / .136779         .714689              .136199                80.94%
+delivery_area  .647981 / .724762       .053797 / .150702         .735860              .155137                78.92%
+- `pixel_center_colmap` improved edge p90 in 4/4 scenes, with 79.35% median reduction, no all-p50
+  regression, and zero fallback; it passes the predeclared gate and is the only G1.20 candidate.
+- Raw VGGT intrinsics and VGGT-focal/COLMAP-center improved edge p90 in 0/4 scenes. Worst all-p50
+  regression was 46.35x and 46.26x respectively. Both are rejected from G1.20 rather than tuned.
+- VGGT/production focal ratios varied by frame and scene: private medians were 1.0801/1.0976
+  (fx/fy), while terrains reached p90 1.3549/1.3386. These predicted intrinsics are not a safe
+  direct replacement for the frozen COLMAP calibration.
+- The pixel-center result is partly constructive because the target observations deliberately use
+  PIL resize semantics. It validates coordinate-convention alignment and justifies testing the
+  same principal-point shift in actual dense backprojection, but does not prove improved ROI
+  thickness, overlap residual, ETH3D geometry, or final production behavior.
+- Production fusion and defaults remain unchanged. Scale is arbitrary; ETH3D reference cameras and
+  scans were not read, and no metric-accuracy claim is made.
+
+Evidence:
+- `scripts/evaluate_intrinsics_candidates.py`
+- `tests/test_evaluate_intrinsics_candidates.py`
+- `outputs/experiments/g1_19/intrinsics_candidate_reprojection.json`
+  SHA-256 436ff5a6291a846287a91748254df573dd283e1b8c84efea60648b46a1e14dcc
+- Focused tests: 2 passed. Full Python suite: 90 passed with one existing Starlette/httpx
+  deprecation warning. Deterministic evaluator `--check`, `py_compile`, IDE diagnostics, and
+  `git diff --check` passed.
