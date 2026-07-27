@@ -527,3 +527,57 @@ Evidence:
 - Focused tests: 2 passed. Full Python suite: 90 passed with one existing Starlette/httpx
   deprecation warning. Deterministic evaluator `--check`, `py_compile`, IDE diagnostics, and
   `git diff --check` passed.
+
+G1.20 — Pixel-center COLMAP dense-backprojection ablation
+--------------------------------------------------------
+Date: 2026-07-27
+Status: completed mixed/negative ablation; candidate rejected as a production default
+
+Protocol:
+- Replay only the retained first-wins float32 depth/confidence predictions from G1.8 private-225
+  and G1.9 pipes/terrains/delivery_area. VGGT inference and COLMAP reconstruction were not rerun.
+- Freeze RGB, COLMAP camera-from-world poses and radial distortion, per-frame sparse depth scale,
+  covisibility graph settings, confidence thresholds, support policy, relative threshold, stride,
+  point-budget policy/cap, and seed. The only candidate change is `cx/cy += 0.5*(scale-1)`.
+- Run an explicit `production_colmap` replay before the candidate. All four replay PLY SHA-256
+  values matched the frozen source PLYs exactly, so replay machinery introduced no geometry delta.
+- Sparse sanity is the unchanged G1.19 result: the candidate improved edge reprojection p90 in 4/4
+  scenes with 79.35% median reduction; G1.20 tests whether that carries into actual dense geometry.
+- Evaluate private fixed Raw-coordinate G1.4 ROIs with the frozen Raw-to-Aligned selection transform.
+  ETH3D reference cameras/scans enter only after reconstruction for the existing camera-center Sim(3)
+  and official evaluator; they do not guide replay, filtering, thresholds, or candidate selection.
+
+Results:
+Scene          residual p50 change  residual p90 change  accepted-point change  output points base -> candidate
+private-225    -0.5745%             +0.0077%              +14,511 (+0.0818%)      17,746,411 -> 17,760,922
+pipes          +4.5157%             +2.7471%              +77 (+0.0063%)          1,228,999 -> 1,229,076
+terrains       -0.1690%             +1.0058%              -2,352 (-0.0626%)       2,000,000 -> 2,000,000
+delivery_area  +1.1943%             +0.1633%              -2,942 (-0.0751%)       2,000,000 -> 2,000,000
+
+Private ROI    thickness base -> candidate  layers base -> candidate  coverage base -> candidate  plane RMS change
+monitor        .575968 -> .497812 (-13.57%)  5 -> 2                    1.0000 -> .9025              +9.68%
+bookshelf      .847666 -> .755218 (-10.91%)  4 -> 3                    .7175 -> .6925               +4.28%
+
+ETH3D scene    F1 delta @1 cm  F1 delta @2 cm  F1 delta @5 cm
+pipes          +.001389        -.000859        -.002633
+terrains       -.002880        -.008438        -.005251
+delivery_area  +.019353        +.027182        +.005364
+
+Conclusion:
+- The candidate improves private ROI thickness/layer counts, but simultaneously lowers ROI coverage
+  and raises plane RMS. Cross-view residual p90 regresses in all 4/4 scenes; pipes also regresses p50
+  by 4.52%. These changes are small except for pipes but contradict a consistent residual benefit.
+- ETH3D transfer is mixed: delivery_area improves at 1/2/5 cm, terrains regresses at all three, and
+  pipes only improves at 1 cm. A private-only improvement cannot select a stable default, and the
+  transfer regression is not retuned away.
+- G1.19's constructive sparse pixel-center improvement therefore does not translate into a robust
+  dense-geometry improvement. Keep current production COLMAP intrinsics unchanged and close this
+  candidate path. Scale remains arbitrary and no metric-accuracy claim is made.
+
+Evidence:
+- `scripts/replay_frozen_intrinsics_ablation.py`
+- `tests/test_replay_frozen_intrinsics_ablation.py`
+- `outputs/experiments/g1_20/g1_20_summary.json`
+  SHA-256 704c6f18212d4ce0159f6ece638d48342d768c23040efca83d7bd25da054a3c4
+- Per-arm replay diagnostics, PLYs, private ROI JSON, and ETH3D results remain under the ignored
+  `outputs/experiments/g1_20/` tree.
