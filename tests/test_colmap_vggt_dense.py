@@ -10,19 +10,22 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from run_colmap_vggt_dense import (  # noqa: E402
+from image3d_scenegraph.geometry.grouping import (  # noqa: E402
     ColmapImage,
     CovisibilityEdge,
+    build_covisibility_graph,
+    build_scale_disagreement_diagnostics,
+    build_vggt_group_diagnostics,
+    build_vggt_groups,
+    order_images_by_covisibility,
+)
+from run_colmap_vggt_dense import (  # noqa: E402
     DepthScaleEstimate,
     FusionFrame,
     FusionCamera,
     apply_point_budget,
     apply_support_policy,
-    build_covisibility_graph,
     build_fusion_camera,
-    build_scale_disagreement_diagnostics,
-    build_vggt_group_diagnostics,
-    build_vggt_groups,
     compute_confidence_thresholds,
     compute_frame_confidence_thresholds,
     derive_consistency_relative_threshold,
@@ -33,7 +36,6 @@ from run_colmap_vggt_dense import (  # noqa: E402
     fuse_frames_tsdf,
     map_original_pixel_to_vggt,
     optimize_depth_scale_graph,
-    order_images_by_covisibility,
     undistort_radial_coordinates,
     undistort_to_pinhole,
     unproject_depth_with_colmap_pose,
