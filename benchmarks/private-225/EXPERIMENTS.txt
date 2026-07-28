@@ -918,3 +918,58 @@ Evidence:
 - `tests/test_analyze_manhattan_frames.py`
 - `outputs/experiments/g1_22/private_225_manhattan_frames.json`
   SHA-256 df3f02acb9898a11131542f2eb83393a32f743da0f1ab3352e3107d3ae25af76
+
+G1.23 — Auditable gravity-axis evidence selection
+-------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic axis/sign selection; alignment default unchanged
+
+Protocol:
+- A standalone CPU-only evaluator consumed the frozen G1.22 report, retained raw PLY, and retained
+  COLMAP `cameras.json`. It verified the PLY SHA-256 against G1.22 and reused that report's unique
+  orthonormal Manhattan candidate and plane inventory; VGGT, COLMAP, fusion, plane detection,
+  alignment, and GT evaluation were not rerun.
+- Each unoriented axis receives five separately recorded evidence states/scores: optional IMU up,
+  camera image-up orientation, camera-centre 5%-95% inverse-squared span, sampled-point 5%-95%
+  inverse-squared span, and reliable matched boundary-plane ordering. Fixed source weights are
+  3/2/1/1/1 respectively. Selection requires at least two available sources, combined score >=0.45,
+  margin >=0.15, reliable directional evidence, and agreement between available directional sources.
+- A selected axis receives an up sign only when directional mean absolute alignment is >=0.50 and
+  sign coherence is >=0.75. Camera image-up is explicitly a behavioral capture prior, not an IMU
+  measurement. EXIF Orientation is not used because it describes pixel storage rotation, not gravity.
+  Missing/malformed/unmatched optional IMU records are audited and fall back non-fatally.
+- The report assigns no plane as floor/ground, writes no point cloud or transform, and does not invoke
+  production alignment. Thresholds were declared before reading the private result and were not tuned
+  from this scene.
+
+Retained private-225 result:
+- All 225 COLMAP cameras parsed; zero were rejected. No IMU sidecar was supplied, so IMU is explicitly
+  `unavailable` with 0 valid/225 missing records. The 50,000-point deterministic sample and all three
+  reliable G1.22 planes were evaluated.
+- Every available source independently ranked Manhattan axis 0 first. Normalized per-axis scores were:
+  camera image-up 0.50228/0.25503/0.24268; camera-centre span 0.58056/0.21104/0.20841; point span
+  0.46828/0.25142/0.28031; plane ordering 0.58737/0.21284/0.19979. Robust axis spans were
+  4.4746/7.4216/7.4683 for camera centres and 7.8616/10.7292/10.1612 for sampled points.
+- The frozen combined scores are 0.52815/0.23707/0.23477. Axis 0 passed with margin 0.29108 and world
+  direction approximately [0.00991, 0.91985, 0.39214]. Camera image-up signed mean is -0.55597 with
+  0.95418 coherence, so selected up is the negative direction
+  [-0.00991, -0.91985, -0.39214]. This is arbitrary-scale orientation evidence, not metric gravity.
+- `--check` reproduced the JSON byte-for-byte. Runtime was 0.92 s, maximum RSS 583,424 KiB, exit 0.
+  Report SHA-256 is 816162d76989d6ee1c4503f953817f82977a326c46572bb9ec6fd34d69db6354.
+  Retained raw/aligned PLY and alignment JSON hashes remained unchanged:
+  `d1d316ae...`, `15617222...`, and `1d770286...` respectively.
+
+Decision and limits:
+- G1.23 passes its bounded acceptance criteria: synthetic known-up evidence selects the intended axis
+  and sign; isotropic/conflicting evidence stays ambiguous; missing, malformed, zero, and unmatched
+  metadata have explicit fallback/rejection states; each source and final score is auditable.
+- The private result supports carrying axis 0/up-sign -1 into the G1.24 candidate ablation. It does not
+  prove any detected plane is ground, does not establish metric scale, and does not itself justify
+  replacing strongest-plane production alignment. `align_pointcloud.py`, backend/frontend/manifest,
+  point coordinates, reconstruction assets, and defaults remain unchanged.
+
+Evidence:
+- `scripts/analyze_gravity_axis.py`
+- `tests/test_analyze_gravity_axis.py`
+- `outputs/experiments/g1_23/private_225_gravity_axis.json`
+  SHA-256 816162d76989d6ee1c4503f953817f82977a326c46572bb9ec6fd34d69db6354
