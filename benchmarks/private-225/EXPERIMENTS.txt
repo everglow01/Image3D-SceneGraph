@@ -973,3 +973,77 @@ Evidence:
 - `tests/test_analyze_gravity_axis.py`
 - `outputs/experiments/g1_23/private_225_gravity_axis.json`
   SHA-256 816162d76989d6ee1c4503f953817f82977a326c46572bb9ec6fd34d69db6354
+
+G1.24 — Single-plane versus Manhattan alignment ablation
+---------------------------------------------------------
+Date: 2026-07-28
+Status: accepted private-scene alignment candidate; production default unchanged
+
+Protocol:
+- A standalone offline evaluator consumed the retained raw PLY, production single-plane alignment,
+  G1.22 Manhattan report, and G1.23 gravity report. It verified both upstream PLY hashes and matching
+  axes/clusters, then applied one rigid Manhattan transform to the retained 17,101,794 points. VGGT,
+  COLMAP, dense fusion, RANSAC, reconstruction, GT evaluation, and semantic models were not rerun.
+- The selected G1.23 up vector maps to +Z. The two remaining axes map to X/Y with a right-handed frame;
+  among equivalent horizontal permutations/signs the deterministic tie-breaker minimizes SO(3) angle
+  from identity. This assigns no semantic meaning to positive X/Y. The strongest reliable plane in the
+  selected gravity cluster supplies the same pivot/Z=0 convention as single-plane alignment.
+- `auto` selects Manhattan only with one valid G1.22 candidate and a G1.23 selected axis plus sign;
+  ambiguous/missing evidence explicitly falls back to the supplied single-plane transform without
+  writing a candidate. No plane is called floor/ground and no metric scale is claimed.
+- Only global orientation is evaluated. Point count, pairwise distances, local plane RMS, local
+  thickness, and layer topology are rigid-transform invariants; bookshelf/monitor duplicate layers are
+  neither reevaluated nor attributed to alignment.
+
+Retained private-225 result:
+- Auto selected Manhattan axis 0 / cluster 0 with up sign -1 and pivot plane 0. The rotation is
+  113.11136 degrees under the fixed yaw tie-breaker. Three reliable planes carry total inlier support
+  0.43666; their frozen pairwise orthogonality residuals remain 0.45863/0.98579/2.32246 degrees.
+- Single-plane per-plane cardinal residuals for planes 0/3/1 are 0.00000/2.95460/1.15601 degrees;
+  support-weighted mean is 0.83416 and max is 2.95460. Manhattan residuals are
+  0.53954/1.18180/1.25981 degrees; weighted mean is 0.81222 and max is 1.25981. Manhattan therefore
+  gives only a 0.02194-degree weighted-mean improvement but reduces the worst supported residual by
+  1.69480 degrees.
+- The decisive signed-direction difference is explicit: production single-plane maps G1.23 selected up
+  almost exactly to -Z (dot -0.999956, residual to +Z 179.46046 degrees), because it orients plane 0's
+  opposite normal to +Z. Manhattan maps selected up to +Z (dot 1.0, numerical residual 0.000003 degrees).
+- Candidate PLY SHA-256 is 4da3d1d1df72ce2bbc32d3d3f9339595c8f9867a205176bac9104bb71df6cb5c;
+  report SHA-256 is ced3c98e4de5de1c691e55aba934a7de4b8a27069180fec87ad662a2e13fb516.
+  `--check` reproduced the report byte-for-byte. Runtime was 1.48 s, maximum RSS 1,144,336 KiB,
+  exit 0.
+- Retained raw/single-plane PLY and alignment hashes stayed unchanged:
+  d1d316ae320342ded0377d96565f9ef8705e7e1f434d80275784b9a8be52dce9,
+  156172226a75680b049a97f61e376c0a7047f682fd7128563ee7cbc3c28f2702, and
+  1d770286d7a707964d9b9d1aca226e1b4e492d2c675a54201fa8c28f8ed2a425.
+
+Fixed-view inspection:
+- `benchmarks/private-225/g1_24_views.json` (SHA-256 8bfbb799...) freezes bookshelf/monitor Raw,
+  single-plane, and Manhattan states at 1600x1000. Each aligned state is the exact candidate rotation of
+  the same frozen Raw source-space position/target/up after shared display signs; rigid translation
+  cancels with cloud centering. No view was manually reframed to favor a variant.
+- The real app loaded the retained job and an ignored Manhattan shadow job. Raw/single-plane/Manhattan
+  PLY, cameras, alignment, manifest, and scene requests returned HTTP 200; Cameras stayed enabled and
+  the final clean shadow load had zero JavaScript/application errors. The shadow job did not modify the
+  retained manifest or assets.
+- All six 1600x1000 PNGs were visually inspected. The same bookshelf and monitor structures remain in
+  every rigid variant, and visible orange camera frusta/trajectory remain colocated with the cloud.
+  Manhattan changes global orientation but does not remove duplicate layers or repair local thickness.
+- Screenshot SHA-256: bookshelf Raw db8bc4f8..., single-plane ec303179..., Manhattan 80f61c5d...;
+  monitor Raw e27ea03d..., single-plane d96f7ae5..., Manhattan 01f63f3d....
+
+Decision and limits:
+- G1.24 passes its bounded private-scene acceptance criteria. Manhattan resolves the signed-up inversion
+  and improves the worst reliable-plane cardinal residual while leaving local geometry unchanged. The
+  evidence-gated fallback is retained and tested.
+- This one private scene is insufficient to replace the global production default. Keep the current
+  single-plane `align_pointcloud.py`, backend/frontend/manifest behavior, retained assets, and defaults
+  unchanged. Carry Manhattan only as an accepted experimental alignment candidate into G1.25, where it
+  may be combined only under the stage protocol; do not claim metric accuracy.
+
+Evidence:
+- `scripts/evaluate_alignment_ablation.py`
+- `tests/test_evaluate_alignment_ablation.py`
+- `benchmarks/private-225/g1_24_views.json`
+- ignored `outputs/experiments/g1_24/private_225_alignment_ablation.json`
+- ignored `outputs/experiments/g1_24/private_225_manhattan.ply`
+- ignored `outputs/experiments/g1_24/screenshots/`
