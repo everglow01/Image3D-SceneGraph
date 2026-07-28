@@ -675,3 +675,51 @@ Evidence:
 - Ignored fixed-view inspection artifacts remain under `outputs/experiments/g1_15/private_225/`.
 - Focused dense/exporter tests: 47 passed. Full suite: 102 passed with one existing Starlette/httpx
   deprecation warning. Exporter `--check`, `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.16 — Explicit occluded/not-observed/contradicted visibility states
+-------------------------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic semantics; baseline policy and reconstruction unchanged
+
+Protocol:
+- Reuse the existing cross-view projection pass and make every candidate/neighbor check one of four
+  mutually exclusive states. `supported` is a reliable non-occluded depth within the frozen relative
+  threshold; `contradicted` is reliable and non-occluded but outside it; `occluded` has a reliable
+  neighbor depth in front by more than the threshold; `not_observed` covers out-of-canvas/behind-
+  camera, invalid depth, or low-confidence checks. Therefore `visible = supported + contradicted`,
+  and all four counts sum to the checked-neighbor count for each candidate.
+- Preserve existing `visible_counts`, `support_counts`, `occluded_counts`, acceptance masks, support
+  policy, candidate ordering, and point budget. Add only `contradicted_counts` and
+  `not_observed_counts` to the opt-in final-row sidecar plus explicit aggregate counts to consistency
+  diagnostics. G1.17, not this task, owns any policy change.
+- Replay the frozen private G1.8 first-wins depth/confidence and COLMAP model on CPU. VGGT/COLMAP were
+  not rerun, no GT entered classification, and the same frozen `adaptive_two` support policy ran.
+
+Acceptance result:
+- Candidate-level 19,580,411 points split diagnostically into 1,064,699 occluded-only, 3,079,804
+  not-observed-only, and 1,083,591 contradicted-only points. Another 1,678,571 candidates had both
+  support and contradiction; this mixed count is reported explicitly rather than forcing evidence
+  into a misleading disjoint point label. The existing policy accepted 17,746,411 and rejected
+  1,834,000 candidates, unchanged from G1.14.
+- Among final accepted points, 1,064,699 are occluded-only and 3,079,804 not-observed-only. There are
+  zero contradicted-only final points because the frozen policy rejects unsupported visible
+  contradictions; 928,162 accepted points have both support and contradiction. Thus contradiction
+  evidence exists in 1,107,212 neighbor observations even though no contradiction-only point survives.
+- For every one of 17,746,411 sidecar rows, `visible = support + contradicted` and
+  `support + contradicted + occluded + not_observed = checked neighbors`. The retained supported
+  count remains 13,601,908 and old unverified total remains 4,144,503, now exactly decomposed as
+  1,064,699 occluded-only + 3,079,804 not-observed-only.
+- Replay PLY SHA-256 remains
+  `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`, byte-identical to G1.14.
+  Replay wall time was 33.07 s, maximum RSS 3,399,860 KiB, and exit status 0. The expanded compressed
+  sidecar is 129,711,755 bytes. No API/frontend/manifest or production default changed.
+
+Evidence:
+- `scripts/run_colmap_vggt_dense.py`
+- `tests/test_colmap_vggt_dense.py`
+- `outputs/experiments/g1_16/private_225/diagnostics/g1_16_visibility.json`
+  SHA-256 718fe0fddc3c3c42231102df694f743d8c646e10fe3094c155cdef58982f0238
+- `support_points.npz` SHA-256 c25d97d9b628743713f1aad48fbc4cfb61ece3332a53bc6b3f773cb4ccecfc6e
+- `support_points.json` SHA-256 28bba4b92be91937d9bba8b1492b612496ab1a52a95adf60dbcae1478b34421a
+- Focused dense/replay tests: 44 passed. Full suite: 103 passed with one existing Starlette/httpx
+  deprecation warning. `py_compile` and `git diff --check` passed.

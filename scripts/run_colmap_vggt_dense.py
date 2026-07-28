@@ -119,7 +119,9 @@ class SupportPointDiagnostics:
     confidence: np.ndarray
     visible_counts: np.ndarray
     support_counts: np.ndarray
+    contradicted_counts: np.ndarray
     occluded_counts: np.ndarray
+    not_observed_counts: np.ndarray
     mean_relative_error: np.ndarray
     overlap_disagreement: np.ndarray
 
@@ -133,6 +135,10 @@ class ConsistencyFilterResult:
     rejected_points: int
     unverified_points: int
     supported_points: int
+    occluded_only_points: int
+    not_observed_only_points: int
+    contradicted_only_points: int
+    supported_and_contradicted_points: int
     residual_samples: np.ndarray
     image_records: list[dict[str, Any]]
     multi_visible_points: int
@@ -167,7 +173,9 @@ class CrossViewValidation:
     accepted: np.ndarray
     support_counts: np.ndarray
     visible_counts: np.ndarray
+    contradicted_counts: np.ndarray
     occluded_counts: np.ndarray
+    not_observed_counts: np.ndarray
     mean_relative_error: np.ndarray
 
 
@@ -2196,7 +2204,9 @@ def filter_points_by_cross_view_consistency(
             "confidence",
             "visible_counts",
             "support_counts",
+            "contradicted_counts",
             "occluded_counts",
+            "not_observed_counts",
             "mean_relative_error",
             "overlap_disagreement",
         )
@@ -2208,6 +2218,10 @@ def filter_points_by_cross_view_consistency(
     rejected_points = 0
     unverified_points = 0
     supported_points = 0
+    occluded_only_points = 0
+    not_observed_only_points = 0
+    contradicted_only_points = 0
+    supported_and_contradicted_points = 0
     multi_visible_points = 0
     policy_rejected_supported_points = 0
 
@@ -2245,6 +2259,14 @@ def filter_points_by_cross_view_consistency(
         accepted = validation.accepted
         supported = accepted & (validation.support_counts > 0)
         unverified = accepted & (validation.visible_counts == 0)
+        occluded_only = (validation.visible_counts == 0) & (validation.occluded_counts > 0)
+        not_observed_only = (validation.visible_counts == 0) & (validation.occluded_counts == 0)
+        contradicted_only = (validation.support_counts == 0) & (
+            validation.contradicted_counts > 0
+        )
+        supported_and_contradicted = (validation.support_counts > 0) & (
+            validation.contradicted_counts > 0
+        )
         rejected = ~accepted
         multi_visible = validation.visible_counts >= 2
         policy_rejected_supported = rejected & (validation.support_counts > 0)
@@ -2266,7 +2288,13 @@ def filter_points_by_cross_view_consistency(
             diagnostic_parts["confidence"].append(frame.confidence[v[accepted], u[accepted]].astype(np.float32))
             diagnostic_parts["visible_counts"].append(validation.visible_counts[accepted].astype(np.uint16))
             diagnostic_parts["support_counts"].append(validation.support_counts[accepted].astype(np.uint16))
+            diagnostic_parts["contradicted_counts"].append(
+                validation.contradicted_counts[accepted].astype(np.uint16)
+            )
             diagnostic_parts["occluded_counts"].append(validation.occluded_counts[accepted].astype(np.uint16))
+            diagnostic_parts["not_observed_counts"].append(
+                validation.not_observed_counts[accepted].astype(np.uint16)
+            )
             diagnostic_parts["mean_relative_error"].append(validation.mean_relative_error[accepted].astype(np.float32))
             diagnostic_parts["overlap_disagreement"].append(overlap_disagreement[accepted].astype(np.float32))
         residual_samples.append(diagnostic_sample(accepted_residuals, 1_000))
@@ -2275,6 +2303,10 @@ def filter_points_by_cross_view_consistency(
         rejected_points += int(rejected.sum())
         unverified_points += int(unverified.sum())
         supported_points += int(supported.sum())
+        occluded_only_points += int(occluded_only.sum())
+        not_observed_only_points += int(not_observed_only.sum())
+        contradicted_only_points += int(contradicted_only.sum())
+        supported_and_contradicted_points += int(supported_and_contradicted.sum())
         multi_visible_points += int(multi_visible.sum())
         policy_rejected_supported_points += int(policy_rejected_supported.sum())
         image_records.append(
@@ -2286,6 +2318,12 @@ def filter_points_by_cross_view_consistency(
                 "rejected_points": int(rejected.sum()),
                 "unverified_points": int(unverified.sum()),
                 "supported_points": int(supported.sum()),
+                "occluded_only_points": int(occluded_only.sum()),
+                "not_observed_only_points": int(not_observed_only.sum()),
+                "contradicted_only_points": int(contradicted_only.sum()),
+                "supported_and_contradicted_points": int(
+                    supported_and_contradicted.sum()
+                ),
                 "multi_visible_points": int(multi_visible.sum()),
                 "policy_rejected_supported_points": int(policy_rejected_supported.sum()),
                 "median_relative_error": percentile_or_zero(accepted_residuals, 50),
@@ -2303,6 +2341,10 @@ def filter_points_by_cross_view_consistency(
         rejected_points=rejected_points,
         unverified_points=unverified_points,
         supported_points=supported_points,
+        occluded_only_points=occluded_only_points,
+        not_observed_only_points=not_observed_only_points,
+        contradicted_only_points=contradicted_only_points,
+        supported_and_contradicted_points=supported_and_contradicted_points,
         residual_samples=np.concatenate(residual_samples) if residual_samples else np.empty(0, dtype=np.float32),
         image_records=image_records,
         multi_visible_points=multi_visible_points,
@@ -2331,7 +2373,9 @@ def validate_cross_view_consistency(
     point_count = len(source_points)
     support_counts = np.zeros(point_count, dtype=np.int16)
     visible_counts = np.zeros(point_count, dtype=np.int16)
+    contradicted_counts = np.zeros(point_count, dtype=np.int16)
     occluded_counts = np.zeros(point_count, dtype=np.int16)
+    not_observed_counts = np.zeros(point_count, dtype=np.int16)
     residual_sums = np.zeros(point_count, dtype=np.float32)
 
     for neighbor in neighbors:
@@ -2356,9 +2400,13 @@ def validate_cross_view_consistency(
         occluded = valid & (observed_depth < projected_depth * (1 - relative_threshold))
         visible = valid & ~occluded
         supported = visible & (relative_error <= relative_threshold)
+        contradicted = visible & ~supported
+        not_observed = ~valid
         support_counts += supported
         visible_counts += visible
+        contradicted_counts += contradicted
         occluded_counts += occluded
+        not_observed_counts += not_observed
         residual_sums += np.where(visible, relative_error, 0.0)
 
     accepted = apply_support_policy(
@@ -2376,7 +2424,9 @@ def validate_cross_view_consistency(
         accepted=accepted,
         support_counts=support_counts,
         visible_counts=visible_counts,
+        contradicted_counts=contradicted_counts,
         occluded_counts=occluded_counts,
+        not_observed_counts=not_observed_counts,
         mean_relative_error=mean_relative_error,
     )
 
@@ -2655,6 +2705,27 @@ def write_support_point_diagnostics(
             }
         )
     source_indices = arrays["source_image_index"]
+    visible_counts = arrays["visible_counts"]
+    support_counts = arrays["support_counts"]
+    contradicted_counts = arrays["contradicted_counts"]
+    occluded_counts = arrays["occluded_counts"]
+    if not np.array_equal(visible_counts, support_counts + contradicted_counts):
+        raise ValueError("visible counts do not equal support plus contradiction counts")
+    visibility_state_counts = {
+        "supported_points": int(np.count_nonzero(support_counts > 0)),
+        "occluded_only_points": int(
+            np.count_nonzero((visible_counts == 0) & (occluded_counts > 0))
+        ),
+        "not_observed_only_points": int(
+            np.count_nonzero((visible_counts == 0) & (occluded_counts == 0))
+        ),
+        "contradicted_only_points": int(
+            np.count_nonzero((support_counts == 0) & (contradicted_counts > 0))
+        ),
+        "supported_and_contradicted_points": int(
+            np.count_nonzero((support_counts > 0) & (contradicted_counts > 0))
+        ),
+    }
     if source_indices.size and (
         int(source_indices.min()) < 0 or int(source_indices.max()) >= len(frames)
     ):
@@ -2704,13 +2775,17 @@ def write_support_point_diagnostics(
             "source_image_index": "int32[N] index into images",
             "source_u/source_v": "uint16[N] source VGGT canvas pixel",
             "confidence": "float32[N] source depth confidence",
-            "visible_counts/support_counts/occluded_counts": "uint16[N] cross-view counts",
+            "visible_counts/support_counts/contradicted_counts/occluded_counts/not_observed_counts": (
+                "uint16[N] cross-view counts; visible = support + contradicted and "
+                "support + contradicted + occluded + not_observed = checked neighbors"
+            ),
             "mean_relative_error": "float32[N], NaN when visible_count is zero",
             "scale_observations/scale_log_mad": "per-source sparse scale quality repeated per point",
             "source_group_index/source_group_position/source_window_role": "first-wins window provenance",
             "overlap_disagreement": "maximum sparse-anchored absolute log-depth disagreement against another retained prediction; NaN without overlap",
         },
         "window_role_codes": role_codes,
+        "visibility_state_counts": visibility_state_counts,
         "images": image_records,
     }
     write_json(index_path, payload)
@@ -2756,12 +2831,22 @@ def build_consistency_payload(
         "confidence_threshold_max": float(np.max(threshold_values)),
         "support_policy": support_policy,
         "relative_threshold": relative_threshold,
+        "visibility_state_semantics": {
+            "supported": "reliable non-occluded neighbor depth within relative_threshold",
+            "contradicted": "reliable non-occluded neighbor depth outside relative_threshold",
+            "occluded": "reliable neighbor depth in front by more than relative_threshold",
+            "not_observed": "neighbor supplied no reliable observation for the candidate",
+        },
         "stride": stride,
         "candidate_points": filtered.candidate_points,
         "accepted_points": filtered.accepted_points,
         "rejected_points": filtered.rejected_points,
         "unverified_points": filtered.unverified_points,
         "supported_points": filtered.supported_points,
+        "occluded_only_points": filtered.occluded_only_points,
+        "not_observed_only_points": filtered.not_observed_only_points,
+        "contradicted_only_points": filtered.contradicted_only_points,
+        "supported_and_contradicted_points": filtered.supported_and_contradicted_points,
         "multi_visible_points": filtered.multi_visible_points,
         "policy_rejected_supported_points": filtered.policy_rejected_supported_points,
         "acceptance_rate": filtered.accepted_points / max(filtered.candidate_points, 1),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -325,7 +326,51 @@ def test_cross_view_validation_rejects_conflicts_but_keeps_occlusions():
     assert validation.accepted.tolist() == [True, True, False]
     assert validation.support_counts.tolist() == [1, 0, 0]
     assert validation.visible_counts.tolist() == [1, 0, 1]
+    assert validation.contradicted_counts.tolist() == [0, 0, 1]
     assert validation.occluded_counts.tolist() == [0, 1, 0]
+    assert validation.not_observed_counts.tolist() == [0, 0, 0]
+
+
+def test_cross_view_visibility_states_partition_every_neighbor_check():
+    observed = make_frame(2, [])
+    low_confidence = FusionFrame(
+        image_path=observed.image_path,
+        colmap_image=observed.colmap_image,
+        camera=observed.camera,
+        depth=observed.depth,
+        confidence=np.zeros((14, 14), dtype=np.float32),
+        colors=observed.colors,
+        scale=observed.scale,
+        image_shape=observed.image_shape,
+        original_size=observed.original_size,
+    )
+    source_points = np.array(
+        [[0.0, 0.0, 2.0], [0.0, 0.0, 3.0], [0.0, 0.0, 1.0]],
+        dtype=np.float32,
+    )
+    validation = validate_cross_view_consistency(
+        source_points,
+        neighbors=[observed, low_confidence],
+        confidence_thresholds={2: 0.5},
+        relative_threshold=0.1,
+    )
+
+    assert validation.support_counts.tolist() == [1, 0, 0]
+    assert validation.contradicted_counts.tolist() == [0, 0, 1]
+    assert validation.occluded_counts.tolist() == [0, 1, 0]
+    assert validation.not_observed_counts.tolist() == [1, 1, 1]
+    assert np.array_equal(
+        validation.visible_counts,
+        validation.support_counts + validation.contradicted_counts,
+    )
+    assert np.all(
+        validation.support_counts
+        + validation.contradicted_counts
+        + validation.occluded_counts
+        + validation.not_observed_counts
+        == 2
+    )
+    assert validation.accepted.tolist() == [True, True, False]
 
 
 
@@ -524,6 +569,10 @@ def test_points_filter_uses_source_frame_thresholds():
     )
 
     assert filtered.candidate_points == 196
+    assert filtered.occluded_only_points == 0
+    assert filtered.not_observed_only_points == 196
+    assert filtered.contradicted_only_points == 0
+    assert filtered.supported_and_contradicted_points == 0
     assert [record["confidence_threshold"] for record in filtered.image_records] == [2.0, 200.0]
 
 
@@ -555,12 +604,22 @@ def test_support_diagnostics_follow_final_point_order_after_budget(tmp_path):
         assert len(payload["confidence"]) == len(budget.points) == 20
         assert np.all(payload["visible_counts"] == 0)
         assert np.all(payload["support_counts"] == 0)
+        assert np.all(payload["contradicted_counts"] == 0)
+        assert np.all(payload["occluded_counts"] == 0)
+        assert np.all(payload["not_observed_counts"] == 0)
         assert np.all(np.isnan(payload["mean_relative_error"]))
         assert np.all(np.isnan(payload["overlap_disagreement"]))
         assert set(np.unique(payload["source_image_index"])) <= {0, 1}
     assert summary["point_count"] == 20
     assert summary["file_bytes"] == path.stat().st_size
-    assert path.with_suffix(".json").is_file()
+    index = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert index["visibility_state_counts"] == {
+        "supported_points": 0,
+        "occluded_only_points": 0,
+        "not_observed_only_points": 20,
+        "contradicted_only_points": 0,
+        "supported_and_contradicted_points": 0,
+    }
 
 
 def test_support_diagnostics_are_opt_in():
