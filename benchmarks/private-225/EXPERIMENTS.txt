@@ -581,3 +581,48 @@ Evidence:
   SHA-256 704c6f18212d4ce0159f6ece638d48342d768c23040efca83d7bd25da054a3c4
 - Per-arm replay diagnostics, PLYs, private ROI JSON, and ETH3D results remain under the ignored
   `outputs/experiments/g1_20/` tree.
+
+G1.14 — Per-final-point support provenance index
+------------------------------------------------
+Date: 2026-07-27
+Status: accepted diagnostic foundation; no fusion policy or production default changed
+
+Protocol:
+- Add opt-in `--support-diagnostics-output` to points-mode COLMAP+VGGT fusion. The default path
+  retains no per-point arrays and produces no new asset; TSDF rejects the option explicitly.
+- Reuse the existing cross-view validation result rather than projecting a second time. For each
+  accepted point retain source image and first-wins window provenance, source canvas pixel,
+  confidence, visible/support/occluded counts, mean relative residual, sparse scale observation
+  count/log-MAD, and maximum sparse-anchored log-depth disagreement against another retained
+  prediction of the same image. Missing overlap is represented by NaN, not zero agreement.
+- Apply the exact point-budget selection indices to every attribute before writing compressed NPZ,
+  so sidecar row N corresponds to final PLY vertex N even when random or Morton capping activates.
+  The JSON index defines dtypes/semantics and keeps frontend/manifest code independent of arrays.
+- Generate real evidence by CPU replay of the frozen private G1.8 first-wins predictions; VGGT and
+  COLMAP were not rerun and no GT entered diagnostics.
+
+Acceptance result:
+- Final point count and every one of 14 attribute-array lengths: 17,746,411. Counts recomputed from
+  the sidecar exactly match consistency diagnostics: 4,144,503 unverified (`visible_count=0`) and
+  13,601,908 supported (`support_count>0`). Support strata are 4,144,503 / 3,368,449 / 10,233,459
+  points for 0 / 1 / 2+ supports.
+- 7,036,847 final points (39.6522%) have retained overlap disagreement; finite p50/p90 absolute
+  sparse-anchored log-depth disagreement is 0.009359/0.029741. Remaining values are NaN because
+  their source image has no comparable retained overlap prediction.
+- Replay output PLY SHA-256 is `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`,
+  byte-identical to the frozen G1.8 cloud. Thus diagnostics do not alter filtering, ordering, or XYZ.
+- Compressed NPZ is 128,510,930 bytes (123 MiB; 727,602,851 uncompressed array bytes), written in
+  13.287 s. Full CPU replay wall time was 31.84 s; maximum RSS was 3,283,136 KiB; exit status 0.
+- This completes retention only. G1.15 still owns category-colored PLY exports, and G1.16 still owns
+  separating occluded, not-observed, and contradicted semantics; no support-aware policy is selected.
+
+Evidence:
+- `scripts/run_colmap_vggt_dense.py`
+- `scripts/replay_frozen_intrinsics_ablation.py`
+- `tests/test_colmap_vggt_dense.py`
+- `outputs/experiments/g1_14/private_225/diagnostics/support_points.npz`
+  SHA-256 f9e4f33d19adf120c994b5a1fda3a266821ce267f13cd84fac899c0d7f6ff9ab
+- `outputs/experiments/g1_14/private_225/diagnostics/support_points.json`
+  SHA-256 598c089fc1682a7cf3be5deda38f4432a7a6857a58f07eaf6728359c4fd3bca0
+- Focused dense/replay tests: 43 passed. Full suite: 95 passed with one existing Starlette/httpx
+  deprecation warning. `py_compile`, IDE diagnostics, and `git diff --check` passed.

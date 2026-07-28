@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import resource
 import shutil
@@ -102,6 +103,25 @@ class FusionFrame:
     scale: float
     image_shape: tuple[int, int]
     original_size: tuple[int, int]
+    source_group_index: int = -1
+    source_group_position: int = -1
+    source_window_role: str = "unknown"
+    scale_observations: int = 0
+    scale_log_mad: float = float("nan")
+    overlap_disagreement: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class SupportPointDiagnostics:
+    source_image_index: np.ndarray
+    source_u: np.ndarray
+    source_v: np.ndarray
+    confidence: np.ndarray
+    visible_counts: np.ndarray
+    support_counts: np.ndarray
+    occluded_counts: np.ndarray
+    mean_relative_error: np.ndarray
+    overlap_disagreement: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -117,6 +137,7 @@ class ConsistencyFilterResult:
     image_records: list[dict[str, Any]]
     multi_visible_points: int
     policy_rejected_supported_points: int
+    point_diagnostics: SupportPointDiagnostics | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +150,7 @@ class PointBudgetResult:
     applied: bool
     spatial_quantization_bits: int | None
     occupied_spatial_codes: int | None
+    selected_indices: np.ndarray | None
 
 
 @dataclass(frozen=True)
@@ -232,6 +254,11 @@ def main() -> None:
     )
     parser.add_argument("--support-policy-comparison-ply", type=Path)
     parser.add_argument("--joint-comparison-ply", type=Path)
+    parser.add_argument(
+        "--support-diagnostics-output",
+        type=Path,
+        help="Write per-final-point support provenance as a compressed NPZ sidecar.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -264,6 +291,8 @@ def main() -> None:
         raise SystemExit("--scale-graph-max-pairs-per-edge must be positive")
     if args.vggt_frames_chunk_size is not None and args.vggt_frames_chunk_size <= 0:
         raise SystemExit("--vggt-frames-chunk-size must be positive")
+    if args.support_diagnostics_output is not None and args.fusion_mode != "points":
+        raise SystemExit("--support-diagnostics-output requires --fusion-mode points")
 
     started_at = time.perf_counter()
     colmap = shutil.which("colmap")
@@ -376,6 +405,7 @@ def main() -> None:
         registered_by_name=registered_by_name,
         points3d=points3d,
         min_scale_observations=args.min_scale_observations,
+        retain_point_diagnostics=args.support_diagnostics_output is not None,
     )
     vggt_seconds = time.perf_counter() - vggt_started_at
 
@@ -428,6 +458,12 @@ def main() -> None:
                 scale=scale,
                 image_shape=item["image_shape"],
                 original_size=item["original_size"],
+                source_group_index=int(item["source_group_index"]),
+                source_group_position=int(item["source_group_position"]),
+                source_window_role=str(item["source_window_role"]),
+                scale_observations=(estimate.observation_count if estimate is not None else 0),
+                scale_log_mad=(estimate.log_mad if estimate is not None else float("nan")),
+                overlap_disagreement=item.get("overlap_disagreement"),
             )
         )
         fusion_camera_records.append(
@@ -583,6 +619,7 @@ def main() -> None:
             relative_threshold=consistency_relative_threshold,
             support_policy=args.consistency_support_policy,
             stride=args.consistency_stride,
+            retain_point_diagnostics=args.support_diagnostics_output is not None,
         )
         comparison_summary: dict[str, Any] | None = None
         comparison_summaries: list[dict[str, Any]] = []
@@ -826,6 +863,20 @@ def main() -> None:
         }
 
     write_ply(geometry_dir / "points.ply", flat_points, flat_colors)
+    support_diagnostics_summary = None
+    if args.support_diagnostics_output is not None:
+        if filtered.point_diagnostics is None:
+            raise RuntimeError("Per-point support diagnostics were not retained")
+        support_diagnostics_summary = write_support_point_diagnostics(
+            args.support_diagnostics_output,
+            diagnostics=filtered.point_diagnostics,
+            selected_indices=point_budget_result.selected_indices,
+            frames=fusion_frames,
+            expected_point_count=len(flat_points),
+            source_index_path=(
+                window_predictions_path if window_prediction_capture is not None else None
+            ),
+        )
     write_json(geometry_dir / "cameras.json", build_camera_payload(text_dir))
     visibility_graph_path = diagnostics_dir / "visibility_graph.json"
     consistency_path = diagnostics_dir / "consistency.json"
@@ -883,6 +934,7 @@ def main() -> None:
             "point_budget_sensitivity_outputs": (
                 sensitivity_summaries if args.fusion_mode == "points" else []
             ),
+            "support_point_diagnostics": support_diagnostics_summary,
             "cross_view_filter": (
                 {
                     "confidence_threshold": confidence_threshold,
@@ -999,6 +1051,9 @@ def main() -> None:
         f"point_budget_occupied_codes={point_budget_result.occupied_spatial_codes or 0}",
         f"factorial_output_count={len(factorial_summaries) if args.fusion_mode == 'points' else 0}",
         f"point_budget_sensitivity_output_count={len(sensitivity_summaries) if args.fusion_mode == 'points' else 0}",
+        f"support_point_diagnostics={args.support_diagnostics_output if args.support_diagnostics_output is not None else ''}",
+        f"support_point_diagnostics_bytes={support_diagnostics_summary['file_bytes'] if support_diagnostics_summary is not None else 0}",
+        f"support_point_diagnostics_write_seconds={support_diagnostics_summary['write_seconds'] if support_diagnostics_summary is not None else 0.0:.3f}",
         f"colmap_seconds={colmap_seconds:.3f}",
         f"vggt_seconds={vggt_seconds:.3f}",
         f"gpu_peak_memory_bytes={gpu_peak_memory_bytes}",
@@ -1173,9 +1228,14 @@ def run_vggt_depth_batches(
     registered_by_name: Mapping[str, ColmapImage] | None = None,
     points3d: dict[int, np.ndarray] | None = None,
     min_scale_observations: int = 20,
+    retain_point_diagnostics: bool = False,
 ) -> tuple[dict[Path, dict[str, Any]], VggtWindowPredictionCapture | None]:
-    if capture_dir is not None and (registered_by_name is None or points3d is None):
-        raise ValueError("capturing VGGT window predictions requires COLMAP images and points")
+    if (capture_dir is not None or retain_point_diagnostics) and (
+        registered_by_name is None or points3d is None
+    ):
+        raise ValueError(
+            "capturing VGGT diagnostics requires COLMAP images and points"
+        )
     if capture_dir is not None:
         capture_dir.mkdir(parents=True, exist_ok=False)
 
@@ -1183,6 +1243,7 @@ def run_vggt_depth_batches(
         int(record["group_index"]): record for record in selection_records or []
     }
     results: dict[Path, dict[str, Any]] = {}
+    overlap_disagreement_by_path: dict[Path, np.ndarray] = {}
     capture_records: list[dict[str, Any]] = []
     capture_write_seconds = 0.0
     capture_bytes = 0
@@ -1207,18 +1268,30 @@ def run_vggt_depth_batches(
             intrinsic = prediction_np["intrinsic"][position].astype(np.float32)
             original_size = read_image_size(image_path)
             first_prediction = image_path not in results
-
-            if capture_dir is not None:
-                colmap_image = registered_by_name[image_path.name]
-                transform = build_vggt_image_transform(original_size, image_shape)
+            if retain_point_diagnostics:
                 scale_estimate = estimate_depth_scale(
-                    colmap_image=colmap_image,
+                    colmap_image=registered_by_name[image_path.name],
                     points3d=points3d,
                     depth=depth,
                     image_shape=image_shape,
                     original_size=original_size,
                     min_observations=min_scale_observations,
                 )
+            else:
+                scale_estimate = None
+
+            if capture_dir is not None:
+                colmap_image = registered_by_name[image_path.name]
+                transform = build_vggt_image_transform(original_size, image_shape)
+                if scale_estimate is None:
+                    scale_estimate = estimate_depth_scale(
+                        colmap_image=colmap_image,
+                        points3d=points3d,
+                        depth=depth,
+                        image_shape=image_shape,
+                        original_size=original_size,
+                        min_observations=min_scale_observations,
+                    )
                 filename = (
                     f"group_{group_index:04d}_position_{position:02d}_"
                     f"image_{colmap_image.image_id}.npz"
@@ -1292,6 +1365,27 @@ def run_vggt_depth_batches(
                 )
 
             if not first_prediction:
+                if retain_point_diagnostics:
+                    first_item = results[image_path]
+                    if scale_estimate is not None and first_item["source_scale_estimate"] is not None:
+                        first_scaled = first_item["depth"] * first_item["source_scale_estimate"].scale
+                        current_scaled = depth * scale_estimate.scale
+                        valid = (
+                            np.isfinite(first_scaled)
+                            & (first_scaled > 0)
+                            & np.isfinite(current_scaled)
+                            & (current_scaled > 0)
+                        )
+                        disagreement = np.full(depth.shape, np.nan, dtype=np.float32)
+                        disagreement[valid] = np.abs(
+                            np.log(first_scaled[valid]) - np.log(current_scaled[valid])
+                        )
+                        previous = overlap_disagreement_by_path.get(image_path)
+                        overlap_disagreement_by_path[image_path] = (
+                            disagreement
+                            if previous is None
+                            else np.fmax(previous, disagreement)
+                        )
                 continue
             results[image_path] = {
                 "depth": depth,
@@ -1300,9 +1394,20 @@ def run_vggt_depth_batches(
                 "colors": colors[position],
                 "image_shape": image_shape,
                 "original_size": original_size,
+                "source_group_index": group_index,
+                "source_group_position": position,
+                "source_window_role": vggt_window_member_role(
+                    position=position,
+                    selection_record=selection_record,
+                ),
+                "source_scale_estimate": scale_estimate,
             }
         if device == "cuda":
             torch.cuda.empty_cache()
+
+    if retain_point_diagnostics:
+        for image_path, item in results.items():
+            item["overlap_disagreement"] = overlap_disagreement_by_path.get(image_path)
 
     capture = None
     if capture_dir is not None:
@@ -2077,10 +2182,25 @@ def filter_points_by_cross_view_consistency(
     relative_threshold: float,
     support_policy: str = "any_support",
     stride: int,
+    retain_point_diagnostics: bool = False,
 ) -> ConsistencyFilterResult:
     frame_by_id = {frame.colmap_image.image_id: frame for frame in frames}
     point_parts: list[np.ndarray] = []
     color_parts: list[np.ndarray] = []
+    diagnostic_parts: dict[str, list[np.ndarray]] = {
+        name: []
+        for name in (
+            "source_image_index",
+            "source_u",
+            "source_v",
+            "confidence",
+            "visible_counts",
+            "support_counts",
+            "occluded_counts",
+            "mean_relative_error",
+            "overlap_disagreement",
+        )
+    }
     residual_samples: list[np.ndarray] = []
     image_records: list[dict[str, Any]] = []
     candidate_points = 0
@@ -2132,6 +2252,23 @@ def filter_points_by_cross_view_consistency(
 
         point_parts.append(source_points[accepted])
         color_parts.append(frame.colors[v[accepted], u[accepted]])
+        if retain_point_diagnostics:
+            overlap_disagreement = (
+                frame.overlap_disagreement[v, u]
+                if frame.overlap_disagreement is not None
+                else np.full(len(u), np.nan, dtype=np.float32)
+            )
+            diagnostic_parts["source_image_index"].append(
+                np.full(int(accepted.sum()), len(image_records), dtype=np.int32)
+            )
+            diagnostic_parts["source_u"].append(u[accepted].astype(np.uint16))
+            diagnostic_parts["source_v"].append(v[accepted].astype(np.uint16))
+            diagnostic_parts["confidence"].append(frame.confidence[v[accepted], u[accepted]].astype(np.float32))
+            diagnostic_parts["visible_counts"].append(validation.visible_counts[accepted].astype(np.uint16))
+            diagnostic_parts["support_counts"].append(validation.support_counts[accepted].astype(np.uint16))
+            diagnostic_parts["occluded_counts"].append(validation.occluded_counts[accepted].astype(np.uint16))
+            diagnostic_parts["mean_relative_error"].append(validation.mean_relative_error[accepted].astype(np.float32))
+            diagnostic_parts["overlap_disagreement"].append(overlap_disagreement[accepted].astype(np.float32))
         residual_samples.append(diagnostic_sample(accepted_residuals, 1_000))
         candidate_points += len(source_points)
         accepted_points += int(accepted.sum())
@@ -2170,6 +2307,16 @@ def filter_points_by_cross_view_consistency(
         image_records=image_records,
         multi_visible_points=multi_visible_points,
         policy_rejected_supported_points=policy_rejected_supported_points,
+        point_diagnostics=(
+            SupportPointDiagnostics(
+                **{
+                    name: np.concatenate(parts)
+                    for name, parts in diagnostic_parts.items()
+                }
+            )
+            if retain_point_diagnostics
+            else None
+        ),
     )
 
 
@@ -2377,6 +2524,7 @@ def apply_point_budget(
             applied=False,
             spatial_quantization_bits=None,
             occupied_spatial_codes=None,
+            selected_indices=None,
         )
     if policy == "random":
         rng = np.random.default_rng(seed)
@@ -2398,6 +2546,7 @@ def apply_point_budget(
         applied=True,
         spatial_quantization_bits=quantization_bits,
         occupied_spatial_codes=occupied_codes,
+        selected_indices=selected,
     )
 
 
@@ -2465,6 +2614,114 @@ def cap_points(
         policy=policy,
     )
     return result.points, result.colors
+
+
+def write_support_point_diagnostics(
+    path: Path,
+    *,
+    diagnostics: SupportPointDiagnostics,
+    selected_indices: np.ndarray | None,
+    frames: list[FusionFrame],
+    expected_point_count: int,
+    source_index_path: Path | None,
+) -> dict[str, Any]:
+    started_at = time.perf_counter()
+    arrays = {
+        name: (
+            np.asarray(getattr(diagnostics, name))
+            if selected_indices is None
+            else np.asarray(getattr(diagnostics, name))[selected_indices]
+        )
+        for name in SupportPointDiagnostics.__dataclass_fields__
+    }
+    point_count = expected_point_count
+    if any(len(array) != point_count for array in arrays.values()):
+        raise ValueError("support diagnostic attributes do not match final points")
+    role_codes = {"unknown": 0, "reference": 1, "overlap": 2, "fresh": 3, "fallback": 4}
+    image_records = []
+    for index, frame in enumerate(frames):
+        image_records.append(
+            {
+                "source_image_index": index,
+                "image": frame.image_path.name,
+                "image_id": frame.colmap_image.image_id,
+                "group_index": frame.source_group_index,
+                "group_position": frame.source_group_position,
+                "window_role": frame.source_window_role,
+                "window_role_code": role_codes.get(frame.source_window_role, 0),
+                "scale": frame.scale,
+                "scale_observations": frame.scale_observations,
+                "scale_log_mad": frame.scale_log_mad if np.isfinite(frame.scale_log_mad) else None,
+            }
+        )
+    source_indices = arrays["source_image_index"]
+    if source_indices.size and (
+        int(source_indices.min()) < 0 or int(source_indices.max()) >= len(frames)
+    ):
+        raise ValueError("support diagnostic source image index is out of range")
+    source_group_index = np.asarray(
+        [frames[index].source_group_index for index in source_indices], dtype=np.int32
+    )
+    source_group_position = np.asarray(
+        [frames[index].source_group_position for index in source_indices], dtype=np.int16
+    )
+    source_window_role = np.asarray(
+        [role_codes.get(frames[index].source_window_role, 0) for index in source_indices],
+        dtype=np.uint8,
+    )
+    scale_observations = np.asarray(
+        [frames[index].scale_observations for index in source_indices], dtype=np.int32
+    )
+    scale_log_mad = np.asarray(
+        [frames[index].scale_log_mad for index in source_indices], dtype=np.float32
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        **arrays,
+        source_group_index=source_group_index,
+        source_group_position=source_group_position,
+        source_window_role=source_window_role,
+        scale_observations=scale_observations,
+        scale_log_mad=scale_log_mad,
+    )
+    data_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    file_bytes = path.stat().st_size
+    write_seconds = time.perf_counter() - started_at
+    index_path = path.with_suffix(".json")
+    payload = {
+        "schema_version": 1,
+        "point_order": "exactly matches geometry/points.ply vertex order",
+        "point_count": point_count,
+        "sidecar": path.name,
+        "sidecar_sha256": data_hash,
+        "file_bytes": file_bytes,
+        "write_seconds": write_seconds,
+        "source_prediction_index": (
+            source_index_path.as_posix() if source_index_path is not None else None
+        ),
+        "arrays": {
+            "source_image_index": "int32[N] index into images",
+            "source_u/source_v": "uint16[N] source VGGT canvas pixel",
+            "confidence": "float32[N] source depth confidence",
+            "visible_counts/support_counts/occluded_counts": "uint16[N] cross-view counts",
+            "mean_relative_error": "float32[N], NaN when visible_count is zero",
+            "scale_observations/scale_log_mad": "per-source sparse scale quality repeated per point",
+            "source_group_index/source_group_position/source_window_role": "first-wins window provenance",
+            "overlap_disagreement": "maximum sparse-anchored absolute log-depth disagreement against another retained prediction; NaN without overlap",
+        },
+        "window_role_codes": role_codes,
+        "images": image_records,
+    }
+    write_json(index_path, payload)
+    return {
+        "sidecar": path.as_posix(),
+        "index": index_path.as_posix(),
+        "point_count": point_count,
+        "file_bytes": file_bytes,
+        "write_seconds": write_seconds,
+        "sha256": data_hash,
+    }
 
 
 def diagnostic_sample(values: np.ndarray, max_samples: int) -> np.ndarray:

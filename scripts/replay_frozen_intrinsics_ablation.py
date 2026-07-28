@@ -27,6 +27,7 @@ from run_colmap_vggt_dense import (
     build_fusion_camera,
     filter_points_by_cross_view_consistency,
     point_budget_diagnostics,
+    write_support_point_diagnostics,
 )
 from run_vggt_pointcloud import load_padded_rgb_images, write_json, write_ply
 
@@ -83,6 +84,7 @@ def replay_frozen_intrinsics_ablation(
     index_path: Path,
     output_dir: Path,
     candidate: str,
+    support_diagnostics: bool = False,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     source_dir = source_dir.resolve()
@@ -113,6 +115,9 @@ def replay_frozen_intrinsics_ablation(
     if index.get("schema_version") != 1 or not index.get("capture_enabled"):
         raise ValueError("unsupported or disabled VGGT prediction index")
     selected = selected_prediction_records(index)
+    records_by_name: dict[str, list[dict[str, Any]]] = {}
+    for record in index["predictions"]:
+        records_by_name.setdefault(str(record["image"]), []).append(record)
     fusion = json.loads(fusion_path.read_text(encoding="utf-8"))
     consistency = json.loads(consistency_path.read_text(encoding="utf-8"))
     run_log = read_runner_log(run_log_path)
@@ -168,6 +173,31 @@ def replay_frozen_intrinsics_ablation(
         with np.load(prediction_path) as payload:
             depth = np.asarray(payload["depth"], dtype=np.float32)
             confidence = np.asarray(payload["confidence"], dtype=np.float32)
+        overlap_disagreement = None
+        if support_diagnostics and len(records_by_name[image_name]) > 1:
+            first_scaled = depth * float(fusion_record["depth_scale"])
+            overlap_disagreement = np.full(depth.shape, np.nan, dtype=np.float32)
+            for other_record in records_by_name[image_name]:
+                if other_record is record:
+                    continue
+                other_path = prediction_dir / str(other_record["prediction_file"])
+                with np.load(other_path) as other_payload:
+                    other_depth = np.asarray(other_payload["depth"], dtype=np.float32)
+                anchor = other_record.get("sparse_scale_anchor")
+                if anchor is None:
+                    continue
+                other_scaled = other_depth * float(anchor["scale"])
+                valid = (
+                    np.isfinite(first_scaled)
+                    & (first_scaled > 0)
+                    & np.isfinite(other_scaled)
+                    & (other_scaled > 0)
+                )
+                disagreement = np.full(depth.shape, np.nan, dtype=np.float32)
+                disagreement[valid] = np.abs(
+                    np.log(first_scaled[valid]) - np.log(other_scaled[valid])
+                )
+                overlap_disagreement = np.fmax(overlap_disagreement, disagreement)
         if depth.shape != image_shape or confidence.shape != image_shape:
             raise ValueError(f"retained prediction shape mismatch for {image_name}")
         image_path = Path(str(record["image_path"]))
@@ -183,6 +213,16 @@ def replay_frozen_intrinsics_ablation(
                 scale=float(fusion_record["depth_scale"]),
                 image_shape=image_shape,
                 original_size=original_size,
+                source_group_index=int(record["group_index"]),
+                source_group_position=int(record["group_position"]),
+                source_window_role=str(record["role"]),
+                scale_observations=int(fusion_record["scale_observations"]),
+                scale_log_mad=(
+                    float(fusion_record["scale_log_mad"])
+                    if fusion_record["scale_log_mad"] is not None
+                    else float("nan")
+                ),
+                overlap_disagreement=overlap_disagreement,
             )
         )
         confidence_thresholds[image.image_id] = float(
@@ -218,6 +258,7 @@ def replay_frozen_intrinsics_ablation(
         relative_threshold=float(consistency["relative_threshold"]),
         support_policy=str(consistency["support_policy"]),
         stride=int(consistency["stride"]),
+        retain_point_diagnostics=support_diagnostics,
     )
     frozen_budget = fusion["point_budget"]
     budget = apply_point_budget(
@@ -238,6 +279,18 @@ def replay_frozen_intrinsics_ablation(
     logs_dir.mkdir(parents=True)
     points_path = geometry_dir / "points.ply"
     write_ply(points_path, budget.points, budget.colors)
+    support_summary = None
+    if support_diagnostics:
+        if filtered.point_diagnostics is None:
+            raise RuntimeError("Per-point support diagnostics were not retained")
+        support_summary = write_support_point_diagnostics(
+            diagnostics_dir / "support_points.npz",
+            diagnostics=filtered.point_diagnostics,
+            selected_indices=budget.selected_indices,
+            frames=frames,
+            expected_point_count=len(budget.points),
+            source_index_path=index_path,
+        )
     shutil.copy2(cameras_path, geometry_dir / "cameras.json")
     consistency_payload = {
         "fusion_mode": "points",
@@ -316,6 +369,7 @@ def replay_frozen_intrinsics_ablation(
             "residual_p90": consistency_payload["residual_p90"],
         },
         "point_budget": point_budget_diagnostics(budget),
+        "support_point_diagnostics": support_summary,
         "output": {
             "points": points_path.as_posix(),
             "points_sha256": sha256(points_path),
@@ -351,12 +405,14 @@ def main() -> None:
     parser.add_argument("--index", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--candidate", choices=CANDIDATES, required=True)
+    parser.add_argument("--support-diagnostics", action="store_true")
     args = parser.parse_args()
     payload = replay_frozen_intrinsics_ablation(
         source_dir=args.source_dir,
         index_path=args.index,
         output_dir=args.output_dir,
         candidate=args.candidate,
+        support_diagnostics=args.support_diagnostics,
     )
     print(f"wrote {payload['output']['points']}")
     print(f"num_points={payload['output']['point_count']}")
