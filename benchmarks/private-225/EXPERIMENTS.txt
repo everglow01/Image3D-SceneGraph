@@ -871,3 +871,50 @@ Ignored evidence:
   SHA-256 c4d38f5a70875a41822fea6d424b11411ae2f630fe6f15e5871e27c5b1ad96eb
 - `monitor_aligned_camera_overlay.png`
   SHA-256 7ae553006b4e129036ab2df06c9e8ba51571bcee7fae8fa9aa1cd37f02f4ccc9
+
+G1.22 — Multi-plane normal clusters and candidate Manhattan frames
+------------------------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic candidate generator; alignment default unchanged
+
+Protocol:
+- A standalone CPU-only diagnostic reused the existing deterministic point-cloud sampler and sequential
+  RANSAC plane detector. It raised only the diagnostic plane inventory from 3 to 8 so repeated parallel
+  surfaces would not hide a third direction. The retained private PLY was read once; VGGT, COLMAP,
+  fusion, alignment, and GT evaluation were not rerun.
+- Reliable planes require a finite nonzero normal, at least 3 inliers, and the existing global 0.08
+  inlier-ratio gate. Unoriented normals are clustered within 15 degrees, then every three-cluster
+  combination is checked against a 15-degree orthogonality tolerance. All thresholds and parameters are
+  written to the report; no area, RMS, height, gravity, ground, or semantic gate is hidden in selection.
+- Exactly one supported orthogonal triplet is reported as a candidate. Zero or multiple triplets remain
+  ambiguous; orthogonal pairs are retained as partial evidence but a cross-product-only third axis is
+  never promoted. Candidate axes are unordered and unoriented; the right-handed orthonormal triad is
+  diagnostic evidence for G1.23/G1.24, not a selected world frame.
+
+Retained private-225 result:
+- Eight planes were detected. Only planes 0/3/1 passed the 0.08 gate, with inlier ratios
+  0.26160/0.09000/0.08506 and normals approximately
+  [0.0063, 0.9164, 0.4001] / [-0.9984, -0.0089, 0.0562] /
+  [0.0148, -0.3844, 0.9231]. They formed three distinct normal clusters and all three pairs passed.
+- One full candidate was found, so status is `candidate` rather than `ambiguous`. Pairwise angular
+  residuals from 90 degrees are 0.4586/0.9858/2.3225 degrees (mean 1.2556, max 2.3225). Combined plane
+  support is 0.43666, orthogonality score 0.98605, and diagnostic score 0.43057. No axis is labeled
+  ground/up/x/y/z.
+- `--check` reproduced the JSON byte-for-byte. Runtime was 2.28 s, maximum RSS 716,108 KiB, exit 0.
+  The retained raw/aligned PLY and alignment JSON hashes remained unchanged:
+  `d1d316ae...`, `15617222...`, and `1d770286...` respectively.
+
+Decision and limits:
+- G1.22 passes its bounded acceptance criteria: the full noisy cubic-room path recovers three axes up to
+  sign/permutation; weak, duplicate-parallel, non-orthogonal, and multiply valid evidence returns
+  ambiguous; and the largest plane receives no ground semantics. The private cloud contains a strong
+  Manhattan candidate, but this does not establish which axis is gravity or justify replacing the
+  single-plane production transform. Those decisions remain G1.23/G1.24.
+- Existing `align_pointcloud.py`, backend, frontend, manifest, point coordinates, and production defaults
+  are unchanged. Scale remains arbitrary.
+
+Evidence:
+- `scripts/analyze_manhattan_frames.py`
+- `tests/test_analyze_manhattan_frames.py`
+- `outputs/experiments/g1_22/private_225_manhattan_frames.json`
+  SHA-256 df3f02acb9898a11131542f2eb83393a32f743da0f1ab3352e3107d3ae25af76
