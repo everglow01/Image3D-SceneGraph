@@ -626,3 +626,52 @@ Evidence:
   SHA-256 598c089fc1682a7cf3be5deda38f4432a7a6857a58f07eaf6728359c4fd3bca0
 - Focused dense/replay tests: 43 passed. Full suite: 95 passed with one existing Starlette/httpx
   deprecation warning. `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.15 — Supported/unverified/high-disagreement diagnostic point clouds
+---------------------------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic export; no reconstruction or fusion policy changed
+
+Protocol:
+- Read only the frozen G1.14 final PLY, support NPZ/index, and consistency JSON. Validate the exact
+  final-vertex row-order declaration, sidecar SHA-256, all array lengths, point counts, and recorded
+  supported/unverified counts before exporting. VGGT, COLMAP, filtering, and point budgeting were
+  not rerun; no GT entered classification.
+- Export three independent masks in original final-point order: supported is `support_counts > 0`,
+  unverified is `visible_counts == 0`, and high-disagreement is finite retained overlap disagreement
+  at least 0.02 absolute log-depth. The fixed 0.02 threshold reuses the frozen reconstruction's
+  cross-view relative threshold (about 2.02% depth ratio), rather than being tuned from the ROI or GT.
+  NaN means no comparable overlap and is excluded. Sets are independent; G1.16 still owns disjoint
+  occluded/not-observed/contradicted semantics.
+- Replace source RGB with a fixed legend: supported cyan `(0,170,255)`, unverified orange
+  `(255,170,0)`, and high-disagreement magenta `(220,40,180)`. The exporter writes a reproducible
+  JSON record with all rules, counts, source/output hashes, sizes, and consistency checks.
+
+Acceptance result:
+- From 17,746,411 final points, exported 13,601,908 supported (76.6460%), 4,144,503 unverified
+  (23.3540%), and 1,415,144 high-disagreement (7.9743%). Supported/unverified counts exactly match
+  frozen consistency diagnostics. Retained overlap evidence is finite for 7,036,847 points, so
+  missing overlap is not mislabeled as agreement or disagreement.
+- The frozen source PLY remained byte-identical before and after export: SHA-256
+  `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`.
+- Export wall time was 3.96 s; maximum RSS was 1,134,212 KiB; exit status 0. Output sizes were
+  204,028,802 / 62,167,726 / 21,227,341 bytes for supported/unverified/high-disagreement.
+- At the frozen Raw bookshelf camera pose, all three diagnostic clouds were rendered independently.
+  Within the fixed aligned-coordinate bookshelf ROI, 106,584 final points split into 85,748 supported
+  (80.4511%) and 20,836 unverified (19.5489%); 6,411 (6.0150%) are high-disagreement, with overlap
+  evidence available for 44,698. The repeated shelf/book strata are visible in both supported and
+  unverified views and are also present in the sparser high-disagreement view. Therefore the visible
+  duplicate layers are not attributable to a single support class; this is qualitative diagnosis,
+  not a support-only rejection decision. G1.16/G1.17 remain necessary before changing policy.
+
+Evidence:
+- `scripts/export_support_diagnostic_plys.py`
+- `tests/test_export_support_diagnostic_plys.py`
+- `outputs/experiments/g1_15/private_225/diagnostic_plys/diagnostic_plys.json`
+  SHA-256 e46fd6bf8a7461e958fcdb62e3cc64dfe2b02fbfd7ada89d1de24f22092621b6
+- `supported.ply` SHA-256 b249101388550d5fb077ac202d1111610871640eedb6364da37f7ad02256bc47
+- `unverified.ply` SHA-256 398e30395d39ca51c9880d78507523e77062cc3654d585da26e68b94fe0813a6
+- `high_disagreement.ply` SHA-256 443199681d6e81b5d3d55aa1a21bde9a995ee0a3e89972ab7801f05c3e01f8f6
+- Ignored fixed-view inspection artifacts remain under `outputs/experiments/g1_15/private_225/`.
+- Focused dense/exporter tests: 47 passed. Full suite: 102 passed with one existing Starlette/httpx
+  deprecation warning. Exporter `--check`, `py_compile`, IDE diagnostics, and `git diff --check` passed.
