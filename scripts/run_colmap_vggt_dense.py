@@ -2442,6 +2442,10 @@ def apply_support_policy(
     if policy == "adaptive_two":
         required_supports = np.minimum(visible_counts, 2)
         return support_counts >= required_supports
+    if policy == "contradiction_free":
+        return (visible_counts == 0) | (
+            (support_counts > 0) & (support_counts == visible_counts)
+        )
     raise ValueError(f"Unknown cross-view support policy: {policy}")
 
 
@@ -2712,6 +2716,11 @@ def write_support_point_diagnostics(
     if not np.array_equal(visible_counts, support_counts + contradicted_counts):
         raise ValueError("visible counts do not equal support plus contradiction counts")
     visibility_state_counts = {
+        "support_strata": {
+            "0": int(np.count_nonzero(support_counts == 0)),
+            "1": int(np.count_nonzero(support_counts == 1)),
+            "2_plus": int(np.count_nonzero(support_counts >= 2)),
+        },
         "supported_points": int(np.count_nonzero(support_counts > 0)),
         "occluded_only_points": int(
             np.count_nonzero((visible_counts == 0) & (occluded_counts > 0))

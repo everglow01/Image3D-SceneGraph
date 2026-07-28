@@ -374,6 +374,19 @@ def test_cross_view_visibility_states_partition_every_neighbor_check():
 
 
 
+def test_contradiction_free_policy_preserves_unobserved_and_rejects_conflicts():
+    support_counts = np.array([0, 0, 1, 1, 2], dtype=np.int16)
+    visible_counts = np.array([0, 1, 1, 2, 2], dtype=np.int16)
+
+    accepted = apply_support_policy(
+        support_counts,
+        visible_counts,
+        policy="contradiction_free",
+    )
+
+    assert accepted.tolist() == [True, False, True, False, True]
+
+
 def test_adaptive_support_policy_requires_two_when_two_views_are_visible():
     support_counts = np.array([0, 1, 1, 2, 2], dtype=np.int16)
     visible_counts = np.array([0, 1, 2, 2, 3], dtype=np.int16)
@@ -614,6 +627,7 @@ def test_support_diagnostics_follow_final_point_order_after_budget(tmp_path):
     assert summary["file_bytes"] == path.stat().st_size
     index = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
     assert index["visibility_state_counts"] == {
+        "support_strata": {"0": 20, "1": 0, "2_plus": 0},
         "supported_points": 0,
         "occluded_only_points": 0,
         "not_observed_only_points": 20,

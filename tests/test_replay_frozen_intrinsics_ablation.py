@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from replay_frozen_intrinsics_ablation import (  # noqa: E402
     build_candidate_camera,
     read_runner_log,
+    resolve_support_policy,
     selected_prediction_records,
 )
 from run_colmap_vggt_dense import FusionCamera  # noqa: E402
@@ -55,6 +56,16 @@ def test_first_wins_inventory_rejects_duplicate_selection():
 
     with pytest.raises(ValueError, match="multiple first-wins predictions"):
         selected_prediction_records(index)
+
+
+def test_support_policy_override_is_explicit_and_limited():
+    assert resolve_support_policy("adaptive_two", None) == "adaptive_two"
+    assert (
+        resolve_support_policy("adaptive_two", "contradiction_free")
+        == "contradiction_free"
+    )
+    with pytest.raises(ValueError, match="unsupported support-policy candidate"):
+        resolve_support_policy("adaptive_two", "supported_only")
 
 
 def test_runner_log_preserves_frozen_point_cap_and_seed(tmp_path):

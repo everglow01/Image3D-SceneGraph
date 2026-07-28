@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay frozen VGGT depths with one diagnostic dense-fusion intrinsics candidate."""
+"""Replay frozen VGGT depths with one diagnostic dense-fusion candidate."""
 
 from __future__ import annotations
 
@@ -33,6 +33,15 @@ from run_vggt_pointcloud import load_padded_rgb_images, write_json, write_ply
 
 
 CANDIDATES = ("production_colmap", "pixel_center_colmap")
+SUPPORT_POLICY_CANDIDATES = ("contradiction_free",)
+
+
+def resolve_support_policy(frozen_policy: str, override: str | None) -> str:
+    if override is None:
+        return frozen_policy
+    if override not in SUPPORT_POLICY_CANDIDATES:
+        raise ValueError(f"unsupported support-policy candidate: {override}")
+    return override
 
 
 def sha256(path: Path) -> str:
@@ -85,6 +94,7 @@ def replay_frozen_intrinsics_ablation(
     output_dir: Path,
     candidate: str,
     support_diagnostics: bool = False,
+    support_policy: str | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     source_dir = source_dir.resolve()
@@ -121,6 +131,8 @@ def replay_frozen_intrinsics_ablation(
     fusion = json.loads(fusion_path.read_text(encoding="utf-8"))
     consistency = json.loads(consistency_path.read_text(encoding="utf-8"))
     run_log = read_runner_log(run_log_path)
+    if support_policy is not None and candidate != "production_colmap":
+        raise ValueError("support-policy replay requires production_colmap intrinsics")
     if fusion.get("fusion_mode") != "points" or consistency.get("fusion_mode") != "points":
         raise ValueError("G1.20 replay supports only frozen points-mode captures")
     if fusion.get("depth_scale_mode") != "per_frame":
@@ -251,12 +263,17 @@ def replay_frozen_intrinsics_ablation(
         max_neighbors=int(cross_view["neighbors"]),
         min_shared_points=int(cross_view["min_shared_points"]),
     )
+    frozen_support_policy = str(consistency["support_policy"])
+    effective_support_policy = resolve_support_policy(
+        frozen_support_policy,
+        support_policy,
+    )
     filtered = filter_points_by_cross_view_consistency(
         frames,
         covisibility_graph=graph,
         confidence_thresholds=confidence_thresholds,
         relative_threshold=float(consistency["relative_threshold"]),
-        support_policy=str(consistency["support_policy"]),
+        support_policy=effective_support_policy,
         stride=int(consistency["stride"]),
         retain_point_diagnostics=support_diagnostics,
     )
@@ -299,7 +316,7 @@ def replay_frozen_intrinsics_ablation(
             confidence_thresholds=confidence_thresholds,
             confidence_percentile=float(consistency["confidence_percentile"]),
             confidence_threshold_scope=str(consistency["confidence_threshold_scope"]),
-            support_policy=str(consistency["support_policy"]),
+            support_policy=effective_support_policy,
             relative_threshold=float(consistency["relative_threshold"]),
             stride=int(consistency["stride"]),
         ),
@@ -308,28 +325,44 @@ def replay_frozen_intrinsics_ablation(
 
     cx = np.asarray([record["cx"] for record in camera_deltas], dtype=np.float64)
     cy = np.asarray([record["cy"] for record in camera_deltas], dtype=np.float64)
+    evaluation = (
+        "g1_17_frozen_support_policy_ablation"
+        if support_policy is not None
+        else "g1_20_frozen_dense_intrinsics_ablation"
+    )
+    frozen_factors = [
+        "depth",
+        "confidence",
+        "rgb",
+        "COLMAP pose and radial distortion",
+        "per-frame scale",
+        "covisibility graph settings",
+        "confidence thresholds",
+        "support policy",
+        "relative threshold",
+        "stride",
+        "point budget policy and cap",
+        "seed",
+    ]
+    if support_policy is not None:
+        frozen_factors.remove("support policy")
+        frozen_factors.append("fusion intrinsics")
+    only_changed_factor = (
+        "cross-view support policy"
+        if support_policy is not None
+        else "fusion camera cx/cy" if candidate == "pixel_center_colmap" else None
+    )
     payload = {
         "schema_version": 1,
-        "evaluation": "g1_20_frozen_dense_intrinsics_ablation",
+        "evaluation": evaluation,
         "candidate": candidate,
         "protocol": {
             "prediction_policy": "retained_first_wins_only",
             "inference_rerun": False,
-            "frozen": [
-                "depth",
-                "confidence",
-                "rgb",
-                "COLMAP pose and radial distortion",
-                "per-frame scale",
-                "covisibility graph settings",
-                "confidence thresholds",
-                "support policy",
-                "relative threshold",
-                "stride",
-                "point budget policy and cap",
-                "seed",
-            ],
-            "only_changed_factor": "fusion camera cx/cy" if candidate == "pixel_center_colmap" else None,
+            "frozen": frozen_factors,
+            "only_changed_factor": only_changed_factor,
+            "frozen_support_policy": frozen_support_policy,
+            "effective_support_policy": effective_support_policy,
             "ground_truth_used_for_reconstruction": False,
             "production_default_changed": False,
         },
@@ -364,6 +397,10 @@ def replay_frozen_intrinsics_ablation(
             "rejected_points": filtered.rejected_points,
             "unverified_points": filtered.unverified_points,
             "supported_points": filtered.supported_points,
+            "occluded_only_points": filtered.occluded_only_points,
+            "not_observed_only_points": filtered.not_observed_only_points,
+            "contradicted_only_points": filtered.contradicted_only_points,
+            "supported_and_contradicted_points": filtered.supported_and_contradicted_points,
             "multi_visible_points": filtered.multi_visible_points,
             "residual_p50": consistency_payload["residual_p50"],
             "residual_p90": consistency_payload["residual_p90"],
@@ -377,12 +414,19 @@ def replay_frozen_intrinsics_ablation(
         },
         "elapsed_seconds": time.perf_counter() - started_at,
     }
-    write_json(diagnostics_dir / "g1_20_ablation.json", payload)
+    diagnostic_name = (
+        "g1_17_support_policy.json"
+        if support_policy is not None
+        else "g1_20_ablation.json"
+    )
+    write_json(diagnostics_dir / diagnostic_name, payload)
     (logs_dir / "run.log").write_text(
         "\n".join(
             [
-                "evaluation=g1_20_frozen_dense_intrinsics_ablation",
+                f"evaluation={evaluation}",
                 f"candidate={candidate}",
+                f"frozen_support_policy={frozen_support_policy}",
+                f"effective_support_policy={effective_support_policy}",
                 "inference_rerun=false",
                 f"num_images={len(frames)}",
                 f"candidate_points={filtered.candidate_points}",
@@ -405,6 +449,7 @@ def main() -> None:
     parser.add_argument("--index", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--candidate", choices=CANDIDATES, required=True)
+    parser.add_argument("--support-policy", choices=SUPPORT_POLICY_CANDIDATES)
     parser.add_argument("--support-diagnostics", action="store_true")
     args = parser.parse_args()
     payload = replay_frozen_intrinsics_ablation(
@@ -413,6 +458,7 @@ def main() -> None:
         output_dir=args.output_dir,
         candidate=args.candidate,
         support_diagnostics=args.support_diagnostics,
+        support_policy=args.support_policy,
     )
     print(f"wrote {payload['output']['points']}")
     print(f"num_points={payload['output']['point_count']}")

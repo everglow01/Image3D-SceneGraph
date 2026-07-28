@@ -723,3 +723,109 @@ Evidence:
 - `support_points.json` SHA-256 28bba4b92be91937d9bba8b1492b612496ab1a52a95adf60dbcae1478b34421a
 - Focused dense/replay tests: 44 passed. Full suite: 103 passed with one existing Starlette/httpx
   deprecation warning. `py_compile` and `git diff --check` passed.
+
+G1.17 — Contradiction-free support-policy ablation
+--------------------------------------------------
+Date: 2026-07-28
+Status: candidate rejected for default promotion; stable policy unchanged
+
+Protocol and predeclared gate:
+- Add one threshold-free diagnostic policy: keep zero-visible candidates (therefore preserve both
+  occluded-only and not-observed-only); otherwise require at least one support and no contradiction.
+  This rejects mixed supported+contradicted candidates but is explicitly not supported-only.
+- Replay retained private G1.8 first-wins predictions with production COLMAP intrinsics. Depth,
+  confidence, RGB, poses/distortion, per-frame scales, graph, confidence thresholds, relative
+  threshold, stride, point budget/cap, and seed were frozen. Only support policy changed from the
+  capture's `adaptive_two` to `contradiction_free`; VGGT/COLMAP were not rerun and no GT was used.
+- Before evaluation, default promotion required no 2/5 cm F1 regression on any of three ETH3D
+  scenes, plus no monitor/bookshelf layer increase and at most 0.02 absolute private ROI coverage
+  loss. A failure keeps the stable `any_support` default and prevents API/frontend exposure.
+
+Private-225 result:
+- Baseline/candidate accepted and output points: 17,746,411 / 16,818,249. Candidate retained all
+  1,064,699 occluded-only and 3,079,804 not-observed-only final points while removing all 928,162
+  accepted mixed supported+contradicted points. Final support strata changed from
+  4,144,503 / 3,368,449 / 10,233,459 to 4,144,503 / 3,368,449 / 9,305,297 for 0 / 1 / 2+ support.
+- Frozen Raw ROI comparison (baseline -> candidate): monitor points 107,363 -> 106,453, coverage
+  1.0000 -> 1.0000 (hole fraction 0 -> 0), layers 5 -> 4, thickness 0.575968 -> 0.506314,
+  plane RMS 0.014644 -> 0.016534. Bookshelf points 106,584 -> 99,435, coverage 0.7175 -> 0.7050
+  (hole fraction 0.2825 -> 0.2950), layers 4 -> 4, thickness 0.847666 -> 0.727066, plane RMS
+  0.016434 -> 0.017552. The private gate passed: maximum coverage loss was 0.0125 and layers did
+  not increase, although plane RMS worsened 12.91%/6.81% on monitor/bookshelf.
+- Candidate replay wall time was 31.34 s, maximum RSS 3,328,284 KiB, exit status 0. Baseline replay
+  PLY remained byte-identical to G1.14 (`dedb47c6e...`); candidate PLY SHA-256 is
+  `348bb0145227042c792fcdea9c5711e568df3b581803fca55fd6c274c56997f9`.
+
+Decision:
+- ETH3D transfer failed the predeclared gate: F1 regressed at 2/5 cm on pipes and delivery_area,
+  despite improving terrains. The candidate is therefore rejected for default promotion and remains
+  available only in frozen diagnostic replay, not the production CLI/API/frontend. No threshold was
+  retuned after scores, and scale remains arbitrary.
+
+Evidence:
+- `scripts/run_colmap_vggt_dense.py`, `scripts/replay_frozen_intrinsics_ablation.py`
+- `outputs/experiments/g1_17/g1_17_summary.json`
+  SHA-256 7382ba3e382736f2116172a2c3da0e63d8cd9ac439ad2bbb7af177920f0a396e
+- private candidate metadata SHA-256 9e38331f74b7acefffe495e9192cac58f076f34e2ace154189fb89ee4a126376
+- Ignored paired PLYs, sidecars, ROI JSON, resource logs, and ETH3D evaluations remain under
+  `outputs/experiments/g1_17/`.
+- Focused dense/replay tests: 46 passed. Full suite: 105 passed with one existing Starlette/httpx
+  deprecation warning. `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.17a-lite — Frozen scene-pressure and removal attribution
+----------------------------------------------------------
+Date: 2026-07-28
+Status: accepted bounded analysis; conditional-candidate evidence remains limited
+
+Protocol:
+- Read only the four retained prediction/group/visibility/overlap JSONs, G1.17 baseline support
+  sidecars/consistency, G1.17 results, private baseline PLY, and frozen ROI/alignment definitions.
+  Validate hashes, row order, array lengths, and scene inventories. No VGGT/COLMAP, ETH3D evaluator,
+  reconstruction, PLY export, screenshots, GT, or threshold fit ran.
+- Describe image/window/overlap/visibility pressure across private-225, pipes, terrains, and
+  delivery_area, then attribute private removals using exactly
+  `support_counts > 0 & contradicted_counts > 0`. This report does not fit an automatic selector.
+
+Four-scene pressure matrix:
+- private-225: 225 images / 89 groups / 353 predictions / 188 evaluated overlap pairs; 88 images
+  (39.11%) have multiple predictions, max 6. Finite final overlap evidence covers 39.65%; candidate
+  mixed-conflict fraction is 8.57%; G1.17 removes 5.23% of baseline accepted points.
+- pipes: 14 / 5 / 20 / 7; multi-prediction 35.71%, max 3; finite overlap 34.17%; mixed conflict
+  6.42%; removal 6.63%.
+- terrains: 42 / 19 / 76 / 48; multi-prediction 54.76%, max 4; finite overlap 57.46%; mixed conflict
+  4.19%; removal 4.25%.
+- delivery_area: 44 / 20 / 80 / 39; multi-prediction 75.00%, max 3; finite overlap 85.41%; mixed
+  conflict 11.06%; removal 11.26%. This scene has the strongest normalized overlap/conflict pressure
+  but G1.17 completeness/F1 regressed, disproving image count or overlap density as a sufficient
+  activation rule. Private-225 is uniquely large in absolute images/groups/pairs, but not highest in
+  every normalized pressure statistic.
+
+Private removal attribution:
+- The sidecar mask reproduces all 928,162 G1.17 removals exactly. Every removed point has 2+ support;
+  none has 0/1 support. Removal is distributed across 188 source images and 85 first-wins groups:
+  top-1/top-5/top-10 image concentration is 4.64%/16.85%/27.72%; group concentration is
+  6.14%/22.33%/36.50%. Window-role shares are reference 42.88%, fresh 42.36%, fallback 14.76%; no
+  single source/window role explains the effect.
+- Retained same-image overlap disagreement is finite for 347,973 removed points (37.49%), and only
+  53,532 removals (5.77%) exceed the frozen 0.02 threshold. Therefore cross-image visibility
+  contradiction and same-image multi-window disagreement are related diagnostics but not equivalent.
+- Fixed monitor ROI: 910/107,363 removed (0.85%); 38 removed points have finite retained overlap and
+  34 exceed 0.02. Fixed bookshelf ROI: 7,149/106,584 removed (6.71%); 951 have finite overlap and
+  212 exceed 0.02. Bookshelf receives a much stronger targeted removal than monitor, consistent with
+  its thickness improvement, but this single target-domain scene cannot establish causality.
+
+Conclusion:
+- G1.7/G1.17 remain useful large/high-overlap target-domain research candidates, while the historical
+  G1.17 global-default gate failure remains valid. Existing data do not support `num_images`, overlap
+  fraction, mixed-conflict fraction, or any fitted threshold as an automatic production selector.
+  Keep current defaults and stop this branch rather than tuning on four scenes.
+- Analysis took 5.19 s, maximum RSS 1,503,312 KiB, wrote one 20 KiB JSON, and exited 0.
+
+Evidence:
+- `scripts/analyze_g1_17a_scene_pressure.py`
+- `tests/test_analyze_g1_17a_scene_pressure.py`
+- `benchmarks/private-225/g1_17a_lite.json`
+- `outputs/experiments/g1_17a_lite/scene_pressure.json`
+  SHA-256 13e3ee1950d152f3da43fc0f2631f5ab8d7b8ba07ee380240c93bdddd60dbcef
+- Focused analysis tests: 4 passed. Full suite: 109 passed with one existing Starlette/httpx warning.
+  `--check`, `py_compile`, IDE diagnostics, and `git diff --check` passed.
