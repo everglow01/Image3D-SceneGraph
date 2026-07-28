@@ -829,3 +829,45 @@ Evidence:
   SHA-256 13e3ee1950d152f3da43fc0f2631f5ab8d7b8ba07ee380240c93bdddd60dbcef
 - Focused analysis tests: 4 passed. Full suite: 109 passed with one existing Starlette/httpx warning.
   `--check`, `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.21 — Raw/Aligned camera trajectory and frusta overlay
+-------------------------------------------------------
+Date: 2026-07-28
+Status: accepted viewer correction; reconstruction assets unchanged
+
+Implementation:
+- The point-cloud viewer now reads the existing manifest `geometry/cameras.json` asset and renders
+  camera frusta plus source-order trajectory line segments. It supports both current schemas:
+  COLMAP `colmap_world` qvec/tvec + camera models and VGGT `opencv_camera_from_world` 3x4
+  camera-to-world + intrinsics. Frusta use a fixed 2.5% cloud-radius display depth.
+- Raw mode converts poses to raw world vertices, subtracts the same pre-center PLY bounding-sphere
+  center used by `geometry.center()`, then applies the same display-only axis signs as the cloud.
+  Aligned mode first applies the exact retained `diagnostics/alignment.json` 4x4 affine transform to
+  every camera center/frustum corner, then uses the aligned cloud center and shared axis signs.
+- A Cameras toolbar toggle defaults on when data are valid. Missing/invalid camera or alignment JSON
+  disables only the overlay; point-cloud rendering continues. No backend, manifest schema producer,
+  reconstruction asset, alignment algorithm, or point coordinates changed.
+
+Verification:
+- Five dependency-free Node tests cover COLMAP identity/rotation/translation, actual VGGT 3x4
+  schema, synthetic rotation+translation applied to all overlay vertices, Raw identity/centering,
+  axis signs, and line topology. `npm test` passed 5/5; TypeScript + Vite production build passed.
+- Full Python suite: 109 passed with one existing Starlette/httpx deprecation warning.
+- The actual backend/frontend ran on loopback and loaded retained job
+  `20260723_070028_024e9f25`. Camera/alignment assets returned HTTP 200, Cameras remained enabled in
+  both modes, and no application JavaScript exception occurred. Headless Chrome emitted only its
+  software-WebGL warning and an unrelated missing favicon 404.
+- Fixed G1.1 bookshelf/monitor Raw and Aligned view states were imported and captured. Visual
+  inspection shows the orange camera centers/frusta/trajectory colocated with the reconstructed
+  scene in all four views; the Aligned trajectory rotates/translates with the cloud instead of
+  remaining in the Raw frame.
+
+Ignored evidence:
+- `outputs/experiments/g1_21/screenshots/bookshelf_raw_camera_overlay.png`
+  SHA-256 d9286635578638587feea0132ebe660b6a3d9c2512e2ddb51204a941780bcdc8
+- `bookshelf_aligned_camera_overlay.png`
+  SHA-256 a669e2d8f8c9b4712eb27690f3cb553475ff3d845f78a14c632484b50fda958d
+- `monitor_raw_camera_overlay.png`
+  SHA-256 c4d38f5a70875a41822fea6d424b11411ae2f630fe6f15e5871e27c5b1ad96eb
+- `monitor_aligned_camera_overlay.png`
+  SHA-256 7ae553006b4e129036ab2df06c9e8ba51571bcee7fae8fa9aa1cd37f02f4ccc9
