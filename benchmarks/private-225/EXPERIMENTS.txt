@@ -1047,3 +1047,28 @@ Evidence:
 - ignored `outputs/experiments/g1_24/private_225_alignment_ablation.json`
 - ignored `outputs/experiments/g1_24/private_225_manhattan.ply`
 - ignored `outputs/experiments/g1_24/screenshots/`
+
+G1.25 — Stage 1 combination-factor freeze
+-----------------------------------------
+Date: 2026-07-29
+Status: complete; private evidence preserved without inventing interactions
+
+The retained private configuration is `per_frame + adaptive_two + spatial_balanced`, read
+from `outputs/jobs/20260723_070028_024e9f25/diagnostics/fusion.json` (SHA-256
+c75f8241d9ff264160959defca349d4e9638d1178e098bab7bec68425350b69c). Its point-budget
+input/output count is 17,101,794 under a 30,000,000 cap, so `spatial_balanced` was inactive.
+This observed all-on job therefore supplies no private Phase 3 gain or interaction estimate.
+
+The G1.24 Manhattan result is a paired rigid-orientation observation on that retained cloud:
+it fixes signed up and lowers maximum supported cardinal residual, while point count,
+pairwise distances, local plane RMS/thickness, and layer topology remain invariant. It was
+not jointly generated across the ETH3D Phase 1/2/3 factorial. Manhattan x geometry effects
+are therefore explicitly `not_estimable_private_only`; no ETH3D transform or missing arm was
+fabricated. G1.7 covisibility and G1.17 contradiction_free retain their prior limited private
+ROI evidence but failed universal transfer gates and likewise have no joint interaction claim.
+
+The frozen eight-arm ETH3D analysis is recorded in `benchmarks/eth3d-v1/EXPERIMENTS.txt` and
+`outputs/experiments/g1_25/stage1_factorial.json` (SHA-256
+94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158). It reran no
+reconstruction or evaluator and changed no retained asset, production contract, or default.
+G1.26, not G1.25, owns the final baseline decision.

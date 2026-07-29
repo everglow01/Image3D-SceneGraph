@@ -978,3 +978,62 @@ Interpretation and decision:
 - Next planned direction (G1.8-G1.13) is cross-window depth reconciliation, not grouping
   tuning. If covisibility is revisited, it must first solve the 8 GB OOM on large correlated
   batches without lowering batch size, and show a non-regressive multi-scene ETH3D gain.
+
+G1.25 — Frozen Stage 1 combination-factor analysis
+--------------------------------------------------
+Date: 2026-07-29
+Status: complete; combination evidence frozen, production selection deferred to G1.26
+
+Protocol:
+- Read only the existing Phase 1/2/3 eight-arm factorials for pipes, terrains, and
+  delivery_area. No VGGT, COLMAP, dense fusion, camera alignment, official evaluator, or
+  GT-guided operation was rerun.
+- Factors are A=`global -> per_frame`, B=`any_support -> adaptive_two`, and
+  C=`random -> spatial_balanced`. Every arm PLY/camera/result, recorded PLY SHA-256,
+  tolerance grid, evaluator status, factor tuple, and shared runner diagnostics were checked.
+- Effects are balanced factorial contrasts per scene/tolerance/metric. Main effects average
+  `Y(1)-Y(0)` over the other factors; pair interactions average
+  `Y11-Y10-Y01+Y00`; ABC is
+  `Y111-Y110-Y101-Y011+Y100+Y010+Y001-Y000`.
+- Missing/failed cells remain null and make dependent contrasts non-estimable. Any contrast
+  containing C is non-estimable when the point cap did not activate. Scores remain
+  GT-camera-Sim(3)-aligned geometry quality, not native metric-scale recovery.
+
+Balanced F1 effects at 2 cm / 5 cm:
+- pipes (budget inactive):
+  A +0.0281855 / +0.1196920; B -0.0023745 / -0.0045500;
+  AB -0.0080910 / -0.0129580; C/AC/BC/ABC non-estimable.
+- terrains (budget active):
+  A -0.02674125 / -0.03526450; B +0.00393375 / +0.00363800;
+  C +0.00519275 / +0.00198250; AB +0.00093250 / +0.00026600;
+  AC +0.00038450 / -0.00004500; BC -0.00015150 / -0.00007800;
+  ABC +0.00118700 / +0.00024000.
+- delivery_area (budget active):
+  A +0.0192140 / +0.0287370; B -0.0026205 / -0.0009855;
+  C +0.0054835 / +0.0047270; AB -0.0053090 / -0.0055470;
+  AC +0.0000730 / +0.0000320; BC -0.0005720 / -0.0007070;
+  ABC -0.0003000 / +0.0004380.
+
+Interpretation:
+- A/per_frame remains mixed and its interactions do not repair the terrains regression.
+- B/adaptive_two had constructive single-factor 2/5 cm evidence, but its balanced combined
+  effect changes sign because the interaction with A is scene-dependent; no universal policy
+  follows from the factorial.
+- C/spatial_balanced remains the strongest bounded candidate: its balanced effect is positive
+  at 2/5 cm on both capped scenes. Pipes is explicitly inactive, not a third gain, and the
+  retained private-225 configuration is also below its 30M cap. The missing active non-ETH3D
+  validation still blocks default promotion.
+- G1.7 covisibility and G1.17 contradiction_free remain target-domain conditional research
+  evidence, G1.20 pixel-center intrinsics remains rejected, and G1.24 Manhattan remains a
+  private orientation candidate. None was jointly generated with the eight-arm intermediates,
+  so their interactions are recorded as unrun/not estimable rather than fabricated.
+- Production CLI/API/frontend/manifest behavior and defaults are unchanged. G1.26 alone may
+  select and freeze a new baseline from this evidence.
+
+Reproduction and evidence:
+- Analyzer: scripts/analyze_stage1_factorial.py
+- Report: outputs/experiments/g1_25/stage1_factorial.json
+- Report SHA-256: 94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158
+- Runtime: 0.43 s; maximum RSS: 40,640 KiB; exit status 0.
+- `--check` reproduced byte-identical JSON.
+- Focused G1.25/factorial/ETH3D regressions: 59 passed.
