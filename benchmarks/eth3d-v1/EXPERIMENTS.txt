@@ -1037,3 +1037,36 @@ Reproduction and evidence:
 - Runtime: 0.43 s; maximum RSS: 40,640 KiB; exit status 0.
 - `--check` reproduced byte-identical JSON.
 - Focused G1.25/factorial/ETH3D regressions: 59 passed.
+
+G1.26 — Stage 1 geometry-baseline gate review
+------------------------------------------------
+Date: 2026-07-29
+Status: review complete; no candidate promoted, Gate G1 remains blocked
+
+The deterministic G1.25 report (SHA-256
+94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158)
+marks `per_frame`, `adaptive_two`, and `spatial_balanced` ineligible for default
+promotion. Covisibility remains mixed/conditional, contradiction-free and pixel-center
+intrinsics failed their transfer gates, and Manhattan has private-only orientation evidence.
+No retained candidate simultaneously provides the mandatory private-ROI improvement and
+non-regressive three-scene transfer required by Gate G1.
+
+Decision:
+- Freeze the existing reproducible fallback, not a new algorithm: sequential grouping,
+  points fusion, global confidence threshold, any-support consistency, seeded-random point
+  budgeting, confidence percentile 50, and a 2,000,000-point cap.
+- CLI, adapter, API, and frontend defaults already agree; none was changed. Experimental
+  alternatives stay explicit opt-ins, and no automatic selector was fitted.
+- No reconstruction, alignment, official evaluator, GT-guided operation, or retained asset
+  was rerun or changed for G1.26. No G1.26 output artifact was fabricated.
+- Effective settings remain auditable through manifest metrics and runner diagnostics;
+  historical manifests that omit newer optional policy metrics remain loadable.
+- The fallback does not establish native metric scale or true metres. G1.26 remains unchecked
+  because the strict Gate G1 improvement condition is unmet; Stage 2 must not be presented as
+  depending on a newly improved geometry baseline.
+
+Reproduction is documented in README.md and docs/manifest-schema.md. Verification passed:
+19 focused compatibility tests; 132 full Python tests (one pre-existing Starlette/httpx
+warning); G1.25 byte check; retained job `20260723_070028_024e9f25` load; backend smoke job
+creation; 5 frontend Node tests; frontend production build; CLI help; and `git diff --check`.
+Vite retained its existing >500 kB chunk-size warning.

@@ -1072,3 +1072,34 @@ The frozen eight-arm ETH3D analysis is recorded in `benchmarks/eth3d-v1/EXPERIME
 94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158). It reran no
 reconstruction or evaluator and changed no retained asset, production contract, or default.
 G1.26, not G1.25, owns the final baseline decision.
+
+G1.26 — Stage 1 geometry-baseline gate review
+----------------------------------------------
+Date: 2026-07-29
+Status: review complete; no candidate promoted, Gate G1 remains blocked
+
+The retained private all-on job is useful target-domain evidence, but it is not a qualifying
+new production baseline. Its point budget was inactive, its combined Phase 1/2 settings were
+not isolated from each other on this scene, and the cross-scene factorial remains mixed.
+Manhattan improves signed global orientation only; rigid transforms cannot repair the local
+bookshelf layers or thickness targeted by Gate G1. Contradiction-free and pixel-center
+candidates improved selected private ROI measurements but failed their declared ETH3D
+transfer gates.
+
+G1.26 therefore retains the existing reproducible fallback: sequential grouping, points
+fusion, global confidence threshold, any-support consistency, seeded-random point budgeting,
+confidence percentile 50, and a 2,000,000-point cap. No CLI/API/frontend default, retained
+job, reconstruction asset, or evaluator result changed, and no selector was fitted from the
+four frozen scenes. New manifests continue to expose effective policy metrics; old jobs may
+omit them and must remain loadable. Units remain arbitrary without independent scale recovery.
+
+This is a no-promotion decision, not evidence that the original fallback solved the private
+ROI problem. The mandatory Gate G1 combination of private improvement and non-regressive
+three-scene transfer is unmet, so G1.26 remains blocked. Evidence is the G1.25 report at
+`outputs/experiments/g1_25/stage1_factorial.json` (SHA-256
+94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158); no expensive stage
+was rerun for this review. Verification passed: 19 focused compatibility tests, 132 full
+Python tests (one pre-existing Starlette/httpx warning), retained job
+`20260723_070028_024e9f25` load, backend smoke, 5 frontend Node tests, production build,
+G1.25 byte check, CLI help, and `git diff --check`; Vite retained its existing >500 kB chunk
+warning.
