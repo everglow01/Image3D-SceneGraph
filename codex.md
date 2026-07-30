@@ -11,8 +11,8 @@
 
 Working description:
 
-> A calibration-free image/video/panorama to semantic 3D scene reconstruction system.
-> Users upload one image, multiple images, a video, or a 360 panorama; the system estimates geometry automatically, reconstructs a 3D scene, attaches semantic objects, infers spatial relations, and provides a web interface for viewing and export.
+> A calibration-free image-to-semantic-3D reconstruction system intended for deployment through a company portal.
+> The target static product accepts one or more images, reconstructs cameras and geometry on company GPUs, trains and evaluates a project-integrated 3D Gaussian scene, and returns browser-viewable and downloadable results. Static semantics follows that product loop; video, long-horizon mapping, and 360 panorama support are separately gated later extensions.
 
 Important wording:
 
@@ -41,30 +41,29 @@ The goal is not to build a generic wrapper around many models. The goal is to bu
 
 ## 3. Target User Experience
 
-A user opens the web app and can:
+A user opens the company portal and can:
 
-1. Upload a single image, multiple images, a video, or a 360 panorama.
-2. Start a reconstruction job.
-3. Watch job progress and logs.
-4. View the reconstructed 3D result in the browser.
-5. Toggle geometry, RGB, semantic objects, camera trajectory, and scene graph.
-6. Click an object and see its label, approximate 3D position, and relations.
-7. Export results as `.ply`, `.glb`, scene graph `.json`, and optionally a zip bundle.
+1. Upload a single image or multiple images for the static product baseline.
+2. Start a reconstruction job and receive a job ID without waiting for GPU work.
+3. Watch persisted queue/stage/progress state and actionable failures.
+4. View point cloud, mesh, and evaluated 3D Gaussian results in the browser when available.
+5. Inspect semantic objects, evidence, relations, and physical diagnostics after the static semantic stage lands.
+6. Download authorized, integrity-checked scene assets and result bundles, or delete retained data.
 
-The system should feel like a usable demo, not a loose collection of scripts.
+The public portal should expose a small versioned quality profile, not raw research/ablation controls. Internal CLI/admin paths retain the complete auditable configuration. Video and panorama are not assumed to share the static perspective-image baseline and remain separately gated extensions.
+
+The system should feel like a usable product, not a loose collection of scripts.
 
 ---
 
 ## 4. Core Problem Definition
 
-Inputs:
+Inputs by roadmap stage:
 
-- One RGB image.
-- Multiple unordered RGB images.
-- A video, internally converted to selected frames.
-- One equirectangular 360 panorama image.
+- Static baseline: one RGB image or multiple unordered RGB images.
+- Later gated extensions: video converted to selected frames, and an equirectangular 360 panorama through a panorama-aware adapter.
 
-Unavailable from the user:
+Unavailable from the user by default:
 
 - camera intrinsics;
 - camera extrinsics;
@@ -75,13 +74,11 @@ Unavailable from the user:
 
 Outputs:
 
-- reconstructed geometry: point cloud first, mesh / 3DGS later;
+- reconstructed geometry: point cloud, mesh, and project-integrated 3DGS assets when their gates pass;
 - estimated camera parameters or trajectory when available;
-- semantic object instances;
-- object-level 3D positions;
-- spatial relations;
-- physical consistency diagnostics;
-- exportable files and frontend visualization.
+- training/validation/test split metadata, effective configuration, checkpoints, render evaluation, and provenance for 3DGS jobs;
+- semantic object instances, evidence, object-level 3D positions, spatial relations, and physical consistency diagnostics in the static semantic stage;
+- authorized browser visualization and versioned export bundles.
 
 ---
 
@@ -94,7 +91,10 @@ Explicitly avoid:
 - supporting every reconstruction model;
 - supporting every viewer format early;
 - training a large image-to-3D foundation model from scratch;
-- overbuilding distributed infrastructure before the local pipeline works;
+- using Nerfstudio or another complete external training platform as the Stage 2 runtime;
+- exposing arbitrary backends, filesystem paths, checkpoints, or ablation hyperparameters through the public portal;
+- overbuilding multi-node infrastructure before one durable bounded GPU-worker product loop is verified;
+- forcing video or equirectangular panorama through the static perspective-image path;
 - claiming centimeter-level accuracy without a benchmark;
 - hiding model limitations behind a polished frontend.
 
@@ -105,30 +105,47 @@ Prefer one reliable baseline and one clear algorithmic improvement path.
 ## 6. High-Level Architecture
 
 ```text
-Frontend
-  upload image/images/video/panorama
-  view job status
-  inspect 3D scene
-  inspect semantic objects and relations
-  export results
+Company Portal Frontend
+  authenticated static image/multi-image upload
+  persisted queue/stage/progress and failure UX
+  point cloud / mesh / Gaussian viewer
+  later semantic evidence and scene-graph UI
+  authorized export and deletion
 
-Backend API
-  create job
-  store input assets
-  run reconstruction worker
-  serve generated assets
-  serve scene graph JSON
+Public Backend API
+  validate and stream uploads
+  create a durable job and return its ID quickly
+  authorize status, manifest, asset, export, cancel/retry, and delete operations
+  expose only versioned public quality profiles
 
-Reconstruction Worker
-  frame extraction and selection
-  geometry model inference
-  point cloud / camera export
-  mesh or 3DGS generation
-  semantic segmentation / VLM parsing
-  2D-to-3D semantic fusion
-  scale recovery and physical consistency optimization
-  scene graph generation
+Metadata / Queue / Artifact Layer
+  Stage 2: filesystem/manifest state, one local worker, one GPU-heavy job at a time
+  persist job, attempt, stage, effective config, hashes, and checkpoint state across local restarts
+  Stage 3 handoff: production database, queue, object storage, retention, auth, and multi-user policy
+
+Geometry Worker
+  estimate cameras and point geometry through project adapters
+  preserve Raw/Aligned, arbitrary-scale, and provenance contracts
+  export point cloud / cameras / optional mesh initialization
+
+Project-integrated 3DGS Worker
+  own dataset/camera/split/normalization contracts
+  own Gaussian model and training lifecycle, hyperparameter validation, and effective config
+  own densification/pruning, checkpoint/resume/attempts, validation/test evaluation, and export
+  call only R2.0-approved narrow rasterizer/optimizer primitives; never a full external trainer
+
+Static Semantic Worker (later)
+  produce 2D evidence and geometry-grounded 3D instances
+  infer spatial/support/physical relations with confidence and provenance
+  publish a versioned evidence-aware scene graph
+
+Optional Extension Workers (later)
+  short-video tracking/keyframes/submaps
+  loop closure/pose graph/scale/dynamics
+  panorama-aware reconstruction behind a separate gate
 ```
+
+The current repository still has a synchronous local `JobStore`. Stage 2 only targets a minimal filesystem/manifest-based async lifecycle for one RTX 4060 8GB and one serial GPU worker. Production database, distributed queue, object storage, retention, authentication, tenant isolation, company-server concurrency, deployment, and operations are Stage 3 handoff concerns, not Gate G2 requirements.
 
 ---
 
@@ -137,24 +154,26 @@ Reconstruction Worker
 Frontend:
 
 - React + Vite + TypeScript.
-- Three.js or React Three Fiber for interactive 3D viewing.
-- Keep UI practical: upload area, task timeline, viewer, object panel, export panel.
+- Keep the current research UI while Stage 2 is developed; Stage 3 replaces the public flow with upload, task timeline, viewer, evaluation summary, export, and deletion.
+- Public users receive versioned quality profiles; internal CLI/admin retains experimental controls.
+- A browser Gaussian renderer/decoder is allowed only if `R2.0` approves its pinned version, format, transitive dependencies, and license.
 
-Backend:
+Backend and operations:
 
 - Python environment management: `uv`.
-- FastAPI.
-- Local filesystem job storage for MVP.
-- Background worker process for GPU jobs.
-- SQLite can be added when job metadata becomes useful.
+- FastAPI remains a thin local API during Stage 2.
+- Current local filesystem and synchronous `JobStore` are development baselines; Stage 2 adds only a filesystem/manifest-based async job/attempt lifecycle, one local worker, serial GPU-heavy execution, restart recovery, cancellation, and retry.
+- Stage 2 explicitly does not select or implement a production database, Redis/distributed queue, object storage, data-retention/delete/backup policy, authentication, tenant/RBAC, signed downloads, company-server concurrency, deployment topology, or operations stack.
+- Those product/deployment decisions are frozen by the responsible deployment work in Stage 3 and are not Gate G2 blockers.
 
 Algorithm stack:
 
-- Geometry baseline: VGGT first, or DUSt3R / MASt3R if VGGT is inconvenient.
-- Single-image object-level baseline: optional TripoSR-style model later.
-- Multi-image/video/panorama scene output: point cloud first, mesh or 3D Gaussian Splatting later.
-- Semantics: segmentation + VLM parsing, projected/fused into 3D.
-- Algorithm contribution: scale recovery, physical consistency, semantic scene graph.
+- Geometry fallback: current COLMAP+VGGT `sequential + points + global + any_support + random`; this is reproducible but not a newly improved Gate G1 baseline.
+- Integrated 3DGS: this repository owns dataset/camera/coordinate contracts, Gaussian model and trainer orchestration, hyperparameter/effective-config validation, checkpoint/resume, training validation, isolated test evaluation, export, diagnostics, and tests.
+- Nerfstudio/Splatfacto or another complete external training platform is prohibited as the Stage 2 runtime. Existing exported-splat registration remains legacy/reference-only.
+- PyTorch/CUDA is allowed only in a separate optional GPU dependency group. Stage 2A selected the official binary `gsplat==1.5.3+pt23cu121` (tag `v1.5.3`, commit `937e29912570c372bed6747a5c9bf85fed877bae`, Apache-2.0) as the narrow differentiable rasterizer for the frozen CPython 3.10 / Linux x86_64 / PyTorch 2.3 CUDA 12.1 matrix. Its RTX 4060 sm_89 forward/backward/finite-difference check passes. The current browser renderer remains `@mkkellogg/gaussian-splats-3d==0.4.7` (MIT, lockfile-pinned) for display only. Neither dependency owns project training or canonical export.
+- Static semantics: segmentation/open-vocabulary/VLM proposals fused into 3D and validated through geometry, provenance, scale uncertainty, and physical checks.
+- Video, long-horizon mapping, and panorama are optional later extensions rather than prerequisites for the static portal.
 
 ---
 
@@ -195,111 +214,114 @@ Keep algorithm code in `src/`. Keep one-off runnable entrypoints in `scripts/`. 
 
 ## 9. Data and Output Contract
 
-Each job should produce a directory like:
+Each job evolves through versioned durable state and one or more immutable attempts. A completed static 3DGS job should converge on a layout like:
 
 ```text
 outputs/jobs/{job_id}/
   input/
     images/
-    video.mp4
-  frames/
   geometry/
     cameras.json
     points.ply
-    depth/
+    points_aligned.ply
     mesh.glb
-    scene.splat
+  gaussian/
+    scene.<canonical-format>
+    previews/
+  checkpoints/
+    attempt-{attempt_id}/
+  evaluation/
+    validation.jsonl
+    test.json
+  diagnostics/
   semantic/
     masks/
     objects.json
   scene_graph/
     scene.json
   logs/
-    run.log
+    attempt-{attempt_id}.log
+  exports/
+    bundle-manifest.json
   manifest.json
 ```
 
-`manifest.json` should be the frontend's stable entry point. It should list what assets exist and their relative paths.
+`manifest.json` remains the frontend's stable entry point. Stage 2 must version it beyond today's terminal-only contract while preserving old-job reads. At minimum it records:
 
-Example manifest:
+- schema/job/attempt identity, status, stage, progress, timestamps, and structured failure/cancellation state;
+- source input hashes and dataset/camera/split/Raw-Aligned/normalization contracts;
+- requested profile, effective internal configuration and hash, code/dependency/environment provenance;
+- complete assets only, with relative paths, roles, hashes, coordinate system, units/scale state, and integrity status;
+- checkpoint/resume metadata and validation/test metric history without allowing test-set tuning;
+- export inventory.
 
-```json
-{
-  "job_id": "demo_001",
-  "status": "done",
-  "mode": "video",
-  "assets": {
-    "point_cloud": "geometry/points.ply",
-    "mesh": "geometry/mesh.glb",
-    "scene_graph": "scene_graph/scene.json",
-    "log": "logs/run.log"
-  },
-  "metrics": {
-    "num_frames": 48,
-    "num_points": 1200000,
-    "num_objects": 18
-  }
-}
-```
+Allowed lifecycle values include `queued`, `running`, `exporting`, `done`, `failed`, and `cancelled`; detailed stages are separate fields. A retry creates a new attempt and does not overwrite a valid attempt. Partial checkpoints/exports are never published as successful assets. Existing manifests that only contain terminal `done` fields remain valid as documented in `docs/manifest-schema.md`. Owner/tenant/retention fields are reserved for Stage 3 rather than implemented speculatively in Stage 2.
+
+All generated inputs, datasets, checkpoints, rendered views, evaluator outputs, previews, point clouds, and job diagnostics stay in ignored artifact storage and must not enter Git.
 
 ---
 
 ## 10. API Draft
 
+The API has two phases. Stage 2 only needs a local research API that decouples requests from one serial GPU worker and persists filesystem/manifest state. Stage 3 owns the authorized public portal contract after deployment requirements are known.
+
 ```text
 POST /api/jobs
-  Create a reconstruction job from uploaded image/images/video/panorama.
-  Required reconstruction contract fields:
-    mode: image | multi_image | video | panorama
-    geometry_backend: mock | vggt | colmap | colmap_vggt | dust3r | mast3r | nerfstudio_3dgs
-    output_type: point_cloud | mesh | gaussian_splat
+  Stage 2: validate a local static image/multi-image upload, persist the job,
+  enqueue it behind at most one running GPU-heavy job, and return job ID/status quickly.
+  Stage 3: add public quality-profile and authorization boundaries.
 
 GET /api/jobs/{job_id}
-  Return job status, stage, progress, and errors.
+  Return authorized status, attempt, stage, progress, timestamps, and safe error details.
 
 GET /api/jobs/{job_id}/manifest
-  Return output manifest.
+  Return the versioned stable output contract, including only complete assets.
 
-GET /api/jobs/{job_id}/scene
-  Return semantic scene graph JSON.
+POST /api/jobs/{job_id}/cancel
+  Idempotently request cancellation.
+
+POST /api/jobs/{job_id}/retry
+  Create a new bounded attempt without overwriting a valid attempt.
 
 GET /api/jobs/{job_id}/assets/{path}
-  Serve generated asset files.
-
 GET /api/jobs/{job_id}/download
-  Download complete result bundle.
+DELETE /api/jobs/{job_id}
+  Stage 2: local integrity-checked asset access/export; production authorization,
+  signed download, retention, and deletion semantics wait for Stage 3.
 
 GET /api/backends
-  Return optional model availability, supported outputs, missing paths,
-  and setup commands for frontend gating.
+  Internal/admin capability endpoint; never expose setup commands, local paths, or arbitrary backends to public users.
 ```
 
-Do not design a large API before the MVP works. Add endpoints only when the frontend needs them.
+Internal CLI/admin may select experimental geometry factors and full versioned 3DGS configurations, but every choice must resolve to an effective config/hash in the job record. The future ordinary-user API must not accept paths, checkpoints, arbitrary backend names, or raw training hyperparameters.
+
+Do not expand the Stage 2 local API beyond the algorithm workflow. Production auth/storage/retention/deployment endpoints and semantics wait for Stage 3.
 
 ---
 
 ## 11. Frontend MVP
 
-The first frontend should include:
+The current research frontend remains useful during Stage 2. The public company-portal rewrite belongs to Stage 3 and should include:
 
-1. Upload panel.
-2. Reconstruction mode selector: single image / multi image / video / panorama.
-3. Job progress timeline.
-4. 3D viewer.
-5. Object list panel.
-6. Scene graph / relations panel.
-7. Export buttons.
+1. Authorized static image/multi-image upload with consent and hard limits.
+2. One or a small number of versioned quality profiles; no public ablation panel.
+3. Recoverable queue/stage/progress, cancel, retry, and actionable failure states.
+4. Point cloud / mesh / Gaussian viewing with coordinate and arbitrary-scale disclosure.
+5. Evaluation summary that distinguishes render quality from geometry quality.
+6. Authorized export, retention, and deletion controls.
+7. Static semantic object/evidence/relation panels after Stage 4.
 
-Do not build a marketing landing page as the first screen. The first screen should be the actual tool.
+Internal CLI/admin continues to expose full experimental configuration. Hiding public controls must not delete research reproducibility.
 
-Viewer features, in order:
+Viewer priorities:
 
-1. Load a static demo `.ply` or `.glb`.
-2. Load generated asset from a completed job.
-3. Toggle point cloud / mesh.
-4. Highlight selected object.
-5. Display camera trajectory.
-6. Display relation edges.
+1. Preserve stable manifest-driven loading and current point/camera Raw/Aligned diagnostics.
+2. Load the Stage 2 canonical/browser Gaussian export only after format and license approval.
+3. Handle progressive loading, cancellation, malformed/missing assets, and bounded large-scene behavior.
+4. Keep point, mesh, Gaussian, cameras, and later object anchors in an explicit shared coordinate contract.
+5. Add semantic evidence and relation overlays only after the corresponding stable schema exists.
+
+Do not build a marketing landing page before the actual authorized product loop works.
 
 ---
 
@@ -317,15 +339,16 @@ Problem:
 
 Possible solution:
 
-- Infer scale from object priors: human height, door height, monitor size, desk height.
-- Use scene priors: floor/table plane height, camera height range.
-- Use optional user-provided single reference measurement later, but not in MVP.
+- Treat scale as an explicit provider contract: `unknown`, user reference, camera height, stereo/RGB-D, IMU, or an evaluated metric-depth prior.
+- Preserve source, evidence, uncertainty, and units in every derived asset.
+- Begin with an optional user-provided reference measurement after the static geometry/semantic contracts are stable.
+- Object and scene priors may propose or sanity-check scale, but category averages must not be presented as metric truth.
 
 Output:
 
-- scale factor;
-- confidence;
-- before/after metric estimates.
+- scale factor and coordinate transform where applicable;
+- source/evidence and uncertainty;
+- before/after estimates clearly labelled as arbitrary or metric.
 
 ### 12.2 Semantic 3D Fusion
 
@@ -409,7 +432,19 @@ Protocol:
 - Label results as GT-camera-Sim(3)-aligned geometry quality, not native metric-scale recovery.
 - Stabilize the single-scene runner and result schema before adding multi-scene orchestration or tuning reconstruction algorithms.
 
-### 13.2 Semantic office/tabletop benchmark
+### 13.2 Static 3DGS evaluation
+
+Stage 2A freezes the executable protocol in `docs/stage2a-contract.md` and `image3d_scenegraph.gaussian.dataset`. The matrix is: a generated 12-camera contract smoke scene; 32 spatially selected views from retained private job `20260723_070028_024e9f25`; 32 views from public ETH3D `terrains`, using only RGB plus project-estimated COLMAP cameras; and 32 views from Mip-NeRF 360 `room` at 779×519 as the primary public indoor product proxy. Mip-NeRF 360 `bonsai` is also retained locally as the public fine-detail/literature-reference scene. The official project page provides no dataset-specific license or redistribution statement, so both scenes remain ignored local inputs and do not establish redistribution rights.
+
+The deterministic split seed is `20260729`. Camera-spatial farthest-point traversal selects held-out views; each scene uses approximately 80/10/10 with at least two validation and two test views. The protocol separates:
+
+- train views used for optimization;
+- validation views used for monitoring, checkpoint selection, and bounded hyperparameter decisions;
+- test views isolated until candidate/configuration freeze and used only for final evaluation.
+
+Subject to dependency/license approval, report PSNR, SSIM, LPIPS, per-view failures and distributions, render time/FPS, Gaussian count, peak memory, training time, and artifact size. Keep rendering quality separate from ETH3D geometry quality. Record split, seed, effective-config hash, checkpoint/attempt, code/dependency environment, and resource profile. Never tune on test views or present a visually attractive training-view render as held-out evidence.
+
+### 13.3 Semantic office/tabletop benchmark
 
 Build a small office/tabletop benchmark. It does not need to be large, but it must be consistent.
 
@@ -455,101 +490,76 @@ This table is essential for showing algorithmic value.
 
 ---
 
-## 14. Milestones
+## 14. Roadmap Milestones
 
-### Milestone 0: Clean Project Bootstrap
+`plan.md` is the task-level checklist and gate definition. This section records the product ordering; it does not mark future implementation complete.
 
-Deliverables:
+### Completed foundation: bootstrap, mock product loop, and Stage 1 geometry research
 
-- repository skeleton;
-- `.gitignore` for outputs, checkpoints, external models, caches;
-- `README.md` with project statement;
-- this `codex.md` committed.
+Current repository capabilities include the FastAPI/React manifest-driven demo, geometry adapters, COLMAP/VGGT point-cloud and mesh paths, browser viewers, diagnostics, and the Stage 1 factorial review.
 
-Success criteria:
+Stage 1 ended with no candidate satisfying Gate G1. `G1.26` remains blocked; `sequential + points + global + any_support + random` is retained only as the reproducible fallback.
 
-- a new contributor can understand the project in 5 minutes.
-
-### Milestone 1: Frontend + Mock Backend
+### Stage 2: Project-integrated static 3DGS
 
 Deliverables:
 
-- upload UI;
-- job creation API;
-- mock job status;
-- viewer loads a sample `.ply` or `.glb`;
-- export buttons can download sample assets.
+- blocking `R2.0` decision/license/build matrix;
+- deterministic dataset/camera/coordinate/split/initialization contract;
+- project-owned Gaussian model/training lifecycle and versioned hyperparameter/effective-config contract;
+- atomic checkpoint/resume/attempts;
+- training-time validation and isolated final test evaluation;
+- minimal filesystem/manifest async job state and one serial RTX 4060 GPU worker;
+- canonical export, integrity checks, browser viewing, and resource profiles;
+- clean upload → train → evaluate → export → view/download smoke.
 
 Success criteria:
 
-- the app demonstrates the intended workflow even before real reconstruction works.
+- Gate G2 passes without Nerfstudio or another full external training platform in runtime.
 
-### Milestone 2: Geometry Baseline
+### Stage 3: Company portal productization and deployment
 
 Deliverables:
 
-- image/multi-image/video/panorama input handling;
-- frame extraction for video;
-- geometry model adapter;
-- point cloud export;
-- frontend displays generated point cloud.
+- company-approved metadata DB, queue, artifact storage, deployment, migration, backup, and rollback;
+- streaming upload validation, quotas, retention, and deletion;
+- auth, tenant/RBAC isolation, audit, bounded GPU scheduling, observability, and cost/capacity controls;
+- public profile/internal experiment separation;
+- rewritten public portal flow with safe progress, cancel/retry, viewing, evaluation, and export.
 
 Success criteria:
 
-- upload real office video/images and view reconstructed geometry in browser.
+- Gate G3P passes in a company-like multi-tenant staging environment.
 
-### Milestone 3: Mesh or 3DGS Output
+### Stage 4: Static semantics and evidence-aware scene graph
 
 Deliverables:
 
-- mesh or 3DGS export path;
-- frontend viewer support;
-- comparison with raw point cloud.
+- frozen static semantic benchmark and model adapter contracts;
+- 2D evidence, mask-to-3D lifting, multi-view object association, and persistent object map;
+- explicit scale-provider/uncertainty state;
+- geometry-grounded spatial/support/physical relations and conservative correction candidates;
+- versioned scene graph, query/export, frontend evidence display, and evaluator.
 
 Success criteria:
 
-- output is visually strong enough for a project demo video.
+- Gate G4S passes without confusing VLM proposals, uncertain scale, or weak geometry with facts.
 
-### Milestone 4: Semantic Fusion
+### Stage 5: Optional video and long-horizon extensions
 
 Deliverables:
 
-- segmentation/VLM baseline;
-- object label output;
-- 2D-to-3D fusion;
-- object click/highlight in frontend.
+- short-video ingestion, tracking/relocalization, keyframes, bounded windows/submaps, queue/backpressure, and online evaluation;
+- separately gated loop closure, pose graph, scale drift, dynamic masking/objects, and long-sequence evaluation;
+- panorama-aware adapter candidate behind its own benchmark gate.
 
 Success criteria:
 
-- common office objects appear as selectable 3D instances.
+- Gate G5A freezes only an evidence-backed short-video near-real-time baseline; Gate G5B independently controls any long-horizon mapping claim. Failure of Stage 5 does not invalidate the static portal.
 
-### Milestone 5: Physical Consistency + Scene Graph
+### Evaluation and packaging throughout
 
-Deliverables:
-
-- plane detection;
-- support and upright reasoning;
-- violation reporting;
-- scene graph JSON;
-- query UI.
-
-Success criteria:
-
-- the project has measurable algorithmic contribution beyond calling a reconstruction model.
-
-### Milestone 6: Benchmark and Resume Packaging
-
-Deliverables:
-
-- small annotated benchmark;
-- metrics script;
-- ablation table;
-- demo video;
-- README with architecture diagram and results.
-
-Success criteria:
-
-- the project can be explained in an interview as a complete vision algorithm system.
+Every stage retains mixed/failed outcomes, fixed-input reproducibility, runtime/GPU measurements, stable schemas, clean build instructions, and evidence-backed wording. Generated datasets, checkpoints, renders, evaluators, point clouds, screenshots, and job diagnostics remain ignored artifacts.
 
 ---
 
@@ -566,20 +576,23 @@ Success criteria:
 
 ---
 
-## 16. Initial Implementation Order
+## 16. Current Implementation Order
 
-Recommended first steps:
+Completed foundation:
 
-1. Create repo skeleton and `.gitignore`. Done.
-2. Build FastAPI mock job API. Done.
-3. Build React/Vite frontend with upload and 3D viewer. Done.
-4. Add one sample output asset to exercise the viewer. Covered by mock job output.
-5. Add a geometry adapter interface. Done.
-6. Integrate VGGT or DUSt3R as the first baseline. Done for VGGT point-cloud output.
-7. Connect generated output to frontend via `manifest.json`. Done for mock, Nerfstudio import, and VGGT point-cloud jobs.
-8. Add semantic fusion only after geometry output is stable.
+1. Repository/bootstrap, mock API, frontend upload/viewer, geometry adapter, VGGT/COLMAP paths, and manifest-driven assets.
+2. Stage 1 diagnostics and factorial review.
+3. `G1.26` review with no candidate promotion; the existing stable configuration remains a fallback and the gate remains blocked.
 
-Do not begin with training or fine-tuning.
+Next work is documentation-gated:
+
+1. `R2.0` was confirmed on 2026-07-29 for the algorithm-development scope recorded in `plan.md`: project-integrated 3DGS, approved narrow dependencies, frozen evaluation isolation, and one local RTX 4060 8GB with serial GPU-heavy execution.
+2. Execute `R2.1` through `R2.16` in dependency order.
+3. Productize the static portal in Stage 3 only after the deployment owner supplies database/storage/retention/auth/company-infrastructure requirements.
+4. Add static semantic object maps and scene graphs in Stage 4.
+5. Treat short video, long-horizon mapping, and panorama as optional Stage 5 extensions.
+
+Stage 2 must not introduce speculative production database, object storage, retention, auth, tenant, multi-GPU, or deployment architecture. It may add only the minimum local async state and single-GPU memory/queue controls required to develop, resume, evaluate, and export 3DGS reliably.
 
 ---
 
@@ -587,7 +600,7 @@ Do not begin with training or fine-tuning.
 
 - New workspace: `/home/owen/Image3D-SceneGraph`.
 - Old workspace `/home/owen/3d_demo` remains an exploration repo.
-- Project direction: image/video/panorama to semantic 3D scene reconstruction.
+- Project direction: a static image/multi-image company-portal reconstruction product first; semantic static scenes next; video, long-horizon mapping, and panorama remain later gated extensions.
 - Frontend is part of MVP, not a later add-on.
 - User does not provide camera parameters; the system estimates them internally.
 - Algorithm value should come from scale recovery, semantic 3D fusion, physical consistency, and scene graph reasoning.
@@ -623,4 +636,13 @@ Do not begin with training or fine-tuning.
 - Generic point-cloud alignment now analyzes three RANSAC plane candidates and selects the candidate with the strongest global inlier ratio unless `--plane-index` is explicitly set. This fixed the TSDF regression job above, whose first candidate had 7.10% support but whose second candidate had 11.96%, without lowering the 8% plane-quality threshold. G1.22 adds a separate diagnostic-only Manhattan-frame evaluator: it analyzes up to eight planes, filters them with the same 8% gate, clusters unoriented near-parallel normals, and reports supported orthogonal triplets plus partial evidence and explicit ambiguity. G1.23 then adds a separate gravity-axis evidence evaluator over an unambiguous G1.22 frame: it audits optional IMU records, COLMAP camera image-up, camera-centre/point robust spans, and reliable boundary-plane ordering with frozen per-source scores, selection/margin gates, and explicit missing/invalid fallback. EXIF Orientation is not treated as gravity, camera image-up is only a capture prior, no plane is labeled ground, and weak/conflicting evidence remains ambiguous. Retained private-225 has no IMU sidecar; all four available geometric sources selected Manhattan axis 0 with combined scores 0.52815/0.23707/0.23477 and margin 0.29108, while camera image-up coherence selected the negative axis direction as up. G1.24 applied that frozen triad/sign in an offline rigid-transform ablation without rerunning reconstruction or plane detection. Against the retained single-plane transform, Manhattan changed reliable-plane support-weighted cardinal residual only from 0.83416° to 0.81222° but reduced the maximum from 2.95460° to 1.25981° and, critically, mapped the selected up to +Z rather than the single-plane result's near-exact -Z. Six exact-relative-view Raw/single-plane/Manhattan screenshots preserved cloud-camera registration and confirmed that local duplicate layers/thickness are rigid-transform invariants, not alignment gains. Ambiguous or unsigned evidence falls back to single-plane. Manhattan is retained only as an experimental G1.25 candidate from one private scene; `align_pointcloud.py`, retained assets, API/frontend contracts, and the production default remain unchanged.
 - G1.25 freezes the Stage 1 combination evidence with a read-only analyzer over the existing three-scene eight-arm Phase 1/2/3 factorial; no reconstruction, alignment, official evaluator, or GT-guided operation was rerun. Balanced 2/5 cm F1 effects confirm that `per_frame` remains mixed (positive on pipes/delivery_area, negative on terrains), `adaptive_two` changes sign after averaging its scene-dependent interactions, and `spatial_balanced` remains the strongest bounded factor with positive effects on both capped scenes. Pipes and retained private-225 are explicitly below their point caps, so Phase 3 effects there are inactive rather than gains. Covisibility, `contradiction_free`, pixel-center intrinsics, and Manhattan were not jointly generated with the factorial; their interactions remain unrun/not estimable instead of being inferred. The frozen report is deterministic and preserves all raw arms and mixed outcomes. Production defaults and contracts remain unchanged; G1.26 owns the final baseline selection.
 - G1.26 completes the Stage 1 gate review without promoting a candidate. The mandatory Gate G1 combination—quantified private-ROI improvement without unexplained systematic regression across the three ETH3D scenes—is not satisfied by any retained candidate: grouping and Phase 1/2 transfer are mixed, Phase 3 lacks an active non-ETH3D result, contradiction-free and pixel-center intrinsics failed their transfer gates, and Manhattan is private-only rigid orientation evidence. The existing `sequential + points + global + any_support + random` configuration (confidence percentile 50, 2M point cap) is frozen only as the reproducible fallback; runner, adapter, optional API fields, frontend defaults, retained jobs, and assets remain unchanged. `docs/manifest-schema.md` records effective-policy metrics and backward compatibility for historical manifests that omit them. No reconstruction/evaluator/GT-guided operation or selector was run, arbitrary units remain non-metric, and G1.26 stays blocked rather than claiming a new improved geometry baseline.
-- Root `plan.md` is the task-level execution checklist beneath this plan of record. It decomposes the roadmap into five gated stages: trustworthy offline geometry, 3DGS rendering, near-real-time incremental video reconstruction, long-horizon consistency/scale/dynamics, and evidence-aware semantic scene graphs. Tasks are completed one at a time and marked done only after their stated acceptance criteria pass; failed or mixed experiments remain recorded rather than being silently removed.
+- Root `plan.md` is the task-level execution checklist beneath this plan of record. Its revised product ordering is: integrated static 3DGS, company-portal productization/deployment, static evidence-aware semantics, then optional video/long-horizon/panorama extensions. All Stage 2 implementation is blocked by one consolidated `R2.0` confirmation round; failed or mixed experiments remain recorded rather than being silently removed.
+- Stage 2 must implement 3DGS reconstruction, training-time validation, isolated test evaluation, hyperparameter/effective-config management, checkpoint/resume/attempts, export, and worker/manifest integration inside this repository. Nerfstudio/Splatfacto or another complete external training platform is not an allowed runtime. The old `register_gaussian_splat.py` path and Nerfstudio exports are retained only as legacy/reference fixtures.
+- “Integrated in this project” does not silently mean every CUDA/WebGL kernel must be handwritten. PyTorch/CUDA, a pinned `gsplat`-style narrow rasterizer, native extension/container policy, optimizer primitive, browser renderer/format, and all license/build constraints are explicit unresolved `R2.0` decisions. No dependency or trainer work starts before confirmation.
+- The target company product is a static image upload → queued GPU geometry/3DGS training → training validation/final test evaluation → integrity-checked export → browser view/download loop. Public users will receive versioned quality profiles; internal CLI/admin keeps full research controls. Stage 2 evolves the current synchronous local `JobStore` only into a backward-compatible filesystem/manifest lifecycle for one serial RTX 4060 worker.
+- On 2026-07-29, `R2.0` was confirmed with an explicit ownership boundary: the current work is algorithm implementation on one RTX 4060 8GB. Stage 2 must manage a single GPU-heavy job at a time, Gaussian/resolution memory budgets, OOM behavior, checkpoint/resume, cancel/retry, and local restart recovery. It must not design a production database, Redis/distributed queue, object storage, retention/delete/backup, authentication/tenant/RBAC, signed downloads, company-server concurrency, deployment topology, SLA, or operations stack; deployment owners freeze those separately in Stage 3.
+- On 2026-07-29, Stage 2A froze dataset contract v1, deterministic camera-spatial split seed `20260729`, and an immediate 12-view synthetic / 32-view private / 32-view ETH3D `terrains` development matrix. The contract hashes images/cameras, stores OpenCV world↔camera poses, preserves explicit distortion and arbitrary scale, and makes normalization reversible. The selected narrow dependencies are official binary `gsplat==1.5.3+pt23cu121` (Apache-2.0) and lockfile-resolved `@mkkellogg/gaussian-splats-3d==0.4.7` (MIT). The rasterizer passes RTX 4060 sm_89 forward/backward and a color finite-difference check with relative error `5.5668204e-05`; local CUDA 11.7 source compilation is intentionally bypassed by the pinned official wheel. The large Mip-NeRF 360 `bonsai` download remains deferred until local storage is cleared, and source-license approval remains required before a full public 3DGS benchmark claim.
+
+- On 2026-07-30, the locally copied Mip-NeRF 360 `room` scene was added as the primary public indoor product proxy while `bonsai` was retained as the public fine-detail/literature reference. The official `room` COLMAP model registers all 311 views; its PINHOLE intrinsics were scaled independently to the 779×519 `images_4` resolution, then the frozen camera-spatial protocol selected 32 views and produced a 26/3/3 train/validation/test contract with dataset hash `f4beb11902d3f96d3c61aee48d237c7ad9f0856ecad45ff79f684e4cc155b39e`. `room` is one bounded arbitrary-scale indoor scene, not evidence for whole-home coverage, room connectivity, metric accuracy, or a production VR-tour guarantee.
+
+- Later-stage order is portal-first: Stage 3 owns auth/tenant isolation, durable metadata/queue/artifact storage, bounded production GPU scheduling, secure upload/export/retention/delete, observability, migration and rollback; Stage 4 adds static semantic object maps and evidence-aware scene graphs; Stage 5 optionally adds short-video incremental reconstruction, then independently gated long-horizon mapping and panorama support. Online SLAM is not a prerequisite for the static portal.
