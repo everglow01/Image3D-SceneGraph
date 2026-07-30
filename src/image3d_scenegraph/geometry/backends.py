@@ -75,9 +75,10 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             checkpoint_hint=checkpoint_root / "mast3r",
             supported_outputs=("point_cloud",),
         ),
+        _project_gaussian_spec(),
         BackendSpec(
             backend_id="nerfstudio_3dgs",
-            label="Nerfstudio 3DGS",
+            label="Imported Nerfstudio splat (legacy)",
             supported_outputs=("gaussian_splat",),
             available=False,
             reason="automatic 3DGS training is not implemented; register exported splats with scripts/register_gaussian_splat.py",
@@ -89,6 +90,34 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
 def get_backend_status_payload(project_root: Path | str | None = None) -> dict[str, Any]:
     specs = get_backend_specs(project_root)
     return {"backends": [spec.to_dict() for spec in specs]}
+
+
+def _project_gaussian_spec() -> BackendSpec:
+    try:
+        import torch
+        import gsplat
+    except ImportError as exc:
+        return BackendSpec(
+            backend_id="project_3dgs",
+            label="Project 3DGS",
+            supported_outputs=("gaussian_splat",),
+            available=False,
+            reason=f"optional GPU dependency missing: {exc.name}",
+            setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",
+        )
+    cuda_available = bool(torch.cuda.is_available())
+    return BackendSpec(
+        backend_id="project_3dgs",
+        label="Project 3DGS",
+        supported_outputs=("gaussian_splat",),
+        available=cuda_available and shutil.which("colmap") is not None,
+        reason=(
+            None
+            if cuda_available and shutil.which("colmap") is not None
+            else "CUDA unavailable" if not cuda_available else "colmap executable not found on PATH"
+        ),
+        setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",
+    )
 
 
 def _external_model_spec(

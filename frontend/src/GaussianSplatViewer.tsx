@@ -111,6 +111,7 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
   const upMultiplierRef = useRef<1 | -1>(1);
   const [viewerState, setViewerState] = useState("idle");
+  const [assetBytes, setAssetBytes] = useState<number | null>(null);
 
   const setView = (preset: ViewPreset) => {
     const viewer = viewerRef.current;
@@ -140,8 +141,20 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
     }
 
     let cancelled = false;
+    const controller = new AbortController();
     setViewerState("loading");
+    setAssetBytes(null);
     mount.replaceChildren();
+    void fetch(sourceUrl, { method: "HEAD", signal: controller.signal })
+      .then((response) => {
+        const bytes = Number(response.headers.get("content-length"));
+        if (!cancelled && Number.isFinite(bytes) && bytes >= 0) {
+          setAssetBytes(bytes);
+        }
+      })
+      .catch(() => {
+        // Asset size is optional; the viewer still owns the actual GET and error state.
+      });
 
     const viewer = new GaussianSplats3D.Viewer({
       rootElement: mount,
@@ -179,6 +192,7 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
 
     return () => {
       cancelled = true;
+      controller.abort();
       const activeViewer = viewerRef.current;
       viewerRef.current = null;
       if (activeViewer) {
@@ -212,7 +226,13 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
           </button>
         </div>
       )}
-      {viewerState === "ready" && <div className="viewer-hint">Drag rotate · Wheel zoom · Right drag pan · Click refocus</div>}
+      {viewerState === "ready" && (
+        <div className="viewer-hint">
+          Canonical normalized coordinates · arbitrary units
+          {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
+          {" · Drag rotate · Wheel zoom · Right drag pan · Click refocus"}
+        </div>
+      )}
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
           {viewerState === "idle" && "No Gaussian splat"}

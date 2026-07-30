@@ -31,6 +31,7 @@ def test_enqueue_is_durable_and_execute_publishes_only_complete_assets(tmp_path)
     assert done["status"] == "done"
     assert done["attempts"][0]["status"] == "done"
     assert (store.job_dir(queued["job_id"]) / done["assets"]["point_cloud"]).is_file()
+    assert not (store.job_dir(queued["job_id"]) / "lifecycle" / "attempts" / "attempt-001" / "workspace").exists()
 
 
 def test_worker_runs_fifo_serially(tmp_path, monkeypatch):
@@ -107,6 +108,25 @@ def test_cancel_queued_preserves_inputs_and_retry_is_bounded(tmp_path):
     store.cancel_job(job_id)
     with pytest.raises(JobError, match="retry limit"):
         store.retry_job(job_id)
+
+
+def test_workspace_copies_inputs_for_dataset_root_integrity(tmp_path, monkeypatch):
+    store = JobStore(tmp_path / "relative-jobs")
+    queued = store.enqueue_job("image", upload())
+
+    class InputAdapter:
+        def run(self, context):
+            source = context.job_dir / "input" / "images" / "room.jpg"
+            assert source.is_file()
+            assert source.resolve().is_relative_to(context.job_dir.resolve())
+            (context.job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
+            return ReconstructionResult("fake", {"point_cloud": "geometry/points.ply"}, {}, [])
+
+    monkeypatch.setattr("image3d_scenegraph.jobs.get_reconstruction_adapter", lambda *_: InputAdapter())
+    done = store.execute_job(queued["job_id"])
+
+    assert done["status"] == "done"
+    assert (store.job_dir(queued["job_id"]) / "input" / "images" / "room.jpg").is_file()
 
 
 def test_running_cancellation_preserves_partial_workspace(tmp_path, monkeypatch):

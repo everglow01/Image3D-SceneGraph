@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -285,8 +286,56 @@ def validate_contract(contract: dict[str, Any], dataset_root: Path | None = None
         raise DatasetContractError("normalization transforms must be 4 x 4")
     if not np.allclose(normalized_from_world @ world_from_normalized, np.eye(4), atol=1e-7):
         raise DatasetContractError("normalization round-trip failed")
+    initialization = contract["initialization"]
+    if not isinstance(initialization, dict) or set(initialization) != {
+        "coordinate_frame",
+        "asset",
+        "sha256",
+    }:
+        raise DatasetContractError("initialization must contain coordinate_frame, asset, and sha256")
+    if initialization["coordinate_frame"] not in {"world", "normalized"}:
+        raise DatasetContractError("unsupported initialization coordinate frame")
+    asset = initialization["asset"]
+    asset_hash = initialization["sha256"]
+    if (asset is None) != (asset_hash is None):
+        raise DatasetContractError("initialization asset and hash must both be set or both be null")
+    if asset is not None:
+        path = Path(str(asset))
+        if path.is_absolute() or ".." in path.parts or not str(asset):
+            raise DatasetContractError("initialization asset must be a fixed project-relative path")
+        if type(asset_hash) is not str or len(asset_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in asset_hash
+        ):
+            raise DatasetContractError("initialization asset hash must be lowercase SHA-256")
     if contract["dataset_hash"] != contract_hash(contract):
         raise DatasetContractError("dataset contract hash mismatch")
+
+
+def with_initialization(
+    contract: dict[str, Any],
+    *,
+    asset: str,
+    asset_sha256: str,
+    coordinate_frame: str = "normalized",
+) -> dict[str, Any]:
+    """Return a new contract that identifies one verified initialization asset."""
+    validate_contract(contract)
+    path = Path(asset)
+    if path.is_absolute() or ".." in path.parts or not asset:
+        raise DatasetContractError("initialization asset must be a fixed project-relative path")
+    if coordinate_frame not in {"world", "normalized"}:
+        raise DatasetContractError("initialization coordinate frame must be world or normalized")
+    if len(asset_sha256) != 64 or any(character not in "0123456789abcdef" for character in asset_sha256):
+        raise DatasetContractError("initialization asset hash must be lowercase SHA-256")
+    updated = copy.deepcopy(contract)
+    updated["initialization"] = {
+        "coordinate_frame": coordinate_frame,
+        "asset": path.as_posix(),
+        "sha256": asset_sha256,
+    }
+    updated["dataset_hash"] = contract_hash(updated)
+    validate_contract(updated)
+    return updated
 
 
 def write_contract(path: Path, contract: dict[str, Any]) -> None:

@@ -14,7 +14,7 @@ import {
 import { GeometryViewer } from "./GeometryViewer";
 
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
-type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
+type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "project_3dgs" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 type MeshMethod = "poisson" | "ball_pivoting" | "alpha_shape";
 type ViewerMode = "point_cloud" | "mesh" | "gaussian_splat";
@@ -80,6 +80,17 @@ type Manifest = {
     mesh?: string;
     mesh_diagnostics?: string;
     scene_splat?: string;
+    gaussian_model?: string;
+    gaussian_training_result?: string;
+    gaussian_progress?: string;
+    gaussian_dataset?: string;
+    gaussian_evaluation?: string;
+    gaussian_test_evaluation?: string;
+    gaussian_test_decision?: string;
+    gaussian_export_metadata?: string;
+    gaussian_canonical?: string;
+    gaussian_camera_path?: string;
+    gaussian_bundle?: string;
     scene_graph?: string;
     log?: string;
   };
@@ -183,7 +194,8 @@ const backendOptions: Array<{
   { id: "colmap_vggt", label: "COLMAP + VGGT" },
   { id: "dust3r", label: "DUSt3R" },
   { id: "mast3r", label: "MASt3R" },
-  { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS" }
+  { id: "project_3dgs", label: "Project 3DGS" },
+  { id: "nerfstudio_3dgs", label: "Imported splat (legacy)" }
 ];
 
 const outputOptions: Array<{
@@ -1225,7 +1237,14 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="point_cloud_aligned" label="Aligned point cloud" />
               <AssetLink manifest={manifest} assetKey="mesh" label="Mesh" />
               <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="Mesh diagnostics" />
-              <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian splat" />
+              <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian browser asset" />
+              <AssetLink manifest={manifest} assetKey="gaussian_canonical" label="Canonical Gaussian PLY" />
+              <AssetLink manifest={manifest} assetKey="gaussian_export_metadata" label="Gaussian export metadata" />
+              <AssetLink manifest={manifest} assetKey="gaussian_evaluation" label="Gaussian validation" />
+              <AssetLink manifest={manifest} assetKey="gaussian_test_evaluation" label="Gaussian held-out test" />
+              <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="Gaussian test decision" />
+              <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="Gaussian camera path" />
+              <AssetLink manifest={manifest} assetKey="gaussian_bundle" label="Gaussian result bundle" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="Alignment" />
               <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="Fusion diagnostics" />
               <AssetLink manifest={manifest} assetKey="visibility_graph" label="Visibility graph" />

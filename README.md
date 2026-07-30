@@ -79,7 +79,7 @@ Current mock API:
 `POST /api/jobs` accepts multipart form data:
 
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
-- `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `dust3r`, `mast3r`, or `nerfstudio_3dgs`
+- `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, `mast3r`, or legacy `nerfstudio_3dgs`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `files`: one or more uploaded files
 
@@ -89,8 +89,9 @@ Implemented geometry paths:
 - `geometry_backend=vggt` with `output_type=point_cloud` or `mesh`, when the local VGGT repo and checkpoint are installed
 - `geometry_backend=colmap` with `output_type=point_cloud` or `mesh`, when the `colmap` executable is installed
 - `geometry_backend=colmap_vggt` with `output_type=point_cloud` or `mesh`, when both COLMAP and VGGT are installed
+- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the optional pinned CUDA environment are available. This runs project-owned training, validation, canonical/browser export, and bundle publication; it does not invoke Nerfstudio.
 
-DUSt3R, MASt3R, automatic 3DGS training, and video-to-geometry are still API contract placeholders and return a clear not implemented error until their adapters are added.
+DUSt3R, MASt3R, and video-to-geometry are still API contract placeholders and return a clear not implemented error. `nerfstudio_3dgs` is legacy imported-asset metadata only, not an automatic training route.
 
 Optional geometry backends are not downloaded with the base project. Check local backend availability with:
 
@@ -157,7 +158,7 @@ Phase 3:  Global    + Any support       + Spatial balanced
 all-on:   Per frame + Adaptive two-view + Spatial balanced  (optional)
 ```
 
-Record each job ID. A loaded job displays its effective policies and point-budget counts from persisted manifest metrics, and its log and diagnostics remain available in the downloadable bundle. See [`docs/manifest-schema.md`](docs/manifest-schema.md) for the stable manifest fields, optional policy metrics, and historical-job compatibility rules. For a 225-image folder, COLMAP+VGGT processes every image that COLMAP registers; the standalone VGGT `Max images` control does not apply. The current API is synchronous and reads uploads into backend memory, exhaustive COLMAP matching examines 25,200 unordered image pairs, and depth batch `4` requires roughly 57 VGGT groups if all images register. `Max points` limits only the final PLY after filtering—it does not bound peak candidate-array or cross-view-filtering memory. Validate the setup on a representative subset before committing to each full run.
+`POST /api/jobs` persists and returns a queued job immediately; the local serial worker performs reconstruction in the background while the frontend polls job status. Upload bodies are still read into backend memory. For a 225-image folder, exhaustive COLMAP matching examines 25,200 unordered image pairs, and depth batch `4` requires roughly 57 VGGT groups if all images register. `Max points` limits only the final PLY after filtering—it does not bound peak candidate-array or cross-view-filtering memory. Validate the setup on a representative subset before committing to each full run.
 
 COLMAP+VGGT runs also write `diagnostics/vggt_groups.json`. The shared schema records each group's members and first-member reference, source order, actual consecutive overlap, sparse shared-track count, camera-center distance in COLMAP's arbitrary reconstruction units, and camera view-axis angle. It labels zero-track and below-8-track reference links as `disconnected` and `weak`. Sequential grouping intentionally uses disjoint chunks, so a nonzero requested overlap is reported as `ignored_by_sequential_grouping` rather than as active overlap. For a retained job with COLMAP text outputs, generate or byte-check the same diagnostics without rerunning reconstruction:
 

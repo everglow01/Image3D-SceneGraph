@@ -35,7 +35,15 @@ from .dataset import (
     build_colmap_contract,
     deterministic_spatial_split,
     validate_contract,
+    with_initialization,
     write_contract,
+)
+from .initialization import (
+    InitializationError,
+    InitializationResult,
+    dense_initialization,
+    sparse_initialization,
+    write_initialization,
 )
 
 __all__ = [
@@ -51,6 +59,8 @@ __all__ = [
     "CheckpointState",
     "DatasetContractError",
     "GaussianConfigError",
+    "InitializationError",
+    "InitializationResult",
     "LoadedCheckpoint",
     "ResolvedGaussianConfig",
     "assert_single_field_ablation",
@@ -59,6 +69,7 @@ __all__ = [
     "checkpoint_dir",
     "create_attempt",
     "deterministic_spatial_split",
+    "dense_initialization",
     "effective_config_hash",
     "load_attempt",
     "load_checkpoint",
@@ -66,8 +77,11 @@ __all__ = [
     "resolve_public_config",
     "resolved_config_record",
     "select_retained_checkpoints",
+    "sparse_initialization",
     "validate_contract",
     "validate_effective_config",
+    "with_initialization",
     "write_checkpoint",
     "write_contract",
+    "write_initialization",
 ]

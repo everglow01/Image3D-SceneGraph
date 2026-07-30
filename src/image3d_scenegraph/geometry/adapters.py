@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -8,7 +9,16 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 
-VALID_GEOMETRY_BACKENDS = {"mock", "vggt", "colmap", "colmap_vggt", "dust3r", "mast3r", "nerfstudio_3dgs"}
+VALID_GEOMETRY_BACKENDS = {
+    "mock",
+    "vggt",
+    "colmap",
+    "colmap_vggt",
+    "dust3r",
+    "mast3r",
+    "project_3dgs",
+    "nerfstudio_3dgs",
+}
 VALID_OUTPUT_TYPES = {"point_cloud", "mesh", "gaussian_splat"}
 
 
@@ -24,6 +34,7 @@ class ReconstructionContext:
     input_assets: list[dict[str, Any]]
     options: dict[str, int | float | str]
     cancel_requested: Callable[[], bool] | None = None
+    progress_callback: Callable[[str, float], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +51,261 @@ class ReconstructionAdapter(Protocol):
 
     def run(self, context: ReconstructionContext) -> ReconstructionResult:
         """Write reconstruction assets under the job directory and return metadata."""
+
+
+class ProjectGaussianAdapter:
+    backend = "project_3dgs"
+    output_type = "gaussian_splat"
+
+    def run(self, context: ReconstructionContext) -> ReconstructionResult:
+        if context.mode != "multi_image":
+            raise ReconstructionError("project 3DGS training requires multi_image input")
+        project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
+        colmap_script = project_root / "scripts" / "run_colmap_sparse.py"
+        trainer_script = project_root / "scripts" / "run_gaussian_training.py"
+        evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
+        exporter_script = project_root / "scripts" / "export_gaussian.py"
+        evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
+        exporter_script = project_root / "scripts" / "export_gaussian.py"
+        if not all(
+            path.is_file()
+            for path in (colmap_script, trainer_script, evaluator_script, exporter_script)
+        ):
+            raise ReconstructionError("project 3DGS runner scripts are missing")
+        config_path = context.job_dir / "gaussian_config.json"
+        dataset_path = context.job_dir / "dataset.json"
+        image_dir = context.job_dir / "input" / "images"
+        sparse_dir = context.job_dir / "colmap" / "sparse_txt"
+        points_path = sparse_dir / "points3D.txt"
+        command_colmap = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(colmap_script),
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(context.job_dir),
+            "--matcher",
+            os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
+        ]
+        env = os.environ.copy()
+        env.pop("LD_LIBRARY_PATH", None)
+        _adapter_progress(context, "geometry_reconstruction", 0.15)
+        _run_adapter_command(command_colmap, context, project_root, env=None)
+        cameras_path = context.job_dir / "geometry" / "cameras.json"
+        if not cameras_path.is_file() or not points_path.is_file():
+            raise ReconstructionError("COLMAP did not produce project 3DGS camera/sparse inputs")
+        try:
+            from image3d_scenegraph.gaussian.dataset import build_colmap_contract, write_contract
+        except ImportError as exc:
+            raise ReconstructionError("project Gaussian dataset module is unavailable") from exc
+        contract = build_colmap_contract(
+            dataset_id=context.job_id,
+            dataset_root=context.job_dir,
+            image_root="input/images",
+            cameras_path="geometry/cameras.json",
+        )
+        write_contract(dataset_path, contract)
+        config_record = context.options.get("gaussian_config_record")
+        if not isinstance(config_record, str):
+            raise ReconstructionError("project 3DGS requires a resolved Gaussian config record")
+        config_path.write_text(config_record + "\n", encoding="utf-8")
+        training_dir = context.job_dir / "gaussian"
+        command_train = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(trainer_script),
+            "--dataset-contract",
+            str(dataset_path),
+            "--dataset-root",
+            str(context.job_dir),
+            "--run-dir",
+            str(training_dir),
+            "--initialization",
+            "sparse",
+            "--points",
+            str(points_path),
+            "--resolved-config-json",
+            str(config_path),
+            "--max-initial-points",
+            str(context.options.get("gaussian_max_initial_points", 100_000)),
+        ]
+        _adapter_progress(context, "gaussian_training", 0.35)
+        completed = _run_adapter_command(command_train, context, project_root, env=env)
+        result_candidates = sorted(training_dir.glob("attempts/*/artifacts/result.json"))
+        if not result_candidates:
+            raise ReconstructionError("project Gaussian trainer did not produce complete results")
+        result_path = result_candidates[-1]
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        model_path = training_dir / str(result["model_path"])
+        progress_path = training_dir / str(result["progress_path"])
+        attempt_id = result_path.parents[1].name
+        effective_dataset_path = training_dir / "preparation" / attempt_id / "dataset.json"
+        effective_config_path = training_dir / "preparation" / attempt_id / "effective_config.json"
+        if not all(
+            path.is_file()
+            for path in (model_path, progress_path, effective_dataset_path, effective_config_path)
+        ):
+            raise ReconstructionError("project Gaussian trainer result references missing assets")
+
+        evaluation_dir = training_dir / "evaluation" / attempt_id / "validation"
+        command_evaluate = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(evaluator_script),
+            "--dataset-contract",
+            str(effective_dataset_path),
+            "--dataset-root",
+            str(context.job_dir),
+            "--model",
+            str(model_path),
+            "--resolved-config-json",
+            str(effective_config_path),
+            "--split",
+            "validation",
+            "--output-dir",
+            str(evaluation_dir),
+            "--progress",
+            str(progress_path),
+        ]
+        _adapter_progress(context, "gaussian_validation", 0.72)
+        _run_adapter_command(command_evaluate, context, project_root, env=env)
+        evaluation_path = evaluation_dir / "evaluation.json"
+        frozen_candidate_path = training_dir / "evaluation" / attempt_id / "frozen-candidate.json"
+        test_evaluation_dir = training_dir / "evaluation" / attempt_id / "test"
+        command_test = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(evaluator_script),
+            "--dataset-contract",
+            str(effective_dataset_path),
+            "--dataset-root",
+            str(context.job_dir),
+            "--model",
+            str(model_path),
+            "--resolved-config-json",
+            str(effective_config_path),
+            "--split",
+            "test",
+            "--output-dir",
+            str(test_evaluation_dir),
+            "--progress",
+            str(progress_path),
+            "--frozen-candidate",
+            str(frozen_candidate_path),
+            "--freeze-candidate-id",
+            f"{context.job_id}-{attempt_id}",
+        ]
+        _adapter_progress(context, "gaussian_test_evaluation", 0.80)
+        _run_adapter_command(command_test, context, project_root, env=env)
+        test_evaluation_path = test_evaluation_dir / "evaluation.json"
+        test_consumption_path = frozen_candidate_path.with_name(
+            f"{frozen_candidate_path.stem}.test-consumed.json"
+        )
+        export_dir = training_dir / "export" / attempt_id
+        command_export = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(exporter_script),
+            "--model",
+            str(model_path),
+            "--dataset-contract",
+            str(effective_dataset_path),
+            "--resolved-config-json",
+            str(effective_config_path),
+            "--evaluation",
+            str(evaluation_path),
+            "--output-dir",
+            str(export_dir),
+            "--checkpoint-hash",
+            str(result["checkpoint_hash"]),
+        ]
+        _adapter_progress(context, "gaussian_export", 0.86)
+        _run_adapter_command(command_export, context, project_root, env=env)
+        export_metadata_path = export_dir / "export.json"
+        scene_splat_path = export_dir / "scene.ply"
+        canonical_path = export_dir / "canonical.ply"
+        camera_path = export_dir / "camera_path.json"
+        bundle_path = export_dir / "result.zip"
+        if not all(
+            path.is_file()
+            for path in (
+                evaluation_path,
+                test_evaluation_path,
+                frozen_candidate_path,
+                test_consumption_path,
+                export_metadata_path,
+                scene_splat_path,
+                canonical_path,
+                camera_path,
+                bundle_path,
+            )
+        ):
+            raise ReconstructionError("project Gaussian export is incomplete")
+        log_lines = [
+            "geometry_backend=project_3dgs",
+            "output_type=gaussian_splat",
+            "adapter=ProjectGaussianAdapter",
+            f"trainer={' '.join(command_train)}",
+        ]
+        if completed.stdout.strip():
+            log_lines.append(f"stdout={completed.stdout.strip()}")
+        return ReconstructionResult(
+            stage="gaussian_training",
+            assets={
+                "gaussian_model": model_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_progress": progress_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_dataset": effective_dataset_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_evaluation": evaluation_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_test_evaluation": test_evaluation_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_test_decision": test_consumption_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_export_metadata": export_metadata_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_canonical": canonical_path.relative_to(context.job_dir).as_posix(),
+                "scene_splat": scene_splat_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_camera_path": camera_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_bundle": bundle_path.relative_to(context.job_dir).as_posix(),
+            },
+            metrics={
+                "gaussian_count": int(result["gaussian_count"]),
+                "gaussian_initial_loss": float(result["initial_loss"]),
+                "gaussian_final_loss": float(result["final_loss"]),
+                "gaussian_peak_allocated_bytes": int(result["peak_allocated_bytes"]),
+                "gaussian_peak_reserved_bytes": int(result["peak_reserved_bytes"]),
+                "gaussian_training_seconds": float(result["elapsed_seconds"]),
+            },
+            log_lines=log_lines,
+        )
+
+
+def _adapter_progress(context: ReconstructionContext, stage: str, progress: float) -> None:
+    if context.progress_callback is not None:
+        context.progress_callback(stage, progress)
+
+
+def _run_adapter_command(
+    command: list[str],
+    context: ReconstructionContext,
+    cwd: Path,
+    *,
+    env: dict[str, str] | None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        if context.cancel_requested is None:
+            return subprocess.run(
+                command,
+                cwd=cwd,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        from image3d_scenegraph.worker import run_cancellable_command
+
+        return run_cancellable_command(
+            command,
+            cwd=cwd,
+            env=env,
+            cancel_requested=context.cancel_requested,
+        )
+    except subprocess.CalledProcessError as exc:
+        details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
+        raise ReconstructionError(f"project 3DGS command failed:\n{details}") from exc
 
 
 class MockPointCloudAdapter:
@@ -535,6 +801,8 @@ def get_reconstruction_adapter(
             f"unsupported output_type '{output_type}', expected one of: {allowed}"
         )
 
+    if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
+        return ProjectGaussianAdapter()
     if geometry_backend == "mock" and output_type == "point_cloud":
         return MockPointCloudAdapter()
     if geometry_backend == "vggt" and output_type in {"point_cloud", "mesh"}:
