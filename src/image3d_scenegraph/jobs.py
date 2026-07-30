@@ -18,6 +18,7 @@ from image3d_scenegraph.gaussian.config import (
     ResolvedGaussianConfig,
     canonical_config_json,
     resolved_config_record,
+    resolve_public_config,
 )
 from image3d_scenegraph.geometry.adapters import (
     ReconstructionContext,
@@ -112,6 +113,8 @@ class JobStore:
         """Persist a validated job and return before reconstruction starts."""
         self._validate_request(mode, files)
         try:
+            if geometry_backend == "project_3dgs" and gaussian_config is None:
+                gaussian_config = resolve_public_config("standard_v1")
             gaussian_config_record = (
                 resolved_config_record(gaussian_config) if gaussian_config is not None else None
             )
@@ -356,6 +359,14 @@ class JobStore:
         input_assets = queued_manifest.get("inputs")
         if not isinstance(input_assets, list):
             raise JobError("persisted job inputs must be an array")
+        gaussian_config_record = request.get("gaussian_config")
+        if isinstance(gaussian_config_record, dict) and geometry_backend == "project_3dgs":
+            options = {
+                **options,
+                "gaussian_config_record": json.dumps(
+                    gaussian_config_record, sort_keys=True, separators=(",", ":")
+                ),
+            }
         self._check_cancel(cancel_requested)
         try:
             adapter = get_reconstruction_adapter(geometry_backend, output_type)
@@ -375,7 +386,10 @@ class JobStore:
             raise JobError(str(exc)) from exc
 
         self._check_cancel(cancel_requested)
-        self._set_running_stage(job_id, "alignment", 0.55)
+        if output_type == "gaussian_splat":
+            self._set_running_stage(job_id, "gaussian_training", 0.75)
+        else:
+            self._set_running_stage(job_id, "alignment", 0.55)
         alignment_assets, alignment_metrics, alignment_log_lines = self._try_align_point_cloud(
             workspace, reconstruction.assets
         )
@@ -437,7 +451,6 @@ class JobStore:
             job_id,
             mode,
             input_assets,
-            scene,
             geometry_backend=geometry_backend,
             output_type=output_type,
             stage=stage,
@@ -485,6 +498,7 @@ class JobStore:
         for relative in [
             "frames",
             "geometry/depth",
+            "gaussian",
             "diagnostics",
             "semantic/masks",
             "scene_graph",
@@ -495,7 +509,7 @@ class JobStore:
         return workspace
 
     def _publish_workspace(self, job_dir: Path, workspace: Path, attempt_id: str) -> None:
-        for name in ["frames", "geometry", "diagnostics", "semantic", "scene_graph"]:
+        for name in ["frames", "geometry", "gaussian", "diagnostics", "semantic", "scene_graph"]:
             source = workspace / name
             destination = job_dir / name
             if destination.exists():
@@ -518,7 +532,7 @@ class JobStore:
 
     def _quarantine_unpublished_outputs(self, job_dir: Path, attempt_id: str) -> None:
         target = job_dir / "lifecycle" / "attempts" / attempt_id / "partial_published"
-        for name in ["frames", "geometry", "diagnostics", "semantic", "scene_graph"]:
+        for name in ["frames", "geometry", "gaussian", "diagnostics", "semantic", "scene_graph"]:
             source = job_dir / name
             if not source.exists():
                 continue
@@ -1133,7 +1147,6 @@ class JobStore:
         job_id: str,
         mode: str,
         input_assets: list[dict[str, Any]],
-        scene: dict[str, Any],
         geometry_backend: str,
         output_type: str,
         stage: str,

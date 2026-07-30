@@ -69,6 +69,9 @@ Common asset roles include:
 - `alignment_diagnostics`, `fusion_diagnostics`, `visibility_graph`, `scale_disagreement_diagnostics`, and `consistency_diagnostics`
 - `mesh` and `mesh_diagnostics`
 - `scene_splat`, `scene_graph`, and `log`
+- `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned Stage 2C training jobs
+
+Stage 2C training assets are internal model/checkpoint/progress evidence. They are not the R2.12 canonical `scene_splat` browser export, and incomplete/failed attempt files must not be added to `assets`.
 
 Only roles present in `assets` are available. Generic postprocessing can add existing alignment or mesh assets when an older manifest is loaded; this does not rerun reconstruction.
 

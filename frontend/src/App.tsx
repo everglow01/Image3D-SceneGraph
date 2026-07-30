@@ -14,7 +14,7 @@ import {
 import { GeometryViewer } from "./GeometryViewer";
 
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
-type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "nerfstudio_3dgs";
+type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "project_3dgs" | "nerfstudio_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 type MeshMethod = "poisson" | "ball_pivoting" | "alpha_shape";
 type ViewerMode = "point_cloud" | "mesh" | "gaussian_splat";
@@ -183,7 +183,8 @@ const backendOptions: Array<{
   { id: "colmap_vggt", label: "COLMAP + VGGT" },
   { id: "dust3r", label: "DUSt3R" },
   { id: "mast3r", label: "MASt3R" },
-  { id: "nerfstudio_3dgs", label: "Nerfstudio 3DGS" }
+  { id: "project_3dgs", label: "Project 3DGS" },
+  { id: "nerfstudio_3dgs", label: "Imported splat (legacy)" }
 ];
 
 const outputOptions: Array<{
