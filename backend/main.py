@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from image3d_scenegraph.geometry.backends import get_backend_status_payload
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
+from image3d_scenegraph.worker import LocalJobWorker
 
 
 class MeshVariantRequest(BaseModel):
@@ -24,9 +26,23 @@ class MeshVariantRequest(BaseModel):
     alpha: float = Field(default=0.12, ge=0.0, le=10.0)
 
 
-def create_app(output_root: Path | str | None = None) -> FastAPI:
-    app = FastAPI(title="Image3D-SceneGraph API")
-    app.state.job_store = JobStore(output_root)
+def create_app(output_root: Path | str | None = None, *, start_worker: bool = True) -> FastAPI:
+    store = JobStore(output_root)
+    worker = LocalJobWorker(store)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if start_worker:
+            worker.start()
+        try:
+            yield
+        finally:
+            if start_worker:
+                worker.stop()
+
+    app = FastAPI(title="Image3D-SceneGraph API", lifespan=lifespan)
+    app.state.job_store = store
+    app.state.job_worker = worker
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -36,7 +52,7 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
     def get_backends() -> dict:
         return get_backend_status_payload()
 
-    @app.post("/api/jobs")
+    @app.post("/api/jobs", status_code=status.HTTP_202_ACCEPTED)
     async def create_job(
         files: Annotated[list[UploadFile], File()],
         mode: Annotated[str, Form()] = "image",
@@ -103,13 +119,15 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
         }
 
         try:
-            return app.state.job_store.create_job(
+            manifest = app.state.job_store.enqueue_job(
                 mode,
                 uploaded,
                 geometry_backend=geometry_backend,
                 output_type=output_type,
                 options=options,
             )
+            app.state.job_worker.notify()
+            return manifest
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -127,8 +145,32 @@ def create_app(output_root: Path | str | None = None) -> FastAPI:
             "mode": manifest["mode"],
             "geometry_backend": manifest["geometry_backend"],
             "output_type": manifest["output_type"],
+            "active_attempt_id": manifest.get("active_attempt_id"),
+            "created_at": manifest.get("created_at"),
+            "updated_at": manifest.get("updated_at", manifest.get("created_at")),
+            "started_at": manifest.get("started_at"),
+            "completed_at": manifest.get("completed_at"),
+            "error": manifest.get("error"),
             "metrics": manifest["metrics"],
         }
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str) -> dict:
+        try:
+            return app.state.job_store.cancel_job(job_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="job not found") from exc
+
+    @app.post("/api/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+    def retry_job(job_id: str) -> dict:
+        try:
+            manifest = app.state.job_store.retry_job(job_id)
+            app.state.job_worker.notify()
+            return manifest
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="job not found") from exc
+        except JobError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/jobs/{job_id}/manifest")
     def get_manifest(job_id: str) -> dict:

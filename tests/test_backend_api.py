@@ -5,17 +5,25 @@ from fastapi.testclient import TestClient
 from backend.main import create_app
 
 
+class FakeWorker:
+    def __init__(self) -> None:
+        self.notifications = 0
+
+    def notify(self) -> None:
+        self.notifications += 1
+
+
 class FakeJobStore:
     def __init__(self) -> None:
         self.options: dict[str, int | float | str] | None = None
 
-    def create_job(self, mode, files, *, geometry_backend, output_type, options):
+    def enqueue_job(self, mode, files, *, geometry_backend, output_type, options):
         self.options = options
         return {
             "job_id": "test-job",
-            "status": "done",
-            "stage": "colmap_vggt_dense_reconstruction",
-            "progress": 1.0,
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0.0,
             "mode": mode,
             "geometry_backend": geometry_backend,
             "output_type": output_type,
@@ -37,9 +45,10 @@ def test_public_job_schema_has_no_raw_gaussian_hyperparameters(tmp_path):
 
 
 def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
-    app = create_app(tmp_path / "jobs")
+    app = create_app(tmp_path / "jobs", start_worker=False)
     store = FakeJobStore()
     app.state.job_store = store
+    app.state.job_worker = FakeWorker()
     client = TestClient(app)
 
     response = client.post(
@@ -55,14 +64,15 @@ def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
         ],
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert store.options == {}
 
 
 def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
-    app = create_app(tmp_path / "jobs")
+    app = create_app(tmp_path / "jobs", start_worker=False)
     store = FakeJobStore()
     app.state.job_store = store
+    app.state.job_worker = FakeWorker()
     client = TestClient(app)
 
     response = client.post(
@@ -83,7 +93,7 @@ def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
         ],
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert store.options == {
         "colmap_vggt_grouping": "covisibility",
         "colmap_vggt_overlap_size": 1,
@@ -94,8 +104,9 @@ def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
 
 
 def test_create_job_rejects_invalid_colmap_vggt_grouping(tmp_path):
-    app = create_app(tmp_path / "jobs")
+    app = create_app(tmp_path / "jobs", start_worker=False)
     app.state.job_store = FakeJobStore()
+    app.state.job_worker = FakeWorker()
     client = TestClient(app)
 
     response = client.post(
@@ -115,9 +126,32 @@ def test_create_job_rejects_invalid_colmap_vggt_grouping(tmp_path):
     assert response.status_code == 422
 
 
+def test_async_job_cancel_retry_and_status_routes(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/jobs",
+        files=[("files", ("room.jpg", b"image", "image/jpeg"))],
+    )
+    assert created.status_code == 202
+    job_id = created.json()["job_id"]
+    status_response = client.get(f"/api/jobs/{job_id}")
+    assert status_response.json()["status"] == "queued"
+    assert status_response.json()["active_attempt_id"] == "attempt-001"
+
+    cancelled = client.post(f"/api/jobs/{job_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    retried = client.post(f"/api/jobs/{job_id}/retry")
+    assert retried.status_code == 202
+    assert retried.json()["active_attempt_id"] == "attempt-002"
+
+
 def test_create_job_rejects_invalid_colmap_vggt_policy(tmp_path):
-    app = create_app(tmp_path / "jobs")
+    app = create_app(tmp_path / "jobs", start_worker=False)
     app.state.job_store = FakeJobStore()
+    app.state.job_worker = FakeWorker()
     client = TestClient(app)
 
     response = client.post(

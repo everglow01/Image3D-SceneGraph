@@ -5,12 +5,13 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from image3d_scenegraph.gaussian.config import (
     GaussianConfigError,
@@ -27,6 +28,9 @@ from image3d_scenegraph.geometry.adapters import (
 
 VALID_MODES = {"image", "multi_image", "video", "panorama"}
 MESH_METHODS = {"poisson", "ball_pivoting", "alpha_shape"}
+LIFECYCLE_SCHEMA_VERSION = 1
+TERMINAL_STATUSES = {"done", "failed", "cancelled"}
+MAX_ATTEMPTS = 3
 MESH_OPTION_DEFAULTS = {
     "method": "poisson",
     "voxel_size": 0.05,
@@ -57,10 +61,15 @@ class JobError(ValueError):
     """Raised when a job request violates the local job contract."""
 
 
+class JobCancelled(RuntimeError):
+    """Raised when a queued or running local job is cancelled."""
+
+
 class JobStore:
     def __init__(self, output_root: Path | str | None = None) -> None:
         default_root = os.environ.get("IMAGE3D_OUTPUT_ROOT", "outputs/jobs")
         self.output_root = Path(output_root or default_root)
+        self._state_lock = threading.RLock()
 
     def create_mock_job(self, mode: str, files: list[UploadedInput]) -> dict[str, Any]:
         return self.create_job(mode, files, geometry_backend="mock", output_type="point_cloud")
@@ -75,6 +84,32 @@ class JobStore:
         *,
         gaussian_config: ResolvedGaussianConfig | None = None,
     ) -> dict[str, Any]:
+        """Run one job synchronously for compatibility with direct callers."""
+        queued = self.enqueue_job(
+            mode,
+            files,
+            geometry_backend=geometry_backend,
+            output_type=output_type,
+            options=options,
+            gaussian_config=gaussian_config,
+        )
+        result = self.execute_job(queued["job_id"], cancellable=False)
+        if result["status"] != "done":
+            error = result.get("error") or {}
+            raise JobError(str(error.get("message", "job execution failed")))
+        return result
+
+    def enqueue_job(
+        self,
+        mode: str,
+        files: list[UploadedInput],
+        geometry_backend: str = "mock",
+        output_type: str = "point_cloud",
+        options: dict[str, int | float | str] | None = None,
+        *,
+        gaussian_config: ResolvedGaussianConfig | None = None,
+    ) -> dict[str, Any]:
+        """Persist a validated job and return before reconstruction starts."""
         self._validate_request(mode, files)
         try:
             gaussian_config_record = (
@@ -82,50 +117,287 @@ class JobStore:
             )
         except GaussianConfigError as exc:
             raise JobError(str(exc)) from exc
+        try:
+            get_reconstruction_adapter(geometry_backend, output_type)
+        except ReconstructionError as exc:
+            raise JobError(str(exc)) from exc
 
         job_id = self._new_job_id()
         job_dir = self.job_dir(job_id)
-        self._create_job_dirs(job_dir)
-
+        self._create_job_dirs(job_dir, queued=True)
         input_assets = self._write_inputs(job_dir, mode, files)
+        now = self._timestamp()
+        attempt = self._attempt_record("attempt-001", "fresh", None, now)
+        manifest: dict[str, Any] = {
+            "lifecycle_schema_version": LIFECYCLE_SCHEMA_VERSION,
+            "job_id": job_id,
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0.0,
+            "mode": mode,
+            "input_type": self._input_type(mode),
+            "geometry_backend": geometry_backend,
+            "output_type": output_type,
+            "created_at": now,
+            "updated_at": now,
+            "queued_at": now,
+            "started_at": None,
+            "completed_at": None,
+            "cancel_requested_at": None,
+            "active_attempt_id": attempt["attempt_id"],
+            "attempts": [attempt],
+            "error": None,
+            "inputs": input_assets,
+            "assets": {},
+            "metrics": {"num_inputs": len(input_assets)},
+        }
+        if gaussian_config_record is not None:
+            manifest["gaussian_config"] = gaussian_config_record
+        request = {
+            "lifecycle_schema_version": LIFECYCLE_SCHEMA_VERSION,
+            "job_id": job_id,
+            "mode": mode,
+            "geometry_backend": geometry_backend,
+            "output_type": output_type,
+            "options": options or {},
+            "gaussian_config": gaussian_config_record,
+        }
+        self._write_json(job_dir / "request.json", request)
+        self._write_json(job_dir / "manifest.json", manifest)
+        return manifest
+
+    def execute_job(self, job_id: str, *, cancellable: bool = True) -> dict[str, Any]:
+        """Claim and execute one queued attempt."""
+        job_dir = self.job_dir(job_id)
+        with self._state_lock:
+            manifest = self.get_manifest(job_id)
+            if manifest.get("status") != "queued":
+                return manifest
+            now = self._timestamp()
+            manifest.update(
+                status="running",
+                stage="geometry_reconstruction",
+                progress=0.05,
+                started_at=now,
+                updated_at=now,
+                error=None,
+            )
+            attempt = self._active_attempt(manifest)
+            attempt.update(status="running", started_at=now)
+            self._write_json(job_dir / "manifest.json", manifest)
+
+        request = self._read_json(job_dir / "request.json")
+        attempt_id = str(manifest["active_attempt_id"])
+        workspace = self._create_attempt_workspace(job_dir, attempt_id)
+        cancel_requested = (lambda: self.is_cancel_requested(job_id)) if cancellable else None
+        try:
+            result = self._run_prepared_job(
+                job_id,
+                workspace,
+                manifest,
+                request,
+                cancel_requested=cancel_requested,
+            )
+            if cancel_requested is not None and cancel_requested():
+                raise JobCancelled("job cancellation requested")
+            self._set_running_stage(job_id, "publishing", 0.95)
+            self._publish_workspace(job_dir, workspace, attempt_id)
+            now = self._timestamp()
+            result.update(
+                lifecycle_schema_version=LIFECYCLE_SCHEMA_VERSION,
+                status="done",
+                progress=1.0,
+                updated_at=now,
+                queued_at=manifest.get("queued_at"),
+                started_at=manifest.get("started_at"),
+                completed_at=now,
+                cancel_requested_at=manifest.get("cancel_requested_at"),
+                active_attempt_id=attempt_id,
+                attempts=manifest["attempts"],
+                error=None,
+            )
+            attempt.update(status="done", completed_at=now, error=None)
+            self._write_attempt_log(job_dir, attempt_id, "status=done\n")
+            self._write_json(job_dir / "manifest.json", result)
+            return result
+        except JobCancelled as exc:
+            self._preserve_workspace(job_dir, workspace, attempt_id)
+            return self._finish_unsuccessful(job_id, "cancelled", "cancelled", str(exc))
+        except (JobError, ReconstructionError, OSError, ValueError) as exc:
+            self._preserve_workspace(job_dir, workspace, attempt_id)
+            return self._finish_unsuccessful(job_id, "failed", "execution_failed", str(exc))
+        except Exception as exc:
+            self._preserve_workspace(job_dir, workspace, attempt_id)
+            return self._finish_unsuccessful(
+                job_id, "failed", "unexpected_error", str(exc) or exc.__class__.__name__
+            )
+
+    def cancel_job(self, job_id: str) -> dict[str, Any]:
+        """Idempotently cancel queued work or request cancellation of running work."""
+        with self._state_lock:
+            manifest = self.get_manifest(job_id)
+            status = manifest.get("status")
+            if status in TERMINAL_STATUSES:
+                return manifest
+            now = self._timestamp()
+            manifest["cancel_requested_at"] = manifest.get("cancel_requested_at") or now
+            manifest["updated_at"] = now
+            if status == "queued":
+                manifest.update(
+                    status="cancelled",
+                    stage="cancelled",
+                    completed_at=now,
+                    error={"code": "cancelled", "message": "job cancelled before execution"},
+                )
+                attempt = self._active_attempt(manifest)
+                attempt.update(status="cancelled", completed_at=now, error=manifest["error"])
+                self._write_attempt_log(
+                    self.job_dir(job_id), str(manifest["active_attempt_id"]), "status=cancelled\n"
+                )
+            self._write_json(self.job_dir(job_id) / "manifest.json", manifest)
+            return manifest
+
+    def retry_job(self, job_id: str) -> dict[str, Any]:
+        """Queue a bounded clean retry with a new immutable attempt identity."""
+        with self._state_lock:
+            manifest = self.get_manifest(job_id)
+            if manifest.get("status") not in {"failed", "cancelled"}:
+                raise JobError("only failed or cancelled jobs can be retried")
+            attempts = manifest.get("attempts")
+            if not isinstance(attempts, list) or not attempts:
+                raise JobError("legacy jobs without attempt history cannot be retried")
+            if len(attempts) >= MAX_ATTEMPTS:
+                raise JobError(f"retry limit reached ({MAX_ATTEMPTS} attempts)")
+            parent_id = str(manifest["active_attempt_id"])
+            attempt_id = f"attempt-{len(attempts) + 1:03d}"
+            now = self._timestamp()
+            attempts.append(self._attempt_record(attempt_id, "retry", parent_id, now))
+            manifest.update(
+                status="queued",
+                stage="queued",
+                progress=0.0,
+                updated_at=now,
+                queued_at=now,
+                started_at=None,
+                completed_at=None,
+                cancel_requested_at=None,
+                active_attempt_id=attempt_id,
+                error=None,
+                assets={},
+                metrics={"num_inputs": len(manifest.get("inputs", []))},
+            )
+            self._write_json(self.job_dir(job_id) / "manifest.json", manifest)
+            return manifest
+
+    def list_queued_jobs(self) -> list[str]:
+        if not self.output_root.is_dir():
+            return []
+        queued: list[tuple[str, str]] = []
+        for directory in self.output_root.iterdir():
+            manifest_path = directory / "manifest.json"
+            if not directory.is_dir() or not manifest_path.is_file():
+                continue
+            try:
+                manifest = self._read_json(manifest_path)
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
+            if manifest.get("status") == "queued":
+                queued.append((str(manifest.get("queued_at", "")), str(manifest.get("job_id", directory.name))))
+        return [job_id for _, job_id in sorted(queued)]
+
+    def recover_interrupted_jobs(self) -> list[str]:
+        """Fail work that cannot still be running after local worker restart."""
+        if not self.output_root.is_dir():
+            return []
+        recovered: list[str] = []
+        for directory in self.output_root.iterdir():
+            manifest_path = directory / "manifest.json"
+            if not directory.is_dir() or not manifest_path.is_file():
+                continue
+            try:
+                manifest = self._read_json(manifest_path)
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
+            if manifest.get("status") not in {"running", "exporting"}:
+                continue
+            job_id = str(manifest.get("job_id", directory.name))
+            code = "cancelled" if manifest.get("cancel_requested_at") else "worker_interrupted"
+            status = "cancelled" if code == "cancelled" else "failed"
+            self._quarantine_unpublished_outputs(directory, str(manifest.get("active_attempt_id", "unknown")))
+            self._finish_unsuccessful(
+                job_id,
+                status,
+                code,
+                "worker stopped before the attempt reached a terminal state",
+            )
+            recovered.append(job_id)
+        return recovered
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        with self._state_lock:
+            manifest = self._read_json(self.job_dir(job_id) / "manifest.json")
+            return bool(manifest.get("cancel_requested_at"))
+
+    def _run_prepared_job(
+        self,
+        job_id: str,
+        workspace: Path,
+        queued_manifest: dict[str, Any],
+        request: dict[str, Any],
+        *,
+        cancel_requested: Callable[[], bool] | None,
+    ) -> dict[str, Any]:
+        mode = str(request["mode"])
+        geometry_backend = str(request["geometry_backend"])
+        output_type = str(request["output_type"])
+        options = request.get("options")
+        if not isinstance(options, dict):
+            raise JobError("persisted job options must be an object")
+        input_assets = queued_manifest.get("inputs")
+        if not isinstance(input_assets, list):
+            raise JobError("persisted job inputs must be an array")
+        self._check_cancel(cancel_requested)
         try:
             adapter = get_reconstruction_adapter(geometry_backend, output_type)
-        except ReconstructionError as exc:
-            raise JobError(str(exc)) from exc
-
-        try:
             reconstruction = adapter.run(
                 ReconstructionContext(
                     job_id=job_id,
-                    job_dir=job_dir,
+                    job_dir=workspace,
                     mode=mode,
                     input_assets=input_assets,
-                    options=options or {},
+                    options=options,
+                    cancel_requested=cancel_requested,
                 )
             )
         except ReconstructionError as exc:
+            if cancel_requested is not None and cancel_requested():
+                raise JobCancelled("job cancellation requested") from exc
             raise JobError(str(exc)) from exc
 
+        self._check_cancel(cancel_requested)
+        self._set_running_stage(job_id, "alignment", 0.55)
         alignment_assets, alignment_metrics, alignment_log_lines = self._try_align_point_cloud(
-            job_dir, reconstruction.assets
+            workspace, reconstruction.assets
         )
-        geometry_assets = {
-            **reconstruction.assets,
-            **alignment_assets,
-        }
+        self._check_cancel(cancel_requested)
+        geometry_assets = {**reconstruction.assets, **alignment_assets}
         mesh_assets: dict[str, str] = {}
         mesh_metrics: dict[str, int | float | str | bool] = {}
         mesh_log_lines: list[str] = []
         stage = reconstruction.stage
         if output_type == "mesh":
-            mesh_assets, mesh_metrics, mesh_log_lines = self._build_mesh(job_dir, geometry_assets)
+            self._set_running_stage(job_id, "mesh_reconstruction", 0.75)
+            mesh_assets, mesh_metrics, mesh_log_lines = self._build_mesh(
+                workspace, geometry_assets, cancel_requested=cancel_requested
+            )
             stage = "mesh_reconstruction"
+        self._check_cancel(cancel_requested)
 
         scene = self._build_mock_scene(job_id, mode)
-        self._write_json(job_dir / "scene_graph" / "scene.json", scene)
-
+        self._write_json(workspace / "scene_graph" / "scene.json", scene)
+        gaussian_config_record = request.get("gaussian_config")
         gaussian_log_lines: list[str] = []
-        if gaussian_config_record is not None:
+        if isinstance(gaussian_config_record, dict):
             gaussian_log_lines = [
                 f"gaussian_config_schema_version={gaussian_config_record['schema_version']}",
                 f"gaussian_requested_profile={gaussian_config_record['requested_profile']}",
@@ -137,7 +409,7 @@ class JobStore:
             [
                 f"job_id={job_id}",
                 f"mode={mode}",
-                f"num_inputs={len(files)}",
+                f"num_inputs={len(input_assets)}",
                 f"stage={stage}",
                 "status=done",
                 *gaussian_log_lines,
@@ -147,8 +419,7 @@ class JobStore:
                 "",
             ]
         )
-        (job_dir / "logs" / "run.log").write_text(log_text, encoding="utf-8")
-
+        (workspace / "logs" / "run.log").write_text(log_text, encoding="utf-8")
         assets = {
             **geometry_assets,
             **mesh_assets,
@@ -162,7 +433,7 @@ class JobStore:
             **alignment_metrics,
             **mesh_metrics,
         }
-        manifest = self._build_manifest(
+        result = self._build_manifest(
             job_id,
             mode,
             input_assets,
@@ -172,12 +443,137 @@ class JobStore:
             stage=stage,
             assets=assets,
             metrics=metrics,
-            gaussian_config=gaussian_config_record,
+            gaussian_config=gaussian_config_record if isinstance(gaussian_config_record, dict) else None,
         )
+        result["created_at"] = queued_manifest["created_at"]
         if output_type == "mesh":
-            self._with_existing_mesh_variants(job_dir, manifest)
-        self._write_json(job_dir / "manifest.json", manifest)
-        return manifest
+            self._with_existing_mesh_variants(workspace, result)
+        return result
+
+    def _attempt_record(
+        self, attempt_id: str, kind: str, parent_attempt_id: str | None, created_at: str
+    ) -> dict[str, Any]:
+        return {
+            "attempt_id": attempt_id,
+            "kind": kind,
+            "parent_attempt_id": parent_attempt_id,
+            "status": "queued",
+            "created_at": created_at,
+            "started_at": None,
+            "completed_at": None,
+            "error": None,
+        }
+
+    def _active_attempt(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        active_id = manifest.get("active_attempt_id")
+        attempts = manifest.get("attempts")
+        if not isinstance(attempts, list):
+            raise JobError("job attempt history is missing")
+        for attempt in attempts:
+            if isinstance(attempt, dict) and attempt.get("attempt_id") == active_id:
+                return attempt
+        raise JobError("active job attempt is missing")
+
+    def _create_attempt_workspace(self, job_dir: Path, attempt_id: str) -> Path:
+        attempt_root = job_dir / "lifecycle" / "attempts" / attempt_id
+        attempt_root.mkdir(parents=True, exist_ok=True)
+        workspace = attempt_root / "workspace"
+        if workspace.exists():
+            raise JobError(f"attempt workspace already exists: {attempt_id}")
+        workspace.mkdir()
+        (workspace / "input").symlink_to(job_dir / "input", target_is_directory=True)
+        for relative in [
+            "frames",
+            "geometry/depth",
+            "diagnostics",
+            "semantic/masks",
+            "scene_graph",
+            "logs",
+        ]:
+            (workspace / relative).mkdir(parents=True, exist_ok=True)
+        self._write_attempt_log(job_dir, attempt_id, "status=running\n")
+        return workspace
+
+    def _publish_workspace(self, job_dir: Path, workspace: Path, attempt_id: str) -> None:
+        for name in ["frames", "geometry", "diagnostics", "semantic", "scene_graph"]:
+            source = workspace / name
+            destination = job_dir / name
+            if destination.exists():
+                raise JobError(f"cannot publish over existing output: {name}")
+            os.rename(source, destination)
+        run_log = workspace / "logs" / "run.log"
+        if not run_log.is_file():
+            raise JobError("completed attempt did not produce logs/run.log")
+        os.rename(run_log, job_dir / "logs" / "run.log")
+        shutil.rmtree(workspace)
+        self._write_attempt_log(job_dir, attempt_id, "status=published\n")
+
+    def _preserve_workspace(self, job_dir: Path, workspace: Path, attempt_id: str) -> None:
+        if not workspace.exists():
+            return
+        preserved = job_dir / "lifecycle" / "attempts" / attempt_id / "partial"
+        if preserved.exists():
+            shutil.rmtree(preserved)
+        os.rename(workspace, preserved)
+
+    def _quarantine_unpublished_outputs(self, job_dir: Path, attempt_id: str) -> None:
+        target = job_dir / "lifecycle" / "attempts" / attempt_id / "partial_published"
+        for name in ["frames", "geometry", "diagnostics", "semantic", "scene_graph"]:
+            source = job_dir / name
+            if not source.exists():
+                continue
+            target.mkdir(parents=True, exist_ok=True)
+            destination = target / name
+            if destination.exists():
+                shutil.rmtree(destination)
+            os.rename(source, destination)
+        run_log = job_dir / "logs" / "run.log"
+        if run_log.exists():
+            target.mkdir(parents=True, exist_ok=True)
+            os.rename(run_log, target / "run.log")
+
+    def _finish_unsuccessful(
+        self, job_id: str, status: str, code: str, message: str
+    ) -> dict[str, Any]:
+        with self._state_lock:
+            job_dir = self.job_dir(job_id)
+            manifest = self._read_json(job_dir / "manifest.json")
+            now = self._timestamp()
+            error = {"code": code, "message": message}
+            manifest.update(
+                status=status,
+                stage=status,
+                updated_at=now,
+                completed_at=now,
+                error=error,
+                assets={},
+            )
+            attempt = self._active_attempt(manifest)
+            attempt.update(status=status, completed_at=now, error=error)
+            self._write_attempt_log(job_dir, str(manifest["active_attempt_id"]), f"status={status}\nerror={code}: {message}\n")
+            self._write_json(job_dir / "manifest.json", manifest)
+            return manifest
+
+    def _set_running_stage(self, job_id: str, stage: str, progress: float) -> None:
+        with self._state_lock:
+            manifest_path = self.job_dir(job_id) / "manifest.json"
+            manifest = self._read_json(manifest_path)
+            if manifest.get("status") != "running":
+                return
+            manifest.update(stage=stage, progress=progress, updated_at=self._timestamp())
+            self._write_json(manifest_path, manifest)
+
+    def _write_attempt_log(self, job_dir: Path, attempt_id: str, text: str) -> None:
+        path = job_dir / "logs" / f"{attempt_id}.log"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(text)
+
+    def _check_cancel(self, cancel_requested: Callable[[], bool] | None) -> None:
+        if cancel_requested is not None and cancel_requested():
+            raise JobCancelled("job cancellation requested")
+
+    def _timestamp(self) -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def get_manifest(self, job_id: str) -> dict[str, Any]:
         job_dir = self.job_dir(job_id)
@@ -185,6 +581,8 @@ class JobStore:
         if not manifest_path.exists():
             raise FileNotFoundError(job_id)
         manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
+        if manifest.get("status") != "done":
+            return manifest
         return self._with_existing_mesh_variants(job_dir, manifest)
 
     def get_scene(self, job_id: str) -> dict[str, Any]:
@@ -278,15 +676,13 @@ class JobStore:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         return f"{timestamp}_{uuid.uuid4().hex[:8]}"
 
-    def _create_job_dirs(self, job_dir: Path) -> None:
-        for relative in [
-            "input/images",
-            "frames",
-            "geometry/depth",
-            "semantic/masks",
-            "scene_graph",
-            "logs",
-        ]:
+    def _create_job_dirs(self, job_dir: Path, *, queued: bool = False) -> None:
+        relative_dirs = ["input/images", "logs", "lifecycle/attempts"]
+        if not queued:
+            relative_dirs.extend(
+                ["frames", "geometry/depth", "diagnostics", "semantic/masks", "scene_graph"]
+            )
+        for relative in relative_dirs:
             (job_dir / relative).mkdir(parents=True, exist_ok=False)
 
     def _write_inputs(
@@ -402,7 +798,11 @@ class JobStore:
         )
 
     def _build_mesh(
-        self, job_dir: Path, assets: dict[str, str]
+        self,
+        job_dir: Path,
+        assets: dict[str, str],
+        *,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> tuple[dict[str, str], dict[str, int | float | str | bool], list[str]]:
         source_asset = assets.get("point_cloud_aligned") or assets.get("point_cloud")
         if not source_asset:
@@ -414,6 +814,7 @@ class JobStore:
             "geometry/mesh.glb",
             "diagnostics/mesh.json",
             self._mesh_options_from_environment(),
+            cancel_requested=cancel_requested,
         )
 
     def _run_mesh(
@@ -423,6 +824,8 @@ class JobStore:
         mesh_asset: str,
         diagnostics_asset: str,
         options: dict[str, int | float | str],
+        *,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> tuple[dict[str, str], dict[str, int | float | str | bool], list[str]]:
 
         source_path = job_dir / source_asset
@@ -477,13 +880,24 @@ class JobStore:
         ]
 
         try:
-            completed = subprocess.run(
-                command,
-                cwd=project_root,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            if cancel_requested is None:
+                completed = subprocess.run(
+                    command,
+                    cwd=project_root,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                from image3d_scenegraph.worker import run_cancellable_command
+
+                completed = run_cancellable_command(
+                    command,
+                    cwd=project_root,
+                    cancel_requested=cancel_requested,
+                )
+        except JobCancelled:
+            raise
         except subprocess.CalledProcessError as exc:
             details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
             raise JobError(f"mesh reconstruction failed:\n{details}") from exc
@@ -755,10 +1169,22 @@ class JobStore:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        content = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _with_existing_alignment_assets(self, job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         assets = manifest.setdefault("assets", {})

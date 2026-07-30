@@ -25,6 +25,25 @@ Newly completed jobs contain:
 
 Historical manifests can omit fields added after that job was created. Readers must tolerate absent optional fields and must not manufacture an effective policy that the old job did not record.
 
+## Local lifecycle schema v1
+
+R2.6 submissions add `lifecycle_schema_version: 1` and are atomically persisted before execution. Their status transitions are:
+
+```text
+queued -> running -> done
+                  -> failed
+       -> cancelled
+failed/cancelled -> queued (new bounded retry attempt)
+```
+
+Lifecycle manifests additionally record `updated_at`, `queued_at`, nullable `started_at`/`completed_at`/`cancel_requested_at`, `active_attempt_id`, an `attempts` history, and nullable structured `error: {code, message}`. Attempt history records immutable IDs, `fresh` or `retry` kind, parent attempt, timestamps, status, and error. A retry starts clean, never loads checkpoint state, and is capped at three total attempts.
+
+`POST /api/jobs` returns HTTP 202 with the durable `queued` manifest. One local filesystem worker processes jobs FIFO and holds a filesystem lease, so only one GPU-heavy job runs for an output root. Queued work remains queued across API restart. A stale `running`/`exporting` job discovered at worker startup becomes explicit `failed` with `worker_interrupted` (or `cancelled` when a cancellation request was already durable); it is never inferred to be successful.
+
+A running attempt writes under `lifecycle/attempts/{attempt_id}/workspace`. Complete outputs are moved to stable job paths before the terminal `done` manifest is published. Failed/cancelled partial output is retained under the attempt for diagnostics but is not listed in `assets`. Inputs and completed diagnostics are not deleted by cancellation. R2.6 attempt history is lifecycle metadata; R2.5 checkpoint descriptors remain separate and are created only when a trainer has real dataset/config/code/environment provenance.
+
+Legacy terminal-only manifests remain valid and readable. They do not gain synthetic attempt history and cannot use the R2.6 retry operation.
+
 ## Gaussian effective configuration
 
 `gaussian_config` is present only when a trusted project-owned 3DGS caller supplies a resolved configuration. It contains:
