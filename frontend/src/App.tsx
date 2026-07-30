@@ -6,6 +6,8 @@ import {
   Images,
   Play,
   RefreshCw,
+  RotateCcw,
+  Square,
   UploadCloud,
   Video
 } from "lucide-react";
@@ -56,6 +58,11 @@ type Manifest = {
   geometry_backend: GeometryBackend;
   output_type: OutputType;
   created_at: string;
+  updated_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  active_attempt_id?: string | null;
+  error?: { code: string; message: string } | null;
   inputs: Array<{
     filename: string;
     path: string;
@@ -136,6 +143,12 @@ type JobStatus = Pick<
   | "mode"
   | "geometry_backend"
   | "output_type"
+  | "active_attempt_id"
+  | "created_at"
+  | "updated_at"
+  | "started_at"
+  | "completed_at"
+  | "error"
   | "metrics"
 >;
 
@@ -225,6 +238,7 @@ export function App() {
   const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
   const [selectedMeshVariantId, setSelectedMeshVariantId] = useState<string | null>(null);
   const [isBuildingMesh, setIsBuildingMesh] = useState(false);
+  const [isChangingLifecycle, setIsChangingLifecycle] = useState(false);
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -310,6 +324,34 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!manifest || !["queued", "running", "exporting"].includes(manifest.status)) {
+      return;
+    }
+    let cancelled = false;
+    const interval = window.setInterval(async () => {
+      try {
+        const nextManifest = await requestJson<Manifest>(`/api/jobs/${manifest.job_id}/manifest`);
+        if (cancelled) {
+          return;
+        }
+        applyManifest(nextManifest);
+        setJobStatus(nextManifest);
+        if (nextManifest.status === "done") {
+          setScene(await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`));
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "Failed to refresh job");
+        }
+      }
+    }, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [manifest?.job_id, manifest?.status]);
 
   function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
     setManifest(nextManifest);
@@ -426,14 +468,8 @@ export function App() {
         body: form
       });
       applyManifest(created, false, true);
-
-      const [status, sceneGraph] = await Promise.all([
-        requestJson<JobStatus>(`/api/jobs/${created.job_id}`),
-        requestJson<SceneGraph>(`/api/jobs/${created.job_id}/scene`)
-      ]);
-
-      setJobStatus(status);
-      setScene(sceneGraph);
+      setJobStatus(created);
+      setScene(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to create job");
     } finally {
@@ -447,14 +483,15 @@ export function App() {
     }
     setError(null);
     try {
-      const [status, nextManifest, sceneGraph] = await Promise.all([
+      const [status, nextManifest] = await Promise.all([
         requestJson<JobStatus>(`/api/jobs/${manifest.job_id}`),
-        requestJson<Manifest>(`/api/jobs/${manifest.job_id}/manifest`),
-        requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`)
+        requestJson<Manifest>(`/api/jobs/${manifest.job_id}/manifest`)
       ]);
       setJobStatus(status);
       applyManifest(nextManifest);
-      setScene(sceneGraph);
+      if (nextManifest.status === "done") {
+        setScene(await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`));
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to refresh job");
     }
@@ -470,18 +507,44 @@ export function App() {
     setIsLoadingJob(true);
     setError(null);
     try {
-      const [status, nextManifest, sceneGraph] = await Promise.all([
+      const [status, nextManifest] = await Promise.all([
         requestJson<JobStatus>(`/api/jobs/${jobId}`),
-        requestJson<Manifest>(`/api/jobs/${jobId}/manifest`),
-        requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`)
+        requestJson<Manifest>(`/api/jobs/${jobId}/manifest`)
       ]);
       setJobStatus(status);
       applyManifest(nextManifest, false, true);
-      setScene(sceneGraph);
+      setScene(
+        nextManifest.status === "done"
+          ? await requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`)
+          : null
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load job");
     } finally {
       setIsLoadingJob(false);
+    }
+  }
+
+  async function changeLifecycle(action: "cancel" | "retry") {
+    if (!manifest) {
+      return;
+    }
+    setIsChangingLifecycle(true);
+    setError(null);
+    try {
+      const nextManifest = await requestJson<Manifest>(
+        `/api/jobs/${manifest.job_id}/${action}`,
+        { method: "POST" }
+      );
+      applyManifest(nextManifest);
+      setJobStatus(nextManifest);
+      if (action === "retry") {
+        setScene(null);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Failed to ${action} job`);
+    } finally {
+      setIsChangingLifecycle(false);
     }
   }
 
@@ -516,6 +579,8 @@ export function App() {
   }
 
   const currentStatus = jobStatus ?? manifest;
+  const canCancel = Boolean(currentStatus && ["queued", "running", "exporting"].includes(currentStatus.status));
+  const canRetry = Boolean(currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
   const canBuildMeshVariant = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
 
@@ -768,6 +833,7 @@ export function App() {
           </div>
 
           {error && <div className="error-box">{error}</div>}
+          {currentStatus?.error && <div className="error-box">{currentStatus.error.message}</div>}
 
           <button
             className="primary-button"
@@ -833,6 +899,18 @@ export function App() {
                 <RefreshCw size={17} aria-hidden="true" />
                 <span>Refresh</span>
               </button>
+              {canCancel && (
+                <button className="icon-button" type="button" onClick={() => changeLifecycle("cancel")} disabled={isChangingLifecycle}>
+                  <Square size={16} aria-hidden="true" />
+                  <span>Cancel</span>
+                </button>
+              )}
+              {canRetry && (
+                <button className="icon-button" type="button" onClick={() => changeLifecycle("retry")} disabled={isChangingLifecycle}>
+                  <RotateCcw size={16} aria-hidden="true" />
+                  <span>Retry</span>
+                </button>
+              )}
             </div>
           </div>
           <GeometryViewer
@@ -869,6 +947,18 @@ export function App() {
             <div>
               <dt>Status</dt>
               <dd>{currentStatus?.status ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Stage</dt>
+              <dd>{currentStatus?.stage ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Progress</dt>
+              <dd>{currentStatus ? `${Math.round(currentStatus.progress * 100)}%` : "-"}</dd>
+            </div>
+            <div>
+              <dt>Attempt</dt>
+              <dd>{currentStatus?.active_attempt_id ?? "-"}</dd>
             </div>
             <div>
               <dt>Mode</dt>

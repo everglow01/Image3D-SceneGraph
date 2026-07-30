@@ -5,7 +5,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 
 VALID_GEOMETRY_BACKENDS = {"mock", "vggt", "colmap", "colmap_vggt", "dust3r", "mast3r", "nerfstudio_3dgs"}
@@ -23,6 +23,7 @@ class ReconstructionContext:
     mode: str
     input_assets: list[dict[str, Any]]
     options: dict[str, int | float | str]
+    cancel_requested: Callable[[], bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -126,14 +127,24 @@ class VggtPointCloudAdapter:
         env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
         try:
-            completed = subprocess.run(
-                command,
-                cwd=project_root,
-                env=env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            if context.cancel_requested is None:
+                completed = subprocess.run(
+                    command,
+                    cwd=project_root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                from image3d_scenegraph.worker import run_cancellable_command
+
+                completed = run_cancellable_command(
+                    command,
+                    cwd=project_root,
+                    env=env,
+                    cancel_requested=context.cancel_requested,
+                )
         except subprocess.CalledProcessError as exc:
             details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
             raise ReconstructionError(f"VGGT reconstruction failed:\n{details}") from exc
@@ -192,13 +203,22 @@ class ColmapPointCloudAdapter:
         ]
 
         try:
-            completed = subprocess.run(
-                command,
-                cwd=project_root,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            if context.cancel_requested is None:
+                completed = subprocess.run(
+                    command,
+                    cwd=project_root,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                from image3d_scenegraph.worker import run_cancellable_command
+
+                completed = run_cancellable_command(
+                    command,
+                    cwd=project_root,
+                    cancel_requested=context.cancel_requested,
+                )
         except subprocess.CalledProcessError as exc:
             details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
             raise ReconstructionError(f"COLMAP reconstruction failed:\n{details}") from exc
@@ -323,14 +343,24 @@ class ColmapVggtPointCloudAdapter:
         env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
         try:
-            completed = subprocess.run(
-                command,
-                cwd=project_root,
-                env=env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            if context.cancel_requested is None:
+                completed = subprocess.run(
+                    command,
+                    cwd=project_root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                from image3d_scenegraph.worker import run_cancellable_command
+
+                completed = run_cancellable_command(
+                    command,
+                    cwd=project_root,
+                    env=env,
+                    cancel_requested=context.cancel_requested,
+                )
         except subprocess.CalledProcessError as exc:
             details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)
             raise ReconstructionError(f"COLMAP+VGGT reconstruction failed:\n{details}") from exc

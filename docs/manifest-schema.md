@@ -20,9 +20,46 @@ Newly completed jobs contain:
 | `inputs` | array | Stored input filename, relative path, content type, and byte count. |
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
+| `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
 | `mesh_variants` | array | Optional generated mesh alternatives. |
 
 Historical manifests can omit fields added after that job was created. Readers must tolerate absent optional fields and must not manufacture an effective policy that the old job did not record.
+
+## Local lifecycle schema v1
+
+R2.6 submissions add `lifecycle_schema_version: 1` and are atomically persisted before execution. Their status transitions are:
+
+```text
+queued -> running -> done
+                  -> failed
+       -> cancelled
+failed/cancelled -> queued (new bounded retry attempt)
+```
+
+Lifecycle manifests additionally record `updated_at`, `queued_at`, nullable `started_at`/`completed_at`/`cancel_requested_at`, `active_attempt_id`, an `attempts` history, and nullable structured `error: {code, message}`. Attempt history records immutable IDs, `fresh` or `retry` kind, parent attempt, timestamps, status, and error. A retry starts clean, never loads checkpoint state, and is capped at three total attempts.
+
+`POST /api/jobs` returns HTTP 202 with the durable `queued` manifest. One local filesystem worker processes jobs FIFO and holds a filesystem lease, so only one GPU-heavy job runs for an output root. Queued work remains queued across API restart. A stale `running`/`exporting` job discovered at worker startup becomes explicit `failed` with `worker_interrupted` (or `cancelled` when a cancellation request was already durable); it is never inferred to be successful.
+
+A running attempt writes under `lifecycle/attempts/{attempt_id}/workspace`. Complete outputs are moved to stable job paths before the terminal `done` manifest is published. Failed/cancelled partial output is retained under the attempt for diagnostics but is not listed in `assets`. Inputs and completed diagnostics are not deleted by cancellation. R2.6 attempt history is lifecycle metadata; R2.5 checkpoint descriptors remain separate and are created only when a trainer has real dataset/config/code/environment provenance.
+
+Legacy terminal-only manifests remain valid and readable. They do not gain synthetic attempt history and cannot use the R2.6 retry operation.
+
+## Gaussian effective configuration
+
+`gaussian_config` is present only when a trusted project-owned 3DGS caller supplies a resolved configuration. It contains:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | integer | Gaussian configuration schema version; R2.4 defines version `1`. |
+| `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
+| `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
+| `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |
+
+The same schema version, requested profile, effective configuration, and hash are written to `logs/run.log`. Public job submission does not expose raw Gaussian hyperparameters; a future Gaussian-specific public route may select only an allow-listed quality profile. Internal research callers may supply validated overrides, and a recorded ablation must differ from its baseline in exactly one effective leaf field.
+
+Training configuration contains validation cadence but no test cadence. Held-out test views remain isolated until the candidate, effective configuration, and checkpoint are frozen. The R2.4 values are contract defaults, not evidence that the final RTX 4060 performance profile has passed R2.14.
+
+Jobs without `gaussian_config`, including all historical geometry jobs and imported-splat fixtures, remain valid. Readers must not add a default profile or infer effective parameters for them.
 
 ## Assets
 
