@@ -378,6 +378,9 @@ class JobStore:
                     input_assets=input_assets,
                     options=options,
                     cancel_requested=cancel_requested,
+                    progress_callback=lambda stage, progress: self._set_running_stage(
+                        job_id, stage, progress
+                    ),
                 )
             )
         except ReconstructionError as exc:
@@ -494,7 +497,7 @@ class JobStore:
         if workspace.exists():
             raise JobError(f"attempt workspace already exists: {attempt_id}")
         workspace.mkdir()
-        (workspace / "input").symlink_to(job_dir / "input", target_is_directory=True)
+        shutil.copytree(job_dir / "input", workspace / "input")
         for relative in [
             "frames",
             "geometry/depth",

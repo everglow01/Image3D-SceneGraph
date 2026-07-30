@@ -28,6 +28,13 @@ Rejected alternative: `graphdeco-inria/diff-gaussian-rasterization` has no stabl
 
 The caret declaration in `frontend/package.json` remains reproducible because `package-lock.json` pins the actual artifact. A future viewer upgrade is a new audited decision, not an implicit `npm update`.
 
+### LPIPS decision for Stage 2D
+
+- Upstream `richzhang/PerceptualSimilarity` package release is `lpips==0.1.4` (2021-08-25), repository license BSD-2-Clause.
+- Default AlexNet LPIPS loads bundled learned calibration parameters but requests torchvision's pretrained AlexNet ImageNet trunk. In the frozen environment torchvision points to `https://download.pytorch.org/models/alexnet-owt-7be5be79.pth` and would download it when absent.
+- The project has no approved local copy, SHA-256, redistribution/source-weight license record, or no-network installation evidence for that trunk. `lpips` is therefore not added to `pyproject.toml`/`uv.lock`; runtime never downloads the checkpoint.
+- Evaluation records `lpips.status=not_run` and `reason=pretrained_weight_license_and_hash_not_audited`. PSNR/SSIM are not relabeled as LPIPS. Enabling LPIPS later requires a separate approved weight record and clean offline check.
+
 ## Local build/ABI evidence
 
 Observed environment:

@@ -57,7 +57,7 @@ Legacy terminal-only manifests remain valid and readable. They do not gain synth
 
 The same schema version, requested profile, effective configuration, and hash are written to `logs/run.log`. Public job submission does not expose raw Gaussian hyperparameters; a future Gaussian-specific public route may select only an allow-listed quality profile. Internal research callers may supply validated overrides, and a recorded ablation must differ from its baseline in exactly one effective leaf field.
 
-Training configuration contains validation cadence but no test cadence. Held-out test views remain isolated until the candidate, effective configuration, and checkpoint are frozen. The R2.4 values are contract defaults, not evidence that the final RTX 4060 performance profile has passed R2.14.
+Training configuration contains validation cadence but no test cadence. Held-out test views remain isolated until the candidate, effective configuration, and model hashes are frozen. `standard_v1` remains the only public profile. The measured `rtx4060_8gb_development_v1` is internal-only and exists for reproducible Stage 2D development/smoke runs; it is not a public quality promise.
 
 Jobs without `gaussian_config`, including all historical geometry jobs and imported-splat fixtures, remain valid. Readers must not add a default profile or infer effective parameters for them.
 
@@ -69,9 +69,10 @@ Common asset roles include:
 - `alignment_diagnostics`, `fusion_diagnostics`, `visibility_graph`, `scale_disagreement_diagnostics`, and `consistency_diagnostics`
 - `mesh` and `mesh_diagnostics`
 - `scene_splat`, `scene_graph`, and `log`
-- `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned Stage 2C training jobs
+- `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs
+- `gaussian_evaluation`, `gaussian_test_evaluation`, `gaussian_test_decision`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery
 
-Stage 2C training assets are internal model/checkpoint/progress evidence. They are not the R2.12 canonical `scene_splat` browser export, and incomplete/failed attempt files must not be added to `assets`.
+`scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
 Only roles present in `assets` are available. Generic postprocessing can add existing alignment or mesh assets when an older manifest is loaded; this does not rerun reconstruction.
 

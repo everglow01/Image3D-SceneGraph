@@ -24,6 +24,7 @@ from .checkpoint import (
     write_checkpoint,
 )
 from .config import ResolvedGaussianConfig, validate_effective_config
+from .evaluation import evaluate_model
 from .initialization import InitializationResult
 from .model import GaussianModel, GaussianModelError
 from .render import render_gaussians
@@ -32,8 +33,6 @@ from .training_math import (
     active_sh_degree,
     exponential_learning_rate,
     l1_ssim_loss,
-    psnr,
-    structural_similarity,
 )
 
 
@@ -285,7 +284,13 @@ def train_gaussians(
                 or iteration == total_iterations
             )
             if validation_due:
-                last_validation = evaluate_views(model, validation_views, config)
+                last_validation = evaluate_views(
+                    model,
+                    validation_views,
+                    config,
+                    preview_dir=artifact_dir / "validation" / f"iteration_{iteration:09d}",
+                    progress_events=history,
+                )
                 validation_event = {
                     "iteration": iteration,
                     "event": "validation",
@@ -371,31 +376,23 @@ def evaluate_views(
     model: GaussianModel,
     views: list[TrainingView],
     config: dict[str, Any],
+    *,
+    preview_dir: Path | None = None,
+    progress_events: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
 ) -> dict[str, Any]:
-    per_view = []
-    degree = active_sh_degree(int(config["iterations"]), config["sh_schedule"])
-    for view in views:
-        rendered = render_gaussians(
-            model,
-            view.camera,
-            sh_degree=degree,
-            background=torch.ones(3, device=model.means.device),
-        )
-        per_view.append(
-            {
-                "image_id": view.camera.image_id,
-                "psnr": psnr(rendered.image, view.image),
-                "ssim": float(structural_similarity(rendered.image, view.image)),
-            }
-        )
+    evaluated = evaluate_model(
+        model,
+        views,
+        split="validation",
+        sh_degree=active_sh_degree(int(config["iterations"]), config["sh_schedule"]),
+        preview_dir=preview_dir,
+        progress_events=progress_events,
+        renderer=render_gaussians,
+    )
     return {
-        "status": "complete",
-        "split": "validation",
-        "num_views": len(per_view),
-        "mean_psnr": float(np.mean([item["psnr"] for item in per_view])),
-        "mean_ssim": float(np.mean([item["ssim"] for item in per_view])),
-        "lpips": {"status": "not_run", "reason": "dependency_not_audited_in_r2_10"},
-        "per_view": per_view,
+        **evaluated,
+        "mean_psnr": evaluated["psnr"]["mean"],
+        "mean_ssim": evaluated["ssim"]["mean"],
     }
 
 

@@ -12,6 +12,22 @@ from typing import Any
 
 CONFIG_SCHEMA_VERSION = 1
 PUBLIC_PROFILES = ("standard_v1",)
+INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
+
+_RTX4060_8GB_DEVELOPMENT_V1_OVERRIDES: dict[str, Any] = {
+    "iterations": 100,
+    "resolution": {"longest_edge": 320},
+    "sh_schedule": {"increase_every_iterations": 33},
+    "densification": {
+        "start_iteration": 25,
+        "end_iteration": 99,
+        "every_iterations": 25,
+    },
+    "opacity_reset": {"every_iterations": 100},
+    "gaussian_budget": {"max_count": 50_000},
+    "evaluation": {"validation_every_iterations": 100},
+    "checkpoint": {"every_iterations": 50},
+}
 
 _STANDARD_V1: dict[str, Any] = {
     "schema_version": CONFIG_SCHEMA_VERSION,
@@ -93,17 +109,28 @@ def resolve_internal_config(
     profile: str = "standard_v1",
     overrides: dict[str, Any] | None = None,
 ) -> ResolvedGaussianConfig:
-    if profile != "standard_v1":
+    if profile not in INTERNAL_PROFILES:
         raise GaussianConfigError(f"unsupported internal Gaussian base profile: {profile}")
     if overrides is not None and not isinstance(overrides, dict):
         raise GaussianConfigError("Gaussian config overrides must be an object")
-    return _resolve(profile, overrides)
+    base_overrides = (
+        _RTX4060_8GB_DEVELOPMENT_V1_OVERRIDES
+        if profile == "rtx4060_8gb_development_v1"
+        else None
+    )
+    resolved = _resolve(profile, base_overrides)
+    if overrides:
+        effective = copy.deepcopy(resolved.effective_config)
+        _apply_overrides(effective, overrides, "")
+        validate_effective_config(effective)
+        resolved = ResolvedGaussianConfig(profile, effective, effective_config_hash(effective))
+    return resolved
 
 
 def resolved_config_record(resolved: ResolvedGaussianConfig) -> dict[str, Any]:
     if not isinstance(resolved, ResolvedGaussianConfig):
         raise GaussianConfigError("expected a resolved Gaussian configuration")
-    if resolved.requested_profile != "standard_v1":
+    if resolved.requested_profile not in INTERNAL_PROFILES:
         raise GaussianConfigError(f"unsupported resolved Gaussian profile: {resolved.requested_profile}")
     validate_effective_config(resolved.effective_config)
     expected_hash = effective_config_hash(resolved.effective_config)

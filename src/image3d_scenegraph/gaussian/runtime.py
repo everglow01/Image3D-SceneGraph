@@ -29,9 +29,47 @@ def load_training_views(
     longest_edge: int,
     device: torch.device,
 ) -> list[TrainingView]:
-    validate_contract(contract, dataset_root)
     if split not in {"train", "validation"}:
         raise DatasetContractError("the trainer can load only train or validation views")
+    return load_views(
+        contract,
+        dataset_root,
+        split=split,
+        longest_edge=longest_edge,
+        device=device,
+    )
+
+
+def load_evaluation_views(
+    contract: dict[str, Any],
+    dataset_root: Path,
+    *,
+    split: str,
+    longest_edge: int,
+    device: torch.device,
+) -> list[TrainingView]:
+    if split not in {"validation", "test"}:
+        raise DatasetContractError("the evaluator can load only validation or test views")
+    return load_views(
+        contract,
+        dataset_root,
+        split=split,
+        longest_edge=longest_edge,
+        device=device,
+    )
+
+
+def load_views(
+    contract: dict[str, Any],
+    dataset_root: Path,
+    *,
+    split: str,
+    longest_edge: int,
+    device: torch.device,
+) -> list[TrainingView]:
+    validate_contract(contract, dataset_root)
+    if split not in contract["splits"]:
+        raise DatasetContractError(f"unknown dataset split: {split}")
     selected_ids = set(contract["splits"][split])
     normalized_from_world = np.asarray(
         contract["normalization"]["normalized_from_world"], dtype=np.float64

@@ -68,7 +68,7 @@ def test_validation_payload_marks_lpips_not_run(monkeypatch):
     assert payload["mean_psnr"] == pytest.approx(120.0)
     assert payload["lpips"] == {
         "status": "not_run",
-        "reason": "dependency_not_audited_in_r2_10",
+        "reason": "pretrained_weight_license_and_hash_not_audited",
     }
 
 
