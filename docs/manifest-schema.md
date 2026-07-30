@@ -20,9 +20,27 @@ Newly completed jobs contain:
 | `inputs` | array | Stored input filename, relative path, content type, and byte count. |
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
+| `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
 | `mesh_variants` | array | Optional generated mesh alternatives. |
 
 Historical manifests can omit fields added after that job was created. Readers must tolerate absent optional fields and must not manufacture an effective policy that the old job did not record.
+
+## Gaussian effective configuration
+
+`gaussian_config` is present only when a trusted project-owned 3DGS caller supplies a resolved configuration. It contains:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | integer | Gaussian configuration schema version; R2.4 defines version `1`. |
+| `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
+| `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
+| `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |
+
+The same schema version, requested profile, effective configuration, and hash are written to `logs/run.log`. Public job submission does not expose raw Gaussian hyperparameters; a future Gaussian-specific public route may select only an allow-listed quality profile. Internal research callers may supply validated overrides, and a recorded ablation must differ from its baseline in exactly one effective leaf field.
+
+Training configuration contains validation cadence but no test cadence. Held-out test views remain isolated until the candidate, effective configuration, and checkpoint are frozen. The R2.4 values are contract defaults, not evidence that the final RTX 4060 performance profile has passed R2.14.
+
+Jobs without `gaussian_config`, including all historical geometry jobs and imported-splat fixtures, remain valid. Readers must not add a default profile or infer effective parameters for them.
 
 ## Assets
 

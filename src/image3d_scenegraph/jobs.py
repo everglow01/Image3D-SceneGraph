@@ -12,6 +12,12 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any
 
+from image3d_scenegraph.gaussian.config import (
+    GaussianConfigError,
+    ResolvedGaussianConfig,
+    canonical_config_json,
+    resolved_config_record,
+)
 from image3d_scenegraph.geometry.adapters import (
     ReconstructionContext,
     ReconstructionError,
@@ -66,8 +72,16 @@ class JobStore:
         geometry_backend: str = "mock",
         output_type: str = "point_cloud",
         options: dict[str, int | float | str] | None = None,
+        *,
+        gaussian_config: ResolvedGaussianConfig | None = None,
     ) -> dict[str, Any]:
         self._validate_request(mode, files)
+        try:
+            gaussian_config_record = (
+                resolved_config_record(gaussian_config) if gaussian_config is not None else None
+            )
+        except GaussianConfigError as exc:
+            raise JobError(str(exc)) from exc
 
         job_id = self._new_job_id()
         job_dir = self.job_dir(job_id)
@@ -110,6 +124,15 @@ class JobStore:
         scene = self._build_mock_scene(job_id, mode)
         self._write_json(job_dir / "scene_graph" / "scene.json", scene)
 
+        gaussian_log_lines: list[str] = []
+        if gaussian_config_record is not None:
+            gaussian_log_lines = [
+                f"gaussian_config_schema_version={gaussian_config_record['schema_version']}",
+                f"gaussian_requested_profile={gaussian_config_record['requested_profile']}",
+                f"gaussian_effective_config_hash={gaussian_config_record['effective_config_hash']}",
+                "gaussian_effective_config="
+                + canonical_config_json(gaussian_config_record["effective_config"]),
+            ]
         log_text = "\n".join(
             [
                 f"job_id={job_id}",
@@ -117,6 +140,7 @@ class JobStore:
                 f"num_inputs={len(files)}",
                 f"stage={stage}",
                 "status=done",
+                *gaussian_log_lines,
                 *reconstruction.log_lines,
                 *alignment_log_lines,
                 *mesh_log_lines,
@@ -148,6 +172,7 @@ class JobStore:
             stage=stage,
             assets=assets,
             metrics=metrics,
+            gaussian_config=gaussian_config_record,
         )
         if output_type == "mesh":
             self._with_existing_mesh_variants(job_dir, manifest)
@@ -700,9 +725,10 @@ class JobStore:
         stage: str,
         assets: dict[str, str],
         metrics: dict[str, int | float | str | bool],
+        gaussian_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        return {
+        manifest = {
             "job_id": job_id,
             "status": "done",
             "stage": stage,
@@ -716,6 +742,9 @@ class JobStore:
             "assets": assets,
             "metrics": metrics,
         }
+        if gaussian_config is not None:
+            manifest["gaussian_config"] = gaussian_config
+        return manifest
 
     def _input_type(self, mode: str) -> str:
         if mode == "panorama":

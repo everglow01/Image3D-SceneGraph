@@ -23,6 +23,19 @@ class FakeJobStore:
         }
 
 
+def test_public_job_schema_has_no_raw_gaussian_hyperparameters(tmp_path):
+    schema = create_app(tmp_path / "jobs").openapi()
+    body_schema = schema["paths"]["/api/jobs"]["post"]["requestBody"]["content"][
+        "multipart/form-data"
+    ]["schema"]
+    if "$ref" in body_schema:
+        body_schema = schema["components"]["schemas"][body_schema["$ref"].rsplit("/", 1)[-1]]
+
+    properties = body_schema["properties"]
+    assert "quality_profile" not in properties
+    assert not any("gaussian" in name for name in properties)
+
+
 def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
     app = create_app(tmp_path / "jobs")
     store = FakeJobStore()

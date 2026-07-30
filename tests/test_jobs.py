@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from image3d_scenegraph.gaussian.config import effective_config_hash, resolve_public_config
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
 
 
@@ -34,6 +35,7 @@ def test_create_image_job_and_read_outputs(tmp_path):
     assert manifest["assets"]["alignment_diagnostics"] == "diagnostics/alignment.json"
     assert manifest["metrics"]["alignment_status"] == "aligned"
 
+    assert "gaussian_config" not in manifest
     loaded_manifest = store.get_manifest(job_id)
     assert loaded_manifest["metrics"]["num_points"] == 5
 
@@ -50,6 +52,27 @@ def test_create_image_job_and_read_outputs(tmp_path):
     assert bundle_path.exists()
     with zipfile.ZipFile(bundle_path) as archive:
         assert "manifest.json" in archive.namelist()
+
+
+def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    resolved = resolve_public_config("standard_v1")
+
+    manifest = store.create_job(
+        "image",
+        [UploadedInput(filename="room.jpg", content=b"fake-image")],
+        gaussian_config=resolved,
+    )
+
+    record = manifest["gaussian_config"]
+    assert record["schema_version"] == 1
+    assert record["requested_profile"] == "standard_v1"
+    assert record["effective_config_hash"] == effective_config_hash(record["effective_config"])
+    log = store.get_asset_path(manifest["job_id"], "logs/run.log").read_text(encoding="utf-8")
+    assert "gaussian_config_schema_version=1\n" in log
+    assert "gaussian_requested_profile=standard_v1\n" in log
+    assert f"gaussian_effective_config_hash={record['effective_config_hash']}\n" in log
+    assert 'gaussian_effective_config={"checkpoint":' in log
 
 
 def test_create_panorama_job(tmp_path):
@@ -98,6 +121,7 @@ def test_load_legacy_manifest_without_policy_metrics(tmp_path):
     assert "confidence_threshold_scope" not in loaded["metrics"]
     assert "consistency_support_policy" not in loaded["metrics"]
     assert "point_budget_policy" not in loaded["metrics"]
+    assert "gaussian_config" not in loaded
 
 
 def test_preserve_multi_image_folder_paths(tmp_path):
