@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "job_id": "20260723_070028_024e9f25",
+  "instructions": "Each region uses its frozen G1.1 Raw state as the source-space anchor. Single-plane and Manhattan camera position, target, and up are rotated by the exact candidate rigid rotation after the shared display axis signs; rigid translation cancels with cloud centering. Capture at 1600x1000 with Cameras enabled.",
+  "views": [
+    {
+      "name": "bookshelf_raw",
+      "variant": "raw",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [-3.2412994586223567, 2.8636041239309225, -3.746639406963272],
+        "controlsTarget": [-0.9119318744102498, 3.987331666590982, -4.704158446911356],
+        "cameraUp": [0.0, 0.0, 1.0],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {"x": 1, "y": -1, "z": -1},
+        "pointSize": 0.035,
+        "captureViewport": [1600, 1000]
+      }
+    },
+    {
+      "name": "bookshelf_single_plane",
+      "variant": "single_plane",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [-3.2529952836051774, 4.5661041009350996, 1.1455446866604584],
+        "controlsTarget": [-0.9250913099251096, 5.902881761974976, 1.7775638466891481],
+        "cameraUp": [0.006295713721810046, -0.9164340679131409, 0.40013618076463137],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {"x": 1, "y": -1, "z": -1},
+        "pointSize": 0.035,
+        "captureViewport": [1600, 1000]
+      }
+    },
+    {
+      "name": "bookshelf_manhattan",
+      "variant": "manhattan",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [-3.3872224812305802, -4.453926524535829, -1.1970045871057378],
+        "controlsTarget": [-1.099026733844145, -5.856200998888572, -1.8320999851330189],
+        "cameraUp": [0.03601305998750472, 0.9192000350768397, -0.39214073369783015],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {"x": 1, "y": -1, "z": -1},
+        "pointSize": 0.035,
+        "captureViewport": [1600, 1000]
+      }
+    },
+    {
+      "name": "monitor_raw",
+      "variant": "raw",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [0.6695656227058518, 1.2690263212040434, -3.060039061327229],
+        "controlsTarget": [0.676840462581049, 1.3959684877499916, -3.3535383044277647],
+        "cameraUp": [0.0, 0.0, 1.0],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {"x": 1, "y": -1, "z": -1},
+        "pointSize": 0.035,
+        "captureViewport": [1600, 1000]
+      }
+    },
+    {
+      "name": "monitor_single_plane",
+      "variant": "single_plane",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [0.6555108742935374, 3.3149024251908594, -0.06566878263871694],
+        "controlsTarget": [0.6614608175284536, 3.634702855512501, -0.06682012306209084],
+        "cameraUp": [0.006295713721810046, -0.9164340679131409, 0.40013618076463137],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {"x": 1, "y": -1, "z": -1},
+        "pointSize": 0.035,
+        "captureViewport": [1600, 1000]
+      }
+    },
+    {
+      "name": "monitor_manhattan",
+      "variant": "manhattan",
+      "state": {
+        "schemaVersion": 1,
+        "cameraPosition": [0.5531034486133478, -3.33393434380481, 0.039285496017979864],
+        "controlsTarget": [0.5492215632768149, -3.6537646181418535, 0.03768261520457426],
+        "cameraUp": [0.03601305998750472, 0.9192000350768397, -0.39214073369783015],
+        "fov": 55,
+        "near": 0.09599177101537208,
+        "far": 959.9177101537208,
+        "axisSigns": {"x": 1, "y": -1, "z": -1},
+        "pointSize": 0.035,
+        "captureViewport": [1600, 1000]
+      }
+    }
+  ]
+}

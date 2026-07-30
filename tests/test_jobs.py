@@ -71,6 +71,35 @@ def test_create_panorama_job(tmp_path):
     assert manifest["inputs"][0]["path"] == "input/images/office_360.jpg"
 
 
+def test_load_legacy_manifest_without_policy_metrics(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    job_dir = store.job_dir("legacy-job")
+    job_dir.mkdir(parents=True)
+    manifest = {
+        "job_id": "legacy-job",
+        "status": "done",
+        "stage": "colmap_vggt_dense_reconstruction",
+        "progress": 1.0,
+        "mode": "multi_image",
+        "geometry_backend": "colmap_vggt",
+        "output_type": "point_cloud",
+        "assets": {"point_cloud": "geometry/points.ply"},
+        "metrics": {"num_points": 99},
+    }
+    (job_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    loaded = store.get_manifest("legacy-job")
+
+    assert loaded["job_id"] == manifest["job_id"]
+    assert loaded["assets"] == manifest["assets"]
+    assert loaded["metrics"] == manifest["metrics"]
+    assert loaded["mesh_variants"] == []
+    assert "vggt_grouping" not in loaded["metrics"]
+    assert "confidence_threshold_scope" not in loaded["metrics"]
+    assert "consistency_support_policy" not in loaded["metrics"]
+    assert "point_budget_policy" not in loaded["metrics"]
+
+
 def test_preserve_multi_image_folder_paths(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 
@@ -423,6 +452,19 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
                     "backend=colmap_vggt",
                     "num_images=2",
                     "num_points=99",
+                    "fusion_mode=points",
+                    "vggt_batch_size=4",
+                    "vggt_overlap_size=2",
+                    "overlap_size=0",
+                    "vggt_grouping=sequential",
+                    "conf_percentile=50.0",
+                    "confidence_threshold_scope=global",
+                    "consistency_support_policy=any_support",
+                    "max_points=2000000",
+                    "point_budget_policy=random",
+                    "point_budget_input_points=99",
+                    "point_budget_output_points=99",
+                    "point_budget_applied=false",
                 ]
             )
             + "\n",
@@ -455,6 +497,16 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
     assert manifest["metrics"]["mesh_component_count"] == 3
     assert manifest["metrics"]["mesh_long_edge_removed_triangles"] == 7
     assert manifest["metrics"]["mesh_small_component_removed_triangles"] == 11
+    assert manifest["metrics"]["fusion_mode"] == "points"
+    assert manifest["metrics"]["vggt_grouping"] == "sequential"
+    assert manifest["metrics"]["vggt_overlap_size"] == 2
+    assert manifest["metrics"]["overlap_size"] == 0
+    assert manifest["metrics"]["conf_percentile"] == 50.0
+    assert manifest["metrics"]["confidence_threshold_scope"] == "global"
+    assert manifest["metrics"]["consistency_support_policy"] == "any_support"
+    assert manifest["metrics"]["max_points"] == 2_000_000
+    assert manifest["metrics"]["point_budget_policy"] == "random"
+    assert manifest["metrics"]["point_budget_applied"] is False
     assert manifest["mesh_variants"][0]["id"] == "baseline"
     assert manifest["mesh_variants"][0]["mesh_asset"] == "geometry/mesh.glb"
     assert any(str(command[1]).endswith("run_colmap_vggt_dense.py") for command in captured_commands)
@@ -462,6 +514,9 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
     points_command = next(command for command in captured_commands if str(command[1]).endswith("run_colmap_vggt_dense.py"))
     assert points_command[points_command.index("--vggt-grouping") + 1] == "sequential"
     assert points_command[points_command.index("--vggt-overlap-size") + 1] == "2"
+    assert points_command[points_command.index("--fusion-mode") + 1] == "points"
+    assert points_command[points_command.index("--max-points") + 1] == "2000000"
+    assert points_command[points_command.index("--conf-percentile") + 1] == "50.0"
     assert points_command[points_command.index("--confidence-threshold-scope") + 1] == "global"
     assert points_command[points_command.index("--consistency-support-policy") + 1] == "any_support"
     assert points_command[points_command.index("--point-budget-policy") + 1] == "random"

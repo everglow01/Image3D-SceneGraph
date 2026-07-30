@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "g1_17_summary": "outputs/experiments/g1_17/g1_17_summary.json",
+  "private_scene": "private_225",
+  "private_roi_definition": "benchmarks/private-225/g1_4_rois.json",
+  "private_alignment": "outputs/jobs/20260723_070028_024e9f25/diagnostics/alignment.json",
+  "scenes": {
+    "private_225": {
+      "capture_dir": "outputs/experiments/g1_8/private_225/capture_reconstruction",
+      "overlap_diagnostics": "outputs/experiments/g1_9/private_225/overlap_depth_disagreement.json",
+      "baseline_dir": "outputs/experiments/g1_17/private_225/baseline",
+      "candidate_dir": "outputs/experiments/g1_17/private_225/contradiction_free"
+    },
+    "pipes": {
+      "capture_dir": "outputs/experiments/g1_9/pipes/capture_reconstruction",
+      "overlap_diagnostics": "outputs/experiments/g1_9/pipes/overlap_depth_disagreement.json",
+      "baseline_dir": "outputs/experiments/g1_17/pipes/baseline",
+      "candidate_dir": "outputs/experiments/g1_17/pipes/contradiction_free"
+    },
+    "terrains": {
+      "capture_dir": "outputs/experiments/g1_9/terrains/capture_reconstruction",
+      "overlap_diagnostics": "outputs/experiments/g1_9/terrains/overlap_depth_disagreement.json",
+      "baseline_dir": "outputs/experiments/g1_17/terrains/baseline",
+      "candidate_dir": "outputs/experiments/g1_17/terrains/contradiction_free"
+    },
+    "delivery_area": {
+      "capture_dir": "outputs/experiments/g1_9/delivery_area/capture_reconstruction",
+      "overlap_diagnostics": "outputs/experiments/g1_9/delivery_area/overlap_depth_disagreement.json",
+      "baseline_dir": "outputs/experiments/g1_17/delivery_area/baseline",
+      "candidate_dir": "outputs/experiments/g1_17/delivery_area/contradiction_free"
+    }
+  }
+}

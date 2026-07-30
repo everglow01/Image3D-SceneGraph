@@ -23,6 +23,29 @@ class FakeJobStore:
         }
 
 
+def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
+    app = create_app(tmp_path / "jobs")
+    store = FakeJobStore()
+    app.state.job_store = store
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "colmap_vggt",
+            "output_type": "point_cloud",
+        },
+        files=[
+            ("files", ("first.jpg", b"first", "image/jpeg")),
+            ("files", ("second.jpg", b"second", "image/jpeg")),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert store.options == {}
+
+
 def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
     app = create_app(tmp_path / "jobs")
     store = FakeJobStore()

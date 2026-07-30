@@ -2,9 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
+import {
+  applyAxisSigns as applyCameraAxisSigns,
+  cameraLinePositions,
+  parseAlignmentTransform,
+  parseCameraFrames,
+  transformCameraFrames,
+  type CameraFrame,
+  type Mat4,
+  type Vec3
+} from "./cameraOverlay";
 
 type PointCloudViewerProps = {
   sourceUrl: string | null;
+  camerasUrl?: string | null;
+  alignmentDiagnosticsUrl?: string | null;
+  pointCloudVariant?: "raw" | "aligned";
   viewArtifactStem?: string;
 };
 
@@ -29,19 +42,30 @@ type AxisSigns = {
   z: 1 | -1;
 };
 
-export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-view" }: PointCloudViewerProps) {
+export function PointCloudViewer({
+  sourceUrl,
+  camerasUrl = null,
+  alignmentDiagnosticsUrl = null,
+  pointCloudVariant = "raw",
+  viewArtifactStem = "point-cloud-view"
+}: PointCloudViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointsRef = useRef<THREE.Points | null>(null);
+  const cameraOverlayRef = useRef<THREE.LineSegments | null>(null);
+  const cloudCenterRef = useRef<Vec3>([0, 0, 0]);
+  const cloudRadiusRef = useRef(1);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [viewerState, setViewerState] = useState("idle");
   const [viewMessage, setViewMessage] = useState("");
   const [artifactName, setArtifactName] = useState(viewArtifactStem);
   const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: 1, z: 1 });
   const [pointSize, setPointSize] = useState(0.035);
+  const [showCameras, setShowCameras] = useState(true);
+  const [camerasAvailable, setCamerasAvailable] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -101,6 +125,7 @@ export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-vi
       controls.dispose();
       renderer.dispose();
       renderer.domElement.remove();
+      removeCameraOverlay(scene, cameraOverlayRef);
       scene.traverse((object) => {
         if (object instanceof THREE.Points || object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -148,6 +173,10 @@ export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-vi
 
         geometry.computeVertexNormals();
         geometry.computeBoundingSphere();
+        const cloudCenter = geometry.boundingSphere?.center.clone() ?? new THREE.Vector3();
+        const radius = geometry.boundingSphere?.radius ?? 1;
+        cloudCenterRef.current = cloudCenter.toArray() as Vec3;
+        cloudRadiusRef.current = radius;
         geometry.center();
 
         const hasVertexColors = geometry.hasAttribute("color");
@@ -162,7 +191,6 @@ export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-vi
         scene.add(points);
         pointsRef.current = points;
 
-        const radius = geometry.boundingSphere?.radius ?? 1;
         camera.position.set(radius * 1.8, -radius * 2.2, radius * 1.4);
         camera.up.set(0, 0, 1);
         camera.near = Math.max(radius / 100, 0.001);
@@ -190,7 +218,68 @@ export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-vi
     if (pointsRef.current) {
       applyAxisSigns(pointsRef.current, axisSigns);
     }
+    if (cameraOverlayRef.current) {
+      applyAxisSigns(cameraOverlayRef.current, axisSigns);
+    }
   }, [axisSigns]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) {
+      return;
+    }
+    removeCameraOverlay(scene, cameraOverlayRef);
+    setCamerasAvailable(false);
+    if (!camerasUrl || viewerState !== "ready") {
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all([
+      fetchJson(camerasUrl),
+      pointCloudVariant === "aligned"
+        ? alignmentDiagnosticsUrl
+          ? fetchJson(alignmentDiagnosticsUrl)
+          : Promise.reject(new Error("Aligned camera overlay requires alignment diagnostics"))
+        : Promise.resolve(null)
+    ])
+      .then(([cameraPayload, alignmentPayload]) => {
+        if (cancelled) {
+          return;
+        }
+        const frames = parseCameraFrames(cameraPayload, cloudRadiusRef.current * 0.025);
+        const alignment: Mat4 | null = alignmentPayload
+          ? parseAlignmentTransform(alignmentPayload)
+          : null;
+        const transformed = transformCameraFrames(
+          frames,
+          alignment,
+          cloudCenterRef.current
+        );
+        const overlay = buildCameraOverlay(transformed);
+        overlay.visible = showCameras;
+        applyAxisSigns(overlay, axisSigns);
+        scene.add(overlay);
+        cameraOverlayRef.current = overlay;
+        setCamerasAvailable(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCamerasAvailable(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      removeCameraOverlay(scene, cameraOverlayRef);
+    };
+  }, [camerasUrl, alignmentDiagnosticsUrl, pointCloudVariant, sourceUrl, viewerState]);
+
+  useEffect(() => {
+    if (cameraOverlayRef.current) {
+      cameraOverlayRef.current.visible = showCameras;
+    }
+  }, [showCameras]);
 
   useEffect(() => {
     const material = pointsRef.current?.material;
@@ -331,6 +420,14 @@ export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-vi
         >
           Z
         </button>
+        <button
+          className={showCameras && camerasAvailable ? "viewer-tool-button active" : "viewer-tool-button"}
+          disabled={!camerasAvailable}
+          onClick={() => setShowCameras((current) => !current)}
+          type="button"
+        >
+          Cameras
+        </button>
         <input
           aria-label="View artifact name"
           className="viewer-artifact-name"
@@ -394,6 +491,46 @@ export function PointCloudViewer({ sourceUrl, viewArtifactStem = "point-cloud-vi
   );
 }
 
-function applyAxisSigns(points: THREE.Points, axisSigns: AxisSigns) {
-  points.scale.set(axisSigns.x, axisSigns.y, axisSigns.z);
+function applyAxisSigns(object: THREE.Object3D, axisSigns: AxisSigns) {
+  object.scale.set(axisSigns.x, axisSigns.y, axisSigns.z);
+}
+
+function buildCameraOverlay(frames: CameraFrame[]) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(cameraLinePositions(frames), 3));
+  const material = new THREE.LineBasicMaterial({
+    color: 0xe4572e,
+    transparent: true,
+    opacity: 0.82,
+    depthTest: false
+  });
+  const overlay = new THREE.LineSegments(geometry, material);
+  overlay.renderOrder = 2;
+  return overlay;
+}
+
+function removeCameraOverlay(
+  scene: THREE.Scene,
+  ref: { current: THREE.LineSegments | null }
+) {
+  if (!ref.current) {
+    return;
+  }
+  scene.remove(ref.current);
+  ref.current.geometry.dispose();
+  const material = ref.current.material;
+  if (Array.isArray(material)) {
+    material.forEach((item) => item.dispose());
+  } else {
+    material.dispose();
+  }
+  ref.current = null;
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  return response.json();
 }

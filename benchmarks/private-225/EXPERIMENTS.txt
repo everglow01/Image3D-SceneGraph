@@ -527,3 +527,579 @@ Evidence:
 - Focused tests: 2 passed. Full Python suite: 90 passed with one existing Starlette/httpx
   deprecation warning. Deterministic evaluator `--check`, `py_compile`, IDE diagnostics, and
   `git diff --check` passed.
+
+G1.20 — Pixel-center COLMAP dense-backprojection ablation
+--------------------------------------------------------
+Date: 2026-07-27
+Status: completed mixed/negative ablation; candidate rejected as a production default
+
+Protocol:
+- Replay only the retained first-wins float32 depth/confidence predictions from G1.8 private-225
+  and G1.9 pipes/terrains/delivery_area. VGGT inference and COLMAP reconstruction were not rerun.
+- Freeze RGB, COLMAP camera-from-world poses and radial distortion, per-frame sparse depth scale,
+  covisibility graph settings, confidence thresholds, support policy, relative threshold, stride,
+  point-budget policy/cap, and seed. The only candidate change is `cx/cy += 0.5*(scale-1)`.
+- Run an explicit `production_colmap` replay before the candidate. All four replay PLY SHA-256
+  values matched the frozen source PLYs exactly, so replay machinery introduced no geometry delta.
+- Sparse sanity is the unchanged G1.19 result: the candidate improved edge reprojection p90 in 4/4
+  scenes with 79.35% median reduction; G1.20 tests whether that carries into actual dense geometry.
+- Evaluate private fixed Raw-coordinate G1.4 ROIs with the frozen Raw-to-Aligned selection transform.
+  ETH3D reference cameras/scans enter only after reconstruction for the existing camera-center Sim(3)
+  and official evaluator; they do not guide replay, filtering, thresholds, or candidate selection.
+
+Results:
+Scene          residual p50 change  residual p90 change  accepted-point change  output points base -> candidate
+private-225    -0.5745%             +0.0077%              +14,511 (+0.0818%)      17,746,411 -> 17,760,922
+pipes          +4.5157%             +2.7471%              +77 (+0.0063%)          1,228,999 -> 1,229,076
+terrains       -0.1690%             +1.0058%              -2,352 (-0.0626%)       2,000,000 -> 2,000,000
+delivery_area  +1.1943%             +0.1633%              -2,942 (-0.0751%)       2,000,000 -> 2,000,000
+
+Private ROI    thickness base -> candidate  layers base -> candidate  coverage base -> candidate  plane RMS change
+monitor        .575968 -> .497812 (-13.57%)  5 -> 2                    1.0000 -> .9025              +9.68%
+bookshelf      .847666 -> .755218 (-10.91%)  4 -> 3                    .7175 -> .6925               +4.28%
+
+ETH3D scene    F1 delta @1 cm  F1 delta @2 cm  F1 delta @5 cm
+pipes          +.001389        -.000859        -.002633
+terrains       -.002880        -.008438        -.005251
+delivery_area  +.019353        +.027182        +.005364
+
+Conclusion:
+- The candidate improves private ROI thickness/layer counts, but simultaneously lowers ROI coverage
+  and raises plane RMS. Cross-view residual p90 regresses in all 4/4 scenes; pipes also regresses p50
+  by 4.52%. These changes are small except for pipes but contradict a consistent residual benefit.
+- ETH3D transfer is mixed: delivery_area improves at 1/2/5 cm, terrains regresses at all three, and
+  pipes only improves at 1 cm. A private-only improvement cannot select a stable default, and the
+  transfer regression is not retuned away.
+- G1.19's constructive sparse pixel-center improvement therefore does not translate into a robust
+  dense-geometry improvement. Keep current production COLMAP intrinsics unchanged and close this
+  candidate path. Scale remains arbitrary and no metric-accuracy claim is made.
+
+Evidence:
+- `scripts/replay_frozen_intrinsics_ablation.py`
+- `tests/test_replay_frozen_intrinsics_ablation.py`
+- `outputs/experiments/g1_20/g1_20_summary.json`
+  SHA-256 704c6f18212d4ce0159f6ece638d48342d768c23040efca83d7bd25da054a3c4
+- Per-arm replay diagnostics, PLYs, private ROI JSON, and ETH3D results remain under the ignored
+  `outputs/experiments/g1_20/` tree.
+
+G1.14 — Per-final-point support provenance index
+------------------------------------------------
+Date: 2026-07-27
+Status: accepted diagnostic foundation; no fusion policy or production default changed
+
+Protocol:
+- Add opt-in `--support-diagnostics-output` to points-mode COLMAP+VGGT fusion. The default path
+  retains no per-point arrays and produces no new asset; TSDF rejects the option explicitly.
+- Reuse the existing cross-view validation result rather than projecting a second time. For each
+  accepted point retain source image and first-wins window provenance, source canvas pixel,
+  confidence, visible/support/occluded counts, mean relative residual, sparse scale observation
+  count/log-MAD, and maximum sparse-anchored log-depth disagreement against another retained
+  prediction of the same image. Missing overlap is represented by NaN, not zero agreement.
+- Apply the exact point-budget selection indices to every attribute before writing compressed NPZ,
+  so sidecar row N corresponds to final PLY vertex N even when random or Morton capping activates.
+  The JSON index defines dtypes/semantics and keeps frontend/manifest code independent of arrays.
+- Generate real evidence by CPU replay of the frozen private G1.8 first-wins predictions; VGGT and
+  COLMAP were not rerun and no GT entered diagnostics.
+
+Acceptance result:
+- Final point count and every one of 14 attribute-array lengths: 17,746,411. Counts recomputed from
+  the sidecar exactly match consistency diagnostics: 4,144,503 unverified (`visible_count=0`) and
+  13,601,908 supported (`support_count>0`). Support strata are 4,144,503 / 3,368,449 / 10,233,459
+  points for 0 / 1 / 2+ supports.
+- 7,036,847 final points (39.6522%) have retained overlap disagreement; finite p50/p90 absolute
+  sparse-anchored log-depth disagreement is 0.009359/0.029741. Remaining values are NaN because
+  their source image has no comparable retained overlap prediction.
+- Replay output PLY SHA-256 is `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`,
+  byte-identical to the frozen G1.8 cloud. Thus diagnostics do not alter filtering, ordering, or XYZ.
+- Compressed NPZ is 128,510,930 bytes (123 MiB; 727,602,851 uncompressed array bytes), written in
+  13.287 s. Full CPU replay wall time was 31.84 s; maximum RSS was 3,283,136 KiB; exit status 0.
+- This completes retention only. G1.15 still owns category-colored PLY exports, and G1.16 still owns
+  separating occluded, not-observed, and contradicted semantics; no support-aware policy is selected.
+
+Evidence:
+- `scripts/run_colmap_vggt_dense.py`
+- `scripts/replay_frozen_intrinsics_ablation.py`
+- `tests/test_colmap_vggt_dense.py`
+- `outputs/experiments/g1_14/private_225/diagnostics/support_points.npz`
+  SHA-256 f9e4f33d19adf120c994b5a1fda3a266821ce267f13cd84fac899c0d7f6ff9ab
+- `outputs/experiments/g1_14/private_225/diagnostics/support_points.json`
+  SHA-256 598c089fc1682a7cf3be5deda38f4432a7a6857a58f07eaf6728359c4fd3bca0
+- Focused dense/replay tests: 43 passed. Full suite: 95 passed with one existing Starlette/httpx
+  deprecation warning. `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.15 — Supported/unverified/high-disagreement diagnostic point clouds
+---------------------------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic export; no reconstruction or fusion policy changed
+
+Protocol:
+- Read only the frozen G1.14 final PLY, support NPZ/index, and consistency JSON. Validate the exact
+  final-vertex row-order declaration, sidecar SHA-256, all array lengths, point counts, and recorded
+  supported/unverified counts before exporting. VGGT, COLMAP, filtering, and point budgeting were
+  not rerun; no GT entered classification.
+- Export three independent masks in original final-point order: supported is `support_counts > 0`,
+  unverified is `visible_counts == 0`, and high-disagreement is finite retained overlap disagreement
+  at least 0.02 absolute log-depth. The fixed 0.02 threshold reuses the frozen reconstruction's
+  cross-view relative threshold (about 2.02% depth ratio), rather than being tuned from the ROI or GT.
+  NaN means no comparable overlap and is excluded. Sets are independent; G1.16 still owns disjoint
+  occluded/not-observed/contradicted semantics.
+- Replace source RGB with a fixed legend: supported cyan `(0,170,255)`, unverified orange
+  `(255,170,0)`, and high-disagreement magenta `(220,40,180)`. The exporter writes a reproducible
+  JSON record with all rules, counts, source/output hashes, sizes, and consistency checks.
+
+Acceptance result:
+- From 17,746,411 final points, exported 13,601,908 supported (76.6460%), 4,144,503 unverified
+  (23.3540%), and 1,415,144 high-disagreement (7.9743%). Supported/unverified counts exactly match
+  frozen consistency diagnostics. Retained overlap evidence is finite for 7,036,847 points, so
+  missing overlap is not mislabeled as agreement or disagreement.
+- The frozen source PLY remained byte-identical before and after export: SHA-256
+  `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`.
+- Export wall time was 3.96 s; maximum RSS was 1,134,212 KiB; exit status 0. Output sizes were
+  204,028,802 / 62,167,726 / 21,227,341 bytes for supported/unverified/high-disagreement.
+- At the frozen Raw bookshelf camera pose, all three diagnostic clouds were rendered independently.
+  Within the fixed aligned-coordinate bookshelf ROI, 106,584 final points split into 85,748 supported
+  (80.4511%) and 20,836 unverified (19.5489%); 6,411 (6.0150%) are high-disagreement, with overlap
+  evidence available for 44,698. The repeated shelf/book strata are visible in both supported and
+  unverified views and are also present in the sparser high-disagreement view. Therefore the visible
+  duplicate layers are not attributable to a single support class; this is qualitative diagnosis,
+  not a support-only rejection decision. G1.16/G1.17 remain necessary before changing policy.
+
+Evidence:
+- `scripts/export_support_diagnostic_plys.py`
+- `tests/test_export_support_diagnostic_plys.py`
+- `outputs/experiments/g1_15/private_225/diagnostic_plys/diagnostic_plys.json`
+  SHA-256 e46fd6bf8a7461e958fcdb62e3cc64dfe2b02fbfd7ada89d1de24f22092621b6
+- `supported.ply` SHA-256 b249101388550d5fb077ac202d1111610871640eedb6364da37f7ad02256bc47
+- `unverified.ply` SHA-256 398e30395d39ca51c9880d78507523e77062cc3654d585da26e68b94fe0813a6
+- `high_disagreement.ply` SHA-256 443199681d6e81b5d3d55aa1a21bde9a995ee0a3e89972ab7801f05c3e01f8f6
+- Ignored fixed-view inspection artifacts remain under `outputs/experiments/g1_15/private_225/`.
+- Focused dense/exporter tests: 47 passed. Full suite: 102 passed with one existing Starlette/httpx
+  deprecation warning. Exporter `--check`, `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.16 — Explicit occluded/not-observed/contradicted visibility states
+-------------------------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic semantics; baseline policy and reconstruction unchanged
+
+Protocol:
+- Reuse the existing cross-view projection pass and make every candidate/neighbor check one of four
+  mutually exclusive states. `supported` is a reliable non-occluded depth within the frozen relative
+  threshold; `contradicted` is reliable and non-occluded but outside it; `occluded` has a reliable
+  neighbor depth in front by more than the threshold; `not_observed` covers out-of-canvas/behind-
+  camera, invalid depth, or low-confidence checks. Therefore `visible = supported + contradicted`,
+  and all four counts sum to the checked-neighbor count for each candidate.
+- Preserve existing `visible_counts`, `support_counts`, `occluded_counts`, acceptance masks, support
+  policy, candidate ordering, and point budget. Add only `contradicted_counts` and
+  `not_observed_counts` to the opt-in final-row sidecar plus explicit aggregate counts to consistency
+  diagnostics. G1.17, not this task, owns any policy change.
+- Replay the frozen private G1.8 first-wins depth/confidence and COLMAP model on CPU. VGGT/COLMAP were
+  not rerun, no GT entered classification, and the same frozen `adaptive_two` support policy ran.
+
+Acceptance result:
+- Candidate-level 19,580,411 points split diagnostically into 1,064,699 occluded-only, 3,079,804
+  not-observed-only, and 1,083,591 contradicted-only points. Another 1,678,571 candidates had both
+  support and contradiction; this mixed count is reported explicitly rather than forcing evidence
+  into a misleading disjoint point label. The existing policy accepted 17,746,411 and rejected
+  1,834,000 candidates, unchanged from G1.14.
+- Among final accepted points, 1,064,699 are occluded-only and 3,079,804 not-observed-only. There are
+  zero contradicted-only final points because the frozen policy rejects unsupported visible
+  contradictions; 928,162 accepted points have both support and contradiction. Thus contradiction
+  evidence exists in 1,107,212 neighbor observations even though no contradiction-only point survives.
+- For every one of 17,746,411 sidecar rows, `visible = support + contradicted` and
+  `support + contradicted + occluded + not_observed = checked neighbors`. The retained supported
+  count remains 13,601,908 and old unverified total remains 4,144,503, now exactly decomposed as
+  1,064,699 occluded-only + 3,079,804 not-observed-only.
+- Replay PLY SHA-256 remains
+  `dedb47c6e6e910556e28aed87a11fd8d2546efe0eb69b23de190c5c235ed430d`, byte-identical to G1.14.
+  Replay wall time was 33.07 s, maximum RSS 3,399,860 KiB, and exit status 0. The expanded compressed
+  sidecar is 129,711,755 bytes. No API/frontend/manifest or production default changed.
+
+Evidence:
+- `scripts/run_colmap_vggt_dense.py`
+- `tests/test_colmap_vggt_dense.py`
+- `outputs/experiments/g1_16/private_225/diagnostics/g1_16_visibility.json`
+  SHA-256 718fe0fddc3c3c42231102df694f743d8c646e10fe3094c155cdef58982f0238
+- `support_points.npz` SHA-256 c25d97d9b628743713f1aad48fbc4cfb61ece3332a53bc6b3f773cb4ccecfc6e
+- `support_points.json` SHA-256 28bba4b92be91937d9bba8b1492b612496ab1a52a95adf60dbcae1478b34421a
+- Focused dense/replay tests: 44 passed. Full suite: 103 passed with one existing Starlette/httpx
+  deprecation warning. `py_compile` and `git diff --check` passed.
+
+G1.17 — Contradiction-free support-policy ablation
+--------------------------------------------------
+Date: 2026-07-28
+Status: candidate rejected for default promotion; stable policy unchanged
+
+Protocol and predeclared gate:
+- Add one threshold-free diagnostic policy: keep zero-visible candidates (therefore preserve both
+  occluded-only and not-observed-only); otherwise require at least one support and no contradiction.
+  This rejects mixed supported+contradicted candidates but is explicitly not supported-only.
+- Replay retained private G1.8 first-wins predictions with production COLMAP intrinsics. Depth,
+  confidence, RGB, poses/distortion, per-frame scales, graph, confidence thresholds, relative
+  threshold, stride, point budget/cap, and seed were frozen. Only support policy changed from the
+  capture's `adaptive_two` to `contradiction_free`; VGGT/COLMAP were not rerun and no GT was used.
+- Before evaluation, default promotion required no 2/5 cm F1 regression on any of three ETH3D
+  scenes, plus no monitor/bookshelf layer increase and at most 0.02 absolute private ROI coverage
+  loss. A failure keeps the stable `any_support` default and prevents API/frontend exposure.
+
+Private-225 result:
+- Baseline/candidate accepted and output points: 17,746,411 / 16,818,249. Candidate retained all
+  1,064,699 occluded-only and 3,079,804 not-observed-only final points while removing all 928,162
+  accepted mixed supported+contradicted points. Final support strata changed from
+  4,144,503 / 3,368,449 / 10,233,459 to 4,144,503 / 3,368,449 / 9,305,297 for 0 / 1 / 2+ support.
+- Frozen Raw ROI comparison (baseline -> candidate): monitor points 107,363 -> 106,453, coverage
+  1.0000 -> 1.0000 (hole fraction 0 -> 0), layers 5 -> 4, thickness 0.575968 -> 0.506314,
+  plane RMS 0.014644 -> 0.016534. Bookshelf points 106,584 -> 99,435, coverage 0.7175 -> 0.7050
+  (hole fraction 0.2825 -> 0.2950), layers 4 -> 4, thickness 0.847666 -> 0.727066, plane RMS
+  0.016434 -> 0.017552. The private gate passed: maximum coverage loss was 0.0125 and layers did
+  not increase, although plane RMS worsened 12.91%/6.81% on monitor/bookshelf.
+- Candidate replay wall time was 31.34 s, maximum RSS 3,328,284 KiB, exit status 0. Baseline replay
+  PLY remained byte-identical to G1.14 (`dedb47c6e...`); candidate PLY SHA-256 is
+  `348bb0145227042c792fcdea9c5711e568df3b581803fca55fd6c274c56997f9`.
+
+Decision:
+- ETH3D transfer failed the predeclared gate: F1 regressed at 2/5 cm on pipes and delivery_area,
+  despite improving terrains. The candidate is therefore rejected for default promotion and remains
+  available only in frozen diagnostic replay, not the production CLI/API/frontend. No threshold was
+  retuned after scores, and scale remains arbitrary.
+
+Evidence:
+- `scripts/run_colmap_vggt_dense.py`, `scripts/replay_frozen_intrinsics_ablation.py`
+- `outputs/experiments/g1_17/g1_17_summary.json`
+  SHA-256 7382ba3e382736f2116172a2c3da0e63d8cd9ac439ad2bbb7af177920f0a396e
+- private candidate metadata SHA-256 9e38331f74b7acefffe495e9192cac58f076f34e2ace154189fb89ee4a126376
+- Ignored paired PLYs, sidecars, ROI JSON, resource logs, and ETH3D evaluations remain under
+  `outputs/experiments/g1_17/`.
+- Focused dense/replay tests: 46 passed. Full suite: 105 passed with one existing Starlette/httpx
+  deprecation warning. `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.17a-lite — Frozen scene-pressure and removal attribution
+----------------------------------------------------------
+Date: 2026-07-28
+Status: accepted bounded analysis; conditional-candidate evidence remains limited
+
+Protocol:
+- Read only the four retained prediction/group/visibility/overlap JSONs, G1.17 baseline support
+  sidecars/consistency, G1.17 results, private baseline PLY, and frozen ROI/alignment definitions.
+  Validate hashes, row order, array lengths, and scene inventories. No VGGT/COLMAP, ETH3D evaluator,
+  reconstruction, PLY export, screenshots, GT, or threshold fit ran.
+- Describe image/window/overlap/visibility pressure across private-225, pipes, terrains, and
+  delivery_area, then attribute private removals using exactly
+  `support_counts > 0 & contradicted_counts > 0`. This report does not fit an automatic selector.
+
+Four-scene pressure matrix:
+- private-225: 225 images / 89 groups / 353 predictions / 188 evaluated overlap pairs; 88 images
+  (39.11%) have multiple predictions, max 6. Finite final overlap evidence covers 39.65%; candidate
+  mixed-conflict fraction is 8.57%; G1.17 removes 5.23% of baseline accepted points.
+- pipes: 14 / 5 / 20 / 7; multi-prediction 35.71%, max 3; finite overlap 34.17%; mixed conflict
+  6.42%; removal 6.63%.
+- terrains: 42 / 19 / 76 / 48; multi-prediction 54.76%, max 4; finite overlap 57.46%; mixed conflict
+  4.19%; removal 4.25%.
+- delivery_area: 44 / 20 / 80 / 39; multi-prediction 75.00%, max 3; finite overlap 85.41%; mixed
+  conflict 11.06%; removal 11.26%. This scene has the strongest normalized overlap/conflict pressure
+  but G1.17 completeness/F1 regressed, disproving image count or overlap density as a sufficient
+  activation rule. Private-225 is uniquely large in absolute images/groups/pairs, but not highest in
+  every normalized pressure statistic.
+
+Private removal attribution:
+- The sidecar mask reproduces all 928,162 G1.17 removals exactly. Every removed point has 2+ support;
+  none has 0/1 support. Removal is distributed across 188 source images and 85 first-wins groups:
+  top-1/top-5/top-10 image concentration is 4.64%/16.85%/27.72%; group concentration is
+  6.14%/22.33%/36.50%. Window-role shares are reference 42.88%, fresh 42.36%, fallback 14.76%; no
+  single source/window role explains the effect.
+- Retained same-image overlap disagreement is finite for 347,973 removed points (37.49%), and only
+  53,532 removals (5.77%) exceed the frozen 0.02 threshold. Therefore cross-image visibility
+  contradiction and same-image multi-window disagreement are related diagnostics but not equivalent.
+- Fixed monitor ROI: 910/107,363 removed (0.85%); 38 removed points have finite retained overlap and
+  34 exceed 0.02. Fixed bookshelf ROI: 7,149/106,584 removed (6.71%); 951 have finite overlap and
+  212 exceed 0.02. Bookshelf receives a much stronger targeted removal than monitor, consistent with
+  its thickness improvement, but this single target-domain scene cannot establish causality.
+
+Conclusion:
+- G1.7/G1.17 remain useful large/high-overlap target-domain research candidates, while the historical
+  G1.17 global-default gate failure remains valid. Existing data do not support `num_images`, overlap
+  fraction, mixed-conflict fraction, or any fitted threshold as an automatic production selector.
+  Keep current defaults and stop this branch rather than tuning on four scenes.
+- Analysis took 5.19 s, maximum RSS 1,503,312 KiB, wrote one 20 KiB JSON, and exited 0.
+
+Evidence:
+- `scripts/analyze_g1_17a_scene_pressure.py`
+- `tests/test_analyze_g1_17a_scene_pressure.py`
+- `benchmarks/private-225/g1_17a_lite.json`
+- `outputs/experiments/g1_17a_lite/scene_pressure.json`
+  SHA-256 13e3ee1950d152f3da43fc0f2631f5ab8d7b8ba07ee380240c93bdddd60dbcef
+- Focused analysis tests: 4 passed. Full suite: 109 passed with one existing Starlette/httpx warning.
+  `--check`, `py_compile`, IDE diagnostics, and `git diff --check` passed.
+
+G1.21 — Raw/Aligned camera trajectory and frusta overlay
+-------------------------------------------------------
+Date: 2026-07-28
+Status: accepted viewer correction; reconstruction assets unchanged
+
+Implementation:
+- The point-cloud viewer now reads the existing manifest `geometry/cameras.json` asset and renders
+  camera frusta plus source-order trajectory line segments. It supports both current schemas:
+  COLMAP `colmap_world` qvec/tvec + camera models and VGGT `opencv_camera_from_world` 3x4
+  camera-to-world + intrinsics. Frusta use a fixed 2.5% cloud-radius display depth.
+- Raw mode converts poses to raw world vertices, subtracts the same pre-center PLY bounding-sphere
+  center used by `geometry.center()`, then applies the same display-only axis signs as the cloud.
+  Aligned mode first applies the exact retained `diagnostics/alignment.json` 4x4 affine transform to
+  every camera center/frustum corner, then uses the aligned cloud center and shared axis signs.
+- A Cameras toolbar toggle defaults on when data are valid. Missing/invalid camera or alignment JSON
+  disables only the overlay; point-cloud rendering continues. No backend, manifest schema producer,
+  reconstruction asset, alignment algorithm, or point coordinates changed.
+
+Verification:
+- Five dependency-free Node tests cover COLMAP identity/rotation/translation, actual VGGT 3x4
+  schema, synthetic rotation+translation applied to all overlay vertices, Raw identity/centering,
+  axis signs, and line topology. `npm test` passed 5/5; TypeScript + Vite production build passed.
+- Full Python suite: 109 passed with one existing Starlette/httpx deprecation warning.
+- The actual backend/frontend ran on loopback and loaded retained job
+  `20260723_070028_024e9f25`. Camera/alignment assets returned HTTP 200, Cameras remained enabled in
+  both modes, and no application JavaScript exception occurred. Headless Chrome emitted only its
+  software-WebGL warning and an unrelated missing favicon 404.
+- Fixed G1.1 bookshelf/monitor Raw and Aligned view states were imported and captured. Visual
+  inspection shows the orange camera centers/frusta/trajectory colocated with the reconstructed
+  scene in all four views; the Aligned trajectory rotates/translates with the cloud instead of
+  remaining in the Raw frame.
+
+Ignored evidence:
+- `outputs/experiments/g1_21/screenshots/bookshelf_raw_camera_overlay.png`
+  SHA-256 d9286635578638587feea0132ebe660b6a3d9c2512e2ddb51204a941780bcdc8
+- `bookshelf_aligned_camera_overlay.png`
+  SHA-256 a669e2d8f8c9b4712eb27690f3cb553475ff3d845f78a14c632484b50fda958d
+- `monitor_raw_camera_overlay.png`
+  SHA-256 c4d38f5a70875a41822fea6d424b11411ae2f630fe6f15e5871e27c5b1ad96eb
+- `monitor_aligned_camera_overlay.png`
+  SHA-256 7ae553006b4e129036ab2df06c9e8ba51571bcee7fae8fa9aa1cd37f02f4ccc9
+
+G1.22 — Multi-plane normal clusters and candidate Manhattan frames
+------------------------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic candidate generator; alignment default unchanged
+
+Protocol:
+- A standalone CPU-only diagnostic reused the existing deterministic point-cloud sampler and sequential
+  RANSAC plane detector. It raised only the diagnostic plane inventory from 3 to 8 so repeated parallel
+  surfaces would not hide a third direction. The retained private PLY was read once; VGGT, COLMAP,
+  fusion, alignment, and GT evaluation were not rerun.
+- Reliable planes require a finite nonzero normal, at least 3 inliers, and the existing global 0.08
+  inlier-ratio gate. Unoriented normals are clustered within 15 degrees, then every three-cluster
+  combination is checked against a 15-degree orthogonality tolerance. All thresholds and parameters are
+  written to the report; no area, RMS, height, gravity, ground, or semantic gate is hidden in selection.
+- Exactly one supported orthogonal triplet is reported as a candidate. Zero or multiple triplets remain
+  ambiguous; orthogonal pairs are retained as partial evidence but a cross-product-only third axis is
+  never promoted. Candidate axes are unordered and unoriented; the right-handed orthonormal triad is
+  diagnostic evidence for G1.23/G1.24, not a selected world frame.
+
+Retained private-225 result:
+- Eight planes were detected. Only planes 0/3/1 passed the 0.08 gate, with inlier ratios
+  0.26160/0.09000/0.08506 and normals approximately
+  [0.0063, 0.9164, 0.4001] / [-0.9984, -0.0089, 0.0562] /
+  [0.0148, -0.3844, 0.9231]. They formed three distinct normal clusters and all three pairs passed.
+- One full candidate was found, so status is `candidate` rather than `ambiguous`. Pairwise angular
+  residuals from 90 degrees are 0.4586/0.9858/2.3225 degrees (mean 1.2556, max 2.3225). Combined plane
+  support is 0.43666, orthogonality score 0.98605, and diagnostic score 0.43057. No axis is labeled
+  ground/up/x/y/z.
+- `--check` reproduced the JSON byte-for-byte. Runtime was 2.28 s, maximum RSS 716,108 KiB, exit 0.
+  The retained raw/aligned PLY and alignment JSON hashes remained unchanged:
+  `d1d316ae...`, `15617222...`, and `1d770286...` respectively.
+
+Decision and limits:
+- G1.22 passes its bounded acceptance criteria: the full noisy cubic-room path recovers three axes up to
+  sign/permutation; weak, duplicate-parallel, non-orthogonal, and multiply valid evidence returns
+  ambiguous; and the largest plane receives no ground semantics. The private cloud contains a strong
+  Manhattan candidate, but this does not establish which axis is gravity or justify replacing the
+  single-plane production transform. Those decisions remain G1.23/G1.24.
+- Existing `align_pointcloud.py`, backend, frontend, manifest, point coordinates, and production defaults
+  are unchanged. Scale remains arbitrary.
+
+Evidence:
+- `scripts/analyze_manhattan_frames.py`
+- `tests/test_analyze_manhattan_frames.py`
+- `outputs/experiments/g1_22/private_225_manhattan_frames.json`
+  SHA-256 df3f02acb9898a11131542f2eb83393a32f743da0f1ab3352e3107d3ae25af76
+
+G1.23 — Auditable gravity-axis evidence selection
+-------------------------------------------------
+Date: 2026-07-28
+Status: accepted diagnostic axis/sign selection; alignment default unchanged
+
+Protocol:
+- A standalone CPU-only evaluator consumed the frozen G1.22 report, retained raw PLY, and retained
+  COLMAP `cameras.json`. It verified the PLY SHA-256 against G1.22 and reused that report's unique
+  orthonormal Manhattan candidate and plane inventory; VGGT, COLMAP, fusion, plane detection,
+  alignment, and GT evaluation were not rerun.
+- Each unoriented axis receives five separately recorded evidence states/scores: optional IMU up,
+  camera image-up orientation, camera-centre 5%-95% inverse-squared span, sampled-point 5%-95%
+  inverse-squared span, and reliable matched boundary-plane ordering. Fixed source weights are
+  3/2/1/1/1 respectively. Selection requires at least two available sources, combined score >=0.45,
+  margin >=0.15, reliable directional evidence, and agreement between available directional sources.
+- A selected axis receives an up sign only when directional mean absolute alignment is >=0.50 and
+  sign coherence is >=0.75. Camera image-up is explicitly a behavioral capture prior, not an IMU
+  measurement. EXIF Orientation is not used because it describes pixel storage rotation, not gravity.
+  Missing/malformed/unmatched optional IMU records are audited and fall back non-fatally.
+- The report assigns no plane as floor/ground, writes no point cloud or transform, and does not invoke
+  production alignment. Thresholds were declared before reading the private result and were not tuned
+  from this scene.
+
+Retained private-225 result:
+- All 225 COLMAP cameras parsed; zero were rejected. No IMU sidecar was supplied, so IMU is explicitly
+  `unavailable` with 0 valid/225 missing records. The 50,000-point deterministic sample and all three
+  reliable G1.22 planes were evaluated.
+- Every available source independently ranked Manhattan axis 0 first. Normalized per-axis scores were:
+  camera image-up 0.50228/0.25503/0.24268; camera-centre span 0.58056/0.21104/0.20841; point span
+  0.46828/0.25142/0.28031; plane ordering 0.58737/0.21284/0.19979. Robust axis spans were
+  4.4746/7.4216/7.4683 for camera centres and 7.8616/10.7292/10.1612 for sampled points.
+- The frozen combined scores are 0.52815/0.23707/0.23477. Axis 0 passed with margin 0.29108 and world
+  direction approximately [0.00991, 0.91985, 0.39214]. Camera image-up signed mean is -0.55597 with
+  0.95418 coherence, so selected up is the negative direction
+  [-0.00991, -0.91985, -0.39214]. This is arbitrary-scale orientation evidence, not metric gravity.
+- `--check` reproduced the JSON byte-for-byte. Runtime was 0.92 s, maximum RSS 583,424 KiB, exit 0.
+  Report SHA-256 is 816162d76989d6ee1c4503f953817f82977a326c46572bb9ec6fd34d69db6354.
+  Retained raw/aligned PLY and alignment JSON hashes remained unchanged:
+  `d1d316ae...`, `15617222...`, and `1d770286...` respectively.
+
+Decision and limits:
+- G1.23 passes its bounded acceptance criteria: synthetic known-up evidence selects the intended axis
+  and sign; isotropic/conflicting evidence stays ambiguous; missing, malformed, zero, and unmatched
+  metadata have explicit fallback/rejection states; each source and final score is auditable.
+- The private result supports carrying axis 0/up-sign -1 into the G1.24 candidate ablation. It does not
+  prove any detected plane is ground, does not establish metric scale, and does not itself justify
+  replacing strongest-plane production alignment. `align_pointcloud.py`, backend/frontend/manifest,
+  point coordinates, reconstruction assets, and defaults remain unchanged.
+
+Evidence:
+- `scripts/analyze_gravity_axis.py`
+- `tests/test_analyze_gravity_axis.py`
+- `outputs/experiments/g1_23/private_225_gravity_axis.json`
+  SHA-256 816162d76989d6ee1c4503f953817f82977a326c46572bb9ec6fd34d69db6354
+
+G1.24 — Single-plane versus Manhattan alignment ablation
+---------------------------------------------------------
+Date: 2026-07-28
+Status: accepted private-scene alignment candidate; production default unchanged
+
+Protocol:
+- A standalone offline evaluator consumed the retained raw PLY, production single-plane alignment,
+  G1.22 Manhattan report, and G1.23 gravity report. It verified both upstream PLY hashes and matching
+  axes/clusters, then applied one rigid Manhattan transform to the retained 17,101,794 points. VGGT,
+  COLMAP, dense fusion, RANSAC, reconstruction, GT evaluation, and semantic models were not rerun.
+- The selected G1.23 up vector maps to +Z. The two remaining axes map to X/Y with a right-handed frame;
+  among equivalent horizontal permutations/signs the deterministic tie-breaker minimizes SO(3) angle
+  from identity. This assigns no semantic meaning to positive X/Y. The strongest reliable plane in the
+  selected gravity cluster supplies the same pivot/Z=0 convention as single-plane alignment.
+- `auto` selects Manhattan only with one valid G1.22 candidate and a G1.23 selected axis plus sign;
+  ambiguous/missing evidence explicitly falls back to the supplied single-plane transform without
+  writing a candidate. No plane is called floor/ground and no metric scale is claimed.
+- Only global orientation is evaluated. Point count, pairwise distances, local plane RMS, local
+  thickness, and layer topology are rigid-transform invariants; bookshelf/monitor duplicate layers are
+  neither reevaluated nor attributed to alignment.
+
+Retained private-225 result:
+- Auto selected Manhattan axis 0 / cluster 0 with up sign -1 and pivot plane 0. The rotation is
+  113.11136 degrees under the fixed yaw tie-breaker. Three reliable planes carry total inlier support
+  0.43666; their frozen pairwise orthogonality residuals remain 0.45863/0.98579/2.32246 degrees.
+- Single-plane per-plane cardinal residuals for planes 0/3/1 are 0.00000/2.95460/1.15601 degrees;
+  support-weighted mean is 0.83416 and max is 2.95460. Manhattan residuals are
+  0.53954/1.18180/1.25981 degrees; weighted mean is 0.81222 and max is 1.25981. Manhattan therefore
+  gives only a 0.02194-degree weighted-mean improvement but reduces the worst supported residual by
+  1.69480 degrees.
+- The decisive signed-direction difference is explicit: production single-plane maps G1.23 selected up
+  almost exactly to -Z (dot -0.999956, residual to +Z 179.46046 degrees), because it orients plane 0's
+  opposite normal to +Z. Manhattan maps selected up to +Z (dot 1.0, numerical residual 0.000003 degrees).
+- Candidate PLY SHA-256 is 4da3d1d1df72ce2bbc32d3d3f9339595c8f9867a205176bac9104bb71df6cb5c;
+  report SHA-256 is ced3c98e4de5de1c691e55aba934a7de4b8a27069180fec87ad662a2e13fb516.
+  `--check` reproduced the report byte-for-byte. Runtime was 1.48 s, maximum RSS 1,144,336 KiB,
+  exit 0.
+- Retained raw/single-plane PLY and alignment hashes stayed unchanged:
+  d1d316ae320342ded0377d96565f9ef8705e7e1f434d80275784b9a8be52dce9,
+  156172226a75680b049a97f61e376c0a7047f682fd7128563ee7cbc3c28f2702, and
+  1d770286d7a707964d9b9d1aca226e1b4e492d2c675a54201fa8c28f8ed2a425.
+
+Fixed-view inspection:
+- `benchmarks/private-225/g1_24_views.json` (SHA-256 8bfbb799...) freezes bookshelf/monitor Raw,
+  single-plane, and Manhattan states at 1600x1000. Each aligned state is the exact candidate rotation of
+  the same frozen Raw source-space position/target/up after shared display signs; rigid translation
+  cancels with cloud centering. No view was manually reframed to favor a variant.
+- The real app loaded the retained job and an ignored Manhattan shadow job. Raw/single-plane/Manhattan
+  PLY, cameras, alignment, manifest, and scene requests returned HTTP 200; Cameras stayed enabled and
+  the final clean shadow load had zero JavaScript/application errors. The shadow job did not modify the
+  retained manifest or assets.
+- All six 1600x1000 PNGs were visually inspected. The same bookshelf and monitor structures remain in
+  every rigid variant, and visible orange camera frusta/trajectory remain colocated with the cloud.
+  Manhattan changes global orientation but does not remove duplicate layers or repair local thickness.
+- Screenshot SHA-256: bookshelf Raw db8bc4f8..., single-plane ec303179..., Manhattan 80f61c5d...;
+  monitor Raw e27ea03d..., single-plane d96f7ae5..., Manhattan 01f63f3d....
+
+Decision and limits:
+- G1.24 passes its bounded private-scene acceptance criteria. Manhattan resolves the signed-up inversion
+  and improves the worst reliable-plane cardinal residual while leaving local geometry unchanged. The
+  evidence-gated fallback is retained and tested.
+- This one private scene is insufficient to replace the global production default. Keep the current
+  single-plane `align_pointcloud.py`, backend/frontend/manifest behavior, retained assets, and defaults
+  unchanged. Carry Manhattan only as an accepted experimental alignment candidate into G1.25, where it
+  may be combined only under the stage protocol; do not claim metric accuracy.
+
+Evidence:
+- `scripts/evaluate_alignment_ablation.py`
+- `tests/test_evaluate_alignment_ablation.py`
+- `benchmarks/private-225/g1_24_views.json`
+- ignored `outputs/experiments/g1_24/private_225_alignment_ablation.json`
+- ignored `outputs/experiments/g1_24/private_225_manhattan.ply`
+- ignored `outputs/experiments/g1_24/screenshots/`
+
+G1.25 — Stage 1 combination-factor freeze
+-----------------------------------------
+Date: 2026-07-29
+Status: complete; private evidence preserved without inventing interactions
+
+The retained private configuration is `per_frame + adaptive_two + spatial_balanced`, read
+from `outputs/jobs/20260723_070028_024e9f25/diagnostics/fusion.json` (SHA-256
+c75f8241d9ff264160959defca349d4e9638d1178e098bab7bec68425350b69c). Its point-budget
+input/output count is 17,101,794 under a 30,000,000 cap, so `spatial_balanced` was inactive.
+This observed all-on job therefore supplies no private Phase 3 gain or interaction estimate.
+
+The G1.24 Manhattan result is a paired rigid-orientation observation on that retained cloud:
+it fixes signed up and lowers maximum supported cardinal residual, while point count,
+pairwise distances, local plane RMS/thickness, and layer topology remain invariant. It was
+not jointly generated across the ETH3D Phase 1/2/3 factorial. Manhattan x geometry effects
+are therefore explicitly `not_estimable_private_only`; no ETH3D transform or missing arm was
+fabricated. G1.7 covisibility and G1.17 contradiction_free retain their prior limited private
+ROI evidence but failed universal transfer gates and likewise have no joint interaction claim.
+
+The frozen eight-arm ETH3D analysis is recorded in `benchmarks/eth3d-v1/EXPERIMENTS.txt` and
+`outputs/experiments/g1_25/stage1_factorial.json` (SHA-256
+94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158). It reran no
+reconstruction or evaluator and changed no retained asset, production contract, or default.
+G1.26, not G1.25, owns the final baseline decision.
+
+G1.26 — Stage 1 geometry-baseline gate review
+----------------------------------------------
+Date: 2026-07-29
+Status: review complete; no candidate promoted, Gate G1 remains blocked
+
+The retained private all-on job is useful target-domain evidence, but it is not a qualifying
+new production baseline. Its point budget was inactive, its combined Phase 1/2 settings were
+not isolated from each other on this scene, and the cross-scene factorial remains mixed.
+Manhattan improves signed global orientation only; rigid transforms cannot repair the local
+bookshelf layers or thickness targeted by Gate G1. Contradiction-free and pixel-center
+candidates improved selected private ROI measurements but failed their declared ETH3D
+transfer gates.
+
+G1.26 therefore retains the existing reproducible fallback: sequential grouping, points
+fusion, global confidence threshold, any-support consistency, seeded-random point budgeting,
+confidence percentile 50, and a 2,000,000-point cap. No CLI/API/frontend default, retained
+job, reconstruction asset, or evaluator result changed, and no selector was fitted from the
+four frozen scenes. New manifests continue to expose effective policy metrics; old jobs may
+omit them and must remain loadable. Units remain arbitrary without independent scale recovery.
+
+This is a no-promotion decision, not evidence that the original fallback solved the private
+ROI problem. The mandatory Gate G1 combination of private improvement and non-regressive
+three-scene transfer is unmet, so G1.26 remains blocked. Evidence is the G1.25 report at
+`outputs/experiments/g1_25/stage1_factorial.json` (SHA-256
+94ac37fbba6c89ba691ee16ba112748a50aa8725ad84dc553b418d1f3823a158); no expensive stage
+was rerun for this review. Verification passed: 19 focused compatibility tests, 132 full
+Python tests (one pre-existing Starlette/httpx warning), retained job
+`20260723_070028_024e9f25` load, backend smoke, 5 frontend Node tests, production build,
+G1.25 byte check, CLI help, and `git diff --check`; Vite retained its existing >500 kB chunk
+warning.

@@ -65,6 +65,7 @@ type Manifest = {
   assets: {
     point_cloud?: string;
     point_cloud_aligned?: string;
+    cameras?: string;
     alignment_diagnostics?: string;
     fusion_diagnostics?: string;
     visibility_graph?: string;
@@ -242,6 +243,18 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${selectedPointCloudAsset}`;
   }, [manifest, selectedPointCloudAsset]);
+  const camerasUrl = useMemo(() => {
+    if (!manifest?.assets.cameras) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.cameras}`;
+  }, [manifest]);
+  const alignmentDiagnosticsUrl = useMemo(() => {
+    if (!manifest?.assets.alignment_diagnostics) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.alignment_diagnostics}`;
+  }, [manifest]);
   const splatUrl = useMemo(() => {
     if (!manifest?.assets.scene_splat) {
       return null;
@@ -822,7 +835,16 @@ export function App() {
               </button>
             </div>
           </div>
-          <GeometryViewer pointCloudUrl={visiblePointCloudUrl} meshUrl={visibleMeshUrl} splatUrl={visibleSplatUrl} />
+          <GeometryViewer
+            pointCloudUrl={visiblePointCloudUrl}
+            camerasUrl={viewerMode === "point_cloud" ? camerasUrl : null}
+            alignmentDiagnosticsUrl={
+              viewerMode === "point_cloud" ? alignmentDiagnosticsUrl : null
+            }
+            pointCloudVariant={pointCloudVariant}
+            meshUrl={visibleMeshUrl}
+            splatUrl={visibleSplatUrl}
+          />
         </section>
 
         <aside className="panel result-panel" aria-label="Job results">
