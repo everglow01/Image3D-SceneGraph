@@ -75,7 +75,12 @@ def evaluate_model(
         torch.cuda.reset_peak_memory_stats(model.means.device)
 
     with torch.no_grad():
-        for view in views:
+        for stored_view in views:
+            view = (
+                stored_view.to(model.means.device)
+                if hasattr(stored_view, "to")
+                else stored_view
+            )
             try:
                 if model.means.is_cuda:
                     torch.cuda.synchronize(model.means.device)
@@ -185,7 +190,7 @@ def run_evaluation(
             dataset_root,
             split=split,
             longest_edge=int(resolved_config.effective_config["resolution"]["longest_edge"]),
-            device=device,
+            device=torch.device("cpu"),
         )
         progress = _read_progress(progress_path)
         result = evaluate_model(
@@ -326,18 +331,23 @@ def _read_progress(path: Path | None) -> list[dict[str, Any]]:
 
 
 def _topology_summary(events: Iterable[dict[str, Any]]) -> dict[str, int]:
-    densified = 0
-    pruned = 0
+    keys = (
+        "duplicated",
+        "split_parents",
+        "split_children",
+        "densified",
+        "pruned",
+        "pruned_non_finite",
+        "pruned_low_opacity",
+        "pruned_screen_size",
+    )
+    summary = {key: 0 for key in keys}
     opacity_resets = 0
     for event in events:
-        densified += int(event.get("densified", 0))
-        pruned += int(event.get("pruned", 0))
+        for key in keys:
+            summary[key] += int(event.get(key, 0))
         opacity_resets += int(event.get("opacity_reset") is True)
-    return {
-        "densified": densified,
-        "pruned": pruned,
-        "opacity_resets": opacity_resets,
-    }
+    return {**summary, "opacity_resets": opacity_resets}
 
 
 def _distribution(values: list[float]) -> dict[str, float]:

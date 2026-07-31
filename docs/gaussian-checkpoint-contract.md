@@ -58,15 +58,11 @@ Loaders address only the final `iteration_NNNNNNNNN` directory. A crash before r
 
 The contract assumes the job directory and its temporary checkpoint directory share one local filesystem. Stage 3 must define the equivalent database/object-storage transaction order separately.
 
-## Retention selection
+## Retention
 
-R2.0 freezes algorithm-development retention at:
+The trainer does not write periodic or best-Validation full checkpoints during a fresh run. Validation candidate selection uses one overwrite-in-place model snapshot without Adam or densification state, so candidate improvements do not accumulate process checkpoints.
 
-- latest three periodic checkpoints;
-- best two validation checkpoints, ranked by score and then iteration;
-- latest final checkpoint.
-
-R2.5 returns this deterministic selection but deletes nothing. R2.6 may apply cleanup only after preserving the selected immutable checkpoints and diagnostics.
+A successful run atomically publishes one complete checkpoint at the final iteration, then removes any older committed checkpoint directories from that same attempt. Hidden temporary directories and unrelated files are never treated as committed checkpoints. This bounds completed-job checkpoint storage to one full terminal model/optimizer state rather than multiplying it by a training cadence. Cancellation before the final iteration retains progress diagnostics but no new full checkpoint; resume remains available only from an explicitly retained final parent checkpoint.
 
 ## Reproducibility boundary
 

@@ -21,6 +21,7 @@ from .checkpoint import (
     CheckpointState,
     create_attempt,
     load_checkpoint,
+    prune_attempt_checkpoints,
     write_checkpoint,
 )
 from .config import ResolvedGaussianConfig, validate_effective_config
@@ -51,15 +52,17 @@ class TrainingOutOfMemory(TrainingError):
 @dataclass(frozen=True)
 class TrainingResult:
     iteration: int
+    candidate_iteration: int
     gaussian_count: int
     initial_loss: float
     final_loss: float
     validation: dict[str, Any]
+    final_validation: dict[str, Any]
     peak_allocated_bytes: int
     peak_reserved_bytes: int
     elapsed_seconds: float
-    checkpoint_hash: str
-    checkpoint_path: str
+    final_checkpoint_hash: str
+    final_checkpoint_path: str
     model_path: str
     result_path: str
     progress_path: str
@@ -150,14 +153,14 @@ def train_gaussians(
         dataset_root,
         split="train",
         longest_edge=int(config["resolution"]["longest_edge"]),
-        device=device,
+        device=torch.device("cpu"),
     )
     validation_views = load_training_views(
         contract,
         dataset_root,
         split="validation",
         longest_edge=int(config["resolution"]["longest_edge"]),
-        device=device,
+        device=torch.device("cpu"),
     )
     test_ids = set(str(value) for value in contract["splits"]["test"])
     loaded_ids = {view.camera.image_id for view in (*train_views, *validation_views)}
@@ -204,6 +207,8 @@ def train_gaussians(
     initial_loss = float(history[0]["loss"]) if history else float("nan")
     last_validation: dict[str, Any] = {"status": "not_run"}
     best_validation = -float("inf")
+    best_validation_iteration: int | None = None
+    best_validation_payload: dict[str, Any] | None = None
 
     try:
         for iteration in range(start_iteration, total_iterations + 1):
@@ -258,6 +263,7 @@ def train_gaussians(
 
             topology = _maybe_update_topology(
                 model,
+                optimizer,
                 gradient_sum,
                 gradient_count,
                 max_radius,
@@ -265,20 +271,24 @@ def train_gaussians(
                 iteration,
             )
             if topology is not None:
-                event.update(topology)
-                optimizer = torch.optim.Adam(
-                    model.parameter_groups(config["learning_rate"]), eps=1e-15
-                )
-                gradient_sum = torch.zeros(model.count, device=device)
-                gradient_count = torch.zeros(model.count, device=device)
-                max_radius = torch.zeros(model.count, device=device)
+                event.update(topology[0])
+                optimizer, gradient_sum, gradient_count, max_radius = topology[1:]
             reset = config["opacity_reset"]
-            if reset["enabled"] and iteration % int(reset["every_iterations"]) == 0:
+            densification = config["densification"]
+            reset_due = (
+                reset["enabled"]
+                and iteration % int(reset["every_iterations"]) == 0
+                and iteration < int(densification["end_iteration"])
+                and iteration < total_iterations
+            )
+            if reset_due:
                 model.reset_opacity(float(reset["value"]))
+                _clear_optimizer_parameter_state(optimizer, model.opacity_logits)
                 event["opacity_reset"] = True
             history.append(event)
             _publish_event(progress_path, event, progress_callback)
 
+            validation_improved = False
             validation_due = (
                 iteration % int(config["evaluation"]["validation_every_iterations"]) == 0
                 or iteration == total_iterations
@@ -298,26 +308,31 @@ def train_gaussians(
                 }
                 history.append(validation_event)
                 _publish_event(progress_path, validation_event, progress_callback)
+                candidate = float(last_validation["mean_psnr"])
+                if candidate > best_validation:
+                    validation_improved = True
+                    best_validation = candidate
+                    best_validation_iteration = iteration
+                    best_validation_payload = last_validation
+                    (artifact_dir / ".best-model.pt").write_bytes(
+                        _checkpoint_state(
+                            model,
+                            optimizer,
+                            gradient_sum,
+                            gradient_count,
+                            max_radius,
+                            history,
+                            iteration,
+                        ).model
+                    )
 
-            checkpoint_due = (
-                iteration % int(config["checkpoint"]["every_iterations"]) == 0
-                or iteration == total_iterations
-            )
-            if checkpoint_due:
-                purpose = "final" if iteration == total_iterations else "periodic"
-                score = None
-                if validation_due and iteration != total_iterations:
-                    candidate = float(last_validation["mean_psnr"])
-                    if candidate > best_validation:
-                        purpose = "best_validation"
-                        score = candidate
-                        best_validation = candidate
-                write_checkpoint(
+            if _final_checkpoint_due(iteration, total_iterations):
+                _write_latest_checkpoint(
                     run_dir,
                     attempt_id=attempt_id,
                     iteration=iteration,
-                    purpose=purpose,
-                    validation_score=score,
+                    purpose="final",
+                    validation_score=None,
                     provenance=provenance,
                     state=_checkpoint_state(
                         model,
@@ -336,26 +351,34 @@ def train_gaussians(
         raise TrainingError(str(exc)) from exc
 
     elapsed = time.perf_counter() - started
+    if best_validation_iteration is None or best_validation_payload is None:
+        raise TrainingError("training completed without a Validation candidate")
     final_checkpoint = load_checkpoint(
         run_dir,
         attempt_id,
         total_iterations,
         expected_provenance=provenance,
     )
+    candidate_path = artifact_dir / ".best-model.pt"
+    candidate_model = _load_model(candidate_path.read_bytes(), device)
+    _validate_model_health(candidate_model, len(initialization.points), best_validation_payload)
     model_path = artifact_dir / "model.pt"
-    model_path.write_bytes(final_checkpoint.state.model)
+    model_path.write_bytes(candidate_path.read_bytes())
+    candidate_path.unlink()
     result_path = artifact_dir / "result.json"
     result = TrainingResult(
         iteration=total_iterations,
-        gaussian_count=model.count,
+        candidate_iteration=best_validation_iteration,
+        gaussian_count=candidate_model.count,
         initial_loss=initial_loss,
         final_loss=float(next(item["loss"] for item in reversed(history) if "loss" in item)),
-        validation=last_validation,
+        validation=best_validation_payload,
+        final_validation=last_validation,
         peak_allocated_bytes=int(torch.cuda.max_memory_allocated(device)),
         peak_reserved_bytes=int(torch.cuda.max_memory_reserved(device)),
         elapsed_seconds=elapsed,
-        checkpoint_hash=final_checkpoint.record.checkpoint_hash,
-        checkpoint_path=(
+        final_checkpoint_hash=final_checkpoint.record.checkpoint_hash,
+        final_checkpoint_path=(
             Path("attempts")
             / attempt_id
             / "checkpoints"
@@ -420,12 +443,19 @@ def save_validation_previews(
 
 def _maybe_update_topology(
     model: GaussianModel,
+    optimizer: torch.optim.Optimizer,
     gradient_sum: torch.Tensor,
     gradient_count: torch.Tensor,
     max_radius: torch.Tensor,
     config: dict[str, Any],
     iteration: int,
-) -> dict[str, int] | None:
+) -> tuple[
+    dict[str, int | float],
+    torch.optim.Optimizer,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+] | None:
     densify = config["densification"]
     if not densify["enabled"]:
         return None
@@ -434,26 +464,153 @@ def _maybe_update_topology(
         and iteration % int(densify["every_iterations"]) == 0
     ):
         return None
+
     average = gradient_sum / gradient_count.clamp_min(1)
-    clone_mask = average > float(densify["gradient_threshold"])
+    high_gradient = average > float(densify["gradient_threshold"])
+    large = model.log_scales.detach().exp().amax(dim=1) > float(
+        densify["duplicate_scale_threshold"]
+    )
+    duplicate_mask = high_gradient & ~large
+    split_mask = high_gradient & large
     pruning = config["pruning"]
-    keep = torch.ones(model.count, dtype=torch.bool, device=model.means.device)
-    if pruning["enabled"]:
-        keep &= model.opacity_logits.sigmoid() >= float(pruning["opacity_threshold"])
-        keep &= max_radius <= float(pruning["max_screen_size"])
-    keep &= torch.isfinite(model.means).all(dim=1)
-    if not keep.any():
-        keep[torch.argmax(model.opacity_logits)] = True
-    kept_indices = torch.where(keep)[0]
-    clone_indices = torch.where(clone_mask & keep)[0]
+    finite = torch.stack(
+        [torch.isfinite(parameter).flatten(1).all(dim=1) if parameter.ndim > 1 else torch.isfinite(parameter)
+         for parameter in model.parameters()]
+    ).all(dim=0)
+    low_opacity = (
+        model.opacity_logits.detach().sigmoid() < float(pruning["opacity_threshold"])
+        if pruning["enabled"]
+        else torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
+    )
+    screen_size = (
+        max_radius > float(pruning["max_screen_fraction"])
+        if pruning["enabled"] and pruning["screen_size_enabled"]
+        else torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
+    )
+    prune = ~finite | low_opacity | screen_size
+    if prune.all():
+        prune[torch.argmax(model.opacity_logits.detach())] = False
+    keep_indices = torch.where(~prune)[0]
+    duplicate_indices = torch.where(duplicate_mask & ~prune)[0]
+    split_indices = torch.where(split_mask & ~prune)[0]
+    children = int(densify["split_children"])
     budget = int(config["gaussian_budget"]["max_count"])
-    clone_indices = clone_indices[: max(0, budget - len(kept_indices))]
-    before = model.count
-    model.replace_rows(kept_indices, clone_indices)
-    return {
-        "densified": int(len(clone_indices)),
-        "pruned": int(before - len(kept_indices)),
+    available = max(0, budget - len(keep_indices))
+    duplicate_indices = duplicate_indices[:available]
+    available -= len(duplicate_indices)
+    split_indices = split_indices[: available // (children - 1)]
+
+    old_parameters = dict(model.named_group_parameters())
+    topology_map = model.update_topology(
+        keep_indices,
+        duplicate_indices,
+        split_indices,
+        split_children=children,
+    )
+    source_indices = topology_map[0]
+    new_rows = topology_map[1].bool()
+    optimizer = _remap_optimizer(
+        optimizer,
+        old_parameters,
+        model,
+        source_indices,
+        new_rows,
+        config["learning_rate"],
+    )
+    device = model.means.device
+    active = average[gradient_count > 0]
+    quantiles = (
+        torch.quantile(active, torch.tensor([0.5, 0.9, 0.99], device=device))
+        if len(active)
+        else torch.zeros(3, device=device)
+    )
+    event: dict[str, int | float] = {
+        "duplicated": int(len(duplicate_indices)),
+        "split_parents": int(len(split_indices)),
+        "split_children": int(len(split_indices) * children),
+        "densified": int(len(duplicate_indices) + len(split_indices) * (children - 1)),
+        "pruned": int(prune.sum()),
+        "pruned_non_finite": int((~finite).sum()),
+        "pruned_low_opacity": int((low_opacity & finite).sum()),
+        "pruned_screen_size": int((screen_size & finite & ~low_opacity).sum()),
+        "gradient_candidates": int(high_gradient.sum()),
+        "gradient_p50": float(quantiles[0]),
+        "gradient_p90": float(quantiles[1]),
+        "gradient_p99": float(quantiles[2]),
         "gaussian_count": model.count,
+    }
+    return (
+        event,
+        optimizer,
+        torch.zeros(model.count, device=device),
+        torch.zeros(model.count, device=device),
+        torch.zeros(model.count, device=device),
+    )
+
+
+def _remap_optimizer(
+    optimizer: torch.optim.Optimizer,
+    old_parameters: dict[str, torch.nn.Parameter],
+    model: GaussianModel,
+    source_indices: torch.Tensor,
+    new_rows: torch.Tensor,
+    learning_rates: dict[str, Any],
+) -> torch.optim.Optimizer:
+    remapped = torch.optim.Adam(model.parameter_groups(learning_rates), eps=1e-15)
+    for group in remapped.param_groups:
+        name = group["name"]
+        old_parameter = old_parameters[name]
+        state = optimizer.state.get(old_parameter)
+        if not state:
+            continue
+        new_parameter = group["params"][0]
+        new_state: dict[str, Any] = {}
+        for key, value in state.items():
+            if torch.is_tensor(value) and value.shape == old_parameter.shape:
+                remapped_value = value[source_indices].clone()
+                remapped_value[new_rows] = 0
+                new_state[key] = remapped_value
+            elif torch.is_tensor(value):
+                new_state[key] = value.clone()
+            else:
+                new_state[key] = value
+        remapped.state[new_parameter] = new_state
+    return remapped
+
+
+def _clear_optimizer_parameter_state(
+    optimizer: torch.optim.Optimizer,
+    parameter: torch.nn.Parameter,
+) -> None:
+    for key, value in optimizer.state.get(parameter, {}).items():
+        if key != "step" and torch.is_tensor(value):
+            value.zero_()
+
+
+def _validate_model_health(
+    model: GaussianModel,
+    initial_count: int,
+    validation: dict[str, Any],
+) -> dict[str, Any]:
+    model.validate()
+    opacity = model.opacity_logits.detach().sigmoid()
+    effective = int((opacity > 0.01).sum())
+    minimum_count = max(1, int(initial_count * 0.05))
+    mean_psnr = float(validation.get("mean_psnr", float("nan")))
+    mean_ssim = float(validation.get("mean_ssim", float("nan")))
+    if model.count < minimum_count:
+        raise TrainingError(
+            f"Gaussian model collapsed to {model.count} rows; minimum is {minimum_count}"
+        )
+    if effective == 0:
+        raise TrainingError("Gaussian model has no effective-opacity rows")
+    if not np.isfinite(mean_psnr) or not np.isfinite(mean_ssim):
+        raise TrainingError("Gaussian Validation metrics are non-finite")
+    return {
+        "gaussian_count": model.count,
+        "effective_opacity_count": effective,
+        "opacity_p50": float(torch.quantile(opacity, 0.5)),
+        "opacity_p90": float(torch.quantile(opacity, 0.9)),
     }
 
 
@@ -469,11 +626,17 @@ def _accumulate_statistics(
     absolute = getattr(means2d, "absgrad", None)
     if absolute is None or ids is None or radii is None or not len(ids):
         return
-    values = absolute.norm(dim=-1)
-    gradient_sum.index_add_(0, ids.long(), values)
-    gradient_count.index_add_(0, ids.long(), torch.ones_like(values))
-    radius_values = radii.to(torch.float32).amax(dim=-1)
-    max_radius.scatter_reduce_(0, ids.long(), radius_values, reduce="amax", include_self=True)
+    gradients = absolute.clone()
+    gradients[..., 0] *= float(metadata["width"]) / 2.0
+    gradients[..., 1] *= float(metadata["height"]) / 2.0
+    values = gradients.norm(dim=-1)
+    ids = ids.long()
+    gradient_sum.index_add_(0, ids, values)
+    gradient_count.index_add_(0, ids, torch.ones_like(values))
+    radius_values = radii.to(torch.float32).amax(dim=-1) / float(
+        max(metadata["width"], metadata["height"])
+    )
+    max_radius.scatter_reduce_(0, ids, radius_values, reduce="amax", include_self=True)
 
 
 def _render_visible_training_view(
@@ -483,7 +646,7 @@ def _render_visible_training_view(
     sh_degree: int,
 ):
     for offset in range(len(views)):
-        view = views[(first_index + offset) % len(views)]
+        view = views[(first_index + offset) % len(views)].to(model.means.device)
         rendered = render_gaussians(
             model,
             view.camera,
@@ -519,6 +682,32 @@ def _update_learning_rates(
             total_iterations,
             delay_multiplier=float(learning_rate["delay_multiplier"]),
         )
+
+
+def _final_checkpoint_due(iteration: int, total_iterations: int) -> bool:
+    return iteration == total_iterations
+
+
+def _write_latest_checkpoint(
+    run_dir: Path,
+    *,
+    attempt_id: str,
+    iteration: int,
+    purpose: str,
+    validation_score: float | None,
+    provenance: CheckpointProvenance,
+    state: CheckpointState,
+) -> None:
+    write_checkpoint(
+        run_dir,
+        attempt_id=attempt_id,
+        iteration=iteration,
+        purpose=purpose,
+        validation_score=validation_score,
+        provenance=provenance,
+        state=state,
+    )
+    prune_attempt_checkpoints(run_dir, attempt_id, keep_iterations=(iteration,))
 
 
 def _checkpoint_state(

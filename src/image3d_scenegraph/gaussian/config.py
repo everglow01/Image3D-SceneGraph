@@ -10,32 +10,17 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 1
+CONFIG_SCHEMA_VERSION = 3
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
-
-_RTX4060_8GB_DEVELOPMENT_V1_OVERRIDES: dict[str, Any] = {
-    "iterations": 100,
-    "resolution": {"longest_edge": 320},
-    "sh_schedule": {"increase_every_iterations": 33},
-    "densification": {
-        "start_iteration": 25,
-        "end_iteration": 99,
-        "every_iterations": 25,
-    },
-    "opacity_reset": {"every_iterations": 100},
-    "gaussian_budget": {"max_count": 50_000},
-    "evaluation": {"validation_every_iterations": 100},
-    "checkpoint": {"every_iterations": 50},
-}
 
 _STANDARD_V1: dict[str, Any] = {
     "schema_version": CONFIG_SCHEMA_VERSION,
     "seed": 20260729,
-    "iterations": 30_000,
+    "iterations": 3_000,
     "resolution": {
         "policy": "explicit_only",
-        "longest_edge": 1280,
+        "longest_edge": 640,
     },
     "loss": {
         "name": "l1_ssim",
@@ -58,24 +43,26 @@ _STANDARD_V1: dict[str, Any] = {
     },
     "densification": {
         "enabled": True,
-        "start_iteration": 500,
-        "end_iteration": 15_000,
+        "start_iteration": 200,
+        "end_iteration": 1_500,
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
+        "duplicate_scale_threshold": 0.01,
+        "split_children": 2,
     },
     "pruning": {
         "enabled": True,
         "opacity_threshold": 0.005,
-        "max_screen_size": 20.0,
+        "screen_size_enabled": False,
+        "max_screen_fraction": 0.1,
     },
     "opacity_reset": {
         "enabled": True,
-        "every_iterations": 3000,
+        "every_iterations": 500,
         "value": 0.01,
     },
-    "gaussian_budget": {"max_count": 1_000_000},
-    "evaluation": {"validation_every_iterations": 1000},
-    "checkpoint": {"every_iterations": 1000},
+    "gaussian_budget": {"max_count": 250_000},
+    "evaluation": {"validation_every_iterations": 500},
 }
 
 
@@ -113,12 +100,7 @@ def resolve_internal_config(
         raise GaussianConfigError(f"unsupported internal Gaussian base profile: {profile}")
     if overrides is not None and not isinstance(overrides, dict):
         raise GaussianConfigError("Gaussian config overrides must be an object")
-    base_overrides = (
-        _RTX4060_8GB_DEVELOPMENT_V1_OVERRIDES
-        if profile == "rtx4060_8gb_development_v1"
-        else None
-    )
-    resolved = _resolve(profile, base_overrides)
+    resolved = _resolve(profile, None)
     if overrides:
         effective = copy.deepcopy(resolved.effective_config)
         _apply_overrides(effective, overrides, "")
@@ -161,7 +143,6 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "opacity_reset",
             "gaussian_budget",
             "evaluation",
-            "checkpoint",
         },
     )
     if _integer(root["schema_version"], "schema_version") != CONFIG_SCHEMA_VERSION:
@@ -235,7 +216,15 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     densification = _mapping(
         root["densification"],
         "densification",
-        {"enabled", "start_iteration", "end_iteration", "every_iterations", "gradient_threshold"},
+        {
+            "enabled",
+            "start_iteration",
+            "end_iteration",
+            "every_iterations",
+            "gradient_threshold",
+            "duplicate_scale_threshold",
+            "split_children",
+        },
     )
     _boolean(densification["enabled"], "densification.enabled")
     densify_start = _integer(
@@ -253,20 +242,36 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         minimum=0.0,
         minimum_exclusive=True,
     )
+    _number(
+        densification["duplicate_scale_threshold"],
+        "densification.duplicate_scale_threshold",
+        minimum=0.0,
+        minimum_exclusive=True,
+    )
+    _integer(
+        densification["split_children"],
+        "densification.split_children",
+        minimum=2,
+        maximum=4,
+    )
     if densify_start >= densify_end:
         raise GaussianConfigError("densification start must precede end")
     if densify_interval > densify_end - densify_start:
         raise GaussianConfigError("densification cadence exceeds its active range")
 
     pruning = _mapping(
-        root["pruning"], "pruning", {"enabled", "opacity_threshold", "max_screen_size"}
+        root["pruning"],
+        "pruning",
+        {"enabled", "opacity_threshold", "screen_size_enabled", "max_screen_fraction"},
     )
     _boolean(pruning["enabled"], "pruning.enabled")
     _number(pruning["opacity_threshold"], "pruning.opacity_threshold", minimum=0.0, maximum=1.0)
+    _boolean(pruning["screen_size_enabled"], "pruning.screen_size_enabled")
     _number(
-        pruning["max_screen_size"],
-        "pruning.max_screen_size",
+        pruning["max_screen_fraction"],
+        "pruning.max_screen_fraction",
         minimum=0.0,
+        maximum=1.0,
         minimum_exclusive=True,
     )
 
@@ -291,13 +296,6 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     _integer(
         evaluation["validation_every_iterations"],
         "evaluation.validation_every_iterations",
-        minimum=1,
-        maximum=iterations,
-    )
-    checkpoint = _mapping(root["checkpoint"], "checkpoint", {"every_iterations"})
-    _integer(
-        checkpoint["every_iterations"],
-        "checkpoint.every_iterations",
         minimum=1,
         maximum=iterations,
     )

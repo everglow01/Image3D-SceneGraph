@@ -65,14 +65,14 @@ def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
     )
 
     record = manifest["gaussian_config"]
-    assert record["schema_version"] == 1
+    assert record["schema_version"] == 3
     assert record["requested_profile"] == "standard_v1"
     assert record["effective_config_hash"] == effective_config_hash(record["effective_config"])
     log = store.get_asset_path(manifest["job_id"], "logs/run.log").read_text(encoding="utf-8")
-    assert "gaussian_config_schema_version=1\n" in log
+    assert "gaussian_config_schema_version=3\n" in log
     assert "gaussian_requested_profile=standard_v1\n" in log
     assert f"gaussian_effective_config_hash={record['effective_config_hash']}\n" in log
-    assert 'gaussian_effective_config={"checkpoint":' in log
+    assert 'gaussian_effective_config={"densification":' in log
 
 
 def test_create_panorama_job(tmp_path):

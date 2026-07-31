@@ -15,7 +15,7 @@ from image3d_scenegraph.gaussian.checkpoint import (
     create_attempt,
     load_attempt,
     load_checkpoint,
-    select_retained_checkpoints,
+    prune_attempt_checkpoints,
     write_checkpoint,
 )
 
@@ -289,32 +289,37 @@ def test_attempt_identifier_rejects_path_escape(tmp_path, attempt_id):
         create_attempt(tmp_path, attempt_id=attempt_id, kind="fresh", provenance=provenance())
 
 
-def test_retention_selects_latest_three_best_two_and_final():
+def test_prune_attempt_checkpoints_keeps_only_requested_committed_rows(tmp_path):
     expected_provenance = provenance()
-
-    def record(iteration, purpose, score=None):
-        return CheckpointRecord(
-            "attempt-001", iteration, purpose, score, expected_provenance, f"{iteration:064x}"
+    create_fresh(tmp_path, value=expected_provenance)
+    for iteration in (10, 20, 30):
+        write_checkpoint(
+            tmp_path,
+            attempt_id="attempt-001",
+            iteration=iteration,
+            purpose="periodic",
+            provenance=expected_provenance,
+            state=state(),
         )
+    root = tmp_path / "attempts" / "attempt-001" / "checkpoints"
+    temporary = root / ".iteration_000000040.tmp-interrupted"
+    temporary.mkdir()
+    unrelated = root / "notes"
+    unrelated.mkdir()
 
-    records = [record(iteration, "periodic") for iteration in (1000, 2000, 3000, 4000)]
-    records += [
-        record(1500, "best_validation", 20.0),
-        record(2500, "best_validation", 22.0),
-        record(3500, "best_validation", 21.0),
-        record(5000, "final"),
+    prune_attempt_checkpoints(tmp_path, "attempt-001", keep_iterations=(30,))
+
+    assert sorted(path.name for path in root.iterdir()) == [
+        ".iteration_000000040.tmp-interrupted",
+        "iteration_000000030",
+        "notes",
     ]
+    assert load_checkpoint(tmp_path, "attempt-001", 30).record.iteration == 30
 
-    selected = select_retained_checkpoints(reversed(records))
 
-    assert [(item.iteration, item.purpose) for item in selected] == [
-        (2000, "periodic"),
-        (2500, "best_validation"),
-        (3000, "periodic"),
-        (3500, "best_validation"),
-        (4000, "periodic"),
-        (5000, "final"),
-    ]
+def test_prune_attempt_checkpoints_rejects_unknown_attempt(tmp_path):
+    with pytest.raises(CheckpointContractError, match="attempt does not exist"):
+        prune_attempt_checkpoints(tmp_path, "attempt-001", keep_iterations=())
 
 
 def _advance(value: float, velocity: float, rng: random.Random, start: int, end: int):

@@ -30,6 +30,7 @@ _COMPONENT_FILES = {
 }
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
+_CHECKPOINT_DIRECTORY = re.compile(r"iteration_([0-9]{9})\Z")
 
 
 class CheckpointContractError(ValueError):
@@ -387,34 +388,27 @@ def load_checkpoint(
     return LoadedCheckpoint(record, state)
 
 
-def select_retained_checkpoints(records: Iterable[CheckpointRecord]) -> tuple[CheckpointRecord, ...]:
-    """Select the R2.0 latest-3, best-2, final retention set without deleting files."""
-    items = list(records)
-    if not items:
-        return ()
-    attempt_ids = {item.attempt_id for item in items}
-    if len(attempt_ids) != 1:
-        raise CheckpointContractError("retention selection requires one attempt")
-    for item in items:
-        _validate_iteration(item.iteration)
-        _validate_checkpoint_selection(item.purpose, item.validation_score)
-    periodic = sorted(
-        (item for item in items if item.purpose == "periodic"),
-        key=lambda item: item.iteration,
-        reverse=True,
-    )[:3]
-    best = sorted(
-        (item for item in items if item.purpose == "best_validation"),
-        key=lambda item: (item.validation_score, item.iteration),
-        reverse=True,
-    )[:2]
-    finals = sorted(
-        (item for item in items if item.purpose == "final"),
-        key=lambda item: item.iteration,
-        reverse=True,
-    )[:1]
-    selected = {item.iteration: item for item in (*periodic, *best, *finals)}
-    return tuple(selected[iteration] for iteration in sorted(selected))
+def prune_attempt_checkpoints(
+    job_dir: Path,
+    attempt_id: str,
+    *,
+    keep_iterations: Iterable[int],
+) -> None:
+    """Remove committed checkpoints outside the current attempt's retained set."""
+    attempt = load_attempt(job_dir, attempt_id)
+    retained = set(keep_iterations)
+    for iteration in retained:
+        _validate_iteration(iteration)
+    root = attempt_dir(job_dir, attempt.attempt_id) / "checkpoints"
+    if not root.is_dir():
+        return
+    for entry in root.iterdir():
+        match = _CHECKPOINT_DIRECTORY.fullmatch(entry.name)
+        if match is None or entry.is_symlink() or not entry.is_dir():
+            continue
+        if int(match.group(1)) not in retained:
+            shutil.rmtree(entry)
+    _fsync_directory(root)
 
 
 def _state_components(state: CheckpointState) -> dict[str, bytes]:

@@ -52,7 +52,17 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
     assert result["split"] == "validation"
     assert result["psnr"]["mean"] == pytest.approx(120.0)
     assert result["ssim"]["p50"] == pytest.approx(1.0)
-    assert result["topology"] == {"densified": 3, "pruned": 1, "opacity_resets": 1}
+    assert result["topology"] == {
+        "duplicated": 0,
+        "split_parents": 0,
+        "split_children": 0,
+        "densified": 3,
+        "pruned": 1,
+        "pruned_non_finite": 0,
+        "pruned_low_opacity": 0,
+        "pruned_screen_size": 0,
+        "opacity_resets": 1,
+    }
     assert result["lpips"]["status"] == "not_run"
     assert len(list((tmp_path / "previews").glob("*.png"))) == 2
 

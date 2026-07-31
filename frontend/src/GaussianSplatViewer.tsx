@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 import * as THREE from "three";
+import {
+  parseContentLength,
+  parseGaussianExportMetadata,
+  viewerAlphaThreshold
+} from "./gaussianViewerMetadata";
 
 type GaussianSplatViewerProps = {
   sourceUrl: string | null;
+  metadataUrl: string | null;
 };
 
 type ViewPreset = "fit" | "top" | "front" | "side";
@@ -105,7 +111,7 @@ function applyViewPreset(
   viewer.forceRenderNextFrame?.();
 }
 
-export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
+export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
@@ -135,7 +141,7 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
 
   useEffect(() => {
     const mount = mountRef.current;
-    if (!mount || !sourceUrl) {
+    if (!mount || !sourceUrl || !metadataUrl) {
       setViewerState("idle");
       return;
     }
@@ -147,8 +153,8 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
     mount.replaceChildren();
     void fetch(sourceUrl, { method: "HEAD", signal: controller.signal })
       .then((response) => {
-        const bytes = Number(response.headers.get("content-length"));
-        if (!cancelled && Number.isFinite(bytes) && bytes >= 0) {
+        const bytes = parseContentLength(response.headers.get("content-length"));
+        if (!cancelled && bytes !== null) {
           setAssetBytes(bytes);
         }
       })
@@ -156,25 +162,33 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
         // Asset size is optional; the viewer still owns the actual GET and error state.
       });
 
-    const viewer = new GaussianSplats3D.Viewer({
-      rootElement: mount,
-      cameraUp: [0, 0, 1],
-      initialCameraPosition: [0, 1.2, 3],
-      initialCameraLookAt: [0, 0, 0],
-      sharedMemoryForWorkers: false,
-      sphericalHarmonicsDegree: 0,
-      ignoreDevicePixelRatio: true,
-      integerBasedSort: false
-    });
-    viewerRef.current = viewer;
-
-    viewer
-      .addSplatScene(sourceUrl, {
-        showLoadingUI: true,
-        progressiveLoad: true,
-        splatAlphaRemovalThreshold: 5
-      })
-      .then(() => {
+    let viewer: GaussianSplats3D.Viewer | null = null;
+    const load = async () => {
+      try {
+        const response = await fetch(metadataUrl, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`Gaussian export metadata request failed: ${response.status}`);
+        }
+        const metadata = parseGaussianExportMetadata(await response.json());
+        if (cancelled) {
+          return;
+        }
+        viewer = new GaussianSplats3D.Viewer({
+          rootElement: mount,
+          cameraUp: [0, 0, 1],
+          initialCameraPosition: [0, 1.2, 3],
+          initialCameraLookAt: [0, 0, 0],
+          sharedMemoryForWorkers: false,
+          sphericalHarmonicsDegree: metadata.sh_degree,
+          ignoreDevicePixelRatio: true,
+          integerBasedSort: false
+        });
+        viewerRef.current = viewer;
+        await viewer.addSplatScene(sourceUrl, {
+          showLoadingUI: true,
+          progressiveLoad: true,
+          splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity)
+        });
         if (cancelled) {
           return;
         }
@@ -183,12 +197,13 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
         applyViewPreset(viewer, sceneFrameRef.current, "fit", upMultiplierRef.current);
         viewer.start();
         setViewerState("ready");
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           setViewerState("error");
         }
-      });
+      }
+    };
+    void load();
 
     return () => {
       cancelled = true;
@@ -203,7 +218,7 @@ export function GaussianSplatViewer({ sourceUrl }: GaussianSplatViewerProps) {
       }
       mount.replaceChildren();
     };
-  }, [sourceUrl]);
+  }, [sourceUrl, metadataUrl]);
 
   return (
     <div className="viewer-surface">

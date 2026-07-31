@@ -29,10 +29,17 @@ def test_model_activations_groups_and_topology_are_valid():
     }
 
     groups = model.parameter_groups(learning_rates)
-    model.replace_rows(torch.tensor([0, 2]), torch.tensor([0]))
+    sources = model.update_topology(
+        torch.tensor([0, 2]),
+        torch.tensor([0]),
+        torch.empty(0, dtype=torch.long),
+        split_children=2,
+    )
     model.reset_opacity(0.01)
 
     assert [group["name"] for group in groups] == list(learning_rates)
+    assert sources[0].tolist() == [0, 2, 0]
+    assert sources[1].tolist() == [0, 0, 1]
     assert model.count == 3
     assert torch.all(model.activated()[3] <= 0.010001)
     model.validate(max_count=3)

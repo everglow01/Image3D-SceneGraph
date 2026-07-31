@@ -23,16 +23,30 @@ def test_public_profile_resolves_deterministically_and_returns_fresh_data():
     assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
-        "longest_edge": 1280,
+        "longest_edge": 640,
     }
-    assert first.effective_config["gaussian_budget"]["max_count"] == 1_000_000
+    assert first.effective_config["iterations"] == 3_000
+    assert first.effective_config["gaussian_budget"]["max_count"] == 250_000
+    assert first.effective_config["densification"] == {
+        "enabled": True,
+        "start_iteration": 200,
+        "end_iteration": 1_500,
+        "every_iterations": 100,
+        "gradient_threshold": 0.0002,
+        "duplicate_scale_threshold": 0.01,
+        "split_children": 2,
+    }
     assert first.effective_config == second.effective_config
     assert first.effective_config is not second.effective_config
     assert first.effective_config_hash == second.effective_config_hash
     assert first.effective_config_hash == effective_config_hash(first.effective_config)
 
     first.effective_config["iterations"] = 1
-    assert resolve_public_config("standard_v1").effective_config["iterations"] == 30_000
+    assert resolve_public_config("standard_v1").effective_config["iterations"] == 3_000
+
+    internal = resolve_internal_config("rtx4060_8gb_development_v1")
+    assert internal.effective_config == second.effective_config
+    assert internal.effective_config_hash == second.effective_config_hash
 
 
 @pytest.mark.parametrize("profile", ["smoke_v1", "high_quality", ""])
@@ -49,7 +63,7 @@ def test_internal_override_is_validated_hashed_and_recorded():
 
     assert resolved.effective_config["densification"]["every_iterations"] == 200
     assert record == {
-        "schema_version": 1,
+        "schema_version": CONFIG_SCHEMA_VERSION,
         "requested_profile": "standard_v1",
         "effective_config": resolved.effective_config,
         "effective_config_hash": resolved.effective_config_hash,
@@ -72,16 +86,16 @@ def test_internal_override_is_validated_hashed_and_recorded():
             "learning_rate.position.final cannot exceed initial",
         ),
         (
-            {"sh_schedule": {"increase_every_iterations": 20_000}},
+            {"sh_schedule": {"increase_every_iterations": 2_000}},
             "SH schedule cannot reach max_degree within iterations",
         ),
         (
-            {"densification": {"end_iteration": 500}},
+            {"densification": {"end_iteration": 200}},
             "densification start must precede end",
         ),
         (
-            {"opacity_reset": {"every_iterations": 30_001}},
-            "exceeds 30000",
+            {"opacity_reset": {"every_iterations": 3_001}},
+            "exceeds 3000",
         ),
         (
             {"evaluation": {"validation_every_iterations": 0}},
@@ -96,12 +110,12 @@ def test_internal_override_rejects_invalid_config(overrides, message):
 
 def test_validation_rejects_missing_and_nonfinite_values():
     config = resolve_public_config("standard_v1").effective_config
-    del config["checkpoint"]
-    with pytest.raises(GaussianConfigError, match="missing checkpoint"):
+    del config["evaluation"]
+    with pytest.raises(GaussianConfigError, match="missing evaluation"):
         validate_effective_config(config)
 
     config = resolve_public_config("standard_v1").effective_config
-    config["pruning"]["max_screen_size"] = float("nan")
+    config["pruning"]["max_screen_fraction"] = float("nan")
     with pytest.raises(GaussianConfigError, match="finite float"):
         validate_effective_config(config)
 
@@ -133,7 +147,7 @@ def test_single_field_ablation_reports_one_changed_leaf():
         {},
         {
             "densification": {"every_iterations": 200},
-            "checkpoint": {"every_iterations": 2000},
+            "evaluation": {"validation_every_iterations": 1_000},
         },
     ],
 )

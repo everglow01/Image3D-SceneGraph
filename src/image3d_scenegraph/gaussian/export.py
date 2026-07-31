@@ -68,6 +68,10 @@ def export_gaussians(
     import torch
 
     model = load_model_snapshot(model_path, torch.device("cpu"))
+    opacity = model.opacity_logits.detach().sigmoid()
+    effective_opacity_count = int((opacity > 0.01).sum())
+    if effective_opacity_count == 0:
+        raise GaussianExportError("Gaussian model has no browser-visible opacity rows")
     rows = _model_rows(model)
     output_dir.mkdir(parents=True, exist_ok=False)
     canonical_path = output_dir / "canonical.ply"
@@ -87,6 +91,10 @@ def export_gaussians(
         "camera_axes": contract["coordinate_system"]["camera_axes"],
         "world_from_normalized": contract["normalization"]["world_from_normalized"],
         "gaussian_count": model.count,
+        "effective_opacity_count": effective_opacity_count,
+        "viewer_minimum_opacity": 0.005,
+        "opacity_p50": float(torch.quantile(opacity, 0.5)),
+        "opacity_p90": float(torch.quantile(opacity, 0.9)),
         "sh_degree": model.max_sh_degree,
         "sh_layout": "dc_rgb_then_rest_channel_major",
         "opacity": "logit",

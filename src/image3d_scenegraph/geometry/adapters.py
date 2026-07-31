@@ -126,7 +126,7 @@ class ProjectGaussianAdapter:
             "--resolved-config-json",
             str(config_path),
             "--max-initial-points",
-            str(context.options.get("gaussian_max_initial_points", 100_000)),
+            str(context.options.get("gaussian_max_initial_points", 20_000)),
         ]
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)
@@ -213,7 +213,7 @@ class ProjectGaussianAdapter:
             "--output-dir",
             str(export_dir),
             "--checkpoint-hash",
-            str(result["checkpoint_hash"]),
+            str(result["final_checkpoint_hash"]),
         ]
         _adapter_progress(context, "gaussian_export", 0.86)
         _run_adapter_command(command_export, context, project_root, env=env)
@@ -246,7 +246,7 @@ class ProjectGaussianAdapter:
         if completed.stdout.strip():
             log_lines.append(f"stdout={completed.stdout.strip()}")
         return ReconstructionResult(
-            stage="gaussian_training",
+            stage="gaussian_export",
             assets={
                 "gaussian_model": model_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),

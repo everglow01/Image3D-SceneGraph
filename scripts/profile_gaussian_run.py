@@ -33,10 +33,21 @@ def main() -> None:
     exported = _read(args.export_metadata)
     progress = [json.loads(line) for line in args.progress.read_text(encoding="utf-8").splitlines()]
     topology = {
-        "densified": sum(int(event.get("densified", 0)) for event in progress),
-        "pruned": sum(int(event.get("pruned", 0)) for event in progress),
-        "opacity_resets": sum(int(event.get("opacity_reset") is True) for event in progress),
+        key: sum(int(event.get(key, 0)) for event in progress)
+        for key in (
+            "duplicated",
+            "split_parents",
+            "split_children",
+            "densified",
+            "pruned",
+            "pruned_non_finite",
+            "pruned_low_opacity",
+            "pruned_screen_size",
+        )
     }
+    topology["opacity_resets"] = sum(
+        int(event.get("opacity_reset") is True) for event in progress
+    )
     payload = {
         "schema_version": 1,
         "profile": "rtx4060_8gb_development_v1",

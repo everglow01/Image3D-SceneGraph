@@ -50,14 +50,14 @@ Legacy terminal-only manifests remain valid and readable. They do not gain synth
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | integer | Gaussian configuration schema version; R2.4 defines version `1`. |
+| `schema_version` | integer | Gaussian configuration schema version; trainer topology repair defines version `2`. |
 | `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
 | `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
 | `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |
 
 The same schema version, requested profile, effective configuration, and hash are written to `logs/run.log`. Public job submission does not expose raw Gaussian hyperparameters; a future Gaussian-specific public route may select only an allow-listed quality profile. Internal research callers may supply validated overrides, and a recorded ablation must differ from its baseline in exactly one effective leaf field.
 
-Training configuration contains validation cadence but no test cadence. Held-out test views remain isolated until the candidate, effective configuration, and model hashes are frozen. `standard_v1` remains the only public profile. The measured `rtx4060_8gb_development_v1` is internal-only and exists for reproducible Stage 2D development/smoke runs; it is not a public quality promise.
+Training configuration contains validation cadence but no test cadence. Schema v2 adds screen-normalized densification, duplicate/split controls, and explicitly disabled-by-default normalized screen-size pruning. Held-out test views remain isolated until the candidate, effective configuration, and model hashes are frozen. `standard_v1` remains the only public profile. The measured `rtx4060_8gb_development_v1` is internal-only and exists for reproducible Stage 2D development/smoke runs; it is not a public quality promise.
 
 Jobs without `gaussian_config`, including all historical geometry jobs and imported-splat fixtures, remain valid. Readers must not add a default profile or infer effective parameters for them.
 
