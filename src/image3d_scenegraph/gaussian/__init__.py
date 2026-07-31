@@ -14,7 +14,6 @@ from .checkpoint import (
     create_attempt,
     load_attempt,
     load_checkpoint,
-    select_retained_checkpoints,
     write_checkpoint,
 )
 from .config import (
@@ -76,7 +75,6 @@ __all__ = [
     "resolve_internal_config",
     "resolve_public_config",
     "resolved_config_record",
-    "select_retained_checkpoints",
     "sparse_initialization",
     "validate_contract",
     "validate_effective_config",

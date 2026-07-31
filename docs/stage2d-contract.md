@@ -50,17 +50,20 @@ A successful `project_3dgs` attempt progresses through geometry, Gaussian traini
 
 Failed/cancelled partial evaluation/export stays in lifecycle attempt diagnostics and is not advertised. The frontend progressively loads `scene_splat`, aborts its metadata request and disposes the viewer on switch/unmount, reports load/error/size state, labels the view as normalized arbitrary units, and retains point/mesh fallback when Gaussian is absent.
 
-## Measured RTX 4060 development profile v1
+## Measured RTX 4060 public/development profile v1
 
-The internal-only `rtx4060_8gb_development_v1` resolves to the measured room configuration hash `a0b9184182acc5f67db8ba38ea4f0d4a1649d0a24d331ad4f136f9daef4adefc`:
+Public `standard_v1` and internal `rtx4060_8gb_development_v1` resolve to the repaired schema-v3 room settings with effective-config hash `f50ba69533396ebe097cb60afd7d3b1a87292a9051a66704fe3fd4d2b2d117f5`. The training values match the measured schema-v2 configuration; only the obsolete checkpoint cadence field was removed:
 
-- 100 iterations, longest edge 320;
-- 20,000 sparse initial points, 50,000 Gaussian cap;
-- SH degree increments every 33 iterations;
-- densification iterations 25–99 every 25;
-- validation at 100, checkpoints at 50/100.
+- 3,000 iterations, longest edge 640;
+- 20,000 sparse initial points in the measured room run, 250,000 Gaussian cap;
+- SH degree increments every 1,000 iterations;
+- densification iterations 200–1,500 every 100;
+- opacity reset every 500 while densification is active;
+- Validation every 500 iterations; only the final iteration writes a full checkpoint.
 
-Repaired schema-v2 room evidence (32-view retained room contract, 2026-07-31) used 3,000 iterations at 640px, 20,000 sparse initial points, a 250,000 cap, and effective-config hash `b73b1d8253f51347edff4f20f5071b839b63b84ee35ba2767e2ca8c7317f168c`. It completed in 83.17 s with 417,403,904 peak allocated and 1,094,713,344 peak reserved bytes. Topology duplicated 218,548 rows, split 15,476 parents into 30,952 children, pruned 4,024 low-opacity rows, performed no screen-size prune, and reset opacity twice before densification ended. Validation reached PSNR 16.7151/SSIM 0.5803. After freezing, the one consumed Test evaluation recorded PSNR 8.8663/SSIM 0.4438; Test was not used to change the model/config. The 250,000-row canonical/browser PLY is 62,001,587 bytes and the deterministic bundle is 78,845,012 bytes; two exports matched hashes and the audited browser loader decoded all rows. This is a measured 8GB-safe development result in arbitrary units, not a final quality optimum or metric-accuracy claim. The earlier 100-iteration schema-v1 profile remains historical evidence rather than the repaired profile.
+The 32-view retained room run on 2026-07-31 completed in 83.17 s with 417,403,904 peak allocated and 1,094,713,344 peak reserved bytes. Topology duplicated 218,548 rows, split 15,476 parents into 30,952 children, pruned 4,024 low-opacity rows, performed no screen-size prune, and reset opacity twice before densification ended. Validation reached PSNR 16.7151/SSIM 0.5803. After freezing, the one consumed Test evaluation recorded PSNR 8.8663/SSIM 0.4438; Test was not used to change the model/config. The 250,000-row canonical/browser PLY is 62,001,587 bytes and the deterministic bundle is 78,845,012 bytes; two exports matched hashes and the audited browser loader decoded all rows.
+
+Training writes no periodic full checkpoint and a successful job retains only its final checkpoint. Validation candidates use one overwrite-in-place model-only snapshot. This avoids cadence-multiplied model/Adam snapshots. The profile is a measured 8GB-safe development result in arbitrary units, not a final quality optimum or metric-accuracy claim.
 
 ## Integrated evidence
 

@@ -4,16 +4,23 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from image3d_scenegraph.gaussian.checkpoint import CheckpointProvenance, create_attempt, write_checkpoint
+from image3d_scenegraph.gaussian.checkpoint import (
+    CheckpointProvenance,
+    create_attempt,
+    load_checkpoint,
+    write_checkpoint,
+)
 from image3d_scenegraph.gaussian.model import GaussianModel
 from image3d_scenegraph.gaussian.render import RenderCamera
 from image3d_scenegraph.gaussian.runtime import TrainingView
 from image3d_scenegraph.gaussian.trainer import (
     _accumulate_statistics,
     _checkpoint_state,
+    _final_checkpoint_due,
     _load_model,
     _maybe_update_topology,
     _torch_load,
+    _write_latest_checkpoint,
     evaluate_views,
 )
 from image3d_scenegraph.gaussian.config import resolve_internal_config
@@ -117,6 +124,52 @@ def test_validation_payload_marks_lpips_not_run(monkeypatch):
         "status": "not_run",
         "reason": "pretrained_weight_license_and_hash_not_audited",
     }
+
+
+def test_only_final_iteration_writes_a_checkpoint():
+    assert not _final_checkpoint_due(500, 3_000)
+    assert not _final_checkpoint_due(2_999, 3_000)
+    assert _final_checkpoint_due(3_000, 3_000)
+
+
+def test_latest_checkpoint_replaces_intermediate_checkpoint(tmp_path):
+    expected_provenance = CheckpointProvenance("a" * 64, "b" * 64, "c" * 64, "d" * 64)
+    create_attempt(tmp_path, attempt_id="train-001", kind="fresh", provenance=expected_provenance)
+    gaussian = model()
+    config = resolve_internal_config().effective_config
+    optimizer = torch.optim.Adam(gaussian.parameter_groups(config["learning_rate"]))
+    checkpoint_state = _checkpoint_state(
+        gaussian,
+        optimizer,
+        torch.zeros(gaussian.count),
+        torch.zeros(gaussian.count),
+        torch.zeros(gaussian.count),
+        [{"iteration": 1, "loss": 1.0}],
+        1,
+    )
+
+    _write_latest_checkpoint(
+        tmp_path,
+        attempt_id="train-001",
+        iteration=1,
+        purpose="periodic",
+        validation_score=None,
+        provenance=expected_provenance,
+        state=checkpoint_state,
+    )
+    _write_latest_checkpoint(
+        tmp_path,
+        attempt_id="train-001",
+        iteration=2,
+        purpose="final",
+        validation_score=None,
+        provenance=expected_provenance,
+        state=checkpoint_state,
+    )
+
+    checkpoints = tmp_path / "attempts" / "train-001" / "checkpoints"
+    assert [path.name for path in checkpoints.iterdir()] == ["iteration_000000002"]
+    assert load_checkpoint(tmp_path, "train-001", 2).record.purpose == "final"
 
 
 def test_checkpoint_state_round_trips_real_model_and_optimizer(tmp_path):

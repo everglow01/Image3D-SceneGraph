@@ -21,6 +21,7 @@ from .checkpoint import (
     CheckpointState,
     create_attempt,
     load_checkpoint,
+    prune_attempt_checkpoints,
     write_checkpoint,
 )
 from .config import ResolvedGaussianConfig, validate_effective_config
@@ -60,8 +61,6 @@ class TrainingResult:
     peak_allocated_bytes: int
     peak_reserved_bytes: int
     elapsed_seconds: float
-    checkpoint_hash: str
-    checkpoint_path: str
     final_checkpoint_hash: str
     final_checkpoint_path: str
     model_path: str
@@ -327,23 +326,13 @@ def train_gaussians(
                         ).model
                     )
 
-            checkpoint_due = (
-                iteration % int(config["checkpoint"]["every_iterations"]) == 0
-                or validation_improved
-                or iteration == total_iterations
-            )
-            if checkpoint_due:
-                purpose = "final" if iteration == total_iterations else "periodic"
-                score = None
-                if validation_improved and iteration != total_iterations:
-                    purpose = "best_validation"
-                    score = best_validation
-                write_checkpoint(
+            if _final_checkpoint_due(iteration, total_iterations):
+                _write_latest_checkpoint(
                     run_dir,
                     attempt_id=attempt_id,
                     iteration=iteration,
-                    purpose=purpose,
-                    validation_score=score,
+                    purpose="final",
+                    validation_score=None,
                     provenance=provenance,
                     state=_checkpoint_state(
                         model,
@@ -376,16 +365,6 @@ def train_gaussians(
     model_path = artifact_dir / "model.pt"
     model_path.write_bytes(candidate_path.read_bytes())
     candidate_path.unlink()
-    candidate_checkpoint = (
-        load_checkpoint(
-            run_dir,
-            attempt_id,
-            best_validation_iteration,
-            expected_provenance=provenance,
-        )
-        if best_validation_iteration != total_iterations
-        else final_checkpoint
-    )
     result_path = artifact_dir / "result.json"
     result = TrainingResult(
         iteration=total_iterations,
@@ -398,13 +377,6 @@ def train_gaussians(
         peak_allocated_bytes=int(torch.cuda.max_memory_allocated(device)),
         peak_reserved_bytes=int(torch.cuda.max_memory_reserved(device)),
         elapsed_seconds=elapsed,
-        checkpoint_hash=candidate_checkpoint.record.checkpoint_hash,
-        checkpoint_path=(
-            Path("attempts")
-            / attempt_id
-            / "checkpoints"
-            / f"iteration_{best_validation_iteration:09d}"
-        ).as_posix(),
         final_checkpoint_hash=final_checkpoint.record.checkpoint_hash,
         final_checkpoint_path=(
             Path("attempts")
@@ -710,6 +682,32 @@ def _update_learning_rates(
             total_iterations,
             delay_multiplier=float(learning_rate["delay_multiplier"]),
         )
+
+
+def _final_checkpoint_due(iteration: int, total_iterations: int) -> bool:
+    return iteration == total_iterations
+
+
+def _write_latest_checkpoint(
+    run_dir: Path,
+    *,
+    attempt_id: str,
+    iteration: int,
+    purpose: str,
+    validation_score: float | None,
+    provenance: CheckpointProvenance,
+    state: CheckpointState,
+) -> None:
+    write_checkpoint(
+        run_dir,
+        attempt_id=attempt_id,
+        iteration=iteration,
+        purpose=purpose,
+        validation_score=validation_score,
+        provenance=provenance,
+        state=state,
+    )
+    prune_attempt_checkpoints(run_dir, attempt_id, keep_iterations=(iteration,))
 
 
 def _checkpoint_state(
