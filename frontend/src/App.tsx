@@ -287,6 +287,12 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.scene_splat}`;
   }, [manifest]);
+  const splatMetadataUrl = useMemo(() => {
+    if (!manifest?.assets.gaussian_export_metadata) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.gaussian_export_metadata}`;
+  }, [manifest]);
   const meshVariants = manifest?.mesh_variants ?? [];
   const selectedMeshVariant =
     meshVariants.find((variant) => variant.id === selectedMeshVariantId) ?? meshVariants[0] ?? null;
@@ -934,6 +940,7 @@ export function App() {
             pointCloudVariant={pointCloudVariant}
             meshUrl={visibleMeshUrl}
             splatUrl={visibleSplatUrl}
+            splatMetadataUrl={viewerMode === "gaussian_splat" ? splatMetadataUrl : null}
           />
         </section>
 

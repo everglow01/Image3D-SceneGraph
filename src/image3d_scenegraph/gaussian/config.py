@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 1
+CONFIG_SCHEMA_VERSION = 2
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
@@ -62,11 +62,14 @@ _STANDARD_V1: dict[str, Any] = {
         "end_iteration": 15_000,
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
+        "duplicate_scale_threshold": 0.01,
+        "split_children": 2,
     },
     "pruning": {
         "enabled": True,
         "opacity_threshold": 0.005,
-        "max_screen_size": 20.0,
+        "screen_size_enabled": False,
+        "max_screen_fraction": 0.1,
     },
     "opacity_reset": {
         "enabled": True,
@@ -235,7 +238,15 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     densification = _mapping(
         root["densification"],
         "densification",
-        {"enabled", "start_iteration", "end_iteration", "every_iterations", "gradient_threshold"},
+        {
+            "enabled",
+            "start_iteration",
+            "end_iteration",
+            "every_iterations",
+            "gradient_threshold",
+            "duplicate_scale_threshold",
+            "split_children",
+        },
     )
     _boolean(densification["enabled"], "densification.enabled")
     densify_start = _integer(
@@ -253,20 +264,36 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         minimum=0.0,
         minimum_exclusive=True,
     )
+    _number(
+        densification["duplicate_scale_threshold"],
+        "densification.duplicate_scale_threshold",
+        minimum=0.0,
+        minimum_exclusive=True,
+    )
+    _integer(
+        densification["split_children"],
+        "densification.split_children",
+        minimum=2,
+        maximum=4,
+    )
     if densify_start >= densify_end:
         raise GaussianConfigError("densification start must precede end")
     if densify_interval > densify_end - densify_start:
         raise GaussianConfigError("densification cadence exceeds its active range")
 
     pruning = _mapping(
-        root["pruning"], "pruning", {"enabled", "opacity_threshold", "max_screen_size"}
+        root["pruning"],
+        "pruning",
+        {"enabled", "opacity_threshold", "screen_size_enabled", "max_screen_fraction"},
     )
     _boolean(pruning["enabled"], "pruning.enabled")
     _number(pruning["opacity_threshold"], "pruning.opacity_threshold", minimum=0.0, maximum=1.0)
+    _boolean(pruning["screen_size_enabled"], "pruning.screen_size_enabled")
     _number(
-        pruning["max_screen_size"],
-        "pruning.max_screen_size",
+        pruning["max_screen_fraction"],
+        "pruning.max_screen_fraction",
         minimum=0.0,
+        maximum=1.0,
         minimum_exclusive=True,
     )
 

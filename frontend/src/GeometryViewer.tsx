@@ -9,6 +9,7 @@ type GeometryViewerProps = {
   pointCloudVariant: "raw" | "aligned";
   meshUrl: string | null;
   splatUrl: string | null;
+  splatMetadataUrl: string | null;
 };
 
 export function GeometryViewer({
@@ -17,10 +18,11 @@ export function GeometryViewer({
   alignmentDiagnosticsUrl,
   pointCloudVariant,
   meshUrl,
-  splatUrl
+  splatUrl,
+  splatMetadataUrl
 }: GeometryViewerProps) {
   if (splatUrl) {
-    return <GaussianSplatViewer sourceUrl={splatUrl} />;
+    return <GaussianSplatViewer sourceUrl={splatUrl} metadataUrl={splatMetadataUrl} />;
   }
   if (meshUrl) {
     return <MeshViewer sourceUrl={meshUrl} />;

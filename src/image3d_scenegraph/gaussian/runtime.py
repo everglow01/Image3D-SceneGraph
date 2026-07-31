@@ -20,6 +20,18 @@ class TrainingView:
     camera: RenderCamera
     image: torch.Tensor
 
+    def to(self, device: torch.device) -> TrainingView:
+        return TrainingView(
+            RenderCamera(
+                image_id=self.camera.image_id,
+                camera_from_normalized=self.camera.camera_from_normalized.to(device),
+                intrinsic=self.camera.intrinsic.to(device),
+                width=self.camera.width,
+                height=self.camera.height,
+            ),
+            self.image.to(device),
+        )
+
 
 def load_training_views(
     contract: dict[str, Any],

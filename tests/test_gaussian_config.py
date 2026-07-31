@@ -49,7 +49,7 @@ def test_internal_override_is_validated_hashed_and_recorded():
 
     assert resolved.effective_config["densification"]["every_iterations"] == 200
     assert record == {
-        "schema_version": 1,
+        "schema_version": CONFIG_SCHEMA_VERSION,
         "requested_profile": "standard_v1",
         "effective_config": resolved.effective_config,
         "effective_config_hash": resolved.effective_config_hash,
@@ -101,7 +101,7 @@ def test_validation_rejects_missing_and_nonfinite_values():
         validate_effective_config(config)
 
     config = resolve_public_config("standard_v1").effective_config
-    config["pruning"]["max_screen_size"] = float("nan")
+    config["pruning"]["max_screen_fraction"] = float("nan")
     with pytest.raises(GaussianConfigError, match="finite float"):
         validate_effective_config(config)
 

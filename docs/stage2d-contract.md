@@ -16,7 +16,7 @@ A held-out `test` run requires a frozen candidate record binding:
 
 The evaluator atomically creates a sibling `*.test-consumed.json` with exclusive creation before loading test views. A candidate cannot be evaluated twice, and changed dataset/config/model hashes are rejected. Test output is terminal evidence only; no code path feeds it to training, checkpoint selection, or profile resolution.
 
-Each result records per-view and mean/min/p10/p50/p90/max PSNR, SSIM, render milliseconds, aggregate FPS, failures, Gaussian count, opacity/scale distributions, densify/prune/reset counts, and peak CUDA allocation/reservation. Fixed rendered PNGs and JSONL rows are emitted. Rendering metrics are explicitly separate from geometry metrics.
+Each result records per-view and mean/min/p10/p50/p90/max PSNR, SSIM, render milliseconds, aggregate FPS, failures, Gaussian count, opacity/scale distributions, duplicate/split and reason-specific prune/reset counts, and peak CUDA allocation/reservation. Training images remain CPU-resident and only the active view is transferred to CUDA. The frozen model is selected by best Validation PSNR while the final checkpoint remains lifecycle/resume evidence. Fixed rendered PNGs and JSONL rows are emitted. Rendering metrics are explicitly separate from geometry metrics.
 
 LPIPS remains `not_run: pretrained_weight_license_and_hash_not_audited`. `lpips` is not installed. Upstream package code is BSD-2-Clause, but default AlexNet uses a torchvision ImageNet checkpoint downloaded at runtime and no approved local weight hash/license record exists. Stage 2D does not download it or substitute another metric.
 
@@ -34,7 +34,7 @@ LPIPS remains `not_run: pretrained_weight_license_and_hash_not_audited`. `lpips`
 
 `scene.ply` is the versioned INRIA-v1 browser derivative. Today its bytes equal the canonical PLY; consumers must still use the separate role because future browser optimization cannot redefine the canonical format.
 
-`export.json` records schema/format, coordinate frame, arbitrary units, camera axes, `world_from_normalized`, Gaussian/SH layout, checkpoint/model/dataset/config/evaluation hashes, and media state. `camera_path.json` contains validation-camera keyframes in normalized coordinates. Every center must remain within radius 2 of the normalized origin. Stage 2 baseline retains this descriptor; video is `not_generated` rather than silently invoking an unpinned encoder.
+`export.json` records schema/format, coordinate frame, arbitrary units, camera axes, `world_from_normalized`, Gaussian/SH layout, checkpoint/model/dataset/config/evaluation hashes, browser opacity threshold/health summary, and media state. The browser reads its SH degree and alpha threshold from this metadata; missing `Content-Length` remains unknown rather than displaying zero. Export rejects a model with no effective-opacity rows. `camera_path.json` contains validation-camera keyframes in normalized coordinates. Every center must remain within radius 2 of the normalized origin. Stage 2 baseline retains this descriptor; video is `not_generated` rather than silently invoking an unpinned encoder.
 
 `result.zip` uses sorted names, fixed timestamps, fixed permissions, and project-relative paths. It includes canonical/browser PLY, export/camera metadata, dataset/effective config, and validation evaluation. `bundle.json` records the archive SHA-256 externally to avoid a self-referential archive hash. No absolute local paths or optimizer internals enter the bundle.
 
@@ -60,7 +60,7 @@ The internal-only `rtx4060_8gb_development_v1` resolves to the measured room con
 - densification iterations 25–99 every 25;
 - validation at 100, checkpoints at 50/100.
 
-Retained room evidence: 18,765 final Gaussians, 1.272 s measured training-loop time, 68,936,704 peak allocated and 94,371,840 peak reserved bytes, validation PSNR 2.2271/SSIM 0.1894, test PSNR 2.3272/SSIM 0.2116, canonical/browser asset 4,655,306 bytes each, bundle 6,725,944 bytes. The short run proves the lifecycle and 8GB safety, not high visual quality or a final quality optimum. `standard_v1` public defaults remain unchanged.
+Repaired schema-v2 room evidence (32-view retained room contract, 2026-07-31) used 3,000 iterations at 640px, 20,000 sparse initial points, a 250,000 cap, and effective-config hash `b73b1d8253f51347edff4f20f5071b839b63b84ee35ba2767e2ca8c7317f168c`. It completed in 83.17 s with 417,403,904 peak allocated and 1,094,713,344 peak reserved bytes. Topology duplicated 218,548 rows, split 15,476 parents into 30,952 children, pruned 4,024 low-opacity rows, performed no screen-size prune, and reset opacity twice before densification ended. Validation reached PSNR 16.7151/SSIM 0.5803. After freezing, the one consumed Test evaluation recorded PSNR 8.8663/SSIM 0.4438; Test was not used to change the model/config. The 250,000-row canonical/browser PLY is 62,001,587 bytes and the deterministic bundle is 78,845,012 bytes; two exports matched hashes and the audited browser loader decoded all rows. This is a measured 8GB-safe development result in arbitrary units, not a final quality optimum or metric-accuracy claim. The earlier 100-iteration schema-v1 profile remains historical evidence rather than the repaired profile.
 
 ## Integrated evidence
 

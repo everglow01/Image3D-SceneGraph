@@ -246,7 +246,7 @@ class ProjectGaussianAdapter:
         if completed.stdout.strip():
             log_lines.append(f"stdout={completed.stdout.strip()}")
         return ReconstructionResult(
-            stage="gaussian_training",
+            stage="gaussian_export",
             assets={
                 "gaussian_model": model_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),
