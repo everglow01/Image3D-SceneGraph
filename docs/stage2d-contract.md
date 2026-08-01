@@ -52,18 +52,18 @@ Failed/cancelled partial evaluation/export stays in lifecycle attempt diagnostic
 
 ## RTX 4060 public/development profiles
 
-Public `standard_v1` and internal `rtx4060_8gb_development_v1` now resolve to the same accuracy-priority schema-v3 settings with effective-config hash `cf588f1a8386a1f5a0335bf7ef3933ffb6dda64f22f1d9f44746129d8e2983a2`:
+Public `standard_v1` and internal `rtx4060_8gb_development_v1` now resolve to the same higher-capacity schema-v3 settings with effective-config hash `b6631cbdc5621d6727997f95a920ef3d5ec2fd898fc0383083dea7305efc7726`:
 
-- 8,000 iterations, longest edge 960;
-- up to 50,000 sparse initial points, 350,000 Gaussian cap;
-- SH degree increments every 2,000 iterations;
-- densification iterations 500–4,000 every 100;
-- opacity reset and Validation every 1,000 iterations;
+- 15,000 iterations, longest edge 1280 without upscaling smaller inputs;
+- up to 75,000 sparse initial points, 600,000 Gaussian cap;
+- SH degree increments every 3,000 iterations;
+- densification iterations 500–7,500 every 100;
+- opacity reset and Validation every 1,500 iterations;
 - only the final iteration writes a full checkpoint.
 
 These values replace the fast 3,000/640/250k development default after a 225-image user job completed in 59.24 s with only 1.076 GB peak reserved VRAM, reached the Gaussian cap by iteration 1,000, and produced incomplete Validation views. That job registered 176/225 uploaded images with sequential matching and initialized from 20,000/20,741 sparse points. Project 3DGS therefore also defaults to exhaustive COLMAP matching for registration coverage; the environment override remains available for explicitly ordered captures. This change is based on training/Validation/resource evidence only, not its consumed held-out Test.
 
-The accuracy-priority profile was validated on the frozen 32-view room Validation split on 2026-08-01. It completed in 298.57 s with 567,102,976 peak allocated and 1,507,852,288 peak reserved bytes, reached Validation PSNR 22.8994/SSIM 0.7884, retained only `iteration_000008000`, and produced 350,000 Gaussians. Against the same frozen room split, the prior 3,000/640/250k run recorded 83.17 s, 1.095 GB peak reserved, and Validation PSNR 16.7151/SSIM 0.5803. This is Validation-only evidence on one scene, not a final quality optimum or a metric-accuracy claim. No held-out Test view was loaded or evaluated for the new profile.
+The higher-capacity profile was validated on the frozen 32-view room Validation split on 2026-08-01. It completed in 774.79 s with 962,405,888 peak allocated and 3,221,225,472 peak reserved bytes, selected iteration 13,500 at Validation PSNR 25.5475/SSIM 0.8244, retained only final checkpoint `iteration_000015000`, and produced 600,000 Gaussians. The 8,000/960/350k profile on the same split recorded 298.57 s, 1.508 GB peak reserved, and Validation PSNR 22.8994/SSIM 0.7884; the earlier 3,000/640/250k profile recorded 83.17 s, 1.095 GB, and 16.7151/0.5803. This uses about 39% of the RTX 4060's 8 GB as reserved training memory while sustaining approximately 97–98% GPU utilization, leaving margin for larger uploaded images and transient allocator demand. It is Validation-only evidence on one scene, not a final quality optimum or metric-accuracy claim. No held-out Test view was loaded or evaluated.
 
 Training writes no periodic full checkpoint and a successful job retains only its final checkpoint. Validation candidates use one overwrite-in-place model-only snapshot. New exports record a robust median scene center and 95th-percentile radius; the browser uses that frame for stable scene-centered CAD-style orbit, bounded zoom, coherent presets, and click-to-focus while remaining backward-compatible with older export metadata. Coordinates remain normalized arbitrary units.
 

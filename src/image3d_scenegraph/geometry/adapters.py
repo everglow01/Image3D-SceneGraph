@@ -126,7 +126,7 @@ class ProjectGaussianAdapter:
             "--resolved-config-json",
             str(config_path),
             "--max-initial-points",
-            str(context.options.get("gaussian_max_initial_points", 50_000)),
+            str(context.options.get("gaussian_max_initial_points", 75_000)),
         ]
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)
