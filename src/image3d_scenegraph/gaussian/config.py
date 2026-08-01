@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 3
+CONFIG_SCHEMA_VERSION = 4
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
@@ -48,17 +48,21 @@ _STANDARD_V1: dict[str, Any] = {
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
         "duplicate_scale_threshold": 0.01,
+        "split_screen_fraction": 0.05,
+        "screen_size_end_iteration": 4_000,
+        "split_budget_fraction": 0.25,
         "split_children": 2,
     },
     "pruning": {
         "enabled": True,
         "opacity_threshold": 0.005,
-        "screen_size_enabled": False,
-        "max_screen_fraction": 0.1,
+        "max_screen_fraction": 0.15,
+        "max_world_scale": 0.1,
+        "cleanup_iteration": 13_500,
     },
     "opacity_reset": {
         "enabled": True,
-        "every_iterations": 1_500,
+        "every_iterations": 3_000,
         "value": 0.01,
     },
     "gaussian_budget": {"max_count": 600_000},
@@ -223,6 +227,9 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "every_iterations",
             "gradient_threshold",
             "duplicate_scale_threshold",
+            "split_screen_fraction",
+            "screen_size_end_iteration",
+            "split_budget_fraction",
             "split_children",
         },
     )
@@ -248,6 +255,26 @@ def validate_effective_config(config: dict[str, Any]) -> None:
         minimum=0.0,
         minimum_exclusive=True,
     )
+    _number(
+        densification["split_screen_fraction"],
+        "densification.split_screen_fraction",
+        minimum=0.0,
+        maximum=1.0,
+        minimum_exclusive=True,
+    )
+    screen_size_end = _integer(
+        densification["screen_size_end_iteration"],
+        "densification.screen_size_end_iteration",
+        minimum=1,
+        maximum=iterations,
+    )
+    _number(
+        densification["split_budget_fraction"],
+        "densification.split_budget_fraction",
+        minimum=0.0,
+        maximum=1.0,
+        minimum_exclusive=True,
+    )
     _integer(
         densification["split_children"],
         "densification.split_children",
@@ -256,24 +283,44 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     )
     if densify_start >= densify_end:
         raise GaussianConfigError("densification start must precede end")
+    if screen_size_end > densify_end:
+        raise GaussianConfigError("screen-size refinement cannot outlive densification")
     if densify_interval > densify_end - densify_start:
         raise GaussianConfigError("densification cadence exceeds its active range")
 
     pruning = _mapping(
         root["pruning"],
         "pruning",
-        {"enabled", "opacity_threshold", "screen_size_enabled", "max_screen_fraction"},
+        {"enabled", "opacity_threshold", "max_screen_fraction", "max_world_scale", "cleanup_iteration"},
     )
     _boolean(pruning["enabled"], "pruning.enabled")
     _number(pruning["opacity_threshold"], "pruning.opacity_threshold", minimum=0.0, maximum=1.0)
-    _boolean(pruning["screen_size_enabled"], "pruning.screen_size_enabled")
-    _number(
+    max_screen_fraction = _number(
         pruning["max_screen_fraction"],
         "pruning.max_screen_fraction",
         minimum=0.0,
         maximum=1.0,
         minimum_exclusive=True,
     )
+    _number(
+        pruning["max_world_scale"],
+        "pruning.max_world_scale",
+        minimum=0.0,
+        maximum=1.0,
+        minimum_exclusive=True,
+    )
+    cleanup_iteration = _integer(
+        pruning["cleanup_iteration"],
+        "pruning.cleanup_iteration",
+        minimum=1,
+        maximum=iterations,
+    )
+    if cleanup_iteration <= densify_end:
+        raise GaussianConfigError("final cleanup must follow densification")
+    if cleanup_iteration >= iterations:
+        raise GaussianConfigError("final cleanup must leave recovery iterations")
+    if float(densification["split_screen_fraction"]) >= max_screen_fraction:
+        raise GaussianConfigError("screen-size split threshold must precede prune threshold")
 
     opacity_reset = _mapping(
         root["opacity_reset"], "opacity_reset", {"enabled", "every_iterations", "value"}

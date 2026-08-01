@@ -59,6 +59,7 @@ def evaluate_model(
     preview_dir: Path | None = None,
     progress_events: Iterable[dict[str, Any]] = (),
     renderer: Callable[..., Any] = render_gaussians,
+    health_thresholds: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     if split not in {"validation", "test"}:
         raise GaussianEvaluationError("evaluation split must be validation or test")
@@ -69,6 +70,8 @@ def evaluate_model(
 
     per_view: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    max_screen_radius = torch.zeros(model.count, device=model.means.device)
+    visible = torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
     peak_allocated = 0
     peak_reserved = 0
     if model.means.is_cuda:
@@ -90,6 +93,11 @@ def evaluate_model(
                     view.camera,
                     sh_degree=sh_degree,
                     background=torch.ones(3, device=model.means.device),
+                )
+                _accumulate_screen_health(
+                    getattr(rendered, "metadata", {}),
+                    max_screen_radius,
+                    visible,
                 )
                 if model.means.is_cuda:
                     torch.cuda.synchronize(model.means.device)
@@ -123,9 +131,17 @@ def evaluate_model(
         peak_reserved = int(torch.cuda.max_memory_reserved(model.means.device))
     render_values = [float(item["render_milliseconds"]) for item in per_view]
     total_seconds = sum(render_values) / 1000.0
-    opacity = model.opacity_logits.detach().sigmoid().cpu().numpy()
-    scales = model.log_scales.detach().exp().reshape(-1).cpu().numpy()
+    opacity = model.opacity_logits.detach().sigmoid()
+    max_scale = model.log_scales.detach().exp().amax(dim=1)
     topology = _topology_summary(progress_events)
+    health = _model_health(
+        model,
+        opacity,
+        max_scale,
+        max_screen_radius,
+        visible,
+        health_thresholds,
+    )
     return {
         "schema_version": EVALUATION_SCHEMA_VERSION,
         "status": "complete" if not failures else "complete_with_failures",
@@ -139,8 +155,9 @@ def evaluate_model(
         "render_milliseconds": _distribution(render_values),
         "render_fps": len(per_view) / total_seconds if total_seconds > 0 else 0.0,
         "gaussian_count": model.count,
-        "opacity": _distribution(opacity.tolist()),
-        "scale": _distribution(scales.tolist()),
+        "opacity": _distribution(opacity.cpu().tolist()),
+        "scale": _distribution(max_scale.cpu().tolist()),
+        "health": health,
         "topology": topology,
         "peak_allocated_bytes": peak_allocated,
         "peak_reserved_bytes": peak_reserved,
@@ -200,6 +217,7 @@ def run_evaluation(
             sh_degree=int(resolved_config.effective_config["sh_schedule"]["max_degree"]),
             preview_dir=output_dir / "previews",
             progress_events=progress,
+            health_thresholds=_health_thresholds(resolved_config.effective_config),
         )
         result["provenance"] = {
             "dataset_hash": contract["dataset_hash"],
@@ -333,13 +351,20 @@ def _read_progress(path: Path | None) -> list[dict[str, Any]]:
 def _topology_summary(events: Iterable[dict[str, Any]]) -> dict[str, int]:
     keys = (
         "duplicated",
+        "duplicate_candidates",
+        "duplicate_selected",
         "split_parents",
+        "split_candidates",
+        "split_selected",
         "split_children",
         "densified",
+        "budget_skipped",
+        "budget_evicted",
         "pruned",
         "pruned_non_finite",
         "pruned_low_opacity",
         "pruned_screen_size",
+        "pruned_world_size",
     )
     summary = {key: 0 for key in keys}
     opacity_resets = 0
@@ -348,6 +373,70 @@ def _topology_summary(events: Iterable[dict[str, Any]]) -> dict[str, int]:
             summary[key] += int(event.get(key, 0))
         opacity_resets += int(event.get("opacity_reset") is True)
     return {**summary, "opacity_resets": opacity_resets}
+
+
+def _health_thresholds(config: dict[str, Any]) -> dict[str, float]:
+    return {
+        "split_screen_fraction": float(config["densification"]["split_screen_fraction"]),
+        "max_screen_fraction": float(config["pruning"]["max_screen_fraction"]),
+        "max_world_scale": float(config["pruning"]["max_world_scale"]),
+        "opacity_threshold": float(config["pruning"]["opacity_threshold"]),
+    }
+
+
+def _accumulate_screen_health(
+    metadata: dict[str, Any],
+    max_screen_radius: torch.Tensor,
+    visible: torch.Tensor,
+) -> None:
+    ids = metadata.get("gaussian_ids")
+    radii = metadata.get("radii")
+    width = metadata.get("width")
+    height = metadata.get("height")
+    if ids is None or radii is None or width is None or height is None or not len(ids):
+        return
+    ids = ids.long()
+    normalized = radii.to(torch.float32).amax(dim=-1) / float(max(width, height))
+    max_screen_radius.scatter_reduce_(0, ids, normalized, reduce="amax", include_self=True)
+    visible[ids] = True
+
+
+def _model_health(
+    model: GaussianModel,
+    opacity: torch.Tensor,
+    max_scale: torch.Tensor,
+    max_screen_radius: torch.Tensor,
+    visible: torch.Tensor,
+    thresholds: dict[str, float] | None,
+) -> dict[str, Any]:
+    thresholds = thresholds or {
+        "split_screen_fraction": 0.05,
+        "max_screen_fraction": 0.15,
+        "max_world_scale": 0.1,
+        "opacity_threshold": 0.005,
+    }
+    center = model.means.detach().median(dim=0).values
+    distance = torch.linalg.vector_norm(model.means.detach() - center, dim=1)
+    robust_radius = torch.quantile(distance, 0.95).clamp_min(1e-6)
+    effective = opacity > thresholds["opacity_threshold"]
+    split_screen = visible & (max_screen_radius > thresholds["split_screen_fraction"])
+    prune_screen = visible & (max_screen_radius > thresholds["max_screen_fraction"])
+    oversized_world = max_scale > thresholds["max_world_scale"]
+    outside_twice_robust = effective & (distance > robust_radius * 2.0)
+    return {
+        "thresholds": thresholds,
+        "visible_gaussian_count": int(visible.sum()),
+        "screen_radius": _distribution(max_screen_radius[visible].cpu().tolist()) if visible.any() else None,
+        "screen_split_count": int(split_screen.sum()),
+        "screen_prune_count": int(prune_screen.sum()),
+        "high_opacity_screen_prune_count": int((prune_screen & (opacity > 0.1)).sum()),
+        "max_scale": _distribution(max_scale.cpu().tolist()),
+        "world_scale_prune_count": int(oversized_world.sum()),
+        "high_opacity_world_scale_prune_count": int((oversized_world & (opacity > 0.1)).sum()),
+        "distance_from_robust_center": _distribution(distance.cpu().tolist()),
+        "robust_radius_p95": float(robust_radius),
+        "effective_outside_twice_robust_radius_count": int(outside_twice_robust.sum()),
+    }
 
 
 def _distribution(values: list[float]) -> dict[str, float]:

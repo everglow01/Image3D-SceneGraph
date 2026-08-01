@@ -34,8 +34,13 @@ def test_public_profile_resolves_deterministically_and_returns_fresh_data():
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
         "duplicate_scale_threshold": 0.01,
+        "split_screen_fraction": 0.05,
+        "screen_size_end_iteration": 4_000,
+        "split_budget_fraction": 0.25,
         "split_children": 2,
     }
+    assert first.effective_config["pruning"]["cleanup_iteration"] == 13_500
+    assert first.effective_config["opacity_reset"]["every_iterations"] == 3_000
     assert first.effective_config == second.effective_config
     assert first.effective_config is not second.effective_config
     assert first.effective_config_hash == second.effective_config_hash

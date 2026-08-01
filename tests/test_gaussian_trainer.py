@@ -15,6 +15,7 @@ from image3d_scenegraph.gaussian.render import RenderCamera
 from image3d_scenegraph.gaussian.runtime import TrainingView
 from image3d_scenegraph.gaussian.trainer import (
     _accumulate_statistics,
+    _bounded_growth_capacity,
     _checkpoint_state,
     _final_checkpoint_due,
     _load_model,
@@ -71,6 +72,121 @@ def test_topology_update_prunes_splits_duplicates_and_honors_budget():
     assert event["gaussian_count"] == 4
     assert remapped.state_dict()["state"]
     gaussian.validate(max_count=5)
+
+
+def test_full_budget_prioritizes_split_over_duplicate_after_pruning():
+    gaussian = model()
+    gaussian.log_scales.data[0] = torch.log(torch.full((3,), 0.001))
+    gaussian.opacity_logits.data[2] = -20
+    config = resolve_internal_config().effective_config
+    config["gaussian_budget"]["max_count"] = 3
+    config["densification"].update(
+        start_iteration=1,
+        end_iteration=10,
+        every_iterations=1,
+        gradient_threshold=0.5,
+        duplicate_scale_threshold=0.01,
+        screen_size_end_iteration=10,
+    )
+    optimizer = torch.optim.Adam(gaussian.parameter_groups(config["learning_rate"]))
+
+    result = _maybe_update_topology(
+        gaussian,
+        optimizer,
+        torch.tensor([1.0, 1.0, 0.0]),
+        torch.ones(3),
+        torch.zeros(3),
+        config,
+        1,
+    )
+
+    assert result is not None
+    event = result[0]
+    assert event["split_candidates"] == 1
+    assert event["split_selected"] == 1
+    assert event["duplicate_candidates"] == 1
+    assert event["duplicate_selected"] == 0
+    assert event["pruned_low_opacity"] == 1
+    assert event["gaussian_count"] == 3
+
+
+def test_full_budget_without_prunable_rows_skips_growth():
+    gaussian = model()
+    gaussian.log_scales.data[0] = torch.log(torch.full((3,), 0.001))
+    config = resolve_internal_config().effective_config
+    config["gaussian_budget"]["max_count"] = 3
+    config["densification"].update(
+        start_iteration=1,
+        end_iteration=10,
+        every_iterations=1,
+        gradient_threshold=0.5,
+        duplicate_scale_threshold=0.01,
+        screen_size_end_iteration=10,
+    )
+    optimizer = torch.optim.Adam(gaussian.parameter_groups(config["learning_rate"]))
+
+    result = _maybe_update_topology(
+        gaussian,
+        optimizer,
+        torch.tensor([1.0, 1.0, 0.0]),
+        torch.ones(3),
+        torch.zeros(3),
+        config,
+        1,
+    )
+
+    assert result is not None
+    event = result[0]
+    assert event["split_selected"] == 0
+    assert event["duplicate_selected"] == 0
+    assert event["budget_skipped"] == 2
+    assert event["gaussian_count"] == 3
+
+
+def test_screen_threshold_splits_then_prunes():
+    config = resolve_internal_config().effective_config
+    config["gaussian_budget"]["max_count"] = 5
+    config["densification"].update(start_iteration=1, end_iteration=10, every_iterations=1)
+
+    split_model = model()
+    split_optimizer = torch.optim.Adam(split_model.parameter_groups(config["learning_rate"]))
+    split = _maybe_update_topology(
+        split_model,
+        split_optimizer,
+        torch.zeros(3),
+        torch.ones(3),
+        torch.tensor([0.06, 0.0, 0.0]),
+        config,
+        1,
+    )
+    assert split is not None
+    assert split[0]["split_selected"] == 1
+    assert split[0]["pruned_screen_size"] == 0
+
+    prune_model = model()
+    prune_optimizer = torch.optim.Adam(prune_model.parameter_groups(config["learning_rate"]))
+    pruned = _maybe_update_topology(
+        prune_model,
+        prune_optimizer,
+        torch.zeros(3),
+        torch.ones(3),
+        torch.tensor([0.16, 0.0, 0.0]),
+        config,
+        1,
+        cleanup_only=True,
+    )
+    assert pruned is not None
+    assert pruned[0]["split_selected"] == 0
+    assert pruned[0]["pruned_screen_size"] == 1
+    assert pruned[0]["gaussian_count"] == 2
+
+
+def test_bounded_growth_shares_saturated_capacity():
+    assert _bounded_growth_capacity(100, 100, 100, 1, 0.25) == (25, 75)
+    assert _bounded_growth_capacity(100, 10, 100, 1, 0.25) == (10, 90)
+    assert _bounded_growth_capacity(100, 100, 10, 1, 0.25) == (90, 10)
+    assert _bounded_growth_capacity(100, 100, 100, 2, 0.25) == (12, 76)
+    assert _bounded_growth_capacity(0, 100, 100, 1, 0.25) == (0, 0)
 
 
 def test_gradient_statistics_use_screen_units_and_normalized_radius():

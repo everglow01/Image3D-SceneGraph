@@ -261,38 +261,43 @@ def train_gaussians(
                 "gaussian_count": model.count,
             }
 
-            topology = _maybe_update_topology(
-                model,
-                optimizer,
-                gradient_sum,
-                gradient_count,
-                max_radius,
-                config,
-                iteration,
-            )
-            if topology is not None:
-                event.update(topology[0])
-                optimizer, gradient_sum, gradient_count, max_radius = topology[1:]
-            reset = config["opacity_reset"]
-            densification = config["densification"]
-            reset_due = (
-                reset["enabled"]
-                and iteration % int(reset["every_iterations"]) == 0
-                and iteration < int(densification["end_iteration"])
-                and iteration < total_iterations
-            )
-            if reset_due:
-                model.reset_opacity(float(reset["value"]))
-                _clear_optimizer_parameter_state(optimizer, model.opacity_logits)
-                event["opacity_reset"] = True
-            history.append(event)
-            _publish_event(progress_path, event, progress_callback)
-
             validation_improved = False
             validation_due = (
                 iteration % int(config["evaluation"]["validation_every_iterations"]) == 0
                 or iteration == total_iterations
             )
+            final_iteration = iteration == total_iterations
+            cleanup_iteration_due = iteration == int(config["pruning"]["cleanup_iteration"])
+            boundary_cleanup_due = iteration == int(config["densification"]["end_iteration"])
+            if boundary_cleanup_due or cleanup_iteration_due:
+                _collect_screen_statistics(
+                    model,
+                    [*train_views, *validation_views] if cleanup_iteration_due else train_views,
+                    active_sh_degree(iteration, config["sh_schedule"]),
+                    max_radius,
+                )
+            if boundary_cleanup_due or cleanup_iteration_due:
+                cleanup = _maybe_update_topology(
+                    model,
+                    optimizer,
+                    gradient_sum,
+                    gradient_count,
+                    max_radius,
+                    config,
+                    iteration,
+                    cleanup_only=True,
+                )
+                if cleanup is not None:
+                    cleanup_event, optimizer, gradient_sum, gradient_count, max_radius = cleanup
+                    cleanup_event.update(
+                        {
+                            "iteration": iteration,
+                            "event": "final_cleanup" if cleanup_iteration_due else "boundary_cleanup",
+                        }
+                    )
+                    history.append(cleanup_event)
+                    _publish_event(progress_path, cleanup_event, progress_callback)
+
             if validation_due:
                 last_validation = evaluate_views(
                     model,
@@ -309,7 +314,10 @@ def train_gaussians(
                 history.append(validation_event)
                 _publish_event(progress_path, validation_event, progress_callback)
                 candidate = float(last_validation["mean_psnr"])
-                if candidate > best_validation:
+                selection_eligible = boundary_cleanup_due or iteration >= int(
+                    config["pruning"]["cleanup_iteration"]
+                )
+                if selection_eligible and candidate > best_validation:
                     validation_improved = True
                     best_validation = candidate
                     best_validation_iteration = iteration
@@ -325,6 +333,36 @@ def train_gaussians(
                             iteration,
                         ).model
                     )
+
+            topology = None
+            if not final_iteration and not boundary_cleanup_due and not cleanup_iteration_due:
+                topology = _maybe_update_topology(
+                    model,
+                    optimizer,
+                    gradient_sum,
+                    gradient_count,
+                    max_radius,
+                    config,
+                    iteration,
+                    train_view_count=len(train_views),
+                )
+            if topology is not None:
+                topology_event, optimizer, gradient_sum, gradient_count, max_radius = topology
+                event.update(topology_event)
+            reset = config["opacity_reset"]
+            densification = config["densification"]
+            reset_due = (
+                reset["enabled"]
+                and iteration % int(reset["every_iterations"]) == 0
+                and iteration < int(densification["end_iteration"])
+                and iteration < total_iterations
+            )
+            if reset_due:
+                model.reset_opacity(float(reset["value"]))
+                _clear_optimizer_parameter_state(optimizer, model.opacity_logits)
+                event["opacity_reset"] = True
+            history.append(event)
+            _publish_event(progress_path, event, progress_callback)
 
             if _final_checkpoint_due(iteration, total_iterations):
                 _write_latest_checkpoint(
@@ -411,6 +449,12 @@ def evaluate_views(
         preview_dir=preview_dir,
         progress_events=progress_events,
         renderer=render_gaussians,
+        health_thresholds={
+            "split_screen_fraction": float(config["densification"]["split_screen_fraction"]),
+            "max_screen_fraction": float(config["pruning"]["max_screen_fraction"]),
+            "max_world_scale": float(config["pruning"]["max_world_scale"]),
+            "opacity_threshold": float(config["pruning"]["opacity_threshold"]),
+        },
     )
     return {
         **evaluated,
@@ -449,6 +493,9 @@ def _maybe_update_topology(
     max_radius: torch.Tensor,
     config: dict[str, Any],
     iteration: int,
+    *,
+    train_view_count: int = 0,
+    cleanup_only: bool = False,
 ) -> tuple[
     dict[str, int | float],
     torch.optim.Optimizer,
@@ -457,25 +504,36 @@ def _maybe_update_topology(
     torch.Tensor,
 ] | None:
     densify = config["densification"]
-    if not densify["enabled"]:
-        return None
-    if not (
-        int(densify["start_iteration"]) <= iteration <= int(densify["end_iteration"])
+    scheduled = (
+        densify["enabled"]
+        and int(densify["start_iteration"]) <= iteration <= int(densify["end_iteration"])
         and iteration % int(densify["every_iterations"]) == 0
-    ):
+    )
+    reset_interval = int(config["opacity_reset"]["every_iterations"])
+    recovery_iterations = train_view_count + int(densify["every_iterations"])
+    recovering_from_reset = (
+        config["opacity_reset"]["enabled"]
+        and iteration >= reset_interval
+        and iteration % reset_interval < recovery_iterations
+    )
+    if not cleanup_only and (not scheduled or recovering_from_reset):
         return None
 
     average = gradient_sum / gradient_count.clamp_min(1)
+    scales = model.log_scales.detach().exp().amax(dim=1)
     high_gradient = average > float(densify["gradient_threshold"])
-    large = model.log_scales.detach().exp().amax(dim=1) > float(
-        densify["duplicate_scale_threshold"]
-    )
-    duplicate_mask = high_gradient & ~large
-    split_mask = high_gradient & large
+    large = scales > float(densify["duplicate_scale_threshold"])
+    screen_active = iteration <= int(densify["screen_size_end_iteration"])
+    screen_split = max_radius > float(densify["split_screen_fraction"])
+
     pruning = config["pruning"]
     finite = torch.stack(
-        [torch.isfinite(parameter).flatten(1).all(dim=1) if parameter.ndim > 1 else torch.isfinite(parameter)
-         for parameter in model.parameters()]
+        [
+            torch.isfinite(parameter).flatten(1).all(dim=1)
+            if parameter.ndim > 1
+            else torch.isfinite(parameter)
+            for parameter in model.parameters()
+        ]
     ).all(dim=0)
     low_opacity = (
         model.opacity_logits.detach().sigmoid() < float(pruning["opacity_threshold"])
@@ -484,21 +542,47 @@ def _maybe_update_topology(
     )
     screen_size = (
         max_radius > float(pruning["max_screen_fraction"])
-        if pruning["enabled"] and pruning["screen_size_enabled"]
+        if pruning["enabled"] and (screen_active or cleanup_only)
         else torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
     )
-    prune = ~finite | low_opacity | screen_size
+    world_size = (
+        scales > float(pruning["max_world_scale"])
+        if pruning["enabled"] and iteration > reset_interval
+        else torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
+    )
+    prune = ~finite | low_opacity | screen_size | world_size
     if prune.all():
         prune[torch.argmax(model.opacity_logits.detach())] = False
+
+    split_mask = ((high_gradient & large) | (screen_split & screen_active)) & ~prune
+    duplicate_mask = high_gradient & ~large & ~prune
+    split_candidates = _rank_topology_candidates(
+        split_mask,
+        screen_split,
+        average,
+    )
+    duplicate_candidates = _rank_topology_candidates(
+        duplicate_mask,
+        torch.zeros_like(duplicate_mask),
+        average,
+    )
     keep_indices = torch.where(~prune)[0]
-    duplicate_indices = torch.where(duplicate_mask & ~prune)[0]
-    split_indices = torch.where(split_mask & ~prune)[0]
     children = int(densify["split_children"])
     budget = int(config["gaussian_budget"]["max_count"])
     available = max(0, budget - len(keep_indices))
-    duplicate_indices = duplicate_indices[:available]
-    available -= len(duplicate_indices)
-    split_indices = split_indices[: available // (children - 1)]
+    if cleanup_only:
+        split_indices = split_candidates[:0]
+        duplicate_indices = duplicate_candidates[:0]
+    else:
+        split_capacity, duplicate_capacity = _bounded_growth_capacity(
+            available,
+            len(split_candidates),
+            len(duplicate_candidates),
+            children - 1,
+            float(densify["split_budget_fraction"]),
+        )
+        split_indices = split_candidates[:split_capacity]
+        duplicate_indices = duplicate_candidates[:duplicate_capacity]
 
     old_parameters = dict(model.named_group_parameters())
     topology_map = model.update_topology(
@@ -525,6 +609,15 @@ def _maybe_update_topology(
         else torch.zeros(3, device=device)
     )
     event: dict[str, int | float] = {
+        "duplicate_candidates": int(len(duplicate_candidates)),
+        "duplicate_selected": int(len(duplicate_indices)),
+        "split_candidates": int(len(split_candidates)),
+        "split_selected": int(len(split_indices)),
+        "budget_skipped": int(
+            len(split_candidates) - len(split_indices)
+            + len(duplicate_candidates) - len(duplicate_indices)
+        ),
+        "budget_evicted": 0,
         "duplicated": int(len(duplicate_indices)),
         "split_parents": int(len(split_indices)),
         "split_children": int(len(split_indices) * children),
@@ -533,6 +626,9 @@ def _maybe_update_topology(
         "pruned_non_finite": int((~finite).sum()),
         "pruned_low_opacity": int((low_opacity & finite).sum()),
         "pruned_screen_size": int((screen_size & finite & ~low_opacity).sum()),
+        "pruned_world_size": int(
+            (world_size & finite & ~low_opacity & ~screen_size).sum()
+        ),
         "gradient_candidates": int(high_gradient.sum()),
         "gradient_p50": float(quantiles[0]),
         "gradient_p90": float(quantiles[1]),
@@ -546,6 +642,42 @@ def _maybe_update_topology(
         torch.zeros(model.count, device=device),
         torch.zeros(model.count, device=device),
     )
+
+
+def _bounded_growth_capacity(
+    available: int,
+    split_candidates: int,
+    duplicate_candidates: int,
+    split_cost: int,
+    split_fraction: float,
+) -> tuple[int, int]:
+    if available <= 0 or split_cost <= 0:
+        return 0, 0
+    total_demand = split_candidates * split_cost + duplicate_candidates
+    if total_demand <= available:
+        return split_candidates, duplicate_candidates
+    split_budget = min(available, max(split_cost, int(available * split_fraction)))
+    selected_splits = min(split_candidates, split_budget // split_cost)
+    remaining = available - selected_splits * split_cost
+    selected_duplicates = min(duplicate_candidates, remaining)
+    remaining -= selected_duplicates
+    if remaining:
+        selected_splits += min(split_candidates - selected_splits, remaining // split_cost)
+    return selected_splits, selected_duplicates
+
+
+def _rank_topology_candidates(
+    mask: torch.Tensor,
+    screen_priority: torch.Tensor,
+    gradient: torch.Tensor,
+) -> torch.Tensor:
+    indices = torch.where(mask)[0]
+    if not len(indices):
+        return indices
+    indices = indices[torch.argsort(gradient[indices], descending=True, stable=True)]
+    return indices[
+        torch.argsort(screen_priority[indices].to(torch.int8), descending=True, stable=True)
+    ]
 
 
 def _remap_optimizer(
@@ -612,6 +744,37 @@ def _validate_model_health(
         "opacity_p50": float(torch.quantile(opacity, 0.5)),
         "opacity_p90": float(torch.quantile(opacity, 0.9)),
     }
+
+
+@torch.no_grad()
+def _collect_screen_statistics(
+    model: GaussianModel,
+    views: list[TrainingView],
+    sh_degree: int,
+    max_radius: torch.Tensor,
+) -> None:
+    for stored_view in views:
+        view = stored_view.to(model.means.device)
+        rendered = render_gaussians(
+            model,
+            view.camera,
+            sh_degree=sh_degree,
+            background=torch.ones(3, device=model.means.device),
+        )
+        ids = rendered.metadata.get("gaussian_ids")
+        radii = rendered.metadata.get("radii")
+        if ids is None or radii is None or not len(ids):
+            continue
+        normalized = radii.to(torch.float32).amax(dim=-1) / float(
+            max(rendered.metadata["width"], rendered.metadata["height"])
+        )
+        max_radius.scatter_reduce_(
+            0,
+            ids.long(),
+            normalized,
+            reduce="amax",
+            include_self=True,
+        )
 
 
 def _accumulate_statistics(

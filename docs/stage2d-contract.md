@@ -16,7 +16,7 @@ A held-out `test` run requires a frozen candidate record binding:
 
 The evaluator atomically creates a sibling `*.test-consumed.json` with exclusive creation before loading test views. A candidate cannot be evaluated twice, and changed dataset/config/model hashes are rejected. Test output is terminal evidence only; no code path feeds it to training, checkpoint selection, or profile resolution.
 
-Each result records per-view and mean/min/p10/p50/p90/max PSNR, SSIM, render milliseconds, aggregate FPS, failures, Gaussian count, opacity/scale distributions, duplicate/split and reason-specific prune/reset counts, and peak CUDA allocation/reservation. Training images remain CPU-resident and only the active view is transferred to CUDA. The frozen model is selected by best Validation PSNR while the final checkpoint remains lifecycle/resume evidence. Fixed rendered PNGs and JSONL rows are emitted. Rendering metrics are explicitly separate from geometry metrics.
+Each result records per-view and mean/min/p10/p50/p90/max PSNR, SSIM, render milliseconds, aggregate FPS, failures, Gaussian count, opacity/scale distributions, duplicate/split and reason-specific prune/reset counts, normalized screen-radius and maximum-axis-scale health distributions, and peak CUDA allocation/reservation. Training images remain CPU-resident and only the active view is transferred to CUDA. The final 15,000-step model is published after the configured cleanup/recovery phase, while the final checkpoint remains lifecycle/resume evidence. Fixed rendered PNGs and JSONL rows are emitted. Rendering metrics are explicitly separate from geometry metrics.
 
 LPIPS remains `not_run: pretrained_weight_license_and_hash_not_audited`. `lpips` is not installed. Upstream package code is BSD-2-Clause, but default AlexNet uses a torchvision ImageNet checkpoint downloaded at runtime and no approved local weight hash/license record exists. Stage 2D does not download it or substitute another metric.
 
@@ -52,20 +52,25 @@ Failed/cancelled partial evaluation/export stays in lifecycle attempt diagnostic
 
 ## RTX 4060 public/development profiles
 
-Public `standard_v1` and internal `rtx4060_8gb_development_v1` now resolve to the same higher-capacity schema-v3 settings with effective-config hash `b6631cbdc5621d6727997f95a920ef3d5ec2fd898fc0383083dea7305efc7726`:
+Public `standard_v1` and internal `rtx4060_8gb_development_v1` resolve to the same floater-resistant schema-v4 settings with effective-config hash `9287f537144bfef7c24503452db826ceb9e4b01201eda361070d6f7ebbde8efb`:
 
 - 15,000 iterations, longest edge 1280 without upscaling smaller inputs;
-- up to 75,000 sparse initial points, 600,000 Gaussian cap;
+- up to 75,000 sparse initial points and a hard 600,000 Gaussian cap;
 - SH degree increments every 3,000 iterations;
-- densification iterations 500–7,500 every 100;
-- opacity reset and Validation every 1,500 iterations;
-- only the final iteration writes a full checkpoint.
+- densification runs from iteration 500 through 7,500 every 100 iterations;
+- normalized screen radius above 0.05 is eligible for early splitting, while radius above 0.15 and maximum normalized 3D scale above 0.1 are cleanup conditions;
+- saturated growth reserves 25% of available capacity for split candidates before assigning the remainder to duplication;
+- opacity resets run every 3,000 iterations, Validation every 1,500 iterations, and refinement pauses briefly after each reset;
+- cleanup runs at the 7,500 densification boundary and at iteration 13,500, followed by 1,500 recovery iterations;
+- only iteration 15,000 writes a full checkpoint, and the recovered final model is published.
 
 These values replace the fast 3,000/640/250k development default after a 225-image user job completed in 59.24 s with only 1.076 GB peak reserved VRAM, reached the Gaussian cap by iteration 1,000, and produced incomplete Validation views. That job registered 176/225 uploaded images with sequential matching and initialized from 20,000/20,741 sparse points. Project 3DGS therefore also defaults to exhaustive COLMAP matching for registration coverage; the environment override remains available for explicitly ordered captures. This change is based on training/Validation/resource evidence only, not its consumed held-out Test.
 
-The higher-capacity profile was validated on the frozen 32-view room Validation split on 2026-08-01. It completed in 774.79 s with 962,405,888 peak allocated and 3,221,225,472 peak reserved bytes, selected iteration 13,500 at Validation PSNR 25.5475/SSIM 0.8244, retained only final checkpoint `iteration_000015000`, and produced 600,000 Gaussians. The 8,000/960/350k profile on the same split recorded 298.57 s, 1.508 GB peak reserved, and Validation PSNR 22.8994/SSIM 0.7884; the earlier 3,000/640/250k profile recorded 83.17 s, 1.095 GB, and 16.7151/0.5803. This uses about 39% of the RTX 4060's 8 GB as reserved training memory while sustaining approximately 97–98% GPU utilization, leaving margin for larger uploaded images and transient allocator demand. It is Validation-only evidence on one scene, not a final quality optimum or metric-accuracy claim. No held-out Test view was loaded or evaluated.
+The original higher-capacity profile was validated on the frozen 32-view room Validation split on 2026-08-01. It completed in 774.79 s with 962,405,888 peak allocated and 3,221,225,472 peak reserved bytes, selected iteration 13,500 at Validation PSNR 25.5475/SSIM 0.8244, retained only final checkpoint `iteration_000015000`, and produced 600,000 Gaussians. The 8,000/960/350k profile on the same split recorded 298.57 s, 1.508 GB peak reserved, and Validation PSNR 22.8994/SSIM 0.7884; the earlier 3,000/640/250k profile recorded 83.17 s, 1.095 GB, and 16.7151/0.5803.
 
-Training writes no periodic full checkpoint and a successful job retains only its final checkpoint. Validation candidates use one overwrite-in-place model-only snapshot. New exports record a robust median scene center and 95th-percentile radius; the browser uses that frame for stable scene-centered CAD-style orbit, bounded zoom, coherent presets, and click-to-focus while remaining backward-compatible with older export metadata. Coordinates remain normalized arbitrary units.
+The floater-resistant profile was then evaluated Validation-only on the retained 225-image scene. Against the original 15,000-step result, final Validation PSNR changed from 25.2788 to 24.8390 dB (-0.4398 dB), P10 PSNR from 20.2775 to 20.2025 dB (-0.0750 dB), and mean SSIM from 0.8697 to 0.8791 (+0.0094). Visible screen-radius violations above 0.15 fell from 827 to 81 (-90.2%), including high-opacity violations from 586 to 76 (-87.0%). The trainer performed 58,950 split replacements after the old capped strategy had starved splitting, pruned 2,979 screen-oversized rows, retained 591,511 Gaussians, completed in 903.00 s, and peaked at 3,135,242,240 reserved bytes. The remaining 81 violations appeared during the accepted 1,500-step post-cleanup recovery; this is an explicit quality/artifact compromise rather than a claim of complete floater removal. No held-out Test view was loaded or evaluated, and all coordinates and size thresholds remain normalized arbitrary units.
+
+Training writes no periodic full checkpoint and a successful job retains only its final checkpoint. Validation candidates use one overwrite-in-place model-only snapshot. New evaluations and exports expose screen-radius, maximum-scale, and robust-distance health diagnostics without hiding rows in the browser. Export also records a robust median scene center and 95th-percentile radius; the browser uses that frame for stable scene-centered CAD-style orbit, bounded zoom, coherent presets, and click-to-focus while remaining backward-compatible with older export metadata.
 
 ## Integrated evidence
 

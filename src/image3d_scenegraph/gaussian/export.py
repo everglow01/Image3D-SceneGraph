@@ -83,6 +83,9 @@ def export_gaussians(
         json.dumps(camera_path, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
     scene_center, scene_radius = _scene_frame(model)
+    health = evaluation.get("health")
+    if not isinstance(health, dict):
+        health = None
     metadata = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "format": "project_gaussian_ply_v1",
@@ -98,6 +101,7 @@ def export_gaussians(
         "viewer_minimum_opacity": 0.005,
         "opacity_p50": float(torch.quantile(opacity, 0.5)),
         "opacity_p90": float(torch.quantile(opacity, 0.9)),
+        "health": health,
         "sh_degree": model.max_sh_degree,
         "sh_layout": "dc_rgb_then_rest_channel_major",
         "opacity": "logit",
