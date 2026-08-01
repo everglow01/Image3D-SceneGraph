@@ -17,10 +17,10 @@ INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 _STANDARD_V1: dict[str, Any] = {
     "schema_version": CONFIG_SCHEMA_VERSION,
     "seed": 20260729,
-    "iterations": 3_000,
+    "iterations": 8_000,
     "resolution": {
         "policy": "explicit_only",
-        "longest_edge": 640,
+        "longest_edge": 960,
     },
     "loss": {
         "name": "l1_ssim",
@@ -39,12 +39,12 @@ _STANDARD_V1: dict[str, Any] = {
     "sh_schedule": {
         "initial_degree": 0,
         "max_degree": 3,
-        "increase_every_iterations": 1000,
+        "increase_every_iterations": 2_000,
     },
     "densification": {
         "enabled": True,
-        "start_iteration": 200,
-        "end_iteration": 1_500,
+        "start_iteration": 500,
+        "end_iteration": 4_000,
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
         "duplicate_scale_threshold": 0.01,
@@ -58,11 +58,11 @@ _STANDARD_V1: dict[str, Any] = {
     },
     "opacity_reset": {
         "enabled": True,
-        "every_iterations": 500,
+        "every_iterations": 1_000,
         "value": 0.01,
     },
-    "gaussian_budget": {"max_count": 250_000},
-    "evaluation": {"validation_every_iterations": 500},
+    "gaussian_budget": {"max_count": 350_000},
+    "evaluation": {"validation_every_iterations": 1_000},
 }
 
 

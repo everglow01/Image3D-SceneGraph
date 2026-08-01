@@ -23,14 +23,14 @@ def test_public_profile_resolves_deterministically_and_returns_fresh_data():
     assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
-        "longest_edge": 640,
+        "longest_edge": 960,
     }
-    assert first.effective_config["iterations"] == 3_000
-    assert first.effective_config["gaussian_budget"]["max_count"] == 250_000
+    assert first.effective_config["iterations"] == 8_000
+    assert first.effective_config["gaussian_budget"]["max_count"] == 350_000
     assert first.effective_config["densification"] == {
         "enabled": True,
-        "start_iteration": 200,
-        "end_iteration": 1_500,
+        "start_iteration": 500,
+        "end_iteration": 4_000,
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
         "duplicate_scale_threshold": 0.01,
@@ -42,7 +42,7 @@ def test_public_profile_resolves_deterministically_and_returns_fresh_data():
     assert first.effective_config_hash == effective_config_hash(first.effective_config)
 
     first.effective_config["iterations"] = 1
-    assert resolve_public_config("standard_v1").effective_config["iterations"] == 3_000
+    assert resolve_public_config("standard_v1").effective_config["iterations"] == 8_000
 
     internal = resolve_internal_config("rtx4060_8gb_development_v1")
     assert internal.effective_config == second.effective_config
@@ -86,16 +86,16 @@ def test_internal_override_is_validated_hashed_and_recorded():
             "learning_rate.position.final cannot exceed initial",
         ),
         (
-            {"sh_schedule": {"increase_every_iterations": 2_000}},
+            {"sh_schedule": {"increase_every_iterations": 3_000}},
             "SH schedule cannot reach max_degree within iterations",
         ),
         (
-            {"densification": {"end_iteration": 200}},
+            {"densification": {"end_iteration": 500}},
             "densification start must precede end",
         ),
         (
-            {"opacity_reset": {"every_iterations": 3_001}},
-            "exceeds 3000",
+            {"opacity_reset": {"every_iterations": 8_001}},
+            "exceeds 8000",
         ),
         (
             {"evaluation": {"validation_every_iterations": 0}},
@@ -147,7 +147,7 @@ def test_single_field_ablation_reports_one_changed_leaf():
         {},
         {
             "densification": {"every_iterations": 200},
-            "evaluation": {"validation_every_iterations": 1_000},
+            "evaluation": {"validation_every_iterations": 2_000},
         },
     ],
 )

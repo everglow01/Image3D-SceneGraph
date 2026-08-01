@@ -85,7 +85,7 @@ class ProjectGaussianAdapter:
             "--output-dir",
             str(context.job_dir),
             "--matcher",
-            os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
+            os.environ.get("IMAGE3D_COLMAP_MATCHER", "exhaustive"),
         ]
         env = os.environ.copy()
         env.pop("LD_LIBRARY_PATH", None)
@@ -126,7 +126,7 @@ class ProjectGaussianAdapter:
             "--resolved-config-json",
             str(config_path),
             "--max-initial-points",
-            str(context.options.get("gaussian_max_initial_points", 20_000)),
+            str(context.options.get("gaussian_max_initial_points", 50_000)),
         ]
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)

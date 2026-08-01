@@ -82,6 +82,7 @@ def export_gaussians(
     (output_dir / "camera_path.json").write_text(
         json.dumps(camera_path, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
+    scene_center, scene_radius = _scene_frame(model)
     metadata = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "format": "project_gaussian_ply_v1",
@@ -91,6 +92,8 @@ def export_gaussians(
         "camera_axes": contract["coordinate_system"]["camera_axes"],
         "world_from_normalized": contract["normalization"]["world_from_normalized"],
         "gaussian_count": model.count,
+        "scene_center": scene_center,
+        "scene_radius_p95": scene_radius,
         "effective_opacity_count": effective_opacity_count,
         "viewer_minimum_opacity": 0.005,
         "opacity_p50": float(torch.quantile(opacity, 0.5)),
@@ -195,6 +198,14 @@ def write_deterministic_zip(
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _scene_frame(model) -> tuple[list[float], float]:
+    import torch
+
+    center = model.means.detach().median(dim=0).values
+    radius = torch.quantile(torch.linalg.vector_norm(model.means.detach() - center, dim=1), 0.95)
+    return center.tolist(), max(float(radius), 1e-6)
 
 
 def _model_rows(model) -> np.ndarray:

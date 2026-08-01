@@ -17,6 +17,7 @@ from image3d_scenegraph.gaussian.export import (
     PLY_FIELDS,
     _camera_path,
     _model_rows,
+    _scene_frame,
     _write_binary_ply,
     read_gaussian_ply,
     write_deterministic_zip,
@@ -99,6 +100,20 @@ def test_canonical_ply_round_trips_all_owned_attributes(tmp_path):
     assert np.array_equal(decoded["opacity"], gaussian.opacity_logits.detach().numpy())
     assert np.array_equal(decoded["scale_2"], gaussian.log_scales[:, 2].detach().numpy())
     assert np.array_equal(decoded["rot_0"], np.ones(2, dtype=np.float32))
+
+
+def test_scene_frame_uses_robust_center_and_radius():
+    inliers = [[index / 100.0, 0.0, 0.0] for index in range(20)]
+    gaussian = GaussianModel.from_points(
+        torch.tensor([*inliers, [100.0, 0.0, 0.0]]),
+        torch.ones((21, 3)),
+        torch.full((21,), 0.1),
+    )
+
+    center, radius = _scene_frame(gaussian)
+
+    assert center == pytest.approx([0.1, 0.0, 0.0])
+    assert radius == pytest.approx(0.1)
 
 
 def test_deterministic_bundle_has_safe_sorted_entries(tmp_path):

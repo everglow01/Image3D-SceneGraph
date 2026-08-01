@@ -10,6 +10,8 @@ declare module "@mkkellogg/gaussian-splats-3d" {
     dampingFactor: number;
     screenSpacePanning: boolean;
     zoomToCursor: boolean;
+    minDistance: number;
+    maxDistance: number;
     minPolarAngle: number;
     maxPolarAngle: number;
     update(): void;

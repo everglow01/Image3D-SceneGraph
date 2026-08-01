@@ -47,29 +47,38 @@ const VIEW_PRESETS: Record<ViewPreset, { label: string; direction: THREE.Vector3
   }
 };
 
-function configureControls(viewer: GaussianSplats3D.Viewer) {
+function configureControls(viewer: GaussianSplats3D.Viewer, frame: SceneFrame) {
   const controls = viewer.controls;
   if (!controls) {
     return;
   }
 
-  controls.rotateSpeed = 0.32;
-  controls.zoomSpeed = 0.7;
-  controls.panSpeed = 0.55;
+  controls.rotateSpeed = 0.45;
+  controls.zoomSpeed = 0.8;
+  controls.panSpeed = 0.7;
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.screenSpacePanning = true;
-  controls.zoomToCursor = true;
-  controls.minPolarAngle = 0;
-  controls.maxPolarAngle = Math.PI;
+  controls.zoomToCursor = false;
+  controls.minDistance = Math.max(frame.radius * 0.08, 0.01);
+  controls.maxDistance = Math.max(frame.radius * 20, 20);
+  controls.minPolarAngle = 0.01;
+  controls.maxPolarAngle = Math.PI - 0.01;
+  controls.target.copy(frame.center);
   controls.update();
 }
 
-function getSceneFrame(viewer: GaussianSplats3D.Viewer): SceneFrame {
+function getSceneFrame(
+  viewer: GaussianSplats3D.Viewer,
+  sceneCenter: [number, number, number] | null,
+  sceneRadius: number | null
+): SceneFrame {
   const box = viewer.getSplatMesh().computeBoundingBox(true);
-  const center = new THREE.Vector3();
+  const center = sceneCenter ? new THREE.Vector3(...sceneCenter) : new THREE.Vector3();
   const size = new THREE.Vector3();
-  box.getCenter(center);
+  if (!sceneCenter) {
+    box.getCenter(center);
+  }
   box.getSize(size);
 
   if (!Number.isFinite(center.x) || !Number.isFinite(size.length()) || size.length() <= 0) {
@@ -78,7 +87,7 @@ function getSceneFrame(viewer: GaussianSplats3D.Viewer): SceneFrame {
 
   return {
     center,
-    radius: Math.max(size.length() * 0.5, 0.5)
+    radius: sceneRadius ?? Math.max(size.length() * 0.5, 0.5)
   };
 }
 
@@ -132,10 +141,17 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
     if (!viewer || viewerState !== "ready") {
       return;
     }
+    const frame = sceneFrameRef.current;
+    const direction = viewer.camera.position.clone().sub(frame.center);
     upMultiplierRef.current = upMultiplierRef.current === 1 ? -1 : 1;
+    viewer.camera.position.copy(frame.center).sub(direction);
     viewer.camera.up.multiplyScalar(-1).normalize();
-    viewer.camera.lookAt(sceneFrameRef.current.center);
-    viewer.controls?.update();
+    viewer.camera.lookAt(frame.center);
+    if (viewer.controls) {
+      viewer.controls.target.copy(frame.center);
+      viewer.controls.update();
+      viewer.controls.saveState();
+    }
     viewer.forceRenderNextFrame?.();
   };
 
@@ -192,8 +208,12 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
         if (cancelled) {
           return;
         }
-        configureControls(viewer);
-        sceneFrameRef.current = getSceneFrame(viewer);
+        sceneFrameRef.current = getSceneFrame(
+          viewer,
+          metadata.scene_center,
+          metadata.scene_radius_p95
+        );
+        configureControls(viewer, sceneFrameRef.current);
         applyViewPreset(viewer, sceneFrameRef.current, "fit", upMultiplierRef.current);
         viewer.start();
         setViewerState("ready");
@@ -245,7 +265,7 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
         <div className="viewer-hint">
           Canonical normalized coordinates · arbitrary units
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
-          {" · Drag rotate · Wheel zoom · Right drag pan · Click refocus"}
+          {" · Drag orbit · Shift/right drag pan · Wheel zoom · Click geometry to set pivot"}
         </div>
       )}
       {viewerState !== "ready" && (

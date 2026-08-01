@@ -50,20 +50,22 @@ A successful `project_3dgs` attempt progresses through geometry, Gaussian traini
 
 Failed/cancelled partial evaluation/export stays in lifecycle attempt diagnostics and is not advertised. The frontend progressively loads `scene_splat`, aborts its metadata request and disposes the viewer on switch/unmount, reports load/error/size state, labels the view as normalized arbitrary units, and retains point/mesh fallback when Gaussian is absent.
 
-## Measured RTX 4060 public/development profile v1
+## RTX 4060 public/development profiles
 
-Public `standard_v1` and internal `rtx4060_8gb_development_v1` resolve to the repaired schema-v3 room settings with effective-config hash `f50ba69533396ebe097cb60afd7d3b1a87292a9051a66704fe3fd4d2b2d117f5`. The training values match the measured schema-v2 configuration; only the obsolete checkpoint cadence field was removed:
+Public `standard_v1` and internal `rtx4060_8gb_development_v1` now resolve to the same accuracy-priority schema-v3 settings with effective-config hash `cf588f1a8386a1f5a0335bf7ef3933ffb6dda64f22f1d9f44746129d8e2983a2`:
 
-- 3,000 iterations, longest edge 640;
-- 20,000 sparse initial points in the measured room run, 250,000 Gaussian cap;
-- SH degree increments every 1,000 iterations;
-- densification iterations 200–1,500 every 100;
-- opacity reset every 500 while densification is active;
-- Validation every 500 iterations; only the final iteration writes a full checkpoint.
+- 8,000 iterations, longest edge 960;
+- up to 50,000 sparse initial points, 350,000 Gaussian cap;
+- SH degree increments every 2,000 iterations;
+- densification iterations 500–4,000 every 100;
+- opacity reset and Validation every 1,000 iterations;
+- only the final iteration writes a full checkpoint.
 
-The 32-view retained room run on 2026-07-31 completed in 83.17 s with 417,403,904 peak allocated and 1,094,713,344 peak reserved bytes. Topology duplicated 218,548 rows, split 15,476 parents into 30,952 children, pruned 4,024 low-opacity rows, performed no screen-size prune, and reset opacity twice before densification ended. Validation reached PSNR 16.7151/SSIM 0.5803. After freezing, the one consumed Test evaluation recorded PSNR 8.8663/SSIM 0.4438; Test was not used to change the model/config. The 250,000-row canonical/browser PLY is 62,001,587 bytes and the deterministic bundle is 78,845,012 bytes; two exports matched hashes and the audited browser loader decoded all rows.
+These values replace the fast 3,000/640/250k development default after a 225-image user job completed in 59.24 s with only 1.076 GB peak reserved VRAM, reached the Gaussian cap by iteration 1,000, and produced incomplete Validation views. That job registered 176/225 uploaded images with sequential matching and initialized from 20,000/20,741 sparse points. Project 3DGS therefore also defaults to exhaustive COLMAP matching for registration coverage; the environment override remains available for explicitly ordered captures. This change is based on training/Validation/resource evidence only, not its consumed held-out Test.
 
-Training writes no periodic full checkpoint and a successful job retains only its final checkpoint. Validation candidates use one overwrite-in-place model-only snapshot. This avoids cadence-multiplied model/Adam snapshots. The profile is a measured 8GB-safe development result in arbitrary units, not a final quality optimum or metric-accuracy claim.
+The accuracy-priority profile was validated on the frozen 32-view room Validation split on 2026-08-01. It completed in 298.57 s with 567,102,976 peak allocated and 1,507,852,288 peak reserved bytes, reached Validation PSNR 22.8994/SSIM 0.7884, retained only `iteration_000008000`, and produced 350,000 Gaussians. Against the same frozen room split, the prior 3,000/640/250k run recorded 83.17 s, 1.095 GB peak reserved, and Validation PSNR 16.7151/SSIM 0.5803. This is Validation-only evidence on one scene, not a final quality optimum or a metric-accuracy claim. No held-out Test view was loaded or evaluated for the new profile.
+
+Training writes no periodic full checkpoint and a successful job retains only its final checkpoint. Validation candidates use one overwrite-in-place model-only snapshot. New exports record a robust median scene center and 95th-percentile radius; the browser uses that frame for stable scene-centered CAD-style orbit, bounded zoom, coherent presets, and click-to-focus while remaining backward-compatible with older export metadata. Coordinates remain normalized arbitrary units.
 
 ## Integrated evidence
 

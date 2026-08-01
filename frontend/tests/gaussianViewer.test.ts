@@ -17,9 +17,28 @@ test("missing Content-Length remains unknown", () => {
 test("export metadata controls SH and alpha threshold", () => {
   const metadata = parseGaussianExportMetadata({
     sh_degree: 3,
-    viewer_minimum_opacity: 0.005
+    viewer_minimum_opacity: 0.005,
+    scene_center: [0.1, -0.2, 0.3],
+    scene_radius_p95: 1.25
   });
 
-  assert.deepEqual(metadata, { sh_degree: 3, viewer_minimum_opacity: 0.005 });
+  assert.deepEqual(metadata, {
+    sh_degree: 3,
+    viewer_minimum_opacity: 0.005,
+    scene_center: [0.1, -0.2, 0.3],
+    scene_radius_p95: 1.25
+  });
   assert.equal(viewerAlphaThreshold(metadata.viewer_minimum_opacity), 1);
+});
+
+test("legacy export metadata falls back to bounding-box framing", () => {
+  assert.deepEqual(
+    parseGaussianExportMetadata({ sh_degree: 2, viewer_minimum_opacity: 0.01 }),
+    {
+      sh_degree: 2,
+      viewer_minimum_opacity: 0.01,
+      scene_center: null,
+      scene_radius_p95: null
+    }
+  );
 });
