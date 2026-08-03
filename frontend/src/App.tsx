@@ -293,6 +293,12 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.gaussian_export_metadata}`;
   }, [manifest]);
+  const splatCameraPathUrl = useMemo(() => {
+    if (!manifest?.assets.gaussian_camera_path) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.gaussian_camera_path}`;
+  }, [manifest]);
   const meshVariants = manifest?.mesh_variants ?? [];
   const selectedMeshVariant =
     meshVariants.find((variant) => variant.id === selectedMeshVariantId) ?? meshVariants[0] ?? null;
@@ -941,6 +947,7 @@ export function App() {
             meshUrl={visibleMeshUrl}
             splatUrl={visibleSplatUrl}
             splatMetadataUrl={viewerMode === "gaussian_splat" ? splatMetadataUrl : null}
+            splatCameraPathUrl={viewerMode === "gaussian_splat" ? splatCameraPathUrl : null}
           />
         </section>
 

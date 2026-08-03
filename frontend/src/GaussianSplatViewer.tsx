@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 import * as THREE from "three";
 import {
+  deriveGaussianViewerFrame,
   parseContentLength,
+  parseGaussianCameraPath,
   parseGaussianExportMetadata,
   viewerAlphaThreshold
 } from "./gaussianViewerMetadata";
@@ -10,6 +12,7 @@ import {
 type GaussianSplatViewerProps = {
   sourceUrl: string | null;
   metadataUrl: string | null;
+  cameraPathUrl: string | null;
 };
 
 type ViewPreset = "fit" | "top" | "front" | "side";
@@ -17,11 +20,13 @@ type ViewPreset = "fit" | "top" | "front" | "side";
 type SceneFrame = {
   center: THREE.Vector3;
   radius: number;
+  up: THREE.Vector3;
 };
 
 const FALLBACK_FRAME: SceneFrame = {
   center: new THREE.Vector3(0, 0, 0),
-  radius: 1.5
+  radius: 1.5,
+  up: new THREE.Vector3(0, 0, 1)
 };
 
 const VIEW_PRESETS: Record<ViewPreset, { label: string; direction: THREE.Vector3; up: THREE.Vector3 }> = {
@@ -71,12 +76,17 @@ function configureControls(viewer: GaussianSplats3D.Viewer, frame: SceneFrame) {
 function getSceneFrame(
   viewer: GaussianSplats3D.Viewer,
   sceneCenter: [number, number, number] | null,
-  sceneRadius: number | null
+  sceneRadius: number | null,
+  cameraFrame: { center: [number, number, number]; up: [number, number, number] } | null
 ): SceneFrame {
   const box = viewer.getSplatMesh().computeBoundingBox(true);
-  const center = sceneCenter ? new THREE.Vector3(...sceneCenter) : new THREE.Vector3();
+  const center = cameraFrame
+    ? new THREE.Vector3(...cameraFrame.center)
+    : sceneCenter
+      ? new THREE.Vector3(...sceneCenter)
+      : new THREE.Vector3();
   const size = new THREE.Vector3();
-  if (!sceneCenter) {
+  if (!cameraFrame && !sceneCenter) {
     box.getCenter(center);
   }
   box.getSize(size);
@@ -87,19 +97,23 @@ function getSceneFrame(
 
   return {
     center,
-    radius: sceneRadius ?? Math.max(size.length() * 0.5, 0.5)
+    radius: sceneRadius ?? Math.max(size.length() * 0.5, 0.5),
+    up: cameraFrame ? new THREE.Vector3(...cameraFrame.up) : new THREE.Vector3(0, 0, 1)
   };
 }
 
 function applyViewPreset(
   viewer: GaussianSplats3D.Viewer,
   frame: SceneFrame,
-  preset: ViewPreset,
-  upMultiplier: 1 | -1
+  preset: ViewPreset
 ) {
   const config = VIEW_PRESETS[preset];
-  const direction = config.direction.clone().normalize();
-  const up = config.up.clone().multiplyScalar(upMultiplier);
+  const orientation = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    frame.up
+  );
+  const direction = config.direction.clone().applyQuaternion(orientation).normalize();
+  const up = config.up.clone().applyQuaternion(orientation).normalize();
   const distance = Math.max(frame.radius * 2.4, 1.5);
   const camera = viewer.camera;
   const controls = viewer.controls;
@@ -120,11 +134,10 @@ function applyViewPreset(
   viewer.forceRenderNextFrame?.();
 }
 
-export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatViewerProps) {
+export function GaussianSplatViewer({ sourceUrl, metadataUrl, cameraPathUrl }: GaussianSplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
-  const upMultiplierRef = useRef<1 | -1>(1);
   const [viewerState, setViewerState] = useState("idle");
   const [assetBytes, setAssetBytes] = useState<number | null>(null);
 
@@ -133,26 +146,7 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
     if (!viewer || viewerState !== "ready") {
       return;
     }
-    applyViewPreset(viewer, sceneFrameRef.current, preset, upMultiplierRef.current);
-  };
-
-  const flipView = () => {
-    const viewer = viewerRef.current;
-    if (!viewer || viewerState !== "ready") {
-      return;
-    }
-    const frame = sceneFrameRef.current;
-    const direction = viewer.camera.position.clone().sub(frame.center);
-    upMultiplierRef.current = upMultiplierRef.current === 1 ? -1 : 1;
-    viewer.camera.position.copy(frame.center).sub(direction);
-    viewer.camera.up.multiplyScalar(-1).normalize();
-    viewer.camera.lookAt(frame.center);
-    if (viewer.controls) {
-      viewer.controls.target.copy(frame.center);
-      viewer.controls.update();
-      viewer.controls.saveState();
-    }
-    viewer.forceRenderNextFrame?.();
+    applyViewPreset(viewer, sceneFrameRef.current, preset);
   };
 
   useEffect(() => {
@@ -186,14 +180,29 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
           throw new Error(`Gaussian export metadata request failed: ${response.status}`);
         }
         const metadata = parseGaussianExportMetadata(await response.json());
+        const cameraFrame = cameraPathUrl
+          ? await fetch(cameraPathUrl, { signal: controller.signal })
+              .then(async (cameraResponse) => {
+                if (!cameraResponse.ok) {
+                  throw new Error(`Gaussian camera path request failed: ${cameraResponse.status}`);
+                }
+                return deriveGaussianViewerFrame(
+                  metadata,
+                  parseGaussianCameraPath(await cameraResponse.json())
+                );
+              })
+              .catch(() => null)
+          : null;
         if (cancelled) {
           return;
         }
+        const cameraUp = cameraFrame?.up ?? [0, 0, 1];
+        const cameraCenter = cameraFrame?.center ?? metadata.scene_center ?? [0, 0, 0];
         viewer = new GaussianSplats3D.Viewer({
           rootElement: mount,
-          cameraUp: [0, 0, 1],
-          initialCameraPosition: [0, 1.2, 3],
-          initialCameraLookAt: [0, 0, 0],
+          cameraUp,
+          initialCameraPosition: [cameraCenter[0], cameraCenter[1] + 1.2, cameraCenter[2] + 3],
+          initialCameraLookAt: cameraCenter,
           sharedMemoryForWorkers: false,
           sphericalHarmonicsDegree: metadata.sh_degree,
           ignoreDevicePixelRatio: true,
@@ -211,10 +220,11 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
         sceneFrameRef.current = getSceneFrame(
           viewer,
           metadata.scene_center,
-          metadata.scene_radius_p95
+          metadata.scene_radius_p95,
+          cameraFrame
         );
         configureControls(viewer, sceneFrameRef.current);
-        applyViewPreset(viewer, sceneFrameRef.current, "fit", upMultiplierRef.current);
+        applyViewPreset(viewer, sceneFrameRef.current, "fit");
         viewer.start();
         setViewerState("ready");
       } catch {
@@ -238,7 +248,7 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
       }
       mount.replaceChildren();
     };
-  }, [sourceUrl, metadataUrl]);
+  }, [sourceUrl, metadataUrl, cameraPathUrl]);
 
   return (
     <div className="viewer-surface">
@@ -256,9 +266,6 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl }: GaussianSplatVie
               {VIEW_PRESETS[preset].label}
             </button>
           ))}
-          <button className="viewer-tool-button" disabled={viewerState !== "ready"} onClick={flipView} type="button">
-            Flip
-          </button>
         </div>
       )}
       {viewerState === "ready" && (
