@@ -23,7 +23,7 @@ def structural_similarity(
         size -= 1
     if size < 1:
         raise ValueError("SSIM input cannot be empty")
-    sigma = max(size / 6.0, 1e-3)
+    sigma = 1.5
     coordinate = torch.arange(size, dtype=x.dtype, device=x.device) - (size - 1) / 2
     kernel = torch.exp(-(coordinate.square()) / (2 * sigma * sigma))
     kernel = kernel / kernel.sum()

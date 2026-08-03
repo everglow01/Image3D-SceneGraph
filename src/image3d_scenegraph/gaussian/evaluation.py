@@ -36,6 +36,14 @@ def load_model_snapshot(path: Path, device: torch.device) -> GaussianModel:
     try:
         payload = torch.load(path, map_location=device, weights_only=True)
         state = payload["state_dict"]
+        if "log_scales" not in state:
+            state = {
+                "means": state["params.means"],
+                "log_scales": state["params.scales"],
+                "quats": state["params.quats"],
+                "opacity_logits": state["params.opacities"],
+                "sh_coeffs": torch.cat((state["params.sh0"], state["params.shN"]), dim=1),
+            }
         model = GaussianModel(
             means=state["means"],
             log_scales=state["log_scales"],
@@ -92,7 +100,7 @@ def evaluate_model(
                     model,
                     view.camera,
                     sh_degree=sh_degree,
-                    background=torch.ones(3, device=model.means.device),
+                    background=None,
                 )
                 _accumulate_screen_health(
                     getattr(rendered, "metadata", {}),
@@ -349,36 +357,25 @@ def _read_progress(path: Path | None) -> list[dict[str, Any]]:
 
 
 def _topology_summary(events: Iterable[dict[str, Any]]) -> dict[str, int]:
-    keys = (
-        "duplicated",
-        "duplicate_candidates",
-        "duplicate_selected",
-        "split_parents",
-        "split_candidates",
-        "split_selected",
-        "split_children",
-        "densified",
-        "budget_skipped",
-        "budget_evicted",
-        "pruned",
-        "pruned_non_finite",
-        "pruned_low_opacity",
-        "pruned_screen_size",
-        "pruned_world_size",
-    )
-    summary = {key: 0 for key in keys}
+    net_growth = 0
+    topology_updates = 0
     opacity_resets = 0
     for event in events:
-        for key in keys:
-            summary[key] += int(event.get(key, 0))
+        if "topology_net_growth" in event:
+            topology_updates += 1
+            net_growth += int(event["topology_net_growth"])
         opacity_resets += int(event.get("opacity_reset") is True)
-    return {**summary, "opacity_resets": opacity_resets}
+    return {
+        "strategy_updates": topology_updates,
+        "net_growth": net_growth,
+        "opacity_resets": opacity_resets,
+    }
 
 
 def _health_thresholds(config: dict[str, Any]) -> dict[str, float]:
     return {
-        "split_screen_fraction": float(config["densification"]["split_screen_fraction"]),
-        "max_screen_fraction": float(config["pruning"]["max_screen_fraction"]),
+        "split_screen_fraction": 0.05,
+        "max_screen_fraction": 0.15,
         "max_world_scale": float(config["pruning"]["max_world_scale"]),
         "opacity_threshold": float(config["pruning"]["opacity_threshold"]),
     }

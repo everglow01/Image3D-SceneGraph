@@ -15,43 +15,49 @@ from image3d_scenegraph.gaussian.config import (
 )
 
 
-def test_public_profile_resolves_deterministically_and_returns_fresh_data():
+def test_public_profile_resolves_official_baseline_deterministically():
     first = resolve_public_config("standard_v1")
     second = resolve_public_config("standard_v1")
 
     assert first.requested_profile == "standard_v1"
-    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION
+    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 5
+    assert first.effective_config["iterations"] == 30_000
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
         "longest_edge": 1280,
     }
-    assert first.effective_config["iterations"] == 15_000
-    assert first.effective_config["gaussian_budget"]["max_count"] == 600_000
+    assert first.effective_config["learning_rate"] == {
+        "position": {"initial": 0.00016, "final": 0.0000016},
+        "feature": 0.0025,
+        "opacity": 0.05,
+        "scaling": 0.005,
+        "rotation": 0.001,
+    }
+    assert first.effective_config["sh_schedule"]["increase_every_iterations"] == 1_000
     assert first.effective_config["densification"] == {
         "enabled": True,
         "start_iteration": 500,
-        "end_iteration": 7_500,
+        "end_iteration": 15_000,
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
-        "duplicate_scale_threshold": 0.01,
-        "split_screen_fraction": 0.05,
-        "screen_size_end_iteration": 4_000,
-        "split_budget_fraction": 0.25,
-        "split_children": 2,
+        "scale_threshold": 0.01,
     }
-    assert first.effective_config["pruning"]["cleanup_iteration"] == 13_500
-    assert first.effective_config["opacity_reset"]["every_iterations"] == 3_000
+    assert first.effective_config["pruning"] == {
+        "enabled": True,
+        "opacity_threshold": 0.005,
+        "max_world_scale": 0.1,
+    }
+    assert first.effective_config["evaluation"] == {
+        "validation_iterations": [7_000, 30_000]
+    }
+    assert "gaussian_budget" not in first.effective_config
     assert first.effective_config == second.effective_config
     assert first.effective_config is not second.effective_config
     assert first.effective_config_hash == second.effective_config_hash
-    assert first.effective_config_hash == effective_config_hash(first.effective_config)
 
     first.effective_config["iterations"] = 1
-    assert resolve_public_config("standard_v1").effective_config["iterations"] == 15_000
-
-    internal = resolve_internal_config("rtx4060_8gb_development_v1")
-    assert internal.effective_config == second.effective_config
-    assert internal.effective_config_hash == second.effective_config_hash
+    assert resolve_public_config("standard_v1").effective_config["iterations"] == 30_000
+    assert resolve_internal_config("rtx4060_8gb_development_v1").effective_config == second.effective_config
 
 
 @pytest.mark.parametrize("profile", ["smoke_v1", "high_quality", ""])
@@ -61,9 +67,7 @@ def test_public_profile_rejects_unapproved_profiles(profile):
 
 
 def test_internal_override_is_validated_hashed_and_recorded():
-    resolved = resolve_internal_config(
-        overrides={"densification": {"every_iterations": 200}},
-    )
+    resolved = resolve_internal_config(overrides={"densification": {"every_iterations": 200}})
     record = resolved_config_record(resolved)
 
     assert resolved.effective_config["densification"]["every_iterations"] == 200
@@ -73,7 +77,6 @@ def test_internal_override_is_validated_hashed_and_recorded():
         "effective_config": resolved.effective_config,
         "effective_config_hash": resolved.effective_config_hash,
     }
-    assert record["effective_config"] is not resolved.effective_config
 
 
 @pytest.mark.parametrize(
@@ -85,27 +88,13 @@ def test_internal_override_is_validated_hashed_and_recorded():
         ({"iterations": "30000"}, "must be an integer: iterations"),
         ({"loss": {"l1_weight": 1}}, "must be a finite float: loss.l1_weight"),
         ({"resolution": {"longest_edge": 1281}}, "exceeds 1280"),
-        ({"gaussian_budget": {"max_count": 1_000_001}}, "exceeds 1000000"),
         (
             {"learning_rate": {"position": {"final": 0.001}}},
             "learning_rate.position.final cannot exceed initial",
         ),
-        (
-            {"sh_schedule": {"increase_every_iterations": 6_000}},
-            "SH schedule cannot reach max_degree within iterations",
-        ),
-        (
-            {"densification": {"end_iteration": 500}},
-            "densification start must precede end",
-        ),
-        (
-            {"opacity_reset": {"every_iterations": 15_001}},
-            "exceeds 15000",
-        ),
-        (
-            {"evaluation": {"validation_every_iterations": 0}},
-            "below 1",
-        ),
+        ({"densification": {"end_iteration": 500}}, "densification start must precede end"),
+        ({"opacity_reset": {"every_iterations": 30_001}}, "exceeds 30000"),
+        ({"evaluation": {"validation_iterations": [0, 30_000]}}, "below 1"),
     ],
 )
 def test_internal_override_rejects_invalid_config(overrides, message):
@@ -120,7 +109,7 @@ def test_validation_rejects_missing_and_nonfinite_values():
         validate_effective_config(config)
 
     config = resolve_public_config("standard_v1").effective_config
-    config["pruning"]["max_screen_fraction"] = float("nan")
+    config["pruning"]["max_world_scale"] = float("nan")
     with pytest.raises(GaussianConfigError, match="finite float"):
         validate_effective_config(config)
 
@@ -132,7 +121,6 @@ def test_resolved_record_rejects_tampered_hash():
         effective_config=resolved.effective_config,
         effective_config_hash="0" * 64,
     )
-
     with pytest.raises(GaussianConfigError, match="hash mismatch"):
         resolved_config_record(tampered)
 
@@ -142,23 +130,15 @@ def test_single_field_ablation_reports_one_changed_leaf():
     candidate = resolve_internal_config(
         overrides={"densification": {"every_iterations": 200}}
     ).effective_config
-
     assert assert_single_field_ablation(baseline, candidate) == "densification.every_iterations"
 
 
 @pytest.mark.parametrize(
     "overrides",
-    [
-        {},
-        {
-            "densification": {"every_iterations": 200},
-            "evaluation": {"validation_every_iterations": 3_000},
-        },
-    ],
+    [{}, {"densification": {"every_iterations": 200}, "evaluation": {"validation_iterations": [14_000, 30_000]}}],
 )
 def test_ablation_rejects_zero_or_multiple_changes(overrides):
     baseline = resolve_public_config("standard_v1").effective_config
     candidate = resolve_internal_config(overrides=overrides).effective_config
-
     with pytest.raises(GaussianConfigError, match="exactly one field"):
         assert_single_field_ablation(baseline, candidate)

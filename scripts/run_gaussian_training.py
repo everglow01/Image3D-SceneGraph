@@ -31,7 +31,7 @@ def main() -> None:
     parser.add_argument("--initialization", choices=["sparse", "dense"], required=True)
     parser.add_argument("--points", required=True, type=Path)
     parser.add_argument("--support-diagnostics", type=Path)
-    parser.add_argument("--max-initial-points", type=int, default=100_000)
+    parser.add_argument("--max-initial-points", type=int, default=1_000_000)
     parser.add_argument("--voxel-size", type=float, default=0.005)
     parser.add_argument("--min-support", type=int, default=1)
     parser.add_argument("--min-confidence", type=float, default=0.0)

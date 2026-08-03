@@ -125,24 +125,28 @@ def main() -> None:
         "iterations": args.iterations,
         "resolution": {"longest_edge": 64},
         "learning_rate": {
-            "delay_multiplier": 1.0,
             "position": {"initial": 0.01, "final": 0.001},
-            "feature": {"initial": 0.05, "final": 0.005},
-            "opacity": {"initial": 0.02, "final": 0.002},
-            "scaling": {"initial": 0.01, "final": 0.001},
-            "rotation": {"initial": 0.005, "final": 0.0005},
+            "feature": 0.05,
+            "opacity": 0.02,
+            "scaling": 0.01,
+            "rotation": 0.005,
         },
         "sh_schedule": {"initial_degree": 0, "max_degree": 0, "increase_every_iterations": 1},
         "densification": {
-            "enabled": False,
+            "enabled": True,
             "start_iteration": 1,
             "end_iteration": max(2, args.iterations - 1),
-            "every_iterations": 1,
-            "gradient_threshold": 0.0002,
+            "every_iterations": max(1, args.iterations // 4),
+            "gradient_threshold": 0.00000001,
+            "scale_threshold": 0.01,
         },
-        "opacity_reset": {"enabled": False, "every_iterations": args.iterations, "value": 0.01},
-        "evaluation": {"validation_every_iterations": max(1, args.iterations // 2)},
-        "checkpoint": {"every_iterations": max(1, args.iterations // 2)},
+        "opacity_reset": {
+            "enabled": True,
+            "every_iterations": max(1, args.iterations // 4),
+        },
+        "evaluation": {
+            "validation_iterations": [args.iterations // 2, args.iterations],
+        },
     }
     resolved = resolve_internal_config(overrides=overrides)
     interrupted_dir = args.output_dir / "resumed"

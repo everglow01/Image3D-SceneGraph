@@ -44,7 +44,11 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
         split="validation",
         sh_degree=0,
         preview_dir=tmp_path / "previews",
-        progress_events=[{"densified": 3, "pruned": 1}, {"opacity_reset": True}],
+        progress_events=[
+            {"topology_net_growth": 3},
+            {"topology_net_growth": -1},
+            {"opacity_reset": True},
+        ],
         renderer=renderer,
     )
 
@@ -53,21 +57,8 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
     assert result["psnr"]["mean"] == pytest.approx(120.0)
     assert result["ssim"]["p50"] == pytest.approx(1.0)
     assert result["topology"] == {
-        "duplicated": 0,
-        "duplicate_candidates": 0,
-        "duplicate_selected": 0,
-        "split_parents": 0,
-        "split_candidates": 0,
-        "split_selected": 0,
-        "split_children": 0,
-        "densified": 3,
-        "budget_skipped": 0,
-        "budget_evicted": 0,
-        "pruned": 1,
-        "pruned_non_finite": 0,
-        "pruned_low_opacity": 0,
-        "pruned_screen_size": 0,
-        "pruned_world_size": 0,
+        "strategy_updates": 2,
+        "net_growth": 2,
         "opacity_resets": 1,
     }
     assert result["health"]["visible_gaussian_count"] == 0

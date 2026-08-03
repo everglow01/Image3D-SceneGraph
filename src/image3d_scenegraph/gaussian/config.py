@@ -10,63 +10,39 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 4
+CONFIG_SCHEMA_VERSION = 5
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
 _STANDARD_V1: dict[str, Any] = {
     "schema_version": CONFIG_SCHEMA_VERSION,
     "seed": 20260729,
-    "iterations": 15_000,
-    "resolution": {
-        "policy": "explicit_only",
-        "longest_edge": 1280,
-    },
-    "loss": {
-        "name": "l1_ssim",
-        "l1_weight": 0.8,
-        "ssim_weight": 0.2,
-    },
+    "iterations": 30_000,
+    "resolution": {"policy": "explicit_only", "longest_edge": 1280},
+    "loss": {"name": "l1_ssim", "l1_weight": 0.8, "ssim_weight": 0.2},
     "learning_rate": {
-        "schedule": "exponential",
-        "delay_multiplier": 0.01,
         "position": {"initial": 0.00016, "final": 0.0000016},
-        "feature": {"initial": 0.0025, "final": 0.000025},
-        "opacity": {"initial": 0.05, "final": 0.005},
-        "scaling": {"initial": 0.005, "final": 0.00005},
-        "rotation": {"initial": 0.001, "final": 0.00001},
+        "feature": 0.0025,
+        "opacity": 0.05,
+        "scaling": 0.005,
+        "rotation": 0.001,
     },
     "sh_schedule": {
         "initial_degree": 0,
         "max_degree": 3,
-        "increase_every_iterations": 3_000,
+        "increase_every_iterations": 1_000,
     },
     "densification": {
         "enabled": True,
         "start_iteration": 500,
-        "end_iteration": 7_500,
+        "end_iteration": 15_000,
         "every_iterations": 100,
         "gradient_threshold": 0.0002,
-        "duplicate_scale_threshold": 0.01,
-        "split_screen_fraction": 0.05,
-        "screen_size_end_iteration": 4_000,
-        "split_budget_fraction": 0.25,
-        "split_children": 2,
+        "scale_threshold": 0.01,
     },
-    "pruning": {
-        "enabled": True,
-        "opacity_threshold": 0.005,
-        "max_screen_fraction": 0.15,
-        "max_world_scale": 0.1,
-        "cleanup_iteration": 13_500,
-    },
-    "opacity_reset": {
-        "enabled": True,
-        "every_iterations": 3_000,
-        "value": 0.01,
-    },
-    "gaussian_budget": {"max_count": 600_000},
-    "evaluation": {"validation_every_iterations": 1_500},
+    "pruning": {"enabled": True, "opacity_threshold": 0.005, "max_world_scale": 0.1},
+    "opacity_reset": {"enabled": True, "every_iterations": 3_000},
+    "evaluation": {"validation_iterations": [7_000, 30_000]},
 }
 
 
@@ -104,13 +80,7 @@ def resolve_internal_config(
         raise GaussianConfigError(f"unsupported internal Gaussian base profile: {profile}")
     if overrides is not None and not isinstance(overrides, dict):
         raise GaussianConfigError("Gaussian config overrides must be an object")
-    resolved = _resolve(profile, None)
-    if overrides:
-        effective = copy.deepcopy(resolved.effective_config)
-        _apply_overrides(effective, overrides, "")
-        validate_effective_config(effective)
-        resolved = ResolvedGaussianConfig(profile, effective, effective_config_hash(effective))
-    return resolved
+    return _resolve(profile, overrides)
 
 
 def resolved_config_record(resolved: ResolvedGaussianConfig) -> dict[str, Any]:
@@ -145,7 +115,6 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "densification",
             "pruning",
             "opacity_reset",
-            "gaussian_budget",
             "evaluation",
         },
     )
@@ -168,36 +137,19 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     learning_rate = _mapping(
         root["learning_rate"],
         "learning_rate",
-        {"schedule", "delay_multiplier", "position", "feature", "opacity", "scaling", "rotation"},
+        {"position", "feature", "opacity", "scaling", "rotation"},
     )
-    _choice(learning_rate["schedule"], "learning_rate.schedule", {"exponential"})
-    _number(
-        learning_rate["delay_multiplier"],
-        "learning_rate.delay_multiplier",
-        minimum=0.0,
-        maximum=1.0,
-        minimum_exclusive=True,
+    position = _mapping(
+        learning_rate["position"],
+        "learning_rate.position",
+        {"initial", "final"},
     )
-    for group_name in ("position", "feature", "opacity", "scaling", "rotation"):
-        group = _mapping(
-            learning_rate[group_name],
-            f"learning_rate.{group_name}",
-            {"initial", "final"},
-        )
-        initial = _number(
-            group["initial"],
-            f"learning_rate.{group_name}.initial",
-            minimum=0.0,
-            minimum_exclusive=True,
-        )
-        final = _number(
-            group["final"],
-            f"learning_rate.{group_name}.final",
-            minimum=0.0,
-            minimum_exclusive=True,
-        )
-        if final > initial:
-            raise GaussianConfigError(f"learning_rate.{group_name}.final cannot exceed initial")
+    initial = _positive(position["initial"], "learning_rate.position.initial")
+    final = _positive(position["final"], "learning_rate.position.final")
+    if final > initial:
+        raise GaussianConfigError("learning_rate.position.final cannot exceed initial")
+    for name in ("feature", "opacity", "scaling", "rotation"):
+        _positive(learning_rate[name], f"learning_rate.{name}")
 
     sh_schedule = _mapping(
         root["sh_schedule"],
@@ -206,7 +158,7 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     )
     initial_degree = _integer(sh_schedule["initial_degree"], "sh_schedule.initial_degree", minimum=0, maximum=3)
     max_degree = _integer(sh_schedule["max_degree"], "sh_schedule.max_degree", minimum=0, maximum=3)
-    sh_interval = _integer(
+    interval = _integer(
         sh_schedule["increase_every_iterations"],
         "sh_schedule.increase_every_iterations",
         minimum=1,
@@ -214,7 +166,7 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     )
     if initial_degree > max_degree:
         raise GaussianConfigError("sh_schedule.initial_degree cannot exceed max_degree")
-    if (max_degree - initial_degree) * sh_interval > iterations:
+    if (max_degree - initial_degree) * interval > iterations:
         raise GaussianConfigError("SH schedule cannot reach max_degree within iterations")
 
     densification = _mapping(
@@ -226,132 +178,52 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "end_iteration",
             "every_iterations",
             "gradient_threshold",
-            "duplicate_scale_threshold",
-            "split_screen_fraction",
-            "screen_size_end_iteration",
-            "split_budget_fraction",
-            "split_children",
+            "scale_threshold",
         },
     )
     _boolean(densification["enabled"], "densification.enabled")
-    densify_start = _integer(
-        densification["start_iteration"], "densification.start_iteration", minimum=1, maximum=iterations
-    )
-    densify_end = _integer(
-        densification["end_iteration"], "densification.end_iteration", minimum=1, maximum=iterations
-    )
-    densify_interval = _integer(
-        densification["every_iterations"], "densification.every_iterations", minimum=1, maximum=iterations
-    )
-    _number(
-        densification["gradient_threshold"],
-        "densification.gradient_threshold",
-        minimum=0.0,
-        minimum_exclusive=True,
-    )
-    _number(
-        densification["duplicate_scale_threshold"],
-        "densification.duplicate_scale_threshold",
-        minimum=0.0,
-        minimum_exclusive=True,
-    )
-    _number(
-        densification["split_screen_fraction"],
-        "densification.split_screen_fraction",
-        minimum=0.0,
-        maximum=1.0,
-        minimum_exclusive=True,
-    )
-    screen_size_end = _integer(
-        densification["screen_size_end_iteration"],
-        "densification.screen_size_end_iteration",
-        minimum=1,
-        maximum=iterations,
-    )
-    _number(
-        densification["split_budget_fraction"],
-        "densification.split_budget_fraction",
-        minimum=0.0,
-        maximum=1.0,
-        minimum_exclusive=True,
-    )
-    _integer(
-        densification["split_children"],
-        "densification.split_children",
-        minimum=2,
-        maximum=4,
-    )
-    if densify_start >= densify_end:
+    start = _integer(densification["start_iteration"], "densification.start_iteration", minimum=1, maximum=iterations)
+    end = _integer(densification["end_iteration"], "densification.end_iteration", minimum=1, maximum=iterations)
+    every = _integer(densification["every_iterations"], "densification.every_iterations", minimum=1, maximum=iterations)
+    _positive(densification["gradient_threshold"], "densification.gradient_threshold")
+    _positive(densification["scale_threshold"], "densification.scale_threshold")
+    if start >= end:
         raise GaussianConfigError("densification start must precede end")
-    if screen_size_end > densify_end:
-        raise GaussianConfigError("screen-size refinement cannot outlive densification")
-    if densify_interval > densify_end - densify_start:
+    if every > end - start:
         raise GaussianConfigError("densification cadence exceeds its active range")
 
     pruning = _mapping(
         root["pruning"],
         "pruning",
-        {"enabled", "opacity_threshold", "max_screen_fraction", "max_world_scale", "cleanup_iteration"},
+        {"enabled", "opacity_threshold", "max_world_scale"},
     )
     _boolean(pruning["enabled"], "pruning.enabled")
     _number(pruning["opacity_threshold"], "pruning.opacity_threshold", minimum=0.0, maximum=1.0)
-    max_screen_fraction = _number(
-        pruning["max_screen_fraction"],
-        "pruning.max_screen_fraction",
-        minimum=0.0,
-        maximum=1.0,
-        minimum_exclusive=True,
-    )
-    _number(
-        pruning["max_world_scale"],
-        "pruning.max_world_scale",
-        minimum=0.0,
-        maximum=1.0,
-        minimum_exclusive=True,
-    )
-    cleanup_iteration = _integer(
-        pruning["cleanup_iteration"],
-        "pruning.cleanup_iteration",
-        minimum=1,
-        maximum=iterations,
-    )
-    if cleanup_iteration <= densify_end:
-        raise GaussianConfigError("final cleanup must follow densification")
-    if cleanup_iteration >= iterations:
-        raise GaussianConfigError("final cleanup must leave recovery iterations")
-    if float(densification["split_screen_fraction"]) >= max_screen_fraction:
-        raise GaussianConfigError("screen-size split threshold must precede prune threshold")
+    _positive(pruning["max_world_scale"], "pruning.max_world_scale", maximum=1.0)
 
     opacity_reset = _mapping(
-        root["opacity_reset"], "opacity_reset", {"enabled", "every_iterations", "value"}
+        root["opacity_reset"],
+        "opacity_reset",
+        {"enabled", "every_iterations"},
     )
     _boolean(opacity_reset["enabled"], "opacity_reset.enabled")
-    _integer(
-        opacity_reset["every_iterations"],
-        "opacity_reset.every_iterations",
-        minimum=1,
-        maximum=iterations,
-    )
-    _number(opacity_reset["value"], "opacity_reset.value", minimum=0.0, maximum=1.0)
+    _integer(opacity_reset["every_iterations"], "opacity_reset.every_iterations", minimum=1, maximum=iterations)
 
-    gaussian_budget = _mapping(root["gaussian_budget"], "gaussian_budget", {"max_count"})
-    _integer(gaussian_budget["max_count"], "gaussian_budget.max_count", minimum=1, maximum=1_000_000)
-
-    evaluation = _mapping(
-        root["evaluation"], "evaluation", {"validation_every_iterations"}
-    )
-    _integer(
-        evaluation["validation_every_iterations"],
-        "evaluation.validation_every_iterations",
-        minimum=1,
-        maximum=iterations,
-    )
+    evaluation = _mapping(root["evaluation"], "evaluation", {"validation_iterations"})
+    validation_iterations = evaluation["validation_iterations"]
+    if not isinstance(validation_iterations, list) or not validation_iterations:
+        raise GaussianConfigError("evaluation.validation_iterations must be a non-empty array")
+    validated_iterations = [
+        _integer(value, "evaluation.validation_iterations", minimum=1, maximum=iterations)
+        for value in validation_iterations
+    ]
+    if validated_iterations != sorted(set(validated_iterations)):
+        raise GaussianConfigError("evaluation.validation_iterations must be sorted and unique")
+    if validated_iterations[-1] != iterations:
+        raise GaussianConfigError("evaluation.validation_iterations must include the final iteration")
 
 
-def assert_single_field_ablation(
-    baseline: dict[str, Any],
-    candidate: dict[str, Any],
-) -> str:
+def assert_single_field_ablation(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
     validate_effective_config(baseline)
     validate_effective_config(candidate)
     baseline_leaves = dict(_leaf_items(baseline))
@@ -369,11 +241,7 @@ def _resolve(profile: str, overrides: dict[str, Any] | None) -> ResolvedGaussian
     if overrides:
         _apply_overrides(effective, overrides, "")
     validate_effective_config(effective)
-    return ResolvedGaussianConfig(
-        requested_profile=profile,
-        effective_config=effective,
-        effective_config_hash=effective_config_hash(effective),
-    )
+    return ResolvedGaussianConfig(profile, effective, effective_config_hash(effective))
 
 
 def _apply_overrides(target: dict[str, Any], overrides: dict[str, Any], prefix: str) -> None:
@@ -440,6 +308,10 @@ def _number(
     if maximum is not None and value > maximum:
         raise GaussianConfigError(f"Gaussian config field exceeds {maximum}: {path}")
     return value
+
+
+def _positive(value: Any, path: str, maximum: float | None = None) -> float:
+    return _number(value, path, minimum=0.0, maximum=maximum, minimum_exclusive=True)
 
 
 def _boolean(value: Any, path: str) -> bool:

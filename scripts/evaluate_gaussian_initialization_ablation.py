@@ -65,9 +65,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "every_iterations": max(1, args.iterations // 4),
         },
         "opacity_reset": {"every_iterations": args.iterations},
-        "evaluation": {"validation_every_iterations": args.iterations},
-        "checkpoint": {"every_iterations": args.iterations},
-        "gaussian_budget": {"max_count": args.gaussian_budget},
+        "evaluation": {"validation_iterations": [args.iterations]},
     }
     resolved = resolve_internal_config(overrides=overrides)
     sparse = sparse_initialization(

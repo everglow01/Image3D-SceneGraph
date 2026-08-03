@@ -65,8 +65,6 @@ class ProjectGaussianAdapter:
         trainer_script = project_root / "scripts" / "run_gaussian_training.py"
         evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
         exporter_script = project_root / "scripts" / "export_gaussian.py"
-        evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
-        exporter_script = project_root / "scripts" / "export_gaussian.py"
         if not all(
             path.is_file()
             for path in (colmap_script, trainer_script, evaluator_script, exporter_script)
@@ -75,7 +73,7 @@ class ProjectGaussianAdapter:
         config_path = context.job_dir / "gaussian_config.json"
         dataset_path = context.job_dir / "dataset.json"
         image_dir = context.job_dir / "input" / "images"
-        sparse_dir = context.job_dir / "colmap" / "sparse_txt"
+        sparse_dir = context.job_dir / "colmap" / "undistorted" / "sparse_txt"
         points_path = sparse_dir / "points3D.txt"
         command_colmap = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
@@ -85,7 +83,8 @@ class ProjectGaussianAdapter:
             "--output-dir",
             str(context.job_dir),
             "--matcher",
-            os.environ.get("IMAGE3D_COLMAP_MATCHER", "exhaustive"),
+            "exhaustive",
+            "--gaussian-baseline",
         ]
         env = os.environ.copy()
         env.pop("LD_LIBRARY_PATH", None)
@@ -101,7 +100,7 @@ class ProjectGaussianAdapter:
         contract = build_colmap_contract(
             dataset_id=context.job_id,
             dataset_root=context.job_dir,
-            image_root="input/images",
+            image_root="colmap/undistorted/images",
             cameras_path="geometry/cameras.json",
         )
         write_contract(dataset_path, contract)
@@ -126,7 +125,7 @@ class ProjectGaussianAdapter:
             "--resolved-config-json",
             str(config_path),
             "--max-initial-points",
-            str(context.options.get("gaussian_max_initial_points", 75_000)),
+            str(context.options.get("gaussian_max_initial_points", 1_000_000)),
         ]
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)

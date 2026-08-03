@@ -21,28 +21,24 @@ def make_model(count: int = 3) -> GaussianModel:
     return GaussianModel.from_points(points, colors, scales)
 
 
-def test_model_activations_groups_and_topology_are_valid():
+def test_model_parameters_and_official_optimizers_are_strategy_compatible():
     model = make_model()
     learning_rates = {
-        name: {"initial": 0.1, "final": 0.01}
-        for name in ("position", "feature", "opacity", "scaling", "rotation")
+        "position": {"initial": 0.00016, "final": 0.0000016},
+        "feature": 0.0025,
+        "opacity": 0.05,
+        "scaling": 0.005,
+        "rotation": 0.001,
     }
 
-    groups = model.parameter_groups(learning_rates)
-    sources = model.update_topology(
-        torch.tensor([0, 2]),
-        torch.tensor([0]),
-        torch.empty(0, dtype=torch.long),
-        split_children=2,
-    )
-    model.reset_opacity(0.01)
+    optimizers = model.optimizers(learning_rates)
 
-    assert [group["name"] for group in groups] == list(learning_rates)
-    assert sources[0].tolist() == [0, 2, 0]
-    assert sources[1].tolist() == [0, 0, 1]
-    assert model.count == 3
-    assert torch.all(model.activated()[3] <= 0.010001)
-    model.validate(max_count=3)
+    assert set(model.params) == {"means", "scales", "quats", "opacities", "sh0", "shN"}
+    assert set(optimizers) == set(model.params)
+    assert optimizers["means"].param_groups[0]["lr"] == pytest.approx(0.00016)
+    assert optimizers["shN"].param_groups[0]["lr"] == pytest.approx(0.0025 / 20)
+    assert model.sh_coeffs.shape == (3, 16, 3)
+    model.validate()
 
 
 def test_model_rejects_non_finite_and_budget_overflow():

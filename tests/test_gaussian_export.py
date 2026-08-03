@@ -99,7 +99,10 @@ def test_canonical_ply_round_trips_all_owned_attributes(tmp_path):
     assert np.array_equal(decoded["f_dc_0"], gaussian.sh_coeffs[:, 0, 0].detach().numpy())
     assert np.array_equal(decoded["opacity"], gaussian.opacity_logits.detach().numpy())
     assert np.array_equal(decoded["scale_2"], gaussian.log_scales[:, 2].detach().numpy())
-    assert np.array_equal(decoded["rot_0"], np.ones(2, dtype=np.float32))
+    assert np.allclose(
+        decoded["rot_0"],
+        gaussian.activated()[1][:, 0].detach().numpy(),
+    )
 
 
 def test_scene_frame_uses_robust_center_and_radius():
