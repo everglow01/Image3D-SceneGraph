@@ -20,6 +20,11 @@ from image3d_scenegraph.gaussian.config import (
     resolved_config_record,
     resolve_public_config,
 )
+from image3d_scenegraph.gaussian.trainers import (
+    GaussianTrainerError,
+    trainer_record,
+    validate_trainer_id,
+)
 from image3d_scenegraph.geometry.adapters import (
     ReconstructionContext,
     ReconstructionError,
@@ -112,13 +117,21 @@ class JobStore:
     ) -> dict[str, Any]:
         """Persist a validated job and return before reconstruction starts."""
         self._validate_request(mode, files)
+        normalized_options = dict(options or {})
+        gaussian_trainer_record: dict[str, Any] | None = None
         try:
-            if geometry_backend == "project_3dgs" and gaussian_config is None:
-                gaussian_config = resolve_public_config("standard_v1")
+            if geometry_backend == "project_3dgs":
+                gaussian_trainer = validate_trainer_id(
+                    str(normalized_options.get("gaussian_trainer", "project"))
+                )
+                normalized_options["gaussian_trainer"] = gaussian_trainer
+                gaussian_trainer_record = trainer_record(gaussian_trainer)
+                if gaussian_config is None:
+                    gaussian_config = resolve_public_config("standard_v1")
             gaussian_config_record = (
                 resolved_config_record(gaussian_config) if gaussian_config is not None else None
             )
-        except GaussianConfigError as exc:
+        except (GaussianConfigError, GaussianTrainerError) as exc:
             raise JobError(str(exc)) from exc
         try:
             get_reconstruction_adapter(geometry_backend, output_type)
@@ -156,14 +169,17 @@ class JobStore:
         }
         if gaussian_config_record is not None:
             manifest["gaussian_config"] = gaussian_config_record
+        if gaussian_trainer_record is not None:
+            manifest["gaussian_trainer"] = gaussian_trainer_record
         request = {
             "lifecycle_schema_version": LIFECYCLE_SCHEMA_VERSION,
             "job_id": job_id,
             "mode": mode,
             "geometry_backend": geometry_backend,
             "output_type": output_type,
-            "options": options or {},
+            "options": normalized_options,
             "gaussian_config": gaussian_config_record,
+            "gaussian_trainer": gaussian_trainer_record,
         }
         self._write_json(job_dir / "request.json", request)
         self._write_json(job_dir / "manifest.json", manifest)
@@ -360,12 +376,14 @@ class JobStore:
         if not isinstance(input_assets, list):
             raise JobError("persisted job inputs must be an array")
         gaussian_config_record = request.get("gaussian_config")
+        gaussian_trainer_record = request.get("gaussian_trainer")
         if isinstance(gaussian_config_record, dict) and geometry_backend == "project_3dgs":
             options = {
                 **options,
                 "gaussian_config_record": json.dumps(
                     gaussian_config_record, sort_keys=True, separators=(",", ":")
                 ),
+                "gaussian_trainer": str(options.get("gaussian_trainer", "project")),
             }
         self._check_cancel(cancel_requested)
         try:
@@ -413,15 +431,25 @@ class JobStore:
         scene = self._build_mock_scene(job_id, mode)
         self._write_json(workspace / "scene_graph" / "scene.json", scene)
         gaussian_config_record = request.get("gaussian_config")
+        gaussian_trainer_record = request.get("gaussian_trainer")
         gaussian_log_lines: list[str] = []
+        if isinstance(gaussian_trainer_record, dict):
+            gaussian_log_lines.extend(
+                (
+                    f"gaussian_trainer={gaussian_trainer_record['id']}",
+                    f"gaussian_trainer_revision={gaussian_trainer_record['revision']}",
+                )
+            )
         if isinstance(gaussian_config_record, dict):
-            gaussian_log_lines = [
-                f"gaussian_config_schema_version={gaussian_config_record['schema_version']}",
-                f"gaussian_requested_profile={gaussian_config_record['requested_profile']}",
-                f"gaussian_effective_config_hash={gaussian_config_record['effective_config_hash']}",
-                "gaussian_effective_config="
-                + canonical_config_json(gaussian_config_record["effective_config"]),
-            ]
+            gaussian_log_lines.extend(
+                (
+                    f"gaussian_config_schema_version={gaussian_config_record['schema_version']}",
+                    f"gaussian_requested_profile={gaussian_config_record['requested_profile']}",
+                    f"gaussian_effective_config_hash={gaussian_config_record['effective_config_hash']}",
+                    "gaussian_effective_config="
+                    + canonical_config_json(gaussian_config_record["effective_config"]),
+                )
+            )
         log_text = "\n".join(
             [
                 f"job_id={job_id}",
@@ -460,6 +488,9 @@ class JobStore:
             assets=assets,
             metrics=metrics,
             gaussian_config=gaussian_config_record if isinstance(gaussian_config_record, dict) else None,
+            gaussian_trainer=(
+                gaussian_trainer_record if isinstance(gaussian_trainer_record, dict) else None
+            ),
         )
         result["created_at"] = queued_manifest["created_at"]
         if output_type == "mesh":
@@ -1156,6 +1187,7 @@ class JobStore:
         assets: dict[str, str],
         metrics: dict[str, int | float | str | bool],
         gaussian_config: dict[str, Any] | None = None,
+        gaussian_trainer: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         manifest = {
@@ -1174,6 +1206,8 @@ class JobStore:
         }
         if gaussian_config is not None:
             manifest["gaussian_config"] = gaussian_config
+        if gaussian_trainer is not None:
+            manifest["gaussian_trainer"] = gaussian_trainer
         return manifest
 
     def _input_type(self, mode: str) -> str:

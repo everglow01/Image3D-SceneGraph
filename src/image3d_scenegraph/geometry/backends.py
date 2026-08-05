@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from image3d_scenegraph.gaussian.trainers import get_gaussian_trainer_specs
+
 
 @dataclass(frozen=True)
 class BackendSpec:
@@ -15,6 +17,7 @@ class BackendSpec:
     available: bool
     reason: str | None
     setup_command: str | None
+    options: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -24,6 +27,7 @@ class BackendSpec:
             "reason": self.reason,
             "supported_outputs": list(self.supported_outputs),
             "setup_command": self.setup_command,
+            **(self.options or {}),
         }
 
 
@@ -75,7 +79,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             checkpoint_hint=checkpoint_root / "mast3r",
             supported_outputs=("point_cloud",),
         ),
-        _project_gaussian_spec(),
+        _project_gaussian_spec(root),
         BackendSpec(
             backend_id="nerfstudio_3dgs",
             label="Imported Nerfstudio splat (legacy)",
@@ -92,31 +96,25 @@ def get_backend_status_payload(project_root: Path | str | None = None) -> dict[s
     return {"backends": [spec.to_dict() for spec in specs]}
 
 
-def _project_gaussian_spec() -> BackendSpec:
-    try:
-        import torch
-        import gsplat
-    except ImportError as exc:
-        return BackendSpec(
-            backend_id="project_3dgs",
-            label="Project 3DGS",
-            supported_outputs=("gaussian_splat",),
-            available=False,
-            reason=f"optional GPU dependency missing: {exc.name}",
-            setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",
-        )
-    cuda_available = bool(torch.cuda.is_available())
+def _project_gaussian_spec(project_root: Path) -> BackendSpec:
+    trainers = get_gaussian_trainer_specs(project_root)
+    available_trainers = [trainer for trainer in trainers if trainer.available]
+    reasons = [
+        f"{trainer.label}: {trainer.reason}"
+        for trainer in trainers
+        if trainer.reason is not None
+    ]
+    colmap_available = shutil.which("colmap") is not None
+    if not colmap_available:
+        reasons.append("colmap executable not found on PATH")
     return BackendSpec(
         backend_id="project_3dgs",
         label="Project 3DGS",
         supported_outputs=("gaussian_splat",),
-        available=cuda_available and shutil.which("colmap") is not None,
-        reason=(
-            None
-            if cuda_available and shutil.which("colmap") is not None
-            else "CUDA unavailable" if not cuda_available else "colmap executable not found on PATH"
-        ),
-        setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",
+        available=bool(available_trainers) and colmap_available,
+        reason=None if available_trainers and colmap_available else "; ".join(reasons),
+        setup_command="uv run python scripts/setup_gaussian_trainer.py --trainer <trainer>",
+        options={"gaussian_trainers": [trainer.to_dict() for trainer in trainers]},
     )
 
 

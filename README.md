@@ -81,6 +81,7 @@ Current mock API:
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
 - `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, `mast3r`, or legacy `nerfstudio_3dgs`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
+- `gaussian_trainer`: `project` (default), `graphdeco`, or `nerfstudio`; used only with `project_3dgs + gaussian_splat`
 - `files`: one or more uploaded files
 
 Implemented geometry paths:
@@ -89,7 +90,7 @@ Implemented geometry paths:
 - `geometry_backend=vggt` with `output_type=point_cloud` or `mesh`, when the local VGGT repo and checkpoint are installed
 - `geometry_backend=colmap` with `output_type=point_cloud` or `mesh`, when the `colmap` executable is installed
 - `geometry_backend=colmap_vggt` with `output_type=point_cloud` or `mesh`, when both COLMAP and VGGT are installed
-- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the optional pinned CUDA environment are available. This runs project-owned training, validation, canonical/browser export, and bundle publication; it does not invoke Nerfstudio.
+- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses the project-owned gsplat baseline; `graphdeco` and `nerfstudio` invoke pinned isolated research environments, convert their native INRIA PLY into the project snapshot, then reuse the common Validation/export/manifest/Viewer path.
 
 DUSt3R, MASt3R, and video-to-geometry are still API contract placeholders and return a clear not implemented error. `nerfstudio_3dgs` is legacy imported-asset metadata only, not an automatic training route.
 
@@ -105,7 +106,25 @@ VGGT setup is intentionally explicit because the checkpoint is about 5GB and the
 uv run python scripts/setup_model.py --backend vggt --install
 ```
 
-The backend also exposes `GET /api/backends` so the frontend can disable missing model integrations and show the required setup command.
+The backend also exposes `GET /api/backends` so the frontend can disable missing model/trainer integrations and show the required setup command.
+
+External Gaussian trainers use separate pinned environments and are dry-run by default:
+
+```bash
+uv run python scripts/setup_gaussian_trainer.py --trainer graphdeco
+uv run python scripts/setup_gaussian_trainer.py --trainer nerfstudio
+```
+
+After CUDA availability and free-space checks pass, install them explicitly:
+
+```bash
+uv run python scripts/setup_gaussian_trainer.py \
+  --trainer graphdeco --install --accept-research-license
+uv run python scripts/setup_gaussian_trainer.py \
+  --trainer nerfstudio --install
+```
+
+Graphdeco is licensed only for research/evaluation; its setup requires explicit acknowledgement. Both checkouts, environments, and generated results stay ignored locally. These commands never alter the project uv environment.
 
 Install COLMAP before using the COLMAP baseline:
 
