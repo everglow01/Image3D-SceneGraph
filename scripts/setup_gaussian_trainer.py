@@ -82,7 +82,10 @@ def main() -> None:
             ]
         )
         _run(["uv", "pip", "install", "--python", str(python), "-e", str(repo)])
-        _run(["uv", "pip", "install", "--python", str(python), "tensorboard"])
+        _run([
+            "uv", "pip", "install", "--python", str(python),
+            "tensorboard", "numpy<2", "Pillow==10.3.0", "setuptools==80.9.0",
+        ])
     else:
         _run(
             [
@@ -94,11 +97,13 @@ def main() -> None:
         _run(
             [
                 "uv", "pip", "install", "--python", str(python),
-                "plyfile", "tqdm", "tensorboard", "numpy<2",
+                "plyfile", "tqdm", "tensorboard", "numpy<2", "setuptools==80.9.0",
+                "opencv-python-headless<4.12",
             ]
         )
         for package in ("simple-knn", "diff-gaussian-rasterization", "fused-ssim"):
             _run([
+                "env", "CC=/usr/bin/gcc-11", "CXX=/usr/bin/g++-11", "MAX_JOBS=1",
                 "uv", "pip", "install", "--no-build-isolation", "--python", str(python),
                 str(repo / "submodules" / package),
             ])

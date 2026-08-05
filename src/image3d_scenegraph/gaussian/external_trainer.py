@@ -71,10 +71,15 @@ def train_external_gaussians(
     )
 
     iterations = int(config["iterations"])
+    seed = int(config["seed"])
     command = (
-        _graphdeco_command(project_root, native_dataset, native_output, iterations)
+        _graphdeco_command(
+            project_root, native_dataset, native_output, iterations, seed
+        )
         if trainer_id == "graphdeco"
-        else _nerfstudio_command(project_root, native_dataset, native_output, iterations)
+        else _nerfstudio_command(
+            project_root, native_dataset, native_output, iterations, seed
+        )
     )
     command_record = {
         "trainer": trainer_record(trainer_id, project_root),
@@ -152,13 +157,18 @@ def train_external_gaussians(
 
 
 def _graphdeco_command(
-    project_root: Path, dataset: Path, output: Path, iterations: int
+    project_root: Path,
+    dataset: Path,
+    output: Path,
+    iterations: int,
+    seed: int = 0,
 ) -> list[str]:
     repo = project_root / "external" / "gaussian-splatting"
     return [
         str(repo / ".venv" / "bin" / "python"),
         str(project_root / "scripts" / "run_graphdeco_training.py"),
         "--graphdeco-root", str(repo),
+        "--seed", str(seed),
         "-s", str(dataset),
         "-m", str(output),
         "--eval",
@@ -171,7 +181,11 @@ def _graphdeco_command(
 
 
 def _nerfstudio_command(
-    project_root: Path, dataset: Path, output: Path, iterations: int
+    project_root: Path,
+    dataset: Path,
+    output: Path,
+    iterations: int,
+    seed: int = 42,
 ) -> list[str]:
     executable = project_root / "external" / "nerfstudio" / ".venv" / "bin" / "ns-train"
     return [
@@ -180,6 +194,8 @@ def _nerfstudio_command(
         "--output-dir", str(output),
         "--experiment-name", "image3d",
         "--timestamp", "train",
+        "--machine.seed", str(seed),
+        "--pipeline.datamanager.train-cameras-sampling-seed", str(seed),
         "--max-num-iterations", str(iterations),
         "--steps-per-save", str(iterations),
         "--steps-per-eval-all-images", str(iterations),
@@ -189,7 +205,7 @@ def _nerfstudio_command(
         "--data", str(dataset),
         "--orientation-method", "none",
         "--center-method", "none",
-        "--no-auto-scale-poses",
+        "--auto-scale-poses", "False",
         "--downscale-factor", "1",
     ]
 
@@ -202,6 +218,9 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.pop("LD_LIBRARY_PATH", None)
+    env["CC"] = "/usr/bin/gcc-11"
+    env["CXX"] = "/usr/bin/g++-11"
+    env["MAX_JOBS"] = "1"
     try:
         if cancel_requested is None:
             return subprocess.run(
