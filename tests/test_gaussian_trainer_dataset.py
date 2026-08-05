@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from image3d_scenegraph.gaussian.dataset import build_colmap_contract
+from image3d_scenegraph.gaussian.dataset import build_colmap_contract, qvec_to_rotmat
 from image3d_scenegraph.gaussian.initialization import InitializationResult
 from image3d_scenegraph.gaussian.trainer_dataset import prepare_external_dataset
 
@@ -95,6 +95,17 @@ def test_external_datasets_preserve_frozen_splits_and_points(tmp_path):
         if image["image_id"] in contract["splits"]["validation"]
     }
     assert set((graph / "sparse/0/test.txt").read_text().splitlines()) == expected_validation
+    graph_images = (graph / "sparse/0/images.txt").read_text().splitlines()
+    graph_image = graph_images[1].split()
+    graph_qvec = np.asarray(graph_image[1:5], dtype=np.float64)
+    source_rotation = np.asarray(
+        next(
+            image["camera_from_world"]
+            for image in contract["images"]
+            if Path(image["path"]).name == graph_image[9]
+        )
+    )[:3, :3]
+    np.testing.assert_allclose(qvec_to_rotmat(graph_qvec), source_rotation, atol=1e-12)
     transforms = json.loads((nerfstudio / "transforms.json").read_text())
     assert set(transforms["val_filenames"]) == {
         f"images/{name}" for name in expected_validation

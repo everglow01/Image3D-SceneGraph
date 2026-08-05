@@ -213,7 +213,7 @@ def _array_hash(array: np.ndarray) -> str:
 
 
 def _rotmat_to_qvec(rotation: np.ndarray) -> np.ndarray:
-    matrix = np.asarray(rotation, dtype=np.float64)
+    matrix = np.asarray(rotation, dtype=np.float64).T
     symmetric = np.array(
         [
             [matrix[0, 0] - matrix[1, 1] - matrix[2, 2], 0, 0, 0],
