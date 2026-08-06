@@ -57,6 +57,31 @@ class ProjectGaussianAdapter:
     backend = "project_3dgs"
     output_type = "gaussian_splat"
 
+    @staticmethod
+    def _colmap_progress_callback(
+        context: ReconstructionContext, path: Path
+    ) -> Callable[[], None]:
+        progress_by_stage = {
+            "colmap_feature_extraction": 0.16,
+            "colmap_feature_matching": 0.20,
+            "colmap_mapping": 0.26,
+            "colmap_undistortion": 0.31,
+        }
+        last_stage: str | None = None
+
+        def update() -> None:
+            nonlocal last_stage
+            try:
+                stage = str(json.loads(path.read_text(encoding="utf-8"))["stage"])
+            except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
+                return
+            if stage == last_stage or stage not in progress_by_stage:
+                return
+            last_stage = stage
+            _adapter_progress(context, stage, progress_by_stage[stage])
+
+        return update
+
     def run(self, context: ReconstructionContext) -> ReconstructionResult:
         if context.mode != "multi_image":
             raise ReconstructionError("project 3DGS training requires multi_image input")
@@ -75,6 +100,16 @@ class ProjectGaussianAdapter:
         image_dir = context.job_dir / "input" / "images"
         sparse_dir = context.job_dir / "colmap" / "undistorted" / "sparse_txt"
         points_path = sparse_dir / "points3D.txt"
+        colmap_progress_path = context.job_dir / "colmap" / "progress.json"
+        default_colmap_threads = min(8, max(1, (os.cpu_count() or 1) // 2))
+        try:
+            colmap_threads = int(
+                os.environ.get("IMAGE3D_COLMAP_NUM_THREADS", default_colmap_threads)
+            )
+        except ValueError as exc:
+            raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be an integer") from exc
+        if colmap_threads < 1:
+            raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be at least 1")
         command_colmap = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(colmap_script),
@@ -85,11 +120,22 @@ class ProjectGaussianAdapter:
             "--matcher",
             "exhaustive",
             "--gaussian-baseline",
+            "--no-use-gpu",
+            "--num-threads",
+            str(colmap_threads),
+            "--progress-file",
+            str(colmap_progress_path),
         ]
         env = os.environ.copy()
         env.pop("LD_LIBRARY_PATH", None)
         _adapter_progress(context, "geometry_reconstruction", 0.15)
-        _run_adapter_command(command_colmap, context, project_root, env=None)
+        _run_adapter_command(
+            command_colmap,
+            context,
+            project_root,
+            env=None,
+            poll_callback=self._colmap_progress_callback(context, colmap_progress_path),
+        )
         cameras_path = context.job_dir / "geometry" / "cameras.json"
         if not cameras_path.is_file() or not points_path.is_file():
             raise ReconstructionError("COLMAP did not produce project 3DGS camera/sparse inputs")
@@ -306,6 +352,7 @@ def _run_adapter_command(
     cwd: Path,
     *,
     env: dict[str, str] | None,
+    poll_callback: Callable[[], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         if context.cancel_requested is None:
@@ -324,6 +371,7 @@ def _run_adapter_command(
             cwd=cwd,
             env=env,
             cancel_requested=context.cancel_requested,
+            poll_callback=poll_callback,
         )
     except subprocess.CalledProcessError as exc:
         details = "\n".join(part for part in [exc.stdout, exc.stderr] if part)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -20,8 +21,12 @@ def main() -> None:
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
     parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--num-threads", type=int)
+    parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--gaussian-baseline", action="store_true")
     args = parser.parse_args()
+    if args.num_threads is not None and args.num_threads < 1:
+        parser.error("--num-threads must be at least 1")
     if args.gaussian_baseline and args.matcher != "exhaustive":
         raise SystemExit("Gaussian baseline requires exhaustive COLMAP matching")
 
@@ -57,6 +62,8 @@ def main() -> None:
     ]
     if args.gaussian_baseline:
         feature_command.extend(("--ImageReader.camera_model", "OPENCV"))
+    if args.num_threads is not None:
+        feature_command.extend(("--SiftExtraction.num_threads", str(args.num_threads)))
     mapper_command = [
         colmap,
         "mapper",
@@ -69,19 +76,27 @@ def main() -> None:
     ]
     if args.gaussian_baseline:
         mapper_command.extend(("--Mapper.ba_global_function_tolerance", "0.000001"))
-    commands = [
-        feature_command,
-        [
-            colmap,
-            "sequential_matcher" if args.matcher == "sequential" else "exhaustive_matcher",
-            "--database_path",
-            str(work_dir / "database.db"),
-            "--SiftMatching.use_gpu",
-            "1" if args.use_gpu else "0",
-        ],
-        mapper_command,
+    if args.num_threads is not None:
+        mapper_command.extend(("--Mapper.num_threads", str(args.num_threads)))
+    matcher_command = [
+        colmap,
+        "sequential_matcher" if args.matcher == "sequential" else "exhaustive_matcher",
+        "--database_path",
+        str(work_dir / "database.db"),
+        "--SiftMatching.use_gpu",
+        "1" if args.use_gpu else "0",
     ]
-    command_logs = [run_command(command) for command in commands]
+    if args.num_threads is not None:
+        matcher_command.extend(("--SiftMatching.num_threads", str(args.num_threads)))
+    commands = [
+        ("colmap_feature_extraction", feature_command),
+        ("colmap_feature_matching", matcher_command),
+        ("colmap_mapping", mapper_command),
+    ]
+    command_logs = []
+    for stage, command in commands:
+        write_progress(args.progress_file, stage)
+        command_logs.append(run_command(command))
 
     model_dir, registered_images, sparse_points = find_largest_sparse_model(sparse_dir)
     model_source = model_dir
@@ -89,6 +104,7 @@ def main() -> None:
     training_image_dir = args.image_dir
     if args.gaussian_baseline:
         undistorted_dir = work_dir / "undistorted"
+        write_progress(args.progress_file, "colmap_undistortion")
         command_logs.append(
             run_command(
                 [
@@ -167,6 +183,7 @@ def main() -> None:
         f"matcher={args.matcher}",
         f"single_camera={args.single_camera}",
         f"use_gpu={args.use_gpu}",
+        f"num_threads={args.num_threads if args.num_threads is not None else 'auto'}",
         f"gaussian_baseline={args.gaussian_baseline}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
         *command_logs,
@@ -185,6 +202,15 @@ def discover_images(image_dir: Path) -> list[Path]:
         for path in sorted(image_dir.rglob("*"))
         if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
     ]
+
+
+def write_progress(path: Path | None, stage: str) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps({"stage": stage}) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def run_command(command: list[str]) -> str:

@@ -157,6 +157,44 @@ def test_running_cancellation_preserves_partial_workspace(tmp_path, monkeypatch)
     assert (partial / "diagnostics" / "partial.txt").read_text(encoding="utf-8") == "kept"
 
 
+def test_cancellable_command_captures_chatty_process_without_deadlock(tmp_path):
+    payload_size = 1_000_000
+    started = time.monotonic()
+
+    completed = run_cancellable_command(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                f"sys.stdout.write('o' * {payload_size}); sys.stdout.flush(); "
+                f"sys.stderr.write('e' * {payload_size}); sys.stderr.flush()"
+            ),
+        ],
+        cwd=tmp_path,
+        cancel_requested=lambda: False,
+        poll_seconds=0.01,
+    )
+
+    assert completed.stdout == "o" * payload_size
+    assert completed.stderr == "e" * payload_size
+    assert time.monotonic() - started < 5
+
+
+def test_cancellable_command_polls_callback_while_running(tmp_path):
+    polls = []
+
+    run_cancellable_command(
+        [sys.executable, "-c", "import time; time.sleep(0.05)"],
+        cwd=tmp_path,
+        cancel_requested=lambda: False,
+        poll_callback=lambda: polls.append(time.monotonic()),
+        poll_seconds=0.01,
+    )
+
+    assert len(polls) >= 2
+
+
 def test_cancellable_command_terminates_process_group(tmp_path):
     started = time.monotonic()
 

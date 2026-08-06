@@ -8,7 +8,70 @@ from pathlib import Path
 import pytest
 
 from image3d_scenegraph.gaussian.config import effective_config_hash, resolve_public_config
+from image3d_scenegraph.geometry.adapters import (
+    ProjectGaussianAdapter,
+    ReconstructionContext,
+    ReconstructionError,
+)
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
+
+
+def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_path):
+    progress_path = tmp_path / "progress.json"
+    updates = []
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={},
+        progress_callback=lambda stage, progress: updates.append((stage, progress)),
+    )
+    poll = ProjectGaussianAdapter._colmap_progress_callback(context, progress_path)
+
+    poll()
+    progress_path.write_text('{"stage":"colmap_feature_matching"}\n', encoding="utf-8")
+    poll()
+    poll()
+    progress_path.write_text('{"stage":"colmap_mapping"}\n', encoding="utf-8")
+    poll()
+
+    assert updates == [
+        ("colmap_feature_matching", 0.20),
+        ("colmap_mapping", 0.26),
+    ]
+
+
+def test_project_gaussian_colmap_uses_bounded_cpu_resources(tmp_path, monkeypatch):
+    captured = []
+
+    def fake_run(command, *args, **kwargs):
+        captured.append(command)
+        raise ReconstructionError("stop after COLMAP command capture")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters.os.cpu_count", lambda: 20
+    )
+    monkeypatch.delenv("IMAGE3D_COLMAP_NUM_THREADS", raising=False)
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={},
+    )
+
+    with pytest.raises(ReconstructionError, match="stop after COLMAP"):
+        ProjectGaussianAdapter().run(context)
+
+    command = captured[0]
+    assert "--no-use-gpu" in command
+    assert command[command.index("--num-threads") + 1] == "8"
+    assert command[command.index("--matcher") + 1] == "exhaustive"
+    assert "--gaussian-baseline" in command
 
 
 def test_create_image_job_and_read_outputs(tmp_path):
