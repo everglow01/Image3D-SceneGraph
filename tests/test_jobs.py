@@ -75,6 +75,40 @@ def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
     assert 'gaussian_effective_config={"densification":' in log
 
 
+def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    files = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    manifest = store.enqueue_job(
+        "multi_image",
+        files,
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"gaussian_trainer": "graphdeco"},
+    )
+    request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
+
+    assert manifest["gaussian_trainer"]["id"] == "graphdeco"
+    assert request["options"]["gaussian_trainer"] == "graphdeco"
+    assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
+    assert manifest["gaussian_config"]["schema_version"] == 5
+
+
+def test_project_gaussian_job_rejects_unknown_trainer(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    with pytest.raises(JobError, match="unsupported Gaussian trainer"):
+        store.enqueue_job(
+            "multi_image",
+            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"gaussian_trainer": "unknown"},
+        )
+
+
 def test_create_panorama_job(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 

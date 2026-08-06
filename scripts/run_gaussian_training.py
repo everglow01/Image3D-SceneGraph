@@ -20,6 +20,8 @@ from image3d_scenegraph.gaussian.initialization import (
     sparse_initialization,
     write_initialization,
 )
+from image3d_scenegraph.gaussian.external_trainer import train_external_gaussians
+from image3d_scenegraph.gaussian.trainers import TRAINER_IDS
 from image3d_scenegraph.gaussian.trainer import train_gaussians
 
 
@@ -28,6 +30,7 @@ def main() -> None:
     parser.add_argument("--dataset-contract", required=True, type=Path)
     parser.add_argument("--dataset-root", required=True, type=Path)
     parser.add_argument("--run-dir", required=True, type=Path)
+    parser.add_argument("--trainer", choices=TRAINER_IDS, default="project")
     parser.add_argument("--initialization", choices=["sparse", "dense"], required=True)
     parser.add_argument("--points", required=True, type=Path)
     parser.add_argument("--support-diagnostics", type=Path)
@@ -117,21 +120,30 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    result = train_gaussians(
-        contract=effective_contract,
-        dataset_root=args.dataset_root,
-        initialization=initialized,
-        resolved_config=resolved,
-        run_dir=args.run_dir,
-        attempt_id=args.attempt_id,
-        attempt_kind=args.attempt_kind,
-        parent_attempt_id=args.parent_attempt_id,
-        resume_iteration=args.resume_iteration,
-        cancel_requested=(
+    trainer = train_gaussians if args.trainer == "project" else train_external_gaussians
+    trainer_args = {
+        "contract": effective_contract,
+        "dataset_root": args.dataset_root,
+        "initialization": initialized,
+        "resolved_config": resolved,
+        "run_dir": args.run_dir,
+        "attempt_id": args.attempt_id,
+        "cancel_requested": (
             (lambda: args.cancel_file.exists()) if args.cancel_file is not None else None
         ),
-    )
-    print(json.dumps(result.__dict__, allow_nan=False))
+    }
+    if args.trainer == "project":
+        trainer_args.update(
+            attempt_kind=args.attempt_kind,
+            parent_attempt_id=args.parent_attempt_id,
+            resume_iteration=args.resume_iteration,
+        )
+    else:
+        if args.attempt_kind != "fresh":
+            raise SystemExit("external Gaussian trainers currently support fresh attempts only")
+        trainer_args["trainer_id"] = args.trainer
+    result = trainer(**trainer_args)
+    print(json.dumps({**result.__dict__, "trainer_id": args.trainer}, allow_nan=False))
 
 
 if __name__ == "__main__":

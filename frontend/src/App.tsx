@@ -12,6 +12,11 @@ import {
   Video
 } from "lucide-react";
 import { GeometryViewer } from "./GeometryViewer";
+import {
+  findGaussianTrainerStatus,
+  formatGaussianTrainerOption
+} from "./trainerOptions";
+import type { GaussianTrainer, GaussianTrainerStatus } from "./trainerOptions";
 
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
 type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "project_3dgs" | "nerfstudio_3dgs";
@@ -94,6 +99,12 @@ type Manifest = {
     scene_graph?: string;
     log?: string;
   };
+  gaussian_trainer?: {
+    id: GaussianTrainer;
+    label: string;
+    revision: string;
+    license: string;
+  };
   mesh_variants?: MeshVariant[];
   metrics: {
     num_inputs: number;
@@ -170,6 +181,7 @@ type BackendStatus = {
   reason: string | null;
   supported_outputs: OutputType[];
   setup_command: string | null;
+  gaussian_trainers?: GaussianTrainerStatus[];
 };
 
 const modeOptions: Array<{
@@ -224,6 +236,7 @@ export function App() {
   const [mode, setMode] = useState<Mode>("image");
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
+  const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("project");
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
   const [vggtBatchSize, setVggtBatchSize] = useState(8);
   const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
@@ -256,6 +269,11 @@ export function App() {
 
   const selectedMode = modeOptions.find((option) => option.id === mode) ?? modeOptions[0];
   const selectedBackendStatus = backendStatuses?.[geometryBackend];
+  const gaussianTrainerStatuses = selectedBackendStatus?.gaussian_trainers ?? [];
+  const selectedGaussianTrainerStatus = findGaussianTrainerStatus(
+    gaussianTrainerStatuses,
+    gaussianTrainer
+  );
   const selectedBackendAvailable = selectedBackendStatus?.available ?? geometryBackend === "mock";
   const selectedOutputSupported =
     selectedBackendStatus?.supported_outputs.includes(outputType) ?? outputType === "point_cloud";
@@ -434,6 +452,10 @@ export function App() {
       setError(`${outputType} is not supported by ${geometryBackend}.`);
       return;
     }
+    if (geometryBackend === "project_3dgs" && selectedGaussianTrainerStatus?.available === false) {
+      setError(selectedGaussianTrainerStatus.reason ?? "Selected Gaussian trainer is unavailable.");
+      return;
+    }
 
     const validationError = validateFiles(mode, files);
     if (validationError) {
@@ -468,6 +490,9 @@ export function App() {
       form.append("mode", mode);
       form.append("geometry_backend", geometryBackend);
       form.append("output_type", outputType);
+      if (geometryBackend === "project_3dgs") {
+        form.append("gaussian_trainer", gaussianTrainer);
+      }
       if (geometryBackend === "vggt") {
         form.append("vggt_max_images", String(vggtMaxImages));
         form.append("vggt_batch_size", String(vggtBatchSize));
@@ -672,6 +697,41 @@ export function App() {
                 ))}
               </select>
             </label>
+
+            {geometryBackend === "project_3dgs" && (
+              <label>
+                <span>Trainer</span>
+                <select
+                  value={gaussianTrainer}
+                  onChange={(event) => setGaussianTrainer(event.target.value as GaussianTrainer)}
+                >
+                  {(gaussianTrainerStatuses.length > 0
+                    ? gaussianTrainerStatuses
+                    : [
+                        {
+                          id: "project" as const,
+                          label: "Project (gsplat)",
+                          available: true,
+                          reason: null,
+                          setup_command: null,
+                          revision: "unknown",
+                          license: "Apache-2.0"
+                        }
+                      ]
+                  ).map((trainer) => (
+                    <option disabled={!trainer.available} key={trainer.id} value={trainer.id}>
+                      {formatGaussianTrainerOption(trainer)}
+                    </option>
+                  ))}
+                </select>
+                {selectedGaussianTrainerStatus?.reason && (
+                  <small>{selectedGaussianTrainerStatus.reason}</small>
+                )}
+                {selectedGaussianTrainerStatus?.setup_command && (
+                  <small>{selectedGaussianTrainerStatus.setup_command}</small>
+                )}
+              </label>
+            )}
 
             {geometryBackend === "vggt" && (
               <div className="numeric-grid">
@@ -997,6 +1057,10 @@ export function App() {
             <div>
               <dt>Output</dt>
               <dd>{currentStatus?.output_type ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Trainer</dt>
+              <dd>{manifest?.gaussian_trainer?.label ?? "-"}</dd>
             </div>
             <div>
               <dt>Inputs</dt>

@@ -107,6 +107,25 @@ class ProjectGaussianAdapter:
         config_record = context.options.get("gaussian_config_record")
         if not isinstance(config_record, str):
             raise ReconstructionError("project 3DGS requires a resolved Gaussian config record")
+        trainer_id = str(context.options.get("gaussian_trainer", "project"))
+        try:
+            from image3d_scenegraph.gaussian.trainers import (
+                get_gaussian_trainer_specs,
+                validate_trainer_id,
+            )
+
+            validate_trainer_id(trainer_id)
+            trainer_spec = next(
+                spec
+                for spec in get_gaussian_trainer_specs(project_root)
+                if spec.trainer_id == trainer_id
+            )
+            if not trainer_spec.available:
+                raise ReconstructionError(
+                    f"{trainer_spec.label} is unavailable: {trainer_spec.reason}"
+                )
+        except ImportError as exc:
+            raise ReconstructionError(str(exc)) from exc
         config_path.write_text(config_record + "\n", encoding="utf-8")
         training_dir = context.job_dir / "gaussian"
         command_train = [
@@ -118,6 +137,8 @@ class ProjectGaussianAdapter:
             str(context.job_dir),
             "--run-dir",
             str(training_dir),
+            "--trainer",
+            trainer_id,
             "--initialization",
             "sparse",
             "--points",
@@ -240,6 +261,7 @@ class ProjectGaussianAdapter:
             "geometry_backend=project_3dgs",
             "output_type=gaussian_splat",
             "adapter=ProjectGaussianAdapter",
+            f"gaussian_trainer={trainer_id}",
             f"trainer={' '.join(command_train)}",
         ]
         if completed.stdout.strip():
@@ -262,6 +284,7 @@ class ProjectGaussianAdapter:
             },
             metrics={
                 "gaussian_count": int(result["gaussian_count"]),
+                "gaussian_trainer": trainer_id,
                 "gaussian_initial_loss": float(result["initial_loss"]),
                 "gaussian_final_loss": float(result["final_loss"]),
                 "gaussian_peak_allocated_bytes": int(result["peak_allocated_bytes"]),

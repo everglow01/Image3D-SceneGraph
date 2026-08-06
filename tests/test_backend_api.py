@@ -41,7 +41,46 @@ def test_public_job_schema_has_no_raw_gaussian_hyperparameters(tmp_path):
 
     properties = body_schema["properties"]
     assert "quality_profile" not in properties
-    assert not any("gaussian" in name for name in properties)
+    assert "gaussian_trainer" in properties
+    assert not any(
+        "gaussian" in name and name != "gaussian_trainer" for name in properties
+    )
+
+
+def test_create_job_forwards_gaussian_trainer(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "gaussian_trainer": "nerfstudio",
+        },
+        files=[
+            ("files", (f"{index}.jpg", b"image", "image/jpeg"))
+            for index in range(12)
+        ],
+    )
+
+    assert response.status_code == 202
+    assert store.options == {"gaussian_trainer": "nerfstudio"}
+
+
+def test_create_job_rejects_invalid_gaussian_trainer(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/jobs",
+        data={"gaussian_trainer": "unknown"},
+        files=[("files", ("room.jpg", b"image", "image/jpeg"))],
+    )
+    assert response.status_code == 422
 
 
 def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):

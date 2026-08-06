@@ -58,6 +58,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         mode: Annotated[str, Form()] = "image",
         geometry_backend: Annotated[str, Form()] = "mock",
         output_type: Annotated[str, Form()] = "point_cloud",
+        gaussian_trainer: Annotated[
+            Literal["project", "graphdeco", "nerfstudio"], Form()
+        ] = "project",
         vggt_max_images: Annotated[int | None, Form()] = None,
         vggt_batch_size: Annotated[int | None, Form()] = None,
         vggt_overlap_size: Annotated[int | None, Form()] = None,
@@ -90,6 +93,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         options = {
             key: value
             for key, value in {
+                "gaussian_trainer": (
+                    gaussian_trainer if geometry_backend == "project_3dgs" else None
+                ),
                 "vggt_max_images": vggt_max_images,
                 "vggt_batch_size": vggt_batch_size,
                 "vggt_overlap_size": vggt_overlap_size,
