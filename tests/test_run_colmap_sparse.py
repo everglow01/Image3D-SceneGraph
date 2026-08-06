@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 import struct
+import sys
 
+import pytest
+
+from scripts import run_colmap_sparse
 from scripts.run_colmap_sparse import find_largest_sparse_model, read_sparse_model_counts
 
 
@@ -40,3 +45,83 @@ def test_sparse_model_counts_support_text_models(tmp_path):
     )
 
     assert read_sparse_model_counts(model) == (2, 2)
+
+
+def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    progress_path = tmp_path / "progress.json"
+    image_dir.mkdir()
+    (image_dir / "frame.jpg").write_bytes(b"image")
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "mapper":
+            model = output_dir / "colmap" / "sparse" / "0"
+            model.mkdir(parents=True)
+            _write_binary_count(model / "images.bin", 1)
+            _write_binary_count(model / "points3D.bin", 1)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            path = output_dir / "geometry" / "points.ply"
+            path.write_text("ply\nelement vertex 1\nend_header\n", encoding="utf-8")
+        elif command[1] == "model_converter" and command[-1] == "TXT":
+            path = output_dir / "colmap" / "sparse_txt"
+            (path / "cameras.txt").write_text(
+                "1 PINHOLE 64 64 50 50 32 32\n", encoding="utf-8"
+            )
+            (path / "images.txt").write_text(
+                "1 1 0 0 0 0 0 0 1 frame.jpg\n\n", encoding="utf-8"
+            )
+        return "ok"
+
+    monkeypatch.setattr(run_colmap_sparse.shutil, "which", lambda _: "/usr/bin/colmap")
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--no-use-gpu",
+            "--num-threads",
+            "4",
+            "--progress-file",
+            str(progress_path),
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    feature, matcher, mapper = commands[:3]
+    assert feature[feature.index("--SiftExtraction.use_gpu") + 1] == "0"
+    assert feature[feature.index("--SiftExtraction.num_threads") + 1] == "4"
+    assert matcher[matcher.index("--SiftMatching.use_gpu") + 1] == "0"
+    assert matcher[matcher.index("--SiftMatching.num_threads") + 1] == "4"
+    assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
+    assert json.loads(progress_path.read_text()) == {"stage": "colmap_mapping"}
+    log = (output_dir / "logs" / "run.log").read_text()
+    assert "use_gpu=False\n" in log
+    assert "num_threads=4\n" in log
+
+
+def test_runner_rejects_nonpositive_thread_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path),
+            "--num-threads",
+            "0",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        run_colmap_sparse.main()

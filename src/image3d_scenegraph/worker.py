@@ -4,6 +4,7 @@ import fcntl
 import os
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -77,35 +78,43 @@ def run_cancellable_command(
     env: Mapping[str, str] | None = None,
     poll_seconds: float = 0.1,
     terminate_timeout: float = 2.0,
+    poll_callback: Callable[[], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess group and terminate it when cancellation is requested."""
-    process = subprocess.Popen(
-        command,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    try:
-        while process.poll() is None:
-            if cancel_requested():
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=terminate_timeout)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
-                stdout, stderr = process.communicate()
-                raise JobCancelled("job cancellation requested")
-            time.sleep(poll_seconds)
-        stdout, stderr = process.communicate()
-    except BaseException:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-        raise
+    with tempfile.TemporaryFile(mode="w+") as stdout_file, tempfile.TemporaryFile(
+        mode="w+"
+    ) as stderr_file:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            while process.poll() is None:
+                if poll_callback is not None:
+                    poll_callback()
+                if cancel_requested():
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=terminate_timeout)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+                    raise JobCancelled("job cancellation requested")
+                time.sleep(poll_seconds)
+        except BaseException:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            raise
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read()
+        stderr = stderr_file.read()
     completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     if completed.returncode:
         raise subprocess.CalledProcessError(
