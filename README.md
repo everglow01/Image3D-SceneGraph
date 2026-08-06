@@ -126,11 +126,18 @@ uv run python scripts/setup_gaussian_trainer.py \
 
 Graphdeco is licensed only for research/evaluation; its setup requires explicit acknowledgement. Both checkouts, environments, and generated results stay ignored locally. These commands never alter the project uv environment.
 
-Install COLMAP before using the COLMAP baseline:
+Install the isolated CUDA-enabled COLMAP before using GPU SIFT. The setup script is a dry run unless `--install` is supplied and never invokes `sudo`:
 
 ```bash
-sudo apt install colmap
+uv run python scripts/setup_colmap_cuda.py
+sudo apt-get update
+sudo apt-get install -y \
+  cmake libfreeimage-dev libmetis-dev libgoogle-glog-dev \
+  libceres-dev libsuitesparse-dev
+uv run python scripts/setup_colmap_cuda.py --install
 ```
+
+The pinned build is installed under ignored `external/colmap-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`.
 
 Run COLMAP sparse SfM directly for a local image folder:
 

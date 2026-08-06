@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import struct
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
+
+from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
@@ -21,19 +22,27 @@ def main() -> None:
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
     parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--gpu-index", type=int, default=0)
     parser.add_argument("--num-threads", type=int)
     parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--gaussian-baseline", action="store_true")
     args = parser.parse_args()
+    if args.gpu_index < 0:
+        parser.error("--gpu-index must be non-negative")
     if args.num_threads is not None and args.num_threads < 1:
         parser.error("--num-threads must be at least 1")
     if args.gaussian_baseline and args.matcher != "exhaustive":
         raise SystemExit("Gaussian baseline requires exhaustive COLMAP matching")
 
     started_at = time.perf_counter()
-    colmap = shutil.which("colmap")
-    if colmap is None:
-        raise SystemExit("COLMAP executable not found. Install COLMAP and ensure `colmap` is on PATH.")
+    colmap_path = resolve_colmap_executable()
+    if colmap_path is None:
+        raise SystemExit(
+            "COLMAP executable not found. Run `uv run python scripts/setup_colmap_cuda.py --install` "
+            "or install COLMAP on PATH."
+        )
+    colmap = str(colmap_path)
+    colmap_build = colmap_version(colmap)
 
     image_paths = discover_images(args.image_dir)
     if not image_paths:
@@ -59,6 +68,8 @@ def main() -> None:
         "1" if args.single_camera else "0",
         "--SiftExtraction.use_gpu",
         "1" if args.use_gpu else "0",
+        "--SiftExtraction.gpu_index",
+        str(args.gpu_index),
     ]
     if args.gaussian_baseline:
         feature_command.extend(("--ImageReader.camera_model", "OPENCV"))
@@ -85,6 +96,8 @@ def main() -> None:
         str(work_dir / "database.db"),
         "--SiftMatching.use_gpu",
         "1" if args.use_gpu else "0",
+        "--SiftMatching.gpu_index",
+        str(args.gpu_index),
     ]
     if args.num_threads is not None:
         matcher_command.extend(("--SiftMatching.num_threads", str(args.num_threads)))
@@ -182,7 +195,10 @@ def main() -> None:
         f"camera_models={','.join(sorted(camera['model'] for camera in camera_payload['cameras']))}",
         f"matcher={args.matcher}",
         f"single_camera={args.single_camera}",
+        f"colmap_executable={colmap}",
+        f"colmap_build={colmap_build}",
         f"use_gpu={args.use_gpu}",
+        f"gpu_index={args.gpu_index}",
         f"num_threads={args.num_threads if args.num_threads is not None else 'auto'}",
         f"gaussian_baseline={args.gaussian_baseline}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
@@ -211,6 +227,15 @@ def write_progress(path: Path | None, stage: str) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps({"stage": stage}) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+def colmap_version(colmap: str) -> str:
+    completed = subprocess.run(
+        [colmap, "-h"], check=True, capture_output=True, text=True
+    )
+    output = completed.stdout + completed.stderr
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return " ".join(lines[:2]) or "unknown"
 
 
 def run_command(command: list[str]) -> str:

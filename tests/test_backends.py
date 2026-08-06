@@ -21,6 +21,22 @@ def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
     assert "colmap executable not found" in (specs["colmap_vggt"].reason or "")
 
 
+def test_backend_specs_prefer_project_local_colmap(tmp_path, monkeypatch):
+    external_root = tmp_path / "external"
+    colmap = external_root / "colmap-cuda" / "install" / "bin" / "colmap"
+    colmap.parent.mkdir(parents=True)
+    colmap.write_text("#!/bin/sh\n", encoding="utf-8")
+    colmap.chmod(0o755)
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(external_root))
+    monkeypatch.setenv("IMAGE3D_CHECKPOINT_ROOT", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv("PATH", "")
+
+    specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
+
+    assert specs["colmap"].available is True
+    assert "setup_colmap_cuda.py" in (specs["colmap"].setup_command or "")
+
+
 def test_backend_specs_keep_vggt_disabled_until_checkpoint_exists(tmp_path, monkeypatch):
     external_root = tmp_path / "external"
     checkpoint_root = tmp_path / "checkpoints"

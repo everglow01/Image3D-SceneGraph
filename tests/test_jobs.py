@@ -42,7 +42,9 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
     ]
 
 
-def test_project_gaussian_colmap_uses_bounded_cpu_resources(tmp_path, monkeypatch):
+def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
+    tmp_path, monkeypatch
+):
     captured = []
 
     def fake_run(command, *args, **kwargs):
@@ -68,7 +70,9 @@ def test_project_gaussian_colmap_uses_bounded_cpu_resources(tmp_path, monkeypatc
         ProjectGaussianAdapter().run(context)
 
     command = captured[0]
-    assert "--no-use-gpu" in command
+    assert "--use-gpu" in command
+    assert "--no-use-gpu" not in command
+    assert command[command.index("--gpu-index") + 1] == "0"
     assert command[command.index("--num-threads") + 1] == "8"
     assert command[command.index("--matcher") + 1] == "exhaustive"
     assert "--gaussian-baseline" in command

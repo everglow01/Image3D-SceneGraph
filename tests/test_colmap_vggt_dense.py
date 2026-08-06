@@ -40,6 +40,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     map_original_pixel_to_vggt,
     optimize_depth_scale_graph,
     prepare_colmap_text_model,
+    run_colmap_pipeline,
     run_vggt_depth_batches,
     undistort_radial_coordinates,
     undistort_to_pinhole,
@@ -49,6 +50,38 @@ from run_colmap_vggt_dense import (  # noqa: E402
     validate_tsdf_output,
     write_support_point_diagnostics,
 )
+
+
+def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        return "ok"
+
+    monkeypatch.setattr("run_colmap_vggt_dense.run_command", fake_run)
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.convert_best_sparse_model",
+        lambda *_: (tmp_path / "sparse" / "0", []),
+    )
+
+    run_colmap_pipeline(
+        colmap="/project/colmap",
+        image_dir=tmp_path / "images",
+        database_path=tmp_path / "database.db",
+        sparse_dir=tmp_path / "sparse",
+        text_dir=tmp_path / "sparse_txt",
+        matcher="exhaustive",
+        single_camera=True,
+        mapper_abs_pose_min_num_inliers=30,
+        mapper_abs_pose_min_inlier_ratio=0.25,
+    )
+
+    feature, matcher, _ = commands
+    assert feature[feature.index("--SiftExtraction.use_gpu") + 1] == "1"
+    assert feature[feature.index("--SiftExtraction.gpu_index") + 1] == "0"
+    assert matcher[matcher.index("--SiftMatching.use_gpu") + 1] == "1"
+    assert matcher[matcher.index("--SiftMatching.gpu_index") + 1] == "0"
 
 
 def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):

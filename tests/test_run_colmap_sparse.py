@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import struct
+import subprocess
 import sys
 
 import pytest
 
 from scripts import run_colmap_sparse
-from scripts.run_colmap_sparse import find_largest_sparse_model, read_sparse_model_counts
+from scripts.run_colmap_sparse import colmap_version, find_largest_sparse_model, read_sparse_model_counts
 
 
 def _write_binary_count(path, count: int) -> None:
@@ -47,6 +48,25 @@ def test_sparse_model_counts_support_text_models(tmp_path):
     assert read_sparse_model_counts(model) == (2, 2)
 
 
+def test_colmap_version_includes_cuda_build_line(monkeypatch):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_, **__: subprocess.CompletedProcess(
+            [],
+            0,
+            "COLMAP 3.9.1 -- Structure-from-Motion and Multi-View Stereo\n"
+            "(Commit e990364 on 2024-01-08 with CUDA)\n",
+            "",
+        ),
+    )
+
+    assert colmap_version("colmap") == (
+        "COLMAP 3.9.1 -- Structure-from-Motion and Multi-View Stereo "
+        "(Commit e990364 on 2024-01-08 with CUDA)"
+    )
+
+
 def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
@@ -75,7 +95,12 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
             )
         return "ok"
 
-    monkeypatch.setattr(run_colmap_sparse.shutil, "which", lambda _: "/usr/bin/colmap")
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse, "colmap_version", lambda _: "COLMAP 3.9.1 with CUDA"
+    )
     monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
     monkeypatch.setattr(
         sys,
@@ -87,6 +112,8 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
             "--output-dir",
             str(output_dir),
             "--no-use-gpu",
+            "--gpu-index",
+            "0",
             "--num-threads",
             "4",
             "--progress-file",
@@ -98,13 +125,18 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
 
     feature, matcher, mapper = commands[:3]
     assert feature[feature.index("--SiftExtraction.use_gpu") + 1] == "0"
+    assert feature[feature.index("--SiftExtraction.gpu_index") + 1] == "0"
     assert feature[feature.index("--SiftExtraction.num_threads") + 1] == "4"
     assert matcher[matcher.index("--SiftMatching.use_gpu") + 1] == "0"
+    assert matcher[matcher.index("--SiftMatching.gpu_index") + 1] == "0"
     assert matcher[matcher.index("--SiftMatching.num_threads") + 1] == "4"
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
     assert json.loads(progress_path.read_text()) == {"stage": "colmap_mapping"}
     log = (output_dir / "logs" / "run.log").read_text()
+    assert "colmap_executable=" in log
+    assert "colmap_build=COLMAP 3.9.1 with CUDA\n" in log
     assert "use_gpu=False\n" in log
+    assert "gpu_index=0\n" in log
     assert "num_threads=4\n" in log
 
 

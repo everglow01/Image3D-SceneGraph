@@ -17,6 +17,7 @@ import numpy as np
 import open3d as o3d
 import torch
 
+from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 from image3d_scenegraph.geometry.grouping import (
     GROUPING_MAX_NEIGHBORS,
     GROUPING_MIN_SHARED_POINTS,
@@ -303,9 +304,13 @@ def main() -> None:
         raise SystemExit("--support-diagnostics-output requires --fusion-mode points")
 
     started_at = time.perf_counter()
-    colmap = shutil.which("colmap")
-    if colmap is None:
-        raise SystemExit("COLMAP executable not found. Install COLMAP and ensure `colmap` is on PATH.")
+    colmap_path = resolve_colmap_executable()
+    if colmap_path is None:
+        raise SystemExit(
+            "COLMAP executable not found. Run `uv run python scripts/setup_colmap_cuda.py --install` "
+            "or install COLMAP on PATH."
+        )
+    colmap = str(colmap_path)
 
     image_paths = discover_images(args.image_dir)
     if not image_paths:
@@ -1032,6 +1037,7 @@ def main() -> None:
         ),
         *consistency_log_lines,
         f"matcher={args.matcher}",
+        f"colmap_executable={colmap}",
         f"colmap_source={colmap_source}",
         f"vggt_batch_size={args.vggt_batch_size}",
         f"vggt_overlap_size={args.vggt_overlap_size}",
@@ -1117,6 +1123,8 @@ def run_colmap_pipeline(
             str(int(single_camera)),
             "--SiftExtraction.use_gpu",
             "1",
+            "--SiftExtraction.gpu_index",
+            "0",
         ],
         [
             colmap,
@@ -1125,6 +1133,8 @@ def run_colmap_pipeline(
             str(database_path),
             "--SiftMatching.use_gpu",
             "1",
+            "--SiftMatching.gpu_index",
+            "0",
         ],
         [
             colmap,
