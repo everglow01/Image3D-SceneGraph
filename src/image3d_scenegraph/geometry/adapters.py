@@ -17,7 +17,6 @@ VALID_GEOMETRY_BACKENDS = {
     "dust3r",
     "mast3r",
     "project_3dgs",
-    "nerfstudio_3dgs",
 }
 VALID_OUTPUT_TYPES = {"point_cloud", "mesh", "gaussian_splat"}
 
@@ -155,7 +154,7 @@ class ProjectGaussianAdapter:
         config_record = context.options.get("gaussian_config_record")
         if not isinstance(config_record, str):
             raise ReconstructionError("project 3DGS requires a resolved Gaussian config record")
-        trainer_id = str(context.options.get("gaussian_trainer", "project"))
+        trainer_id = str(context.options.get("gaussian_trainer", "graphdeco"))
         try:
             from image3d_scenegraph.gaussian.trainers import (
                 get_gaussian_trainer_specs,

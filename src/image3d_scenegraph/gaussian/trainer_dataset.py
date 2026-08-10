@@ -1,10 +1,9 @@
-"""Shared native datasets for project, Graphdeco, and Nerfstudio trainers."""
+"""Shared native dataset preparation for Graphdeco."""
 
 from __future__ import annotations
 
 import json
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -27,15 +26,12 @@ def prepare_external_dataset(
     output_dir: Path,
 ) -> dict[str, Any]:
     validate_contract(contract, dataset_root)
-    if trainer not in {"graphdeco", "nerfstudio"}:
+    if trainer != "graphdeco":
         raise TrainerDatasetError(f"unsupported external trainer dataset: {trainer}")
     if output_dir.exists():
         raise TrainerDatasetError(f"trainer dataset already exists: {output_dir}")
     output_dir.mkdir(parents=True)
-    if trainer == "graphdeco":
-        _prepare_graphdeco(contract, dataset_root, initialization, output_dir)
-    else:
-        _prepare_nerfstudio(contract, dataset_root, initialization, output_dir)
+    _prepare_graphdeco(contract, dataset_root, initialization, output_dir)
     record = _integrity_record(trainer, contract, dataset_root, initialization, output_dir)
     (output_dir / "integrity.json").write_text(
         json.dumps(record, indent=2) + "\n", encoding="utf-8"
@@ -65,57 +61,6 @@ def _prepare_graphdeco(
         if image["image_id"] in contract["splits"]["validation"]
     )
     (sparse_dir / "test.txt").write_text("\n".join(validation_names) + "\n", encoding="utf-8")
-
-
-def _prepare_nerfstudio(
-    contract: dict[str, Any],
-    dataset_root: Path,
-    initialization: InitializationResult,
-    output_dir: Path,
-) -> None:
-    images_dir = output_dir / "images"
-    images_dir.mkdir()
-    normalized_from_world = np.asarray(
-        contract["normalization"]["normalized_from_world"], dtype=np.float64
-    )
-    frames = []
-    filenames: dict[str, str] = {}
-    opencv_to_opengl = np.diag([1.0, -1.0, -1.0, 1.0])
-    for image in contract["images"]:
-        name = Path(image["path"]).name
-        source = (dataset_root / image["path"]).resolve()
-        os.link(source, images_dir / name)
-        filenames[image["image_id"]] = f"images/{name}"
-        world_from_camera = np.asarray(image["world_from_camera"], dtype=np.float64)
-        normalized_from_opengl_camera = (
-            normalized_from_world @ world_from_camera @ opencv_to_opengl
-        )
-        intrinsic = np.asarray(image["intrinsic"], dtype=np.float64)
-        frames.append(
-            {
-                "file_path": f"images/{name}",
-                "transform_matrix": normalized_from_opengl_camera.tolist(),
-                "fl_x": float(intrinsic[0, 0]),
-                "fl_y": float(intrinsic[1, 1]),
-                "cx": float(intrinsic[0, 2]),
-                "cy": float(intrinsic[1, 2]),
-                "w": int(image["width"]),
-                "h": int(image["height"]),
-            }
-        )
-    payload = {
-        "camera_model": "OPENCV",
-        "orientation_override": "none",
-        "frames": frames,
-        "train_filenames": [filenames[value] for value in contract["splits"]["train"]],
-        "val_filenames": [filenames[value] for value in contract["splits"]["validation"]],
-        "test_filenames": [filenames[value] for value in contract["splits"]["test"]],
-        "ply_file_path": "sparse_pc.ply",
-    }
-    (output_dir / "transforms.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
-    _write_rgb_ply(output_dir / "sparse_pc.ply", initialization.points, initialization.colors)
 
 
 def _write_colmap_text(
@@ -159,23 +104,6 @@ def _write_colmap_text(
     (sparse_dir / "cameras.txt").write_text("\n".join(camera_rows) + "\n", encoding="utf-8")
     (sparse_dir / "images.txt").write_text("\n".join(image_rows) + "\n", encoding="utf-8")
     (sparse_dir / "points3D.txt").write_text("\n".join(point_rows) + "\n", encoding="utf-8")
-
-
-def _write_rgb_ply(path: Path, points: np.ndarray, colors: np.ndarray) -> None:
-    header = (
-        "ply\nformat binary_little_endian 1.0\n"
-        f"element vertex {len(points)}\n"
-        "property float x\nproperty float y\nproperty float z\n"
-        "property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n"
-    ).encode("ascii")
-    rows = np.empty(
-        len(points),
-        dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
-               ("red", "u1"), ("green", "u1"), ("blue", "u1")],
-    )
-    rows["x"], rows["y"], rows["z"] = points.T
-    rows["red"], rows["green"], rows["blue"] = colors.T
-    path.write_bytes(header + rows.tobytes())
 
 
 def _integrity_record(

@@ -82,14 +82,6 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             supported_outputs=("point_cloud",),
         ),
         _project_gaussian_spec(root, colmap),
-        BackendSpec(
-            backend_id="nerfstudio_3dgs",
-            label="Imported Nerfstudio splat (legacy)",
-            supported_outputs=("gaussian_splat",),
-            available=False,
-            reason="automatic 3DGS training is not implemented; register exported splats with scripts/register_gaussian_splat.py",
-            setup_command=None,
-        ),
     ]
 
 

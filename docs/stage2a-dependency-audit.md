@@ -74,7 +74,6 @@ At audit time:
 
 - base installation: no PyTorch, gsplat, Nerfstudio, or Splatfacto is selected; the lockfile contains PyTorch/gsplat only for the explicit `gpu` extra;
 - frontend lock: viewer plus Three.js, no Nerfstudio dependency;
-- `scripts/register_gaussian_splat.py`: copies an existing export and is legacy/reference-only;
-- any README command using a separate Nerfstudio tree describes the historical import route, not the Stage 2 runtime.
+- the former exported-splat registration script and README import route were removed when the Nerfstudio integration was retired.
 
 No full external 3DGS platform is approved for installation, training, evaluation, checkpointing, or export.

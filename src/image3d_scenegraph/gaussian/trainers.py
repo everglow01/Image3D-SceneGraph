@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import Any
 
 
-TRAINER_IDS = ("project", "graphdeco", "nerfstudio")
+TRAINER_IDS = ("project", "graphdeco")
 GRAPHDECO_COMMIT = "54c035f7834b564019656c3e3fcc3646292f727d"
-NERFSTUDIO_COMMIT = "50e0e3c70c775e89333256213363badbf074f29d"
 
 
 class GaussianTrainerError(ValueError):
@@ -60,14 +59,6 @@ def get_gaussian_trainer_specs(
             executable="python",
             revision=GRAPHDECO_COMMIT,
             license_name="Graphdeco research/evaluation only",
-        ),
-        _external_spec(
-            trainer_id="nerfstudio",
-            label="Nerfstudio Splatfacto",
-            root=external_root / "nerfstudio",
-            executable="ns-train",
-            revision=NERFSTUDIO_COMMIT,
-            license_name="Apache-2.0",
         ),
     ]
 

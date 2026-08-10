@@ -17,7 +17,7 @@ PYTORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu121"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Set up optional geometry backends.")
-    parser.add_argument("--backend", choices=["vggt", "dust3r", "mast3r", "nerfstudio_3dgs"], required=True)
+    parser.add_argument("--backend", choices=["vggt", "dust3r", "mast3r"], required=True)
     parser.add_argument("--install", action="store_true", help="Actually install/download files. Default is dry-run.")
     parser.add_argument("--force", action="store_true", help="Bypass the free-space guard.")
     parser.add_argument("--min-free-gb", type=float, default=VGGT_MIN_FREE_GB)
@@ -45,11 +45,6 @@ def main() -> None:
             model_id=args.model_id,
             torch_index_url=args.torch_index_url,
         )
-        return
-
-    if spec.backend_id == "nerfstudio_3dgs":
-        print("Nerfstudio 3DGS is currently supported as an import path, not an automatic training backend.")
-        print("Export an existing Nerfstudio splatfacto checkpoint, then run scripts/register_gaussian_splat.py.")
         return
 
     print(f"{spec.label} setup is not implemented yet.")

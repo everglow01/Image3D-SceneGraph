@@ -72,14 +72,8 @@ def train_external_gaussians(
 
     iterations = int(config["iterations"])
     seed = int(config["seed"])
-    command = (
-        _graphdeco_command(
-            project_root, native_dataset, native_output, iterations, seed
-        )
-        if trainer_id == "graphdeco"
-        else _nerfstudio_command(
-            project_root, native_dataset, native_output, iterations, seed
-        )
+    command = _graphdeco_command(
+        project_root, native_dataset, native_output, iterations, seed
     )
     command_record = {
         "trainer": trainer_record(trainer_id, project_root),
@@ -97,16 +91,14 @@ def train_external_gaussians(
     elapsed = time.perf_counter() - started
     (native_output / "stdout.log").write_text(completed.stdout, encoding="utf-8")
     (native_output / "stderr.log").write_text(completed.stderr, encoding="utf-8")
-    native_ply = _find_native_ply(trainer_id, native_output, project_root)
-    losses = _native_losses(trainer_id, native_output, completed, project_root)
+    native_ply = _find_native_ply(native_output)
+    losses = _native_losses(native_output, completed, project_root)
     trainer_info = command_record["trainer"] | {
         "command_hash": command_record["command_hash"]
     }
     model_path = artifact_dir / "model.pt"
-    transform = (
-        np.asarray(contract["normalization"]["normalized_from_world"], dtype=np.float64)
-        if trainer_id == "graphdeco"
-        else None
+    transform = np.asarray(
+        contract["normalization"]["normalized_from_world"], dtype=np.float64
     )
     imported = import_inria_ply(
         native_ply,
@@ -180,36 +172,6 @@ def _graphdeco_command(
     ]
 
 
-def _nerfstudio_command(
-    project_root: Path,
-    dataset: Path,
-    output: Path,
-    iterations: int,
-    seed: int = 42,
-) -> list[str]:
-    executable = project_root / "external" / "nerfstudio" / ".venv" / "bin" / "ns-train"
-    return [
-        str(executable),
-        "splatfacto",
-        "--output-dir", str(output),
-        "--experiment-name", "image3d",
-        "--timestamp", "train",
-        "--machine.seed", str(seed),
-        "--pipeline.datamanager.train-cameras-sampling-seed", str(seed),
-        "--max-num-iterations", str(iterations),
-        "--steps-per-save", str(iterations),
-        "--steps-per-eval-all-images", str(iterations),
-        "--vis", "tensorboard",
-        "--pipeline.model.camera-optimizer.mode", "off",
-        "nerfstudio-data",
-        "--data", str(dataset),
-        "--orientation-method", "none",
-        "--center-method", "none",
-        "--auto-scale-poses", "False",
-        "--downscale-factor", "1",
-    ]
-
-
 def _run(
     command: list[str],
     *,
@@ -236,51 +198,22 @@ def _run(
         raise TrainingError(f"external Gaussian trainer failed:\n{details}") from exc
 
 
-def _find_native_ply(trainer_id: str, output: Path, project_root: Path) -> Path:
-    if trainer_id == "graphdeco":
-        candidates = sorted(output.glob("point_cloud/iteration_*/point_cloud.ply"))
-    else:
-        configs = sorted(output.glob("image3d/splatfacto/*/config.yml"))
-        if not configs:
-            raise TrainingError("Nerfstudio trainer did not produce config.yml")
-        export_dir = output / "export"
-        executable = project_root / "external" / "nerfstudio" / ".venv" / "bin" / "ns-export"
-        subprocess.run(
-            [str(executable), "gaussian-splat", "--load-config", str(configs[-1]),
-             "--output-dir", str(export_dir), "--output-filename", "splat.ply",
-             "--ply-color-mode", "sh_coeffs"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        candidates = [export_dir / "splat.ply"]
+def _find_native_ply(output: Path) -> Path:
+    candidates = sorted(output.glob("point_cloud/iteration_*/point_cloud.ply"))
     if not candidates or not candidates[-1].is_file():
-        raise TrainingError(f"{trainer_id} trainer did not produce a Gaussian PLY")
+        raise TrainingError("graphdeco trainer did not produce a Gaussian PLY")
     return candidates[-1]
 
 
 def _native_losses(
-    trainer_id: str,
     output: Path,
     completed: subprocess.CompletedProcess[str],
     project_root: Path,
 ) -> list[float]:
-    event_python = (
-        project_root / "external" / "gaussian-splatting" / ".venv" / "bin" / "python"
-        if trainer_id == "graphdeco"
-        else project_root / "external" / "nerfstudio" / ".venv" / "bin" / "python"
-    )
-    events = sorted(
-        output.glob("events.out.tfevents.*")
-        if trainer_id == "graphdeco"
-        else output.rglob("events.out.tfevents.*")
-    )
+    event_python = project_root / "external" / "gaussian-splatting" / ".venv" / "bin" / "python"
+    events = sorted(output.glob("events.out.tfevents.*"))
     if events:
-        tags = (
-            ["train_loss_patches/total_loss"]
-            if trainer_id == "graphdeco"
-            else ["Train Loss", "Train Loss/total_loss", "Train Loss Dict/main_loss"]
-        )
+        tags = ["train_loss_patches/total_loss"]
         script = (
             "import json,sys;from tensorboard.backend.event_processing.event_accumulator "
             "import EventAccumulator;a=EventAccumulator(sys.argv[1],size_guidance={'scalars':0});"

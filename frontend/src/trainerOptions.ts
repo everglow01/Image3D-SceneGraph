@@ -1,4 +1,4 @@
-export type GaussianTrainer = "project" | "graphdeco" | "nerfstudio";
+export type GaussianTrainer = "project" | "graphdeco";
 
 export type GaussianTrainerStatus = {
   id: GaussianTrainer;

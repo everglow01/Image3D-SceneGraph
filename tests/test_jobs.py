@@ -164,6 +164,25 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert manifest["gaussian_config"]["schema_version"] == 6
 
 
+def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    files = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    manifest = store.enqueue_job(
+        "multi_image",
+        files,
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+    )
+    request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
+
+    assert manifest["gaussian_trainer"]["id"] == "graphdeco"
+    assert request["options"]["gaussian_trainer"] == "graphdeco"
+
+
 def test_project_gaussian_job_rejects_unknown_trainer(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
     with pytest.raises(JobError, match="unsupported Gaussian trainer"):

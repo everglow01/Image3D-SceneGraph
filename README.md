@@ -79,9 +79,9 @@ Current mock API:
 `POST /api/jobs` accepts multipart form data:
 
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
-- `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, `mast3r`, or legacy `nerfstudio_3dgs`
+- `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, or `mast3r`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
-- `gaussian_trainer`: `project` (default), `graphdeco`, or `nerfstudio`; used only with `project_3dgs + gaussian_splat`
+- `gaussian_trainer`: `graphdeco` (default) or `project`; used only with `project_3dgs + gaussian_splat`
 - `files`: one or more uploaded files
 
 Implemented geometry paths:
@@ -90,9 +90,9 @@ Implemented geometry paths:
 - `geometry_backend=vggt` with `output_type=point_cloud` or `mesh`, when the local VGGT repo and checkpoint are installed
 - `geometry_backend=colmap` with `output_type=point_cloud` or `mesh`, when the `colmap` executable is installed
 - `geometry_backend=colmap_vggt` with `output_type=point_cloud` or `mesh`, when both COLMAP and VGGT are installed
-- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses the project-owned gsplat baseline; `graphdeco` and `nerfstudio` invoke pinned isolated research environments, convert their native INRIA PLY into the project snapshot, then reuse the common Validation/export/manifest/Viewer path.
+- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses the project-owned gsplat baseline; `graphdeco` invokes its pinned isolated research environment, converts the native INRIA PLY into the project snapshot, then reuses the common Validation/export/manifest/Viewer path.
 
-DUSt3R, MASt3R, and video-to-geometry are still API contract placeholders and return a clear not implemented error. `nerfstudio_3dgs` is legacy imported-asset metadata only, not an automatic training route.
+DUSt3R, MASt3R, and video-to-geometry are still API contract placeholders and return a clear not implemented error.
 
 Optional geometry backends are not downloaded with the base project. Check local backend availability with:
 
@@ -108,23 +108,20 @@ uv run python scripts/setup_model.py --backend vggt --install
 
 The backend also exposes `GET /api/backends` so the frontend can disable missing model/trainer integrations and show the required setup command.
 
-External Gaussian trainers use separate pinned environments and are dry-run by default:
+The external Graphdeco trainer uses a separate pinned environment and is dry-run by default:
 
 ```bash
 uv run python scripts/setup_gaussian_trainer.py --trainer graphdeco
-uv run python scripts/setup_gaussian_trainer.py --trainer nerfstudio
 ```
 
-After CUDA availability and free-space checks pass, install them explicitly:
+After CUDA availability and free-space checks pass, install it explicitly:
 
 ```bash
 uv run python scripts/setup_gaussian_trainer.py \
   --trainer graphdeco --install --accept-research-license
-uv run python scripts/setup_gaussian_trainer.py \
-  --trainer nerfstudio --install
 ```
 
-Graphdeco is licensed only for research/evaluation; its setup requires explicit acknowledgement. Both checkouts, environments, and generated results stay ignored locally. These commands never alter the project uv environment.
+Graphdeco is licensed only for research/evaluation, so setup requires explicit acknowledgement. Its checkout, environment, and generated results stay ignored locally. This command never alters the project uv environment.
 
 Install the isolated CUDA-enabled COLMAP before using GPU SIFT. The setup script is a dry run unless `--install` is supplied and never invokes `sudo`:
 
@@ -366,33 +363,7 @@ Current frontend flow:
 3. Upload local files.
 4. Create a mock reconstruction job.
 5. View job metrics, scene objects, output links, and the mock `.ply` point cloud.
-6. Or load an existing job id, including registered Gaussian splat jobs.
-
-## Nerfstudio 3DGS Import
-
-Existing Nerfstudio `splatfacto` checkpoints must be exported before the web viewer can load them.
-
-Example export:
-
-```bash
-cd /home/owen/nerfstudio
-MPLCONFIGDIR=/tmp/matplotlib-cache .venv/bin/ns-export gaussian-splat \
-  --load-config outputs/drjohnson_hq/splatfacto/2026-06-22_161605/config.yml \
-  --output-dir /home/owen/Image3D-SceneGraph/outputs/exports/drjohnson_hq \
-  --output-filename splat.ply \
-  --ply-color-mode sh_coeffs
-```
-
-Register the exported asset as an Image3D-SceneGraph job:
-
-```bash
-cd /home/owen/Image3D-SceneGraph
-uv run python scripts/register_gaussian_splat.py \
-  --splat outputs/exports/drjohnson_hq/splat.ply \
-  --name drjohnson_hq
-```
-
-Then open the frontend and load the printed `job_id`.
+6. Or load an existing job id.
 
 ## Development Status
 

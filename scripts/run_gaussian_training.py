@@ -30,7 +30,7 @@ def main() -> None:
     parser.add_argument("--dataset-contract", required=True, type=Path)
     parser.add_argument("--dataset-root", required=True, type=Path)
     parser.add_argument("--run-dir", required=True, type=Path)
-    parser.add_argument("--trainer", choices=TRAINER_IDS, default="project")
+    parser.add_argument("--trainer", choices=TRAINER_IDS, default="graphdeco")
     parser.add_argument("--initialization", choices=["sparse", "dense"], required=True)
     parser.add_argument("--points", required=True, type=Path)
     parser.add_argument("--support-diagnostics", type=Path)

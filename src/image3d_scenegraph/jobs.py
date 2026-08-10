@@ -122,7 +122,7 @@ class JobStore:
         try:
             if geometry_backend == "project_3dgs":
                 gaussian_trainer = validate_trainer_id(
-                    str(normalized_options.get("gaussian_trainer", "project"))
+                    str(normalized_options.get("gaussian_trainer", "graphdeco"))
                 )
                 normalized_options["gaussian_trainer"] = gaussian_trainer
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
@@ -383,7 +383,7 @@ class JobStore:
                 "gaussian_config_record": json.dumps(
                     gaussian_config_record, sort_keys=True, separators=(",", ":")
                 ),
-                "gaussian_trainer": str(options.get("gaussian_trainer", "project")),
+                "gaussian_trainer": str(options.get("gaussian_trainer", "graphdeco")),
             }
         self._check_cancel(cancel_requested)
         try:

@@ -64,7 +64,7 @@ def _dataset(root: Path) -> tuple[dict, InitializationResult]:
     return contract, initialization
 
 
-def test_external_datasets_preserve_frozen_splits_and_points(tmp_path):
+def test_graphdeco_dataset_preserves_frozen_splits_and_points(tmp_path):
     root = tmp_path / "source"
     contract, initialization = _dataset(root)
 
@@ -76,19 +76,8 @@ def test_external_datasets_preserve_frozen_splits_and_points(tmp_path):
         initialization=initialization,
         output_dir=graph,
     )
-    nerfstudio = tmp_path / "nerfstudio"
-    ns_record = prepare_external_dataset(
-        trainer="nerfstudio",
-        contract=contract,
-        dataset_root=root,
-        initialization=initialization,
-        output_dir=nerfstudio,
-    )
-
-    assert graph_record["splits"] == ns_record["splits"] == contract["splits"]
-    assert graph_record["initialization_points_sha256"] == ns_record[
-        "initialization_points_sha256"
-    ]
+    assert graph_record["splits"] == contract["splits"]
+    assert graph_record["initialization_count"] == len(initialization.points)
     expected_validation = {
         Path(image["path"]).name
         for image in contract["images"]
@@ -106,8 +95,3 @@ def test_external_datasets_preserve_frozen_splits_and_points(tmp_path):
         )
     )[:3, :3]
     np.testing.assert_allclose(qvec_to_rotmat(graph_qvec), source_rotation, atol=1e-12)
-    transforms = json.loads((nerfstudio / "transforms.json").read_text())
-    assert set(transforms["val_filenames"]) == {
-        f"images/{name}" for name in expected_validation
-    }
-    assert len(transforms["test_filenames"]) == len(contract["splits"]["test"])

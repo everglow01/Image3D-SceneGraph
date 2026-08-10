@@ -42,6 +42,8 @@ def test_public_job_schema_has_no_raw_gaussian_hyperparameters(tmp_path):
     properties = body_schema["properties"]
     assert "quality_profile" not in properties
     assert "gaussian_trainer" in properties
+    assert properties["gaussian_trainer"]["enum"] == ["project", "graphdeco"]
+    assert properties["gaussian_trainer"]["default"] == "graphdeco"
     assert not any(
         "gaussian" in name and name != "gaussian_trainer" for name in properties
     )
@@ -60,7 +62,7 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
             "mode": "multi_image",
             "geometry_backend": "project_3dgs",
             "output_type": "gaussian_splat",
-            "gaussian_trainer": "nerfstudio",
+            "gaussian_trainer": "graphdeco",
         },
         files=[
             ("files", (f"{index}.jpg", b"image", "image/jpeg"))
@@ -69,7 +71,7 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
     )
 
     assert response.status_code == 202
-    assert store.options == {"gaussian_trainer": "nerfstudio"}
+    assert store.options == {"gaussian_trainer": "graphdeco"}
 
 
 def test_create_job_rejects_invalid_gaussian_trainer(tmp_path):

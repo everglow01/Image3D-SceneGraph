@@ -31,5 +31,5 @@ test("trainer options expose availability and preserve ids", () => {
   assert.equal(formatGaussianTrainerOption(trainers[0]), "Project (gsplat)");
   assert.equal(formatGaussianTrainerOption(trainers[1]), "Graphdeco official (unavailable)");
   assert.equal(findGaussianTrainerStatus(trainers, "graphdeco")?.reason, "environment missing");
-  assert.equal(findGaussianTrainerStatus(trainers, "nerfstudio"), undefined);
+  assert.equal(findGaussianTrainerStatus(trainers, "project")?.available, true);
 });

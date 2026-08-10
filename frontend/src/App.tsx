@@ -19,7 +19,7 @@ import {
 import type { GaussianTrainer, GaussianTrainerStatus } from "./trainerOptions";
 
 type Mode = "image" | "multi_image" | "video" | "panorama" | "imported_asset";
-type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "project_3dgs" | "nerfstudio_3dgs";
+type GeometryBackend = "mock" | "vggt" | "colmap" | "colmap_vggt" | "dust3r" | "mast3r" | "project_3dgs";
 type OutputType = "point_cloud" | "mesh" | "gaussian_splat";
 type MeshMethod = "poisson" | "ball_pivoting" | "alpha_shape";
 type ViewerMode = "point_cloud" | "mesh" | "gaussian_splat";
@@ -206,8 +206,7 @@ const backendOptions: Array<{
   { id: "colmap_vggt", label: "COLMAP + VGGT" },
   { id: "dust3r", label: "DUSt3R" },
   { id: "mast3r", label: "MASt3R" },
-  { id: "project_3dgs", label: "Project 3DGS" },
-  { id: "nerfstudio_3dgs", label: "Imported splat (legacy)" }
+  { id: "project_3dgs", label: "Project 3DGS" }
 ];
 
 const outputOptions: Array<{
@@ -236,7 +235,7 @@ export function App() {
   const [mode, setMode] = useState<Mode>("image");
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
-  const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("project");
+  const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
   const [vggtBatchSize, setVggtBatchSize] = useState(8);
   const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
@@ -708,6 +707,15 @@ export function App() {
                   {(gaussianTrainerStatuses.length > 0
                     ? gaussianTrainerStatuses
                     : [
+                        {
+                          id: "graphdeco" as const,
+                          label: "Graphdeco official",
+                          available: true,
+                          reason: null,
+                          setup_command: null,
+                          revision: "unknown",
+                          license: "Graphdeco research/evaluation only"
+                        },
                         {
                           id: "project" as const,
                           label: "Project (gsplat)",

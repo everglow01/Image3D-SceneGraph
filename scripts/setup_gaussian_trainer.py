@@ -12,27 +12,20 @@ from pathlib import Path
 
 from image3d_scenegraph.gaussian.trainers import (
     GRAPHDECO_COMMIT,
-    NERFSTUDIO_COMMIT,
     get_gaussian_trainer_specs,
 )
 
 
-REPOSITORIES = {
-    "graphdeco": (
-        "https://github.com/graphdeco-inria/gaussian-splatting.git",
-        GRAPHDECO_COMMIT,
-    ),
-    "nerfstudio": (
-        "https://github.com/nerfstudio-project/nerfstudio.git",
-        NERFSTUDIO_COMMIT,
-    ),
-}
+REPOSITORY = (
+    "https://github.com/graphdeco-inria/gaussian-splatting.git",
+    GRAPHDECO_COMMIT,
+)
 MIN_FREE_GB = 15.0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--trainer", choices=["graphdeco", "nerfstudio"], required=True)
+    parser.add_argument("--trainer", choices=["graphdeco"], required=True)
     parser.add_argument("--install", action="store_true")
     parser.add_argument("--accept-research-license", action="store_true")
     parser.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
@@ -40,10 +33,8 @@ def main() -> None:
     args = parser.parse_args()
 
     project_root = Path.cwd().resolve()
-    repo = project_root / "external" / (
-        "gaussian-splatting" if args.trainer == "graphdeco" else "nerfstudio"
-    )
-    url, revision = REPOSITORIES[args.trainer]
+    repo = project_root / "external" / "gaussian-splatting"
+    url, revision = REPOSITORY
     free_gb = shutil.disk_usage(project_root).free / 1024**3
     cuda = _cuda_status(project_root)
     print(f"trainer={args.trainer}")
@@ -53,13 +44,12 @@ def main() -> None:
     print(f"cuda_available={str(cuda['available']).lower()}")
     if cuda["reason"]:
         print(f"cuda_reason={cuda['reason']}")
-    if args.trainer == "graphdeco":
-        print("license=Graphdeco research/evaluation only")
+    print("license=Graphdeco research/evaluation only")
     print(f"install={str(args.install).lower()}")
     if not args.install:
         print("dry_run=true")
         return
-    if args.trainer == "graphdeco" and not args.accept_research_license:
+    if not args.accept_research_license:
         raise SystemExit("Graphdeco setup requires --accept-research-license")
     if free_gb < args.min_free_gb and not args.force:
         raise SystemExit(
@@ -68,45 +58,31 @@ def main() -> None:
     if not cuda["available"] and not args.force:
         raise SystemExit(f"refusing install: {cuda['reason']}")
 
-    _checkout(repo, url, revision, recursive=args.trainer == "graphdeco")
+    _checkout(repo, url, revision, recursive=True)
     venv = repo / ".venv"
     python = venv / "bin" / "python"
     if not python.exists():
         _run(["uv", "venv", "--python", "3.10", str(venv)])
-    if args.trainer == "nerfstudio":
-        _run(
-            [
-                "uv", "pip", "install", "--python", str(python),
-                "torch==2.0.1", "torchvision==0.15.2",
-                "--index-url", "https://download.pytorch.org/whl/cu117",
-            ]
-        )
-        _run(["uv", "pip", "install", "--python", str(python), "-e", str(repo)])
-        _run([
+    _run(
+        [
             "uv", "pip", "install", "--python", str(python),
-            "tensorboard", "numpy<2", "Pillow==10.3.0", "setuptools==80.9.0",
+            "torch==2.0.1", "torchvision==0.15.2",
+            "--index-url", "https://download.pytorch.org/whl/cu117",
+        ]
+    )
+    _run(
+        [
+            "uv", "pip", "install", "--python", str(python),
+            "plyfile", "tqdm", "tensorboard", "numpy<2", "setuptools==80.9.0",
+            "opencv-python-headless<4.12",
+        ]
+    )
+    for package in ("simple-knn", "diff-gaussian-rasterization", "fused-ssim"):
+        _run([
+            "env", "CC=/usr/bin/gcc-11", "CXX=/usr/bin/g++-11", "MAX_JOBS=1",
+            "uv", "pip", "install", "--no-build-isolation", "--python", str(python),
+            str(repo / "submodules" / package),
         ])
-    else:
-        _run(
-            [
-                "uv", "pip", "install", "--python", str(python),
-                "torch==2.0.1", "torchvision==0.15.2",
-                "--index-url", "https://download.pytorch.org/whl/cu117",
-            ]
-        )
-        _run(
-            [
-                "uv", "pip", "install", "--python", str(python),
-                "plyfile", "tqdm", "tensorboard", "numpy<2", "setuptools==80.9.0",
-                "opencv-python-headless<4.12",
-            ]
-        )
-        for package in ("simple-knn", "diff-gaussian-rasterization", "fused-ssim"):
-            _run([
-                "env", "CC=/usr/bin/gcc-11", "CXX=/usr/bin/g++-11", "MAX_JOBS=1",
-                "uv", "pip", "install", "--no-build-isolation", "--python", str(python),
-                str(repo / "submodules" / package),
-            ])
     (repo / ".image3d-revision").write_text(revision + "\n", encoding="utf-8")
     probe = subprocess.run(
         [str(python), "-c", "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"],
