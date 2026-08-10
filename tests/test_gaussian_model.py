@@ -26,7 +26,7 @@ def test_model_parameters_and_official_optimizers_are_strategy_compatible():
     learning_rates = {
         "position": {"initial": 0.00016, "final": 0.0000016},
         "feature": 0.0025,
-        "opacity": 0.05,
+        "opacity": 0.025,
         "scaling": 0.005,
         "rotation": 0.001,
     }
@@ -38,6 +38,7 @@ def test_model_parameters_and_official_optimizers_are_strategy_compatible():
     assert optimizers["means"].param_groups[0]["lr"] == pytest.approx(0.00016)
     assert optimizers["shN"].param_groups[0]["lr"] == pytest.approx(0.0025 / 20)
     assert model.sh_coeffs.shape == (3, 16, 3)
+    assert torch.equal(model.quats, torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(3, 1))
     model.validate()
 
 

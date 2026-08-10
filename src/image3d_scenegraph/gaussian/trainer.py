@@ -173,10 +173,11 @@ def train_gaussians(
         torch.from_numpy(initialization.scales).to(device=device, dtype=torch.float32),
         max_sh_degree=int(config["sh_schedule"]["max_degree"]),
     )
-    optimizers = model.optimizers(config["learning_rate"])
-    strategy = _build_strategy(DefaultStrategy, config)
+    scene_scale = _training_scene_scale(contract)
+    optimizers = model.optimizers(config["learning_rate"], position_scale=scene_scale)
+    strategy = _build_strategy(DefaultStrategy, config, train_views)
     strategy.check_sanity(model.params, optimizers)
-    strategy_state = strategy.initialize_state(scene_scale=1.0)
+    strategy_state = strategy.initialize_state(scene_scale=scene_scale)
     history: list[dict[str, Any]] = []
     start_iteration = 1
     camera_order: list[int] = []
@@ -192,7 +193,9 @@ def train_gaussians(
             expected_provenance=provenance,
         )
         model = _load_model(loaded.state.model, device)
-        optimizers = model.optimizers(config["learning_rate"])
+        optimizers = model.optimizers(
+            config["learning_rate"], position_scale=scene_scale
+        )
         optimizer_payload = _torch_load(loaded.state.optimizer, device)
         for name, optimizer in optimizers.items():
             optimizer.load_state_dict(optimizer_payload[name])
@@ -242,7 +245,9 @@ def train_gaussians(
             camera_order, camera_cursor, view_index = _next_camera(
                 len(train_views), camera_order, camera_cursor
             )
-            _update_position_learning_rate(optimizers["means"], config, iteration, total_iterations)
+            _update_position_learning_rate(
+                optimizers["means"], config, iteration, total_iterations, scene_scale
+            )
             for optimizer in optimizers.values():
                 optimizer.zero_grad(set_to_none=True)
             view, rendered = _render_visible_training_view(
@@ -255,7 +260,7 @@ def train_gaussians(
                 model.params, optimizers, strategy_state, iteration, rendered.metadata
             )
             loss, terms = l1_ssim_loss(
-                rendered.image,
+                rendered.image.clamp(0, 1) if config["loss"]["clamp_render"] else rendered.image,
                 view.image,
                 l1_weight=float(config["loss"]["l1_weight"]),
                 ssim_weight=float(config["loss"]["ssim_weight"]),
@@ -320,7 +325,14 @@ def train_gaussians(
                     preview_dir=artifact_dir / "validation" / f"iteration_{iteration:09d}",
                     progress_events=history,
                 )
-                validation_event = {"iteration": iteration, "event": "validation", **last_validation}
+                validation_event = {
+                    "iteration": iteration,
+                    "event": "validation",
+                    "optimizer_updates": iteration,
+                    "nominal_iterations": total_iterations,
+                    "attempt_elapsed_seconds": time.perf_counter() - started,
+                    **last_validation,
+                }
                 history.append(validation_event)
                 _publish_event(progress_path, validation_event, progress_callback)
                 candidate = float(last_validation["mean_psnr"])
@@ -438,15 +450,30 @@ def save_validation_previews(
             Image.fromarray(pixels).save(output_dir / f"validation_{view.camera.image_id}.png")
 
 
-def _build_strategy(strategy_type, config: dict[str, Any]):
+def _build_strategy(
+    strategy_type,
+    config: dict[str, Any],
+    train_views: list[TrainingView] | tuple[TrainingView, ...] = (),
+):
     densify = config["densification"]
     pruning = config["pruning"]
+    max_dimension = max(
+        (max(view.camera.width, view.camera.height) for view in train_views),
+        default=int(config["resolution"]["longest_edge"]),
+    )
+    screen_fraction = float(pruning["max_screen_radius_pixels"]) / max_dimension
     return strategy_type(
         prune_opa=float(pruning["opacity_threshold"]) if pruning["enabled"] else 0.0,
         grow_grad2d=float(densify["gradient_threshold"]),
         grow_scale3d=float(densify["scale_threshold"]),
+        grow_scale2d=1e10,
         prune_scale3d=float(pruning["max_world_scale"]) if pruning["enabled"] else 1e10,
-        refine_scale2d_stop_iter=0,
+        prune_scale2d=screen_fraction,
+        refine_scale2d_stop_iter=(
+            int(densify["end_iteration"])
+            if densify["enabled"] and pruning["enabled"]
+            else 0
+        ),
         refine_start_iter=int(densify["start_iteration"]),
         refine_stop_iter=int(densify["end_iteration"]) if densify["enabled"] else 0,
         reset_every=int(config["opacity_reset"]["every_iterations"]),
@@ -491,10 +518,33 @@ def _opacity_reset_due(config: dict[str, Any], iteration: int) -> bool:
     reset = config["opacity_reset"]
     return (
         bool(reset["enabled"])
+        and bool(config["densification"]["enabled"])
         and iteration > 0
         and iteration < int(config["densification"]["end_iteration"])
         and iteration % int(reset["every_iterations"]) == 0
     )
+
+
+def _training_scene_scale(contract: dict[str, Any]) -> float:
+    train_ids = {str(value) for value in contract["splits"]["train"]}
+    normalized_from_world = np.asarray(
+        contract["normalization"]["normalized_from_world"], dtype=np.float64
+    )
+    centers = []
+    for image in contract["images"]:
+        if str(image["image_id"]) not in train_ids:
+            continue
+        center = np.asarray(image["world_from_camera"], dtype=np.float64)[:3, 3]
+        centers.append(
+            normalized_from_world[:3, :3] @ center + normalized_from_world[:3, 3]
+        )
+    if not centers:
+        raise TrainingError("training split contains no camera centers")
+    values = np.stack(centers)
+    radius = float(np.linalg.norm(values - values.mean(axis=0), axis=1).max()) * 1.1
+    if not np.isfinite(radius) or radius <= 0:
+        raise TrainingError("training cameras do not define a usable scene extent")
+    return radius
 
 
 def _update_position_learning_rate(
@@ -502,9 +552,10 @@ def _update_position_learning_rate(
     config: dict[str, Any],
     iteration: int,
     total_iterations: int,
+    scene_scale: float = 1.0,
 ) -> None:
     settings = config["learning_rate"]["position"]
-    optimizer.param_groups[0]["lr"] = exponential_learning_rate(
+    optimizer.param_groups[0]["lr"] = scene_scale * exponential_learning_rate(
         float(settings["initial"]),
         float(settings["final"]),
         iteration,

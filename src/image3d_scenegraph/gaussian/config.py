@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 5
+CONFIG_SCHEMA_VERSION = 6
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
@@ -19,11 +19,16 @@ _STANDARD_V1: dict[str, Any] = {
     "seed": 20260729,
     "iterations": 30_000,
     "resolution": {"policy": "explicit_only", "longest_edge": 1280},
-    "loss": {"name": "l1_ssim", "l1_weight": 0.8, "ssim_weight": 0.2},
+    "loss": {
+        "name": "l1_ssim",
+        "l1_weight": 0.8,
+        "ssim_weight": 0.2,
+        "clamp_render": True,
+    },
     "learning_rate": {
         "position": {"initial": 0.00016, "final": 0.0000016},
         "feature": 0.0025,
-        "opacity": 0.05,
+        "opacity": 0.025,
         "scaling": 0.005,
         "rotation": 0.001,
     },
@@ -40,9 +45,25 @@ _STANDARD_V1: dict[str, Any] = {
         "gradient_threshold": 0.0002,
         "scale_threshold": 0.01,
     },
-    "pruning": {"enabled": True, "opacity_threshold": 0.005, "max_world_scale": 0.1},
+    "pruning": {
+        "enabled": True,
+        "opacity_threshold": 0.005,
+        "max_world_scale": 0.1,
+        "max_screen_radius_pixels": 20.0,
+    },
     "opacity_reset": {"enabled": True, "every_iterations": 3_000},
-    "evaluation": {"validation_iterations": [7_000, 30_000]},
+    "evaluation": {
+        "validation_iterations": [
+            3_000,
+            5_000,
+            7_000,
+            10_000,
+            15_000,
+            20_000,
+            25_000,
+            30_000,
+        ]
+    },
 }
 
 
@@ -127,8 +148,11 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     _choice(resolution["policy"], "resolution.policy", {"explicit_only"})
     _integer(resolution["longest_edge"], "resolution.longest_edge", minimum=64, maximum=1280)
 
-    loss = _mapping(root["loss"], "loss", {"name", "l1_weight", "ssim_weight"})
+    loss = _mapping(
+        root["loss"], "loss", {"name", "l1_weight", "ssim_weight", "clamp_render"}
+    )
     _choice(loss["name"], "loss.name", {"l1_ssim"})
+    _boolean(loss["clamp_render"], "loss.clamp_render")
     l1_weight = _number(loss["l1_weight"], "loss.l1_weight", minimum=0.0, maximum=1.0)
     ssim_weight = _number(loss["ssim_weight"], "loss.ssim_weight", minimum=0.0, maximum=1.0)
     if not math.isclose(l1_weight + ssim_weight, 1.0, abs_tol=1e-12):
@@ -195,11 +219,15 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     pruning = _mapping(
         root["pruning"],
         "pruning",
-        {"enabled", "opacity_threshold", "max_world_scale"},
+        {"enabled", "opacity_threshold", "max_world_scale", "max_screen_radius_pixels"},
     )
     _boolean(pruning["enabled"], "pruning.enabled")
     _number(pruning["opacity_threshold"], "pruning.opacity_threshold", minimum=0.0, maximum=1.0)
     _positive(pruning["max_world_scale"], "pruning.max_world_scale", maximum=1.0)
+    _positive(
+        pruning["max_screen_radius_pixels"],
+        "pruning.max_screen_radius_pixels",
+    )
 
     opacity_reset = _mapping(
         root["opacity_reset"],

@@ -9,6 +9,7 @@ import pytest
 from image3d_scenegraph.gaussian.dataset import with_initialization
 from image3d_scenegraph.gaussian.initialization import (
     dense_initialization,
+    graphdeco_nearest_neighbor_scales,
     sparse_initialization,
 )
 from test_gaussian_dataset import write_colmap_fixture
@@ -23,6 +24,29 @@ def write_sparse(path: Path) -> None:
         "3 0 1 2 0 0 255 0.3 1 3\n",
         encoding="utf-8",
     )
+
+
+def test_graphdeco_scale_uses_three_nearest_neighbor_rms_without_clipping():
+    points = np.array(
+        [[0, 0, 0], [1, 0, 0], [0, 2, 0], [0, 0, 3], [100, 0, 0]],
+        dtype=np.float32,
+    )
+
+    scales = graphdeco_nearest_neighbor_scales(points)
+
+    assert scales[0] == pytest.approx(np.sqrt((1**2 + 2**2 + 3**2) / 3))
+    assert scales[-1] > 50
+
+
+def test_graphdeco_scale_excludes_self_for_duplicate_points():
+    points = np.array(
+        [[0, 0, 0], [0, 0, 0], [1, 0, 0], [2, 0, 0]], dtype=np.float32
+    )
+
+    scales = graphdeco_nearest_neighbor_scales(points)
+
+    assert scales[0] == pytest.approx(np.sqrt((0**2 + 1**2 + 2**2) / 3))
+    assert np.isfinite(scales).all()
 
 
 def test_sparse_initialization_filters_and_hashes_deterministically(tmp_path):

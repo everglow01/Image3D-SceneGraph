@@ -132,11 +132,11 @@ def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
     )
 
     record = manifest["gaussian_config"]
-    assert record["schema_version"] == 5
+    assert record["schema_version"] == 6
     assert record["requested_profile"] == "standard_v1"
     assert record["effective_config_hash"] == effective_config_hash(record["effective_config"])
     log = store.get_asset_path(manifest["job_id"], "logs/run.log").read_text(encoding="utf-8")
-    assert "gaussian_config_schema_version=5\n" in log
+    assert "gaussian_config_schema_version=6\n" in log
     assert "gaussian_requested_profile=standard_v1\n" in log
     assert f"gaussian_effective_config_hash={record['effective_config_hash']}\n" in log
     assert 'gaussian_effective_config={"densification":' in log
@@ -161,7 +161,7 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert manifest["gaussian_trainer"]["id"] == "graphdeco"
     assert request["options"]["gaussian_trainer"] == "graphdeco"
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
-    assert manifest["gaussian_config"]["schema_version"] == 5
+    assert manifest["gaussian_config"]["schema_version"] == 6
 
 
 def test_project_gaussian_job_rejects_unknown_trainer(tmp_path):

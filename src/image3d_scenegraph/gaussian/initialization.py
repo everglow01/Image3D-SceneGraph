@@ -51,6 +51,7 @@ def sparse_initialization(
         "min_track_length": min_track_length,
         "max_reprojection_error": max_reprojection_error,
         "max_points": max_points,
+        "scale_initialization": "graphdeco_3nn_rms_v1",
     }
     diagnostics = _diagnostics(
         source=points_path,
@@ -70,7 +71,7 @@ def sparse_initialization(
     return InitializationResult(
         selected_points,
         selected_colors,
-        nearest_neighbor_scales(selected_points),
+        graphdeco_nearest_neighbor_scales(selected_points),
         diagnostics,
     )
 
@@ -153,6 +154,7 @@ def dense_initialization(
         "voxel_size_normalized": voxel_size,
         "max_points": max_points,
         "diagnostics_sha256": sidecar_hash,
+        "scale_initialization": "graphdeco_3nn_rms_v1",
     }
     diagnostics = _diagnostics(
         source=points_path,
@@ -176,7 +178,7 @@ def dense_initialization(
     return InitializationResult(
         voxel_points,
         selected_colors,
-        nearest_neighbor_scales(voxel_points),
+        graphdeco_nearest_neighbor_scales(voxel_points),
         diagnostics,
     )
 
@@ -244,19 +246,25 @@ def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     return result
 
 
-def nearest_neighbor_scales(points: np.ndarray) -> np.ndarray:
+def graphdeco_nearest_neighbor_scales(points: np.ndarray) -> np.ndarray:
     if len(points) == 1:
         return np.full(1, 0.01, dtype=np.float32)
     try:
         import open3d as o3d
     except ImportError as exc:
         raise InitializationError("Open3D is required to estimate Gaussian scales") from exc
-    cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points.astype(np.float64)))
-    distances = np.asarray(cloud.compute_nearest_neighbor_distance(), dtype=np.float32)
-    positive = distances[np.isfinite(distances) & (distances > 1e-8)]
-    fallback = float(np.median(positive)) if len(positive) else 0.01
-    distances = np.where(np.isfinite(distances) & (distances > 1e-8), distances, fallback)
-    return np.clip(distances, fallback * 0.1, fallback * 10.0).astype(np.float32)
+    values = o3d.core.Tensor(points.astype(np.float32))
+    search = o3d.core.nns.NearestNeighborSearch(values)
+    search.knn_index()
+    neighbor_count = min(4, len(points))
+    indices, squared_distances = search.knn_search(values, neighbor_count)
+    neighbor_indices = indices.numpy()
+    distances = squared_distances.numpy()
+    distances[neighbor_indices == np.arange(len(points))[:, None]] = np.inf
+    count = min(3, len(points) - 1)
+    distances = np.partition(distances, count - 1, axis=1)[:, :count]
+    scales = np.sqrt(np.maximum(distances.mean(axis=1), 1e-7))
+    return scales.astype(np.float32)
 
 
 def morton_stratified_indices(points: np.ndarray, max_points: int) -> np.ndarray:

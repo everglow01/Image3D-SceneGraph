@@ -20,7 +20,7 @@ def test_public_profile_resolves_official_baseline_deterministically():
     second = resolve_public_config("standard_v1")
 
     assert first.requested_profile == "standard_v1"
-    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 5
+    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 6
     assert first.effective_config["iterations"] == 30_000
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
@@ -29,10 +29,11 @@ def test_public_profile_resolves_official_baseline_deterministically():
     assert first.effective_config["learning_rate"] == {
         "position": {"initial": 0.00016, "final": 0.0000016},
         "feature": 0.0025,
-        "opacity": 0.05,
+        "opacity": 0.025,
         "scaling": 0.005,
         "rotation": 0.001,
     }
+    assert first.effective_config["loss"]["clamp_render"] is True
     assert first.effective_config["sh_schedule"]["increase_every_iterations"] == 1_000
     assert first.effective_config["densification"] == {
         "enabled": True,
@@ -46,9 +47,19 @@ def test_public_profile_resolves_official_baseline_deterministically():
         "enabled": True,
         "opacity_threshold": 0.005,
         "max_world_scale": 0.1,
+        "max_screen_radius_pixels": 20.0,
     }
     assert first.effective_config["evaluation"] == {
-        "validation_iterations": [7_000, 30_000]
+        "validation_iterations": [
+            3_000,
+            5_000,
+            7_000,
+            10_000,
+            15_000,
+            20_000,
+            25_000,
+            30_000,
+        ]
     }
     assert "gaussian_budget" not in first.effective_config
     assert first.effective_config == second.effective_config

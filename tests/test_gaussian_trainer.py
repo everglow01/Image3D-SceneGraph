@@ -22,6 +22,7 @@ from image3d_scenegraph.gaussian.trainer import (
     _next_camera,
     _opacity_reset_due,
     _torch_load,
+    _training_scene_scale,
     _update_position_learning_rate,
     _write_latest_checkpoint,
     evaluate_views,
@@ -36,7 +37,7 @@ def model() -> GaussianModel:
     )
 
 
-def test_official_strategy_configuration_uses_signed_gradients_without_screen_cleanup():
+def test_official_strategy_configuration_uses_graphdeco_screen_pruning():
     from gsplat.strategy import DefaultStrategy
 
     config = resolve_internal_config().effective_config
@@ -50,8 +51,24 @@ def test_official_strategy_configuration_uses_signed_gradients_without_screen_cl
     assert strategy.prune_opa == pytest.approx(0.005)
     assert strategy.prune_scale3d == pytest.approx(0.1)
     assert strategy.reset_every == 3_000
-    assert strategy.refine_scale2d_stop_iter == 0
+    assert strategy.refine_scale2d_stop_iter == 15_000
+    assert strategy.grow_scale2d == pytest.approx(1e10)
+    assert strategy.prune_scale2d == pytest.approx(20 / 1280)
     assert strategy.absgrad is False
+
+
+def test_screen_pruning_threshold_uses_training_resolution():
+    from gsplat.strategy import DefaultStrategy
+
+    config = resolve_internal_config().effective_config
+    view = TrainingView(
+        RenderCamera("train", torch.eye(4), torch.eye(3), 1000, 600),
+        torch.zeros((600, 1000, 3)),
+    )
+
+    strategy = _build_strategy(DefaultStrategy, config, [view])
+
+    assert strategy.prune_scale2d == pytest.approx(0.02)
 
 
 def test_strategy_can_update_project_model_and_optimizers():
@@ -88,10 +105,31 @@ def test_only_position_learning_rate_decays():
     optimizers = gaussian.optimizers(config["learning_rate"])
     feature_before = optimizers["sh0"].param_groups[0]["lr"]
 
-    _update_position_learning_rate(optimizers["means"], config, 30_000, 30_000)
+    _update_position_learning_rate(optimizers["means"], config, 30_000, 30_000, 1.1)
 
-    assert optimizers["means"].param_groups[0]["lr"] == pytest.approx(0.0000016)
+    assert optimizers["means"].param_groups[0]["lr"] == pytest.approx(0.0000016 * 1.1)
     assert optimizers["sh0"].param_groups[0]["lr"] == feature_before
+
+
+def test_training_scene_scale_matches_graphdeco_train_camera_extent():
+    contract = {
+        "splits": {"train": ["a", "b"], "validation": ["c"], "test": ["d"]},
+        "normalization": {"normalized_from_world": torch.eye(4).tolist()},
+        "images": [
+            {"image_id": "a", "world_from_camera": torch.eye(4).tolist()},
+            {
+                "image_id": "b",
+                "world_from_camera": torch.tensor(
+                    [[1, 0, 0, 2], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+                    dtype=torch.float32,
+                ).tolist(),
+            },
+            {"image_id": "c", "world_from_camera": torch.eye(4).tolist()},
+            {"image_id": "d", "world_from_camera": torch.eye(4).tolist()},
+        ],
+    }
+
+    assert _training_scene_scale(contract) == pytest.approx(1.1)
 
 
 def test_reset_schedule_stops_at_refinement_boundary():
@@ -100,6 +138,9 @@ def test_reset_schedule_stops_at_refinement_boundary():
     assert _opacity_reset_due(config, 12_000)
     assert not _opacity_reset_due(config, 15_000)
     assert not _opacity_reset_due(config, 30_000)
+
+    config["densification"]["enabled"] = False
+    assert not _opacity_reset_due(config, 3_000)
 
 
 def test_validation_payload_marks_lpips_not_run(monkeypatch):

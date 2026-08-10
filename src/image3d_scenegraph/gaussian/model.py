@@ -68,7 +68,8 @@ class GaussianModel(nn.Module):
             (count, basis_count, 3), dtype=points.dtype, device=points.device
         )
         sh_coeffs[:, 0] = (colors - 0.5) / SH_DC
-        quats = torch.randn((count, 4), dtype=points.dtype, device=points.device)
+        quats = torch.zeros((count, 4), dtype=points.dtype, device=points.device)
+        quats[:, 0] = 1.0
         opacity = math.log(initial_opacity / (1.0 - initial_opacity))
         return cls(
             means=points.clone(),
@@ -115,9 +116,14 @@ class GaussianModel(nn.Module):
             self.sh_coeffs,
         )
 
-    def optimizers(self, learning_rates: dict) -> dict[str, torch.optim.Adam]:
+    def optimizers(
+        self,
+        learning_rates: dict,
+        *,
+        position_scale: float = 1.0,
+    ) -> dict[str, torch.optim.Adam]:
         rates = {
-            "means": float(learning_rates["position"]["initial"]),
+            "means": float(learning_rates["position"]["initial"]) * position_scale,
             "scales": float(learning_rates["scaling"]),
             "quats": float(learning_rates["rotation"]),
             "opacities": float(learning_rates["opacity"]),
