@@ -1,6 +1,12 @@
 declare module "@mkkellogg/gaussian-splats-3d" {
   import type * as THREE from "three";
 
+  export const RenderMode: {
+    readonly Always: 0;
+    readonly OnChange: 1;
+    readonly Never: 2;
+  };
+
   export type ViewerControls = {
     target: THREE.Vector3;
     rotateSpeed: number;
@@ -35,6 +41,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
       sphericalHarmonicsDegree?: number;
       ignoreDevicePixelRatio?: boolean;
       integerBasedSort?: boolean;
+      renderMode?: (typeof RenderMode)[keyof typeof RenderMode];
       showInfo?: boolean;
     });
 

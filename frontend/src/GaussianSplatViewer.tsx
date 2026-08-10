@@ -206,7 +206,8 @@ export function GaussianSplatViewer({ sourceUrl, metadataUrl, cameraPathUrl }: G
           sharedMemoryForWorkers: false,
           sphericalHarmonicsDegree: metadata.sh_degree,
           ignoreDevicePixelRatio: true,
-          integerBasedSort: false
+          integerBasedSort: false,
+          renderMode: GaussianSplats3D.RenderMode.OnChange
         });
         viewerRef.current = viewer;
         await viewer.addSplatScene(sourceUrl, {
