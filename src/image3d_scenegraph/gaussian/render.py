@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 
@@ -23,6 +24,7 @@ class RenderResult:
     image: torch.Tensor
     alpha: torch.Tensor
     metadata: dict
+    depth: torch.Tensor | None = None
 
 
 def render_gaussians(
@@ -32,6 +34,7 @@ def render_gaussians(
     sh_degree: int,
     background: torch.Tensor | None = None,
     gradient_statistics: bool = False,
+    render_mode: Literal["RGB", "RGB+ED"] = "RGB",
 ) -> RenderResult:
     try:
         from gsplat.rendering import rasterization
@@ -53,6 +56,10 @@ def render_gaussians(
         sh_degree=sh_degree,
         packed=True,
         backgrounds=background,
+        render_mode=render_mode,
         absgrad=gradient_statistics,
     )
-    return RenderResult(image[0], alpha[0], metadata)
+    rendered = image[0]
+    if render_mode == "RGB+ED":
+        return RenderResult(rendered[..., :3], alpha[0], metadata, rendered[..., 3])
+    return RenderResult(rendered, alpha[0], metadata)
