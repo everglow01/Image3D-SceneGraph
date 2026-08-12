@@ -16,6 +16,7 @@ class FakeWorker:
 class FakeJobStore:
     def __init__(self) -> None:
         self.options: dict[str, int | float | str] | None = None
+        self.navigation_job_id: str | None = None
 
     def enqueue_job(self, mode, files, *, geometry_backend, output_type, options):
         self.options = options
@@ -28,6 +29,14 @@ class FakeJobStore:
             "geometry_backend": geometry_backend,
             "output_type": output_type,
             "metrics": {},
+        }
+
+    def request_navigation_assets(self, job_id):
+        self.navigation_job_id = job_id
+        return {
+            "job_id": job_id,
+            "status": "done",
+            "navigation_status": "queued",
         }
 
 
@@ -165,6 +174,23 @@ def test_create_job_rejects_invalid_colmap_vggt_grouping(tmp_path):
     )
 
     assert response.status_code == 422
+
+
+def test_navigation_assets_route_queues_worker(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    worker = FakeWorker()
+    app.state.job_store = store
+    app.state.job_worker = worker
+    client = TestClient(app)
+
+    response = client.post("/api/jobs/retained-job/navigation-assets")
+
+    assert response.status_code == 202
+    assert response.json()["navigation_status"] == "queued"
+    assert store.navigation_job_id == "retained-job"
+    assert worker.notifications == 1
+
 
 
 def test_async_job_cancel_retry_and_status_routes(tmp_path):

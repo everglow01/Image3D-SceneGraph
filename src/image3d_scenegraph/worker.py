@@ -57,10 +57,15 @@ class LocalJobWorker:
 
     def run_once(self) -> str | None:
         queued = self.store.list_queued_jobs()
-        if not queued:
+        if queued:
+            job_id = queued[0]
+            self.store.execute_job(job_id)
+            return job_id
+        navigation_queued = self.store.list_queued_navigation_jobs()
+        if not navigation_queued:
             return None
-        job_id = queued[0]
-        self.store.execute_job(job_id)
+        job_id = navigation_queued[0]
+        self.store.execute_navigation_job(job_id)
         return job_id
 
     def _run(self) -> None:

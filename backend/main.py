@@ -157,6 +157,8 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             "started_at": manifest.get("started_at"),
             "completed_at": manifest.get("completed_at"),
             "error": manifest.get("error"),
+            "navigation_status": manifest.get("navigation_status"),
+            "navigation_reason": manifest.get("navigation_reason"),
             "metrics": manifest["metrics"],
         }
 
@@ -200,6 +202,20 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             raise HTTPException(status_code=404, detail="job not found") from exc
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/jobs/{job_id}/navigation-assets",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def build_navigation_assets(job_id: str) -> dict:
+        try:
+            manifest = app.state.job_store.request_navigation_assets(job_id)
+            app.state.job_worker.notify()
+            return manifest
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="job not found") from exc
+        except JobError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/jobs/{job_id}/assets/{asset_path:path}")
     def get_asset(job_id: str, asset_path: str) -> FileResponse:

@@ -15,6 +15,7 @@ from scripts.build_gaussian_navigation import (
     remove_diagonal_pinches,
     train_trajectory_pairs,
     validate_inputs,
+    validate_train_images,
 )
 
 
@@ -112,6 +113,27 @@ def test_sparse_floor_asset_is_hash_checked(tmp_path: Path):
     asset.write_bytes(b"tampered")
     with pytest.raises(Exception, match="hash mismatch"):
         load_sparse_initialization(contract, contract_path)
+
+
+def test_train_image_validation_prefers_hash_match_over_existing_stale_path(tmp_path: Path):
+    contract = _contract()
+    train_ids = contract["splits"]["train"]
+    preparation = tmp_path / "gaussian" / "preparation" / "train-001"
+    contract_path = preparation / "dataset.json"
+    for entry in contract["images"]:
+        if entry["image_id"] not in train_ids:
+            continue
+        stale = tmp_path / entry["path"]
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_bytes(b"stale")
+        frozen = preparation / "graphdeco-dataset" / "images" / Path(entry["path"]).name
+        frozen.parent.mkdir(parents=True, exist_ok=True)
+        frozen.write_text(entry["image_id"], encoding="utf-8")
+
+    layout = validate_train_images(contract, tmp_path, train_ids, contract_path)
+
+    assert layout == "graphdeco_frozen_train_images"
+
 
 
 def test_concave_boundary_does_not_bridge_unsupported_gap():

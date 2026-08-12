@@ -11,6 +11,10 @@ type GeometryViewerProps = {
   splatUrl: string | null;
   splatMetadataUrl: string | null;
   splatCameraPathUrl: string | null;
+  collisionMeshUrl: string | null;
+  navigationUrl: string | null;
+  navigationStatus: string | null;
+  navigationReason: string | null;
 };
 
 export function GeometryViewer({
@@ -21,7 +25,11 @@ export function GeometryViewer({
   meshUrl,
   splatUrl,
   splatMetadataUrl,
-  splatCameraPathUrl
+  splatCameraPathUrl,
+  collisionMeshUrl,
+  navigationUrl,
+  navigationStatus,
+  navigationReason
 }: GeometryViewerProps) {
   if (splatUrl) {
     return (
@@ -29,6 +37,10 @@ export function GeometryViewer({
         sourceUrl={splatUrl}
         metadataUrl={splatMetadataUrl}
         cameraPathUrl={splatCameraPathUrl}
+        collisionMeshUrl={collisionMeshUrl}
+        navigationUrl={navigationUrl}
+        navigationStatus={navigationStatus}
+        navigationReason={navigationReason}
       />
     );
   }

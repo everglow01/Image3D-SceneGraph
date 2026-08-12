@@ -320,6 +320,7 @@ class ProjectGaussianAdapter:
                 "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_progress": progress_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_dataset": effective_dataset_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_effective_config": effective_config_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_evaluation": evaluation_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_test_evaluation": test_evaluation_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_test_decision": test_consumption_path.relative_to(context.job_dir).as_posix(),

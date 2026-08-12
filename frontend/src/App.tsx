@@ -96,6 +96,9 @@ type Manifest = {
     gaussian_canonical?: string;
     gaussian_camera_path?: string;
     gaussian_bundle?: string;
+    collision_mesh?: string;
+    navigation?: string;
+    navigation_diagnostics?: string;
     scene_graph?: string;
     log?: string;
   };
@@ -106,6 +109,8 @@ type Manifest = {
     license: string;
   };
   mesh_variants?: MeshVariant[];
+  navigation_status?: "pending" | "not_generated" | "queued" | "generating" | "available" | "unavailable";
+  navigation_reason?: string | null;
   metrics: {
     num_inputs: number;
     num_points: number;
@@ -262,6 +267,7 @@ export function App() {
   const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
   const [selectedMeshVariantId, setSelectedMeshVariantId] = useState<string | null>(null);
   const [isBuildingMesh, setIsBuildingMesh] = useState(false);
+  const [isBuildingNavigation, setIsBuildingNavigation] = useState(false);
   const [isChangingLifecycle, setIsChangingLifecycle] = useState(false);
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -316,6 +322,18 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.gaussian_camera_path}`;
   }, [manifest]);
+  const collisionMeshUrl = useMemo(() => {
+    if (!manifest?.assets.collision_mesh) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.collision_mesh}`;
+  }, [manifest]);
+  const navigationUrl = useMemo(() => {
+    if (!manifest?.assets.navigation) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.navigation}`;
+  }, [manifest]);
   const meshVariants = manifest?.mesh_variants ?? [];
   const selectedMeshVariant =
     meshVariants.find((variant) => variant.id === selectedMeshVariantId) ?? meshVariants[0] ?? null;
@@ -367,7 +385,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!manifest || !["queued", "running", "exporting"].includes(manifest.status)) {
+    if (
+      !manifest ||
+      (!["queued", "running", "exporting"].includes(manifest.status) &&
+        !["queued", "generating"].includes(manifest.navigation_status ?? ""))
+    ) {
       return;
     }
     let cancelled = false;
@@ -392,7 +414,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [manifest?.job_id, manifest?.status]);
+  }, [manifest?.job_id, manifest?.status, manifest?.navigation_status]);
 
   function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
     setManifest(nextManifest);
@@ -596,6 +618,26 @@ export function App() {
     }
   }
 
+  async function buildNavigationAssets() {
+    if (!manifest) {
+      return;
+    }
+    setIsBuildingNavigation(true);
+    setError(null);
+    try {
+      const nextManifest = await requestJson<Manifest>(
+        `/api/jobs/${manifest.job_id}/navigation-assets`,
+        { method: "POST" }
+      );
+      applyManifest(nextManifest);
+      setJobStatus(nextManifest);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to build navigation assets");
+    } finally {
+      setIsBuildingNavigation(false);
+    }
+  }
+
   function updateMeshSetting(key: Exclude<keyof MeshSettings, "method">, value: number) {
     setMeshSettings((current) => ({ ...current, [key]: value }));
   }
@@ -631,6 +673,13 @@ export function App() {
   const canRetry = Boolean(currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
   const canBuildMeshVariant = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
+  const canBuildNavigation = Boolean(
+    manifest?.status === "done" &&
+      manifest.geometry_backend === "project_3dgs" &&
+      manifest.output_type === "gaussian_splat" &&
+      manifest.navigation_status !== "available" &&
+      !["queued", "generating"].includes(manifest.navigation_status ?? "")
+  );
 
   return (
     <main className="app-shell">
@@ -1016,6 +1065,10 @@ export function App() {
             splatUrl={visibleSplatUrl}
             splatMetadataUrl={viewerMode === "gaussian_splat" ? splatMetadataUrl : null}
             splatCameraPathUrl={viewerMode === "gaussian_splat" ? splatCameraPathUrl : null}
+            collisionMeshUrl={viewerMode === "gaussian_splat" ? collisionMeshUrl : null}
+            navigationUrl={viewerMode === "gaussian_splat" ? navigationUrl : null}
+            navigationStatus={manifest?.navigation_status ?? null}
+            navigationReason={manifest?.navigation_reason ?? null}
           />
         </section>
 
@@ -1069,6 +1122,10 @@ export function App() {
             <div>
               <dt>Trainer</dt>
               <dd>{manifest?.gaussian_trainer?.label ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Navigation</dt>
+              <dd>{manifest?.navigation_status ?? "-"}</dd>
             </div>
             <div>
               <dt>Inputs</dt>
@@ -1164,6 +1221,43 @@ export function App() {
               <dd>{currentStatus?.metrics.mesh_long_edge_removed_triangles ?? "-"}</dd>
             </div>
           </dl>
+
+          {manifest?.status === "done" &&
+            manifest.geometry_backend === "project_3dgs" &&
+            manifest.output_type === "gaussian_splat" && (
+              <section className="result-section">
+                <div className="section-heading">
+                  <h3>First-person navigation</h3>
+                  <span>{manifest.navigation_status ?? "not generated"}</span>
+                </div>
+                {manifest.navigation_status === "available" ? (
+                  <p className="empty-text">Open Gaussian splat and select Enter Walk.</p>
+                ) : (
+                  <>
+                    <p className="empty-text">
+                      {manifest.navigation_reason
+                        ? `Unavailable: ${formatPolicy(manifest.navigation_reason)}`
+                        : "Build Train-only collision and boundary assets without retraining."}
+                    </p>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={buildNavigationAssets}
+                      disabled={!canBuildNavigation || isBuildingNavigation}
+                    >
+                      <Play size={18} aria-hidden="true" />
+                      <span>
+                        {["queued", "generating"].includes(manifest.navigation_status ?? "")
+                          ? "Building navigation"
+                          : isBuildingNavigation
+                            ? "Queueing navigation"
+                            : "Generate navigation assets"}
+                      </span>
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
 
           {canBuildMeshVariant && (
             <section className="result-section mesh-experiment">
@@ -1331,6 +1425,9 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="Gaussian test decision" />
               <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="Gaussian camera path" />
               <AssetLink manifest={manifest} assetKey="gaussian_bundle" label="Gaussian result bundle" />
+              <AssetLink manifest={manifest} assetKey="collision_mesh" label="Collision mesh" />
+              <AssetLink manifest={manifest} assetKey="navigation" label="Navigation contract" />
+              <AssetLink manifest={manifest} assetKey="navigation_diagnostics" label="Navigation diagnostics" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="Alignment" />
               <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="Fusion diagnostics" />
               <AssetLink manifest={manifest} assetKey="visibility_graph" label="Visibility graph" />

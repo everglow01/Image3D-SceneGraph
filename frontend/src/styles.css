@@ -419,6 +419,75 @@ h3 {
   gap: 6px;
 }
 
+.walk-settings {
+  position: absolute;
+  top: 52px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+}
+
+.walk-settings label {
+  display: grid;
+  gap: 2px;
+  min-width: 128px;
+  border: 1px solid rgba(214, 221, 223, 0.72);
+  border-radius: 8px;
+  background: rgba(251, 252, 252, 0.9);
+  color: #223034;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.walk-settings input {
+  width: 120px;
+  accent-color: #1f6f78;
+}
+
+.walk-ready-hint {
+  position: absolute;
+  top: 98px;
+  left: 10px;
+  z-index: 2;
+  border: 1px solid rgba(31, 111, 120, 0.35);
+  border-radius: 8px;
+  background: rgba(229, 242, 242, 0.92);
+  color: #104f57;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.boundary-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  background: rgba(34, 48, 52, 0.88);
+  color: #ffffff;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .pointcloud-toolbar {
   position: absolute;
   top: 10px;

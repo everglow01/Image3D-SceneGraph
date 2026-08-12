@@ -103,19 +103,36 @@ def validate_inputs(
 
 
 def validate_train_images(
-    contract: dict[str, Any], dataset_root: Path, train_ids: list[str]
+    contract: dict[str, Any],
+    dataset_root: Path,
+    train_ids: list[str],
+    contract_path: Path | None = None,
 ) -> str:
     selected = set(train_ids)
     layout: str | None = None
     for entry in contract["images"]:
         if str(entry["image_id"]) not in selected:
             continue
-        contracted = dataset_root / str(entry["path"])
-        flattened = dataset_root / "images" / Path(str(entry["path"])).name
-        path = contracted if contracted.is_file() else flattened
-        current_layout = "contract_paths" if path == contracted else "trainer_flattened_images"
-        if not path.is_file() or sha256_file(path) != entry["sha256"]:
+        filename = Path(str(entry["path"])).name
+        candidates = [
+            (dataset_root / str(entry["path"]), "contract_paths"),
+            (dataset_root / "images" / filename, "trainer_flattened_images"),
+        ]
+        if contract_path is not None:
+            candidates.append(
+                (
+                    contract_path.parent / "graphdeco-dataset" / "images" / filename,
+                    "graphdeco_frozen_train_images",
+                )
+            )
+        matches = [
+            (path, candidate_layout)
+            for path, candidate_layout in candidates
+            if path.is_file() and sha256_file(path) == entry["sha256"]
+        ]
+        if not matches:
             raise NavigationBuildError(f"Train image hash mismatch: {entry['path']}")
+        _, current_layout = matches[0]
         if layout is not None and layout != current_layout:
             raise NavigationBuildError("Train images use mixed dataset layouts")
         layout = current_layout
@@ -1226,7 +1243,9 @@ def build_navigation_assets(
     config = _read_json(config_path)
     export = _read_json(export_path)
     train_ids = validate_inputs(contract, config, export, model_path)
-    train_image_layout = validate_train_images(contract, dataset_root, train_ids)
+    train_image_layout = validate_train_images(
+        contract, dataset_root, train_ids, contract_path
+    )
     sparse_points, sparse_sha256 = load_sparse_initialization(contract, contract_path)
     output_dir.mkdir(parents=True, exist_ok=False)
     preview_dir = output_dir / "previews"
@@ -1359,6 +1378,19 @@ def build_navigation_assets(
     ):
         raise NavigationBuildError("collision GLB failed write/read integrity check")
     collision_bytes = collision_path.stat().st_size
+    topology = {
+        "self_intersecting": bool(verified_mesh.is_self_intersecting()),
+        "vertex_manifold": bool(verified_mesh.is_vertex_manifold()),
+        "edge_manifold_allow_boundary": bool(verified_mesh.is_edge_manifold(allow_boundary_edges=True)),
+        "orientable": bool(verified_mesh.is_orientable()),
+    }
+    if (
+        topology["self_intersecting"]
+        or not topology["vertex_manifold"]
+        or not topology["edge_manifold_allow_boundary"]
+        or not topology["orientable"]
+    ):
+        raise NavigationBuildError(f"collision topology quality gate failed: {topology}")
     if collision_bytes > options.max_glb_bytes:
         raise NavigationBuildError(
             f"collision GLB exceeds budget: {collision_bytes} > {options.max_glb_bytes}"
@@ -1430,7 +1462,7 @@ def build_navigation_assets(
             "collision_floor": "triangulated_reachable_train_supported_floor_cells",
             "door_protection": "train_sequence_short_level_consistent_obstacle_clear_corridors",
         },
-        "quality": {"consistency": consistency, "tsdf": tsdf, "cleanup": cleanup, "floor": floor, "boundary": boundary_stats},
+        "quality": {"consistency": consistency, "tsdf": tsdf, "cleanup": cleanup, "floor": floor, "boundary": boundary_stats, "topology": topology},
     }
     (output_dir / "navigation.json").write_text(
         json.dumps(navigation, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -1446,6 +1478,7 @@ def build_navigation_assets(
         "cleanup": cleanup,
         "floor": floor,
         "boundary": boundary_stats,
+        "topology": topology,
         "collision_bytes": collision_bytes,
         "elapsed_seconds": elapsed,
     }

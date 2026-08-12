@@ -21,6 +21,9 @@ Newly completed jobs contain:
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
 | `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
+| `navigation_status` | string | Optional Gaussian-navigation lifecycle: `pending`, `not_generated`, `queued`, `generating`, `available`, or `unavailable`. Navigation failure never changes a completed Gaussian job from `done`. |
+| `navigation_reason` | string or null | Stable machine-readable reason when navigation is unavailable. |
+| `navigation_details` | object or null | Hashes, budgets, coordinate semantics, and Train-only publication evidence for an available navigation asset set. |
 | `mesh_variants` | array | Optional generated mesh alternatives. |
 
 Historical manifests can omit fields added after that job was created. Readers must tolerate absent optional fields and must not manufacture an effective policy that the old job did not record.
@@ -71,6 +74,15 @@ Common asset roles include:
 - `scene_splat`, `scene_graph`, and `log`
 - `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs
 - `gaussian_evaluation`, `gaussian_test_evaluation`, `gaussian_test_decision`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery
+- `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
+
+`collision_mesh` is a low-poly invisible local-physics GLB, not the customer-visible `mesh` or `scene_splat`. `navigation` is the versioned normalized-coordinate boundary/spawn/player contract; `navigation_diagnostics` is its Train-only quality record. The three roles are published together only after source path containment, source/model/config/export hashes, split isolation, schema, topology, triangle/size/time budgets, and GLB integrity pass. Validation/Test IDs must be empty and selected render IDs must be a subset of Train.
+
+New Gaussian jobs attempt navigation after export. A failed attempt records `navigation_status: unavailable` and a stable reason while the Gaussian job remains `status: done` with `scene_splat`. `POST /api/jobs/{job_id}/navigation-assets` queues generation for an old successful Gaussian job, is idempotent while queued/generating/available, never retrains, and runs through the same single-worker filesystem lease. Generation writes under `lifecycle/navigation/attempt-NNN/workspace`; one directory rename publishes the complete set, while cancellation/interruption preserves partial output outside stable asset paths. A retry increments `navigation_attempt` and does not overwrite a published set.
+
+Navigation assets and their navigation lifecycle diagnostics are excluded from the existing job download ZIP. The ZIP contains a sanitized manifest without navigation roles/status so it cannot reference omitted files. This preserves the existing delivery contract until explicitly revised; direct manifest asset URLs remain the product path.
+
+The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mesh`, and `navigation` are all present and the navigation set passes client-side schema, Train-only, normalized/arbitrary-unit, range, byte-count, SHA-256, triangle-count, and spawn checks. It uses the collision GLB only to construct a Three.js `Octree`; the mesh is hidden by default and the Gaussian splat remains the customer-visible scene. Missing, generating, unavailable, or invalid navigation leaves Orbit mode usable. Completed old Gaussian jobs expose the idempotent generation action in the frontend, while Walk provides Pointer Lock, WASD/arrows, hard-boundary enforcement, safe-position preservation, and spawn reset. Player dimensions and speed are relative to estimated eye height `H`, not metres.
 
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
@@ -102,4 +114,4 @@ API form fields are optional. When omitted, the adapter resolves each setting fr
 
 Raw geometry uses the reconstruction backend's source coordinate system. An aligned point cloud is a separate asset with its transform recorded in alignment diagnostics. Viewer axis flips are display-only.
 
-COLMAP+VGGT world units are arbitrary unless an independently evaluated scale source is present. The manifest and ETH3D's evaluation-time camera Sim(3) alignment do not establish true metres or metric accuracy.
+COLMAP+VGGT world units are arbitrary unless an independently evaluated scale source is present. Gaussian navigation is likewise `coordinate_frame: normalized` and `world_units: arbitrary`; eye height `H`, capsule dimensions, movement speed, steps, and boundary coordinates are scene-relative rather than metres. The manifest and ETH3D's evaluation-time camera Sim(3) alignment do not establish true metres or metric accuracy.

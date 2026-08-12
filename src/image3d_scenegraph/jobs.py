@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import uuid
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import util as importlib_util
@@ -20,6 +21,7 @@ from image3d_scenegraph.gaussian.config import (
     resolved_config_record,
     resolve_public_config,
 )
+from image3d_scenegraph.gaussian.dataset import sha256_file
 from image3d_scenegraph.gaussian.trainers import (
     GaussianTrainerError,
     trainer_record,
@@ -37,6 +39,12 @@ MESH_METHODS = {"poisson", "ball_pivoting", "alpha_shape"}
 LIFECYCLE_SCHEMA_VERSION = 1
 TERMINAL_STATUSES = {"done", "failed", "cancelled"}
 MAX_ATTEMPTS = 3
+NAVIGATION_SCHEMA_VERSION = 1
+NAVIGATION_ASSET_ROLES = {
+    "collision_mesh": "navigation/collision.glb",
+    "navigation": "navigation/navigation.json",
+    "navigation_diagnostics": "navigation/diagnostics.json",
+}
 MESH_OPTION_DEFAULTS = {
     "method": "poisson",
     "voxel_size": 0.05,
@@ -167,6 +175,12 @@ class JobStore:
             "assets": {},
             "metrics": {"num_inputs": len(input_assets)},
         }
+        if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
+            manifest.update(
+                navigation_status="pending",
+                navigation_reason=None,
+                navigation_details=None,
+            )
         if gaussian_config_record is not None:
             manifest["gaussian_config"] = gaussian_config_record
         if gaussian_trainer_record is not None:
@@ -256,6 +270,23 @@ class JobStore:
         with self._state_lock:
             manifest = self.get_manifest(job_id)
             status = manifest.get("status")
+            navigation_status = manifest.get("navigation_status")
+            if status == "done" and navigation_status in {"queued", "generating"}:
+                now = self._timestamp()
+                manifest["navigation_cancel_requested_at"] = (
+                    manifest.get("navigation_cancel_requested_at") or now
+                )
+                manifest["navigation_updated_at"] = now
+                if navigation_status == "queued":
+                    self._remove_navigation_asset_roles(manifest)
+                    manifest.update(
+                        navigation_status="unavailable",
+                        navigation_reason="cancelled",
+                        navigation_completed_at=now,
+                    )
+                    manifest.setdefault("metrics", {})["navigation_status"] = "unavailable"
+                self._write_json(self.job_dir(job_id) / "manifest.json", manifest)
+                return manifest
             if status in TERMINAL_STATUSES:
                 return manifest
             now = self._timestamp()
@@ -308,6 +339,133 @@ class JobStore:
             self._write_json(self.job_dir(job_id) / "manifest.json", manifest)
             return manifest
 
+    def request_navigation_assets(self, job_id: str) -> dict[str, Any]:
+        """Queue idempotent navigation generation for a completed Gaussian job."""
+        with self._state_lock:
+            job_dir = self.job_dir(job_id)
+            manifest_path = job_dir / "manifest.json"
+            if not manifest_path.is_file():
+                raise FileNotFoundError(job_id)
+            manifest = self._read_json(manifest_path)
+            if manifest.get("status") != "done":
+                raise JobError("navigation assets require a completed job")
+            if not self._is_gaussian_job(manifest):
+                raise JobError("navigation assets require a project_3dgs Gaussian job")
+            navigation_status = manifest.get("navigation_status")
+            if navigation_status == "available":
+                try:
+                    self._validate_published_navigation(self.job_dir(job_id), manifest)
+                except JobError:
+                    navigation_status = "unavailable"
+                    self._remove_navigation_asset_roles(manifest)
+                    manifest.update(
+                        navigation_status="unavailable",
+                        navigation_reason="published_assets_invalid",
+                        navigation_details=None,
+                    )
+                    self._quarantine_navigation_directory(self.job_dir(job_id), "invalid_published")
+                else:
+                    return manifest
+            if navigation_status in {"queued", "generating"}:
+                return manifest
+            self._navigation_sources(self.job_dir(job_id), manifest)
+            now = self._timestamp()
+            manifest.update(
+                navigation_status="queued",
+                navigation_reason=None,
+                navigation_details=None,
+                navigation_queued_at=now,
+                navigation_updated_at=now,
+                navigation_cancel_requested_at=None,
+                navigation_attempt=int(manifest.get("navigation_attempt", 0)) + 1,
+            )
+            self._remove_navigation_asset_roles(manifest)
+            self._write_json(self.job_dir(job_id) / "manifest.json", manifest)
+            return manifest
+
+    def execute_navigation_job(self, job_id: str) -> dict[str, Any]:
+        """Generate and atomically publish one queued navigation asset set."""
+        job_dir = self.job_dir(job_id)
+        with self._state_lock:
+            manifest = self.get_manifest(job_id)
+            if manifest.get("navigation_status") != "queued":
+                return manifest
+            now = self._timestamp()
+            manifest.update(
+                navigation_status="generating",
+                navigation_updated_at=now,
+                navigation_started_at=now,
+                navigation_reason=None,
+            )
+            self._write_json(job_dir / "manifest.json", manifest)
+
+        attempt = int(manifest.get("navigation_attempt", 1))
+        attempt_root = job_dir / "lifecycle" / "navigation" / f"attempt-{attempt:03d}"
+        workspace = attempt_root / "workspace"
+        try:
+            if attempt_root.exists():
+                raise JobError(f"navigation attempt already exists: {attempt}")
+            attempt_root.mkdir(parents=True)
+            self._run_navigation_builder(
+                job_dir,
+                manifest,
+                workspace,
+                cancel_requested=lambda: self.is_navigation_cancel_requested(job_id),
+            )
+            if self.is_navigation_cancel_requested(job_id):
+                raise JobCancelled("navigation generation cancelled")
+            details = self._validate_navigation_workspace(job_dir, manifest, workspace)
+            self._publish_navigation(job_dir, workspace)
+            now = self._timestamp()
+            with self._state_lock:
+                current = self._read_json(job_dir / "manifest.json")
+                current_assets = current.setdefault("assets", {})
+                current_assets.update(NAVIGATION_ASSET_ROLES)
+                current_metrics = current.setdefault("metrics", {})
+                current_metrics.update(
+                    navigation_status="available",
+                    navigation_triangles=details["triangles"],
+                    navigation_collision_bytes=details["collision_bytes"],
+                    navigation_elapsed_seconds=details["elapsed_seconds"],
+                )
+                current.update(
+                    navigation_status="available",
+                    navigation_reason=None,
+                    navigation_details=details,
+                    navigation_updated_at=now,
+                    navigation_completed_at=now,
+                    navigation_cancel_requested_at=None,
+                )
+                self._write_json(job_dir / "manifest.json", current)
+                return current
+        except JobCancelled:
+            return self._finish_navigation_unsuccessful(job_id, "cancelled")
+        except (JobError, OSError, ValueError, subprocess.CalledProcessError):
+            return self._finish_navigation_unsuccessful(job_id, "navigation_generation_failed")
+        except Exception:
+            return self._finish_navigation_unsuccessful(job_id, "unexpected_navigation_error")
+
+    def list_queued_navigation_jobs(self) -> list[str]:
+        if not self.output_root.is_dir():
+            return []
+        queued: list[tuple[str, str]] = []
+        for directory in self.output_root.iterdir():
+            manifest_path = directory / "manifest.json"
+            if not directory.is_dir() or not manifest_path.is_file():
+                continue
+            try:
+                manifest = self._read_json(manifest_path)
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
+            if manifest.get("status") == "done" and manifest.get("navigation_status") == "queued":
+                queued.append(
+                    (
+                        str(manifest.get("navigation_queued_at", manifest.get("updated_at", ""))),
+                        str(manifest.get("job_id", directory.name)),
+                    )
+                )
+        return [job_id for _, job_id in sorted(queued)]
+
     def list_queued_jobs(self) -> list[str]:
         if not self.output_root.is_dir():
             return []
@@ -336,6 +494,36 @@ class JobStore:
             try:
                 manifest = self._read_json(manifest_path)
             except (OSError, json.JSONDecodeError, TypeError):
+                continue
+            if manifest.get("status") == "done" and manifest.get("navigation_status") == "generating":
+                job_id = str(manifest.get("job_id", directory.name))
+                now = self._timestamp()
+                published_navigation = directory / "navigation"
+                attempt = int(manifest.get("navigation_attempt", 1))
+                attempt_root = directory / "lifecycle" / "navigation" / f"attempt-{attempt:03d}"
+                workspace = attempt_root / "workspace"
+                if workspace.exists():
+                    partial = attempt_root / "partial"
+                    if partial.exists():
+                        shutil.rmtree(partial)
+                    os.rename(workspace, partial)
+                if published_navigation.exists():
+                    partial = attempt_root / "partial_published"
+                    partial.parent.mkdir(parents=True, exist_ok=True)
+                    if partial.exists():
+                        shutil.rmtree(partial)
+                    os.rename(published_navigation, partial)
+                self._remove_navigation_asset_roles(manifest)
+                manifest.setdefault("metrics", {})["navigation_status"] = "unavailable"
+                manifest.update(
+                    navigation_status="unavailable",
+                    navigation_reason="worker_interrupted",
+                    navigation_details=None,
+                    navigation_updated_at=now,
+                    navigation_completed_at=now,
+                )
+                self._write_json(manifest_path, manifest)
+                recovered.append(job_id)
                 continue
             if manifest.get("status") not in {"running", "exporting"}:
                 continue
@@ -407,9 +595,32 @@ class JobStore:
             raise JobError(str(exc)) from exc
 
         self._check_cancel(cancel_requested)
-        if output_type == "gaussian_splat":
-            self._set_running_stage(job_id, "gaussian_training", 0.75)
-        else:
+        navigation_assets: dict[str, str] = {}
+        navigation_metrics: dict[str, int | float | str | bool] = {}
+        navigation_status: str | None = None
+        navigation_reason: str | None = None
+        navigation_details: dict[str, Any] | None = None
+        if self._is_gaussian_job(
+            {"geometry_backend": geometry_backend, "output_type": output_type}
+        ):
+            self._set_running_stage(job_id, "navigation_generation", 0.90)
+            (
+                navigation_assets,
+                navigation_metrics,
+                navigation_status,
+                navigation_reason,
+                navigation_details,
+            ) = self._try_generate_navigation(
+                workspace,
+                reconstruction.assets,
+                gaussian_config_record=(
+                    gaussian_config_record if isinstance(gaussian_config_record, dict) else None
+                ),
+                cancel_requested=cancel_requested,
+            )
+
+        self._check_cancel(cancel_requested)
+        if output_type != "gaussian_splat":
             self._set_running_stage(job_id, "alignment", 0.55)
         alignment_assets, alignment_metrics, alignment_log_lines = self._try_align_point_cloud(
             workspace, reconstruction.assets
@@ -461,6 +672,12 @@ class JobStore:
                 *reconstruction.log_lines,
                 *alignment_log_lines,
                 *mesh_log_lines,
+                *(
+                    [f"navigation_status={navigation_status}"]
+                    + ([f"navigation_reason={navigation_reason}"] if navigation_reason else [])
+                    if navigation_status is not None
+                    else []
+                ),
                 "",
             ]
         )
@@ -468,6 +685,7 @@ class JobStore:
         assets = {
             **geometry_assets,
             **mesh_assets,
+            **navigation_assets,
             "scene_graph": "scene_graph/scene.json",
             "log": "logs/run.log",
         }
@@ -477,6 +695,7 @@ class JobStore:
             **reconstruction.metrics,
             **alignment_metrics,
             **mesh_metrics,
+            **navigation_metrics,
         }
         result = self._build_manifest(
             job_id,
@@ -493,9 +712,362 @@ class JobStore:
             ),
         )
         result["created_at"] = queued_manifest["created_at"]
+        if navigation_status is not None:
+            result.update(
+                navigation_status=navigation_status,
+                navigation_reason=navigation_reason,
+                navigation_details=navigation_details,
+                navigation_updated_at=self._timestamp(),
+            )
         if output_type == "mesh":
             self._with_existing_mesh_variants(workspace, result)
         return result
+
+    def _try_generate_navigation(
+        self,
+        job_dir: Path,
+        assets: dict[str, str],
+        *,
+        gaussian_config_record: dict[str, Any] | None,
+        cancel_requested: Callable[[], bool] | None,
+    ) -> tuple[
+        dict[str, str],
+        dict[str, int | float | str | bool],
+        str,
+        str | None,
+        dict[str, Any] | None,
+    ]:
+        output_dir = job_dir / "navigation"
+        manifest = {
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "assets": assets,
+        }
+        if gaussian_config_record is not None:
+            manifest["gaussian_config"] = gaussian_config_record
+        try:
+            self._run_navigation_builder(
+                job_dir,
+                manifest,
+                output_dir,
+                cancel_requested=cancel_requested,
+            )
+            details = self._validate_navigation_workspace(job_dir, manifest, output_dir)
+        except JobCancelled:
+            raise
+        except Exception:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            return (
+                {},
+                {"navigation_status": "unavailable"},
+                "unavailable",
+                "navigation_generation_failed",
+                None,
+            )
+        return (
+            dict(NAVIGATION_ASSET_ROLES),
+            {
+                "navigation_status": "available",
+                "navigation_triangles": details["triangles"],
+                "navigation_collision_bytes": details["collision_bytes"],
+                "navigation_elapsed_seconds": details["elapsed_seconds"],
+            },
+            "available",
+            None,
+            details,
+        )
+
+    def _run_navigation_builder(
+        self,
+        job_dir: Path,
+        manifest: dict[str, Any],
+        output_dir: Path,
+        *,
+        cancel_requested: Callable[[], bool] | None,
+    ) -> subprocess.CompletedProcess[str]:
+        sources = self._navigation_sources(job_dir, manifest)
+        project_root = Path(
+            os.environ.get("IMAGE3D_PROJECT_ROOT", Path(__file__).resolve().parents[2])
+        ).resolve()
+        script = project_root / "scripts" / "build_gaussian_navigation.py"
+        if not script.is_file():
+            raise JobError("Gaussian navigation runner is unavailable")
+        command = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(script),
+            "--model",
+            str(sources["model"]),
+            "--dataset-contract",
+            str(sources["dataset"]),
+            "--dataset-root",
+            str(job_dir),
+            "--effective-config",
+            str(sources["config"]),
+            "--export-metadata",
+            str(sources["export"]),
+            "--output-dir",
+            str(output_dir),
+        ]
+        env = os.environ.copy()
+        env.pop("LD_LIBRARY_PATH", None)
+        if cancel_requested is None:
+            return subprocess.run(
+                command,
+                cwd=project_root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=330,
+            )
+        from image3d_scenegraph.worker import run_cancellable_command
+
+        return run_cancellable_command(
+            command,
+            cwd=project_root,
+            env=env,
+            cancel_requested=cancel_requested,
+        )
+
+    def _navigation_sources(
+        self, job_dir: Path, manifest: dict[str, Any]
+    ) -> dict[str, Path]:
+        if not self._is_gaussian_job(manifest):
+            raise JobError("navigation assets require a project_3dgs Gaussian job")
+        assets = manifest.get("assets")
+        if not isinstance(assets, dict):
+            raise JobError("Gaussian manifest assets are missing")
+        required_roles = {
+            "model": "gaussian_model",
+            "dataset": "gaussian_dataset",
+            "export": "gaussian_export_metadata",
+        }
+        sources: dict[str, Path] = {}
+        for name, role in required_roles.items():
+            relative = assets.get(role)
+            if not isinstance(relative, str):
+                raise JobError(f"Gaussian navigation source is missing: {role}")
+            sources[name] = self._contained_file(job_dir, relative)
+        config_relative = assets.get("gaussian_effective_config")
+        if isinstance(config_relative, str):
+            sources["config"] = self._contained_file(job_dir, config_relative)
+        else:
+            fallback = sources["dataset"].with_name("effective_config.json")
+            if not fallback.is_file() or not fallback.resolve().is_relative_to(job_dir.resolve()):
+                raise JobError("Gaussian navigation source is missing: gaussian_effective_config")
+            sources["config"] = fallback
+        return sources
+
+    def _contained_file(self, job_dir: Path, relative: str) -> Path:
+        if Path(relative).is_absolute():
+            raise JobError("manifest asset path must be relative")
+        root = job_dir.resolve()
+        candidate = (root / relative).resolve()
+        unresolved = root / relative
+        if not candidate.is_relative_to(root):
+            raise JobError("manifest asset path escapes job directory")
+        if unresolved.is_symlink():
+            raise JobError("manifest asset path must not be a symbolic link")
+        if not candidate.is_file():
+            raise JobError("manifest asset file is missing")
+        return candidate
+
+    def _validate_navigation_workspace(
+        self,
+        job_dir: Path,
+        manifest: dict[str, Any],
+        workspace: Path,
+    ) -> dict[str, Any]:
+        sources = self._navigation_sources(job_dir, manifest)
+        collision = workspace / "collision.glb"
+        navigation_path = workspace / "navigation.json"
+        diagnostics_path = workspace / "diagnostics.json"
+        if any(path.is_symlink() for path in (workspace, collision, navigation_path, diagnostics_path)):
+            raise JobError("navigation outputs must not be symbolic links")
+        if not all(path.is_file() for path in (collision, navigation_path, diagnostics_path)):
+            raise JobError("navigation generation is incomplete")
+        navigation = self._read_json(navigation_path)
+        diagnostics = self._read_json(diagnostics_path)
+        if navigation.get("schema_version") != NAVIGATION_SCHEMA_VERSION:
+            raise JobError("unsupported navigation schema version")
+        if navigation.get("status") != "available":
+            raise JobError("navigation contract is not available")
+        if navigation.get("coordinate_frame") != "normalized":
+            raise JobError("navigation coordinate frame must be normalized")
+        if navigation.get("world_units") != "arbitrary":
+            raise JobError("navigation world units must be arbitrary")
+        if diagnostics.get("schema_version") != NAVIGATION_SCHEMA_VERSION:
+            raise JobError("unsupported navigation diagnostics schema version")
+        if diagnostics.get("status") != "complete" or diagnostics.get("train_only") is not True:
+            raise JobError("navigation diagnostics are not Train-only complete")
+        provenance = navigation.get("provenance")
+        if not isinstance(provenance, dict):
+            raise JobError("navigation provenance is missing")
+        contract = self._read_json(sources["dataset"])
+        config = self._read_json(sources["config"])
+        export = self._read_json(sources["export"])
+        train_ids = contract.get("splits", {}).get("train")
+        if not isinstance(train_ids, list) or not train_ids:
+            raise JobError("Gaussian Train split is invalid")
+        selected_ids = provenance.get("selected_render_image_ids")
+        if (
+            provenance.get("dataset_hash") != contract.get("dataset_hash")
+            or provenance.get("effective_config_hash") != config.get("effective_config_hash")
+            or provenance.get("model_sha256") != sha256_file(sources["model"])
+            or provenance.get("export_sha256") != sha256_file(sources["export"])
+            or provenance.get("train_image_ids") != train_ids
+            or not isinstance(selected_ids, list)
+            or not set(selected_ids).issubset(set(train_ids))
+            or provenance.get("validation_image_ids_used") != []
+            or provenance.get("test_image_ids_used") != []
+        ):
+            raise JobError("navigation provenance validation failed")
+        collision_record = navigation.get("collision")
+        generation = navigation.get("generation")
+        quality = navigation.get("quality")
+        topology = quality.get("topology") if isinstance(quality, dict) else None
+        if (
+            not isinstance(collision_record, dict)
+            or not isinstance(generation, dict)
+            or not isinstance(topology, dict)
+        ):
+            raise JobError("navigation collision metadata is missing")
+        if (
+            topology.get("self_intersecting") is not False
+            or topology.get("vertex_manifold") is not True
+            or topology.get("edge_manifold_allow_boundary") is not True
+            or topology.get("orientable") is not True
+        ):
+            raise JobError("navigation collision topology validation failed")
+        collision_bytes = collision.stat().st_size
+        triangles = collision_record.get("triangles")
+        elapsed = generation.get("elapsed_seconds")
+        if (
+            collision_record.get("asset") != "collision.glb"
+            or collision_record.get("sha256") != sha256_file(collision)
+            or collision_record.get("bytes") != collision_bytes
+            or not isinstance(triangles, int)
+            or not 0 < triangles <= 50_000
+            or collision_bytes > 10 * 1024 * 1024
+            or not isinstance(elapsed, (int, float))
+            or not 0 <= float(elapsed) <= 300
+        ):
+            raise JobError("navigation collision quality validation failed")
+        return {
+            "schema_version": NAVIGATION_SCHEMA_VERSION,
+            "world_units": "arbitrary",
+            "coordinate_frame": "normalized",
+            "train_only": True,
+            "collision_sha256": sha256_file(collision),
+            "navigation_sha256": sha256_file(navigation_path),
+            "diagnostics_sha256": sha256_file(diagnostics_path),
+            "collision_bytes": collision_bytes,
+            "triangles": triangles,
+            "elapsed_seconds": float(elapsed),
+        }
+
+    def _publish_navigation(self, job_dir: Path, workspace: Path) -> None:
+        destination = job_dir / "navigation"
+        if destination.exists():
+            raise JobError("cannot publish over existing navigation assets")
+        if not workspace.is_dir():
+            raise JobError("navigation workspace is missing")
+        os.rename(workspace, destination)
+        try:
+            descriptor = os.open(job_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError:
+            if destination.exists() and not workspace.exists():
+                os.rename(destination, workspace)
+            raise
+
+    def _validate_published_navigation(
+        self, job_dir: Path, manifest: dict[str, Any]
+    ) -> None:
+        assets = manifest.get("assets")
+        if not isinstance(assets, dict) or any(
+            assets.get(role) != path for role, path in NAVIGATION_ASSET_ROLES.items()
+        ):
+            raise JobError("published navigation asset roles are incomplete")
+        actual = self._validate_navigation_workspace(job_dir, manifest, job_dir / "navigation")
+        recorded = manifest.get("navigation_details")
+        if not isinstance(recorded, dict) or any(
+            recorded.get(key) != actual[key]
+            for key in (
+                "schema_version",
+                "world_units",
+                "coordinate_frame",
+                "train_only",
+                "collision_sha256",
+                "navigation_sha256",
+                "diagnostics_sha256",
+                "collision_bytes",
+                "triangles",
+                "elapsed_seconds",
+            )
+        ):
+            raise JobError("published navigation integrity record does not match assets")
+
+    def _quarantine_navigation_directory(self, job_dir: Path, label: str) -> None:
+        source = job_dir / "navigation"
+        if not source.exists():
+            return
+        root = job_dir / "lifecycle" / "navigation" / label
+        destination = root
+        suffix = 1
+        while destination.exists():
+            suffix += 1
+            destination = root.with_name(f"{label}-{suffix}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(source, destination)
+
+    def _finish_navigation_unsuccessful(self, job_id: str, reason: str) -> dict[str, Any]:
+        with self._state_lock:
+            job_dir = self.job_dir(job_id)
+            manifest = self._read_json(job_dir / "manifest.json")
+            attempt = int(manifest.get("navigation_attempt", 1))
+            attempt_root = job_dir / "lifecycle" / "navigation" / f"attempt-{attempt:03d}"
+            workspace = attempt_root / "workspace"
+            partial = attempt_root / "partial"
+            published = job_dir / "navigation"
+            if published.exists():
+                partial_published = attempt_root / "partial_published"
+                if not partial_published.exists():
+                    os.rename(published, partial_published)
+            if workspace.exists() and not partial.exists():
+                os.rename(workspace, partial)
+            now = self._timestamp()
+            self._remove_navigation_asset_roles(manifest)
+            manifest.setdefault("metrics", {})["navigation_status"] = "unavailable"
+            manifest.update(
+                navigation_status="unavailable",
+                navigation_reason=reason,
+                navigation_details=None,
+                navigation_updated_at=now,
+                navigation_completed_at=now,
+            )
+            self._write_json(job_dir / "manifest.json", manifest)
+            return manifest
+
+    def _remove_navigation_asset_roles(self, manifest: dict[str, Any]) -> None:
+        assets = manifest.setdefault("assets", {})
+        if isinstance(assets, dict):
+            for role in NAVIGATION_ASSET_ROLES:
+                assets.pop(role, None)
+
+    def _is_gaussian_job(self, manifest: dict[str, Any]) -> bool:
+        return (
+            manifest.get("geometry_backend") == "project_3dgs"
+            and manifest.get("output_type") == "gaussian_splat"
+        )
+
+    def is_navigation_cancel_requested(self, job_id: str) -> bool:
+        with self._state_lock:
+            manifest = self._read_json(self.job_dir(job_id) / "manifest.json")
+            return bool(manifest.get("navigation_cancel_requested_at"))
 
     def _attempt_record(
         self, attempt_id: str, kind: str, parent_attempt_id: str | None, created_at: str
@@ -549,6 +1121,12 @@ class JobStore:
             if destination.exists():
                 raise JobError(f"cannot publish over existing output: {name}")
             os.rename(source, destination)
+        navigation = workspace / "navigation"
+        if navigation.exists():
+            destination = job_dir / "navigation"
+            if destination.exists():
+                raise JobError("cannot publish over existing output: navigation")
+            os.rename(navigation, destination)
         run_log = workspace / "logs" / "run.log"
         if not run_log.is_file():
             raise JobError("completed attempt did not produce logs/run.log")
@@ -631,6 +1209,7 @@ class JobStore:
         manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
         if manifest.get("status") != "done":
             return manifest
+        manifest = self._with_existing_navigation_assets(job_dir, manifest)
         return self._with_existing_mesh_variants(job_dir, manifest)
 
     def get_scene(self, job_id: str) -> dict[str, Any]:
@@ -699,7 +1278,42 @@ class JobStore:
         bundle_path = self.output_root / f"{job_id}.zip"
         if bundle_path.exists():
             bundle_path.unlink()
-        shutil.make_archive(str(bundle_path.with_suffix("")), "zip", job_dir)
+        with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(job_dir.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(job_dir).as_posix()
+                if relative == "manifest.json":
+                    manifest = self._read_json(path)
+                    self._remove_navigation_asset_roles(manifest)
+                    for key in [
+                        "navigation_status",
+                        "navigation_reason",
+                        "navigation_details",
+                        "navigation_queued_at",
+                        "navigation_updated_at",
+                        "navigation_started_at",
+                        "navigation_completed_at",
+                        "navigation_cancel_requested_at",
+                        "navigation_attempt",
+                    ]:
+                        manifest.pop(key, None)
+                    metrics = manifest.get("metrics")
+                    if isinstance(metrics, dict):
+                        for key in list(metrics):
+                            if key.startswith("navigation_"):
+                                metrics.pop(key)
+                    archive.writestr(
+                        relative,
+                        json.dumps(manifest, ensure_ascii=False, indent=2, allow_nan=False)
+                        + "\n",
+                    )
+                    continue
+                if relative.startswith("navigation/") or relative.startswith(
+                    "lifecycle/navigation/"
+                ):
+                    continue
+                archive.write(path, relative)
         return bundle_path
 
     def job_dir(self, job_id: str) -> Path:
@@ -1235,6 +1849,30 @@ class JobStore:
                 os.close(descriptor)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def _with_existing_navigation_assets(
+        self, job_dir: Path, manifest: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not self._is_gaussian_job(manifest):
+            return manifest
+        status = manifest.get("navigation_status")
+        if status == "available":
+            try:
+                self._validate_published_navigation(job_dir, manifest)
+            except JobError:
+                self._remove_navigation_asset_roles(manifest)
+                manifest["navigation_status"] = "unavailable"
+                manifest["navigation_reason"] = "published_assets_invalid"
+                manifest["navigation_details"] = None
+                manifest.setdefault("metrics", {})["navigation_status"] = "unavailable"
+            return manifest
+        if status is None:
+            manifest.update(
+                navigation_status="not_generated",
+                navigation_reason=None,
+                navigation_details=None,
+            )
+        return manifest
 
     def _with_existing_alignment_assets(self, job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         assets = manifest.setdefault("assets", {})

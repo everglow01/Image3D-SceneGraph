@@ -20,6 +20,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
     maxDistance: number;
     minPolarAngle: number;
     maxPolarAngle: number;
+    enabled: boolean;
     update(): void;
     saveState(): void;
   };
@@ -31,6 +32,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
   export class Viewer {
     camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
     controls: ViewerControls | null;
+    renderer?: THREE.WebGLRenderer;
 
     constructor(options?: {
       rootElement?: HTMLElement;
@@ -43,6 +45,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
       integerBasedSort?: boolean;
       renderMode?: (typeof RenderMode)[keyof typeof RenderMode];
       showInfo?: boolean;
+      threeScene?: THREE.Scene;
     });
 
     addSplatScene(
