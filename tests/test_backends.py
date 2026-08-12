@@ -23,7 +23,7 @@ def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
 
 def test_backend_specs_prefer_project_local_colmap(tmp_path, monkeypatch):
     external_root = tmp_path / "external"
-    colmap = external_root / "colmap-cuda" / "install" / "bin" / "colmap"
+    colmap = external_root / "colmap-4-cuda" / "install" / "bin" / "colmap"
     colmap.parent.mkdir(parents=True)
     colmap.write_text("#!/bin/sh\n", encoding="utf-8")
     colmap.chmod(0o755)

@@ -123,38 +123,23 @@ uv run python scripts/setup_gaussian_trainer.py \
 
 Graphdeco is licensed only for research/evaluation, so setup requires explicit acknowledgement. Its checkout, environment, and generated results stay ignored locally. This command never alters the project uv environment.
 
-Install the isolated CUDA-enabled COLMAP before using GPU SIFT. The setup script is a dry run unless `--install` is supplied and never invokes `sudo`:
+Install the isolated CUDA-enabled COLMAP 4.0.0 before using GPU SIFT. The setup script is a dry run unless `--install` is supplied and never invokes `sudo`:
 
 ```bash
 uv run python scripts/setup_colmap_cuda.py
 sudo apt-get update
 sudo apt-get install -y \
+  cuda-compiler-12-2 cuda-libraries-dev-12-2 libcudnn9-cuda-12 \
   cmake libfreeimage-dev libmetis-dev libgoogle-glog-dev \
-  libceres-dev libsuitesparse-dev
+  libceres-dev libsuitesparse-dev libopenimageio-dev \
+  libopenexr-dev openimageio-tools
+sudo mkdir -p /usr/include/opencv4
 uv run python scripts/setup_colmap_cuda.py --install
 ```
 
-The pinned stable build is installed under ignored `external/colmap-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`.
+The pinned production build is installed under ignored `external/colmap-4-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`. The RTX 4060 development build uses CUDA 12.2, SM 89, ONNX Runtime, and cuDNN 9.
 
-COLMAP 4.0.0 with native ALIKED/LightGlue support is an isolated experimental profile. On the RTX 4060 development machine it uses the versioned CUDA 12.2 compiler, SM 89, ONNX Runtime, and cuDNN 9; it does not replace the stable 3.9.1 executable:
-
-```bash
-sudo apt-get install -y \
-  cuda-compiler-12-2 cuda-libraries-dev-12-2 libcudnn9-cuda-12 \
-  libopenimageio-dev libopenexr-dev openimageio-tools
-sudo mkdir -p /usr/include/opencv4
-uv run python scripts/setup_colmap_cuda.py --profile learned
-uv run python scripts/setup_colmap_cuda.py --profile learned --install
-```
-
-The CUDA 12.2 compiler/development libraries plus cuDNN require roughly 5 GiB locally. Select COLMAP 4 explicitly for experiments:
-
-```bash
-IMAGE3D_COLMAP_BIN="$PWD/external/colmap-4-cuda/install/bin/colmap" \
-  uv run python scripts/run_colmap_sparse.py --help
-```
-
-Production remains on project-local COLMAP 3.9.1 with SIFT until controlled Validation ablations promote a learned-feature profile. Keep CUDA 11.7 while the fallback COLMAP and the Graphdeco `cu117` environment depend on `libcudart.so.11.0`; installing 4.0.0 alone does not authorize deleting either fallback.
+The production pipeline retains SIFT extraction, brute-force matching, and incremental Mapper. COLMAP 4's ALIKED, LightGlue, and Global Mapper remain experimental and require controlled Validation ablations before any promotion; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Run COLMAP sparse SfM directly for a local image folder:
 

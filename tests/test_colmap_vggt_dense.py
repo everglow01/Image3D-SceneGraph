@@ -78,10 +78,10 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
     )
 
     feature, matcher, _ = commands
-    assert feature[feature.index("--SiftExtraction.use_gpu") + 1] == "1"
-    assert feature[feature.index("--SiftExtraction.gpu_index") + 1] == "0"
-    assert matcher[matcher.index("--SiftMatching.use_gpu") + 1] == "1"
-    assert matcher[matcher.index("--SiftMatching.gpu_index") + 1] == "0"
+    assert feature[feature.index("--FeatureExtraction.use_gpu") + 1] == "1"
+    assert feature[feature.index("--FeatureExtraction.gpu_index") + 1] == "0"
+    assert matcher[matcher.index("--FeatureMatching.use_gpu") + 1] == "1"
+    assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
 
 
 def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):

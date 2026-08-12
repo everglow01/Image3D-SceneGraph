@@ -15,7 +15,7 @@ def _make_executable(path: Path) -> Path:
 def test_colmap_resolver_prefers_explicit_override(tmp_path, monkeypatch):
     explicit = _make_executable(tmp_path / "explicit" / "colmap")
     local = _make_executable(
-        tmp_path / "external" / "colmap-cuda" / "install" / "bin" / "colmap"
+        tmp_path / "external" / "colmap-4-cuda" / "install" / "bin" / "colmap"
     )
     monkeypatch.setenv("IMAGE3D_COLMAP_BIN", str(explicit))
     monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(local.parents[4]))
@@ -25,7 +25,7 @@ def test_colmap_resolver_prefers_explicit_override(tmp_path, monkeypatch):
 
 def test_colmap_resolver_prefers_project_local_before_path(tmp_path, monkeypatch):
     local = _make_executable(
-        tmp_path / "external" / "colmap-cuda" / "install" / "bin" / "colmap"
+        tmp_path / "external" / "colmap-4-cuda" / "install" / "bin" / "colmap"
     )
     path_colmap = _make_executable(tmp_path / "path" / "colmap")
     monkeypatch.delenv("IMAGE3D_COLMAP_BIN", raising=False)

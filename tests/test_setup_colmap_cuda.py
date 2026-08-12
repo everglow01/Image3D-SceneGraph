@@ -13,17 +13,8 @@ sys.modules[SPEC.name] = SETUP
 SPEC.loader.exec_module(SETUP)
 
 
-def test_stable_profile_preserves_colmap_391_cuda_117():
-    profile = SETUP.PROFILES["stable"]
-
-    assert profile.tag == "3.9.1"
-    assert profile.root == Path("external/colmap-cuda")
-    assert profile.cuda_root == Path("/usr/local/cuda-11.7")
-    assert profile.cuda_architecture == "86"
-    assert profile.onnx is False
-
-
-def test_learned_profile_isolated_colmap_400_cuda_122_onnx():
+def test_learned_profile_is_colmap_400_cuda_122_onnx():
+    assert list(SETUP.PROFILES) == ["learned"]
     profile = SETUP.PROFILES["learned"]
 
     assert profile.tag == "4.0.0"

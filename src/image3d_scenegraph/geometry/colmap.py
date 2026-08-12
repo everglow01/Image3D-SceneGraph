@@ -13,7 +13,7 @@ def resolve_colmap_executable(project_root: Path | str | None = None) -> Path | 
 
     root = Path(project_root or os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
     external_root = Path(os.environ.get("IMAGE3D_EXTERNAL_ROOT", root / "external")).expanduser()
-    local = external_root / "colmap-cuda" / "install" / "bin" / "colmap"
+    local = external_root / "colmap-4-cuda" / "install" / "bin" / "colmap"
     if resolved := _executable(local):
         return resolved
 

@@ -55,15 +55,15 @@ def test_colmap_version_includes_cuda_build_line(monkeypatch):
         lambda *_, **__: subprocess.CompletedProcess(
             [],
             0,
-            "COLMAP 3.9.1 -- Structure-from-Motion and Multi-View Stereo\n"
-            "(Commit e990364 on 2024-01-08 with CUDA)\n",
+            "COLMAP 4.0.0 -- Structure-from-Motion and Multi-View Stereo\n"
+            "(Commit 8bac7b9 on 2026-03-15 with CUDA)\n",
             "",
         ),
     )
 
     assert colmap_version("colmap") == (
-        "COLMAP 3.9.1 -- Structure-from-Motion and Multi-View Stereo "
-        "(Commit e990364 on 2024-01-08 with CUDA)"
+        "COLMAP 4.0.0 -- Structure-from-Motion and Multi-View Stereo "
+        "(Commit 8bac7b9 on 2026-03-15 with CUDA)"
     )
 
 
@@ -99,7 +99,7 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
         run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
     )
     monkeypatch.setattr(
-        run_colmap_sparse, "colmap_version", lambda _: "COLMAP 3.9.1 with CUDA"
+        run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0 with CUDA"
     )
     monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
     monkeypatch.setattr(
@@ -124,17 +124,17 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     run_colmap_sparse.main()
 
     feature, matcher, mapper = commands[:3]
-    assert feature[feature.index("--SiftExtraction.use_gpu") + 1] == "0"
-    assert feature[feature.index("--SiftExtraction.gpu_index") + 1] == "0"
-    assert feature[feature.index("--SiftExtraction.num_threads") + 1] == "4"
-    assert matcher[matcher.index("--SiftMatching.use_gpu") + 1] == "0"
-    assert matcher[matcher.index("--SiftMatching.gpu_index") + 1] == "0"
-    assert matcher[matcher.index("--SiftMatching.num_threads") + 1] == "4"
+    assert feature[feature.index("--FeatureExtraction.use_gpu") + 1] == "0"
+    assert feature[feature.index("--FeatureExtraction.gpu_index") + 1] == "0"
+    assert feature[feature.index("--FeatureExtraction.num_threads") + 1] == "4"
+    assert matcher[matcher.index("--FeatureMatching.use_gpu") + 1] == "0"
+    assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
+    assert matcher[matcher.index("--FeatureMatching.num_threads") + 1] == "4"
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
     assert json.loads(progress_path.read_text()) == {"stage": "colmap_mapping"}
     log = (output_dir / "logs" / "run.log").read_text()
     assert "colmap_executable=" in log
-    assert "colmap_build=COLMAP 3.9.1 with CUDA\n" in log
+    assert "colmap_build=COLMAP 4.0.0 with CUDA\n" in log
     assert "use_gpu=False\n" in log
     assert "gpu_index=0\n" in log
     assert "num_threads=4\n" in log

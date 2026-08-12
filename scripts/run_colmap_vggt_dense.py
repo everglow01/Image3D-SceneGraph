@@ -1121,9 +1121,9 @@ def run_colmap_pipeline(
             str(image_dir),
             "--ImageReader.single_camera",
             str(int(single_camera)),
-            "--SiftExtraction.use_gpu",
+            "--FeatureExtraction.use_gpu",
             "1",
-            "--SiftExtraction.gpu_index",
+            "--FeatureExtraction.gpu_index",
             "0",
         ],
         [
@@ -1131,9 +1131,9 @@ def run_colmap_pipeline(
             "sequential_matcher" if matcher == "sequential" else "exhaustive_matcher",
             "--database_path",
             str(database_path),
-            "--SiftMatching.use_gpu",
+            "--FeatureMatching.use_gpu",
             "1",
-            "--SiftMatching.gpu_index",
+            "--FeatureMatching.gpu_index",
             "0",
         ],
         [

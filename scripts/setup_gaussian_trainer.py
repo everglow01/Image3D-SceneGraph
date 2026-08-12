@@ -66,8 +66,8 @@ def main() -> None:
     _run(
         [
             "uv", "pip", "install", "--python", str(python),
-            "torch==2.0.1", "torchvision==0.15.2",
-            "--index-url", "https://download.pytorch.org/whl/cu117",
+            "torch==2.3.1", "torchvision==0.18.1",
+            "--index-url", "https://download.pytorch.org/whl/cu121",
         ]
     )
     _run(
@@ -79,7 +79,7 @@ def main() -> None:
     )
     for package in ("simple-knn", "diff-gaussian-rasterization", "fused-ssim"):
         _run([
-            "env", "CC=/usr/bin/gcc-11", "CXX=/usr/bin/g++-11", "MAX_JOBS=1",
+            "env", "CUDA_HOME=/usr/local/cuda-12.2", "CC=/usr/bin/gcc-11", "CXX=/usr/bin/g++-11", "MAX_JOBS=1",
             "uv", "pip", "install", "--no-build-isolation", "--python", str(python),
             str(repo / "submodules" / package),
         ])

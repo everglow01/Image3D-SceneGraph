@@ -29,13 +29,6 @@ class SetupProfile:
 
 
 PROFILES = {
-    "stable": SetupProfile(
-        tag="3.9.1",
-        root=Path("external/colmap-cuda"),
-        cuda_root=Path("/usr/local/cuda-11.7"),
-        cuda_architecture="86",
-        onnx=False,
-    ),
     "learned": SetupProfile(
         tag="4.0.0",
         root=Path("external/colmap-4-cuda"),
@@ -51,7 +44,7 @@ def main() -> None:
         description="Build an isolated CUDA-enabled COLMAP for Image3D-SceneGraph."
     )
     parser.add_argument("--install", action="store_true", help="Clone, build, and install. Default is dry-run.")
-    parser.add_argument("--profile", choices=PROFILES, default="stable")
+    parser.add_argument("--profile", choices=PROFILES, default="learned")
     parser.add_argument("--root", type=Path)
     parser.add_argument("--jobs", type=int, default=2)
     args = parser.parse_args()

@@ -66,15 +66,15 @@ def main() -> None:
         str(args.image_dir),
         "--ImageReader.single_camera",
         "1" if args.single_camera else "0",
-        "--SiftExtraction.use_gpu",
+        "--FeatureExtraction.use_gpu",
         "1" if args.use_gpu else "0",
-        "--SiftExtraction.gpu_index",
+        "--FeatureExtraction.gpu_index",
         str(args.gpu_index),
     ]
     if args.gaussian_baseline:
         feature_command.extend(("--ImageReader.camera_model", "OPENCV"))
     if args.num_threads is not None:
-        feature_command.extend(("--SiftExtraction.num_threads", str(args.num_threads)))
+        feature_command.extend(("--FeatureExtraction.num_threads", str(args.num_threads)))
     mapper_command = [
         colmap,
         "mapper",
@@ -94,13 +94,13 @@ def main() -> None:
         "sequential_matcher" if args.matcher == "sequential" else "exhaustive_matcher",
         "--database_path",
         str(work_dir / "database.db"),
-        "--SiftMatching.use_gpu",
+        "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
-        "--SiftMatching.gpu_index",
+        "--FeatureMatching.gpu_index",
         str(args.gpu_index),
     ]
     if args.num_threads is not None:
-        matcher_command.extend(("--SiftMatching.num_threads", str(args.num_threads)))
+        matcher_command.extend(("--FeatureMatching.num_threads", str(args.num_threads)))
     commands = [
         ("colmap_feature_extraction", feature_command),
         ("colmap_feature_matching", matcher_command),
