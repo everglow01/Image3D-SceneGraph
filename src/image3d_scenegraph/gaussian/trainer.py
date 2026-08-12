@@ -461,7 +461,12 @@ def _build_strategy(
         (max(view.camera.width, view.camera.height) for view in train_views),
         default=int(config["resolution"]["longest_edge"]),
     )
-    screen_fraction = float(pruning["max_screen_radius_pixels"]) / max_dimension
+    screen_pruning = bool(pruning["enabled"]) and bool(pruning["screen_radius_enabled"])
+    screen_fraction = (
+        float(pruning["max_screen_radius_pixels"]) / max_dimension
+        if screen_pruning
+        else 1e10
+    )
     return strategy_type(
         prune_opa=float(pruning["opacity_threshold"]) if pruning["enabled"] else 0.0,
         grow_grad2d=float(densify["gradient_threshold"]),
@@ -471,7 +476,7 @@ def _build_strategy(
         prune_scale2d=screen_fraction,
         refine_scale2d_stop_iter=(
             int(densify["end_iteration"])
-            if densify["enabled"] and pruning["enabled"]
+            if densify["enabled"] and screen_pruning
             else 0
         ),
         refine_start_iter=int(densify["start_iteration"]),

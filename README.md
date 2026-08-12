@@ -90,7 +90,9 @@ Implemented geometry paths:
 - `geometry_backend=vggt` with `output_type=point_cloud` or `mesh`, when the local VGGT repo and checkpoint are installed
 - `geometry_backend=colmap` with `output_type=point_cloud` or `mesh`, when the `colmap` executable is installed
 - `geometry_backend=colmap_vggt` with `output_type=point_cloud` or `mesh`, when both COLMAP and VGGT are installed
-- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses the project-owned gsplat baseline; `graphdeco` invokes its pinned isolated research environment, converts the native INRIA PLY into the project snapshot, then reuses the common Validation/export/manifest/Viewer path.
+- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses Project v7: the fixed `standard_v1` profile runs 30,000 iterations at up to 1280px with 3NN RMS initialization, training-time screen-radius pruning disabled, and Validation-selected export. `graphdeco` invokes its pinned isolated research environment, converts the native INRIA PLY into the project snapshot, then reuses the common evaluation/export/manifest/Viewer path. Graphdeco remains the default and is restricted to research/evaluation use.
+
+For a same-input visual comparison with retained Official job `20260806_060729_a5d1d377`, select `Multi-image` → `Project 3DGS` → `Gaussian splat` → `Project v7 (gsplat)` and upload the same 225 source images. The frontend shows `standard_v1 · v7` on the resulting job. New Project v7 jobs stop after Train/Validation model selection and export; they do not load Test or create a Test-consumption record. Coordinates remain normalized arbitrary units, not metres.
 
 DUSt3R, MASt3R, and video-to-geometry are still API contract placeholders and return a clear not implemented error.
 

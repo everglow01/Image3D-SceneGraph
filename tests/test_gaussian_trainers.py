@@ -13,6 +13,8 @@ def test_trainer_registry_reports_pinned_external_environments(tmp_path, monkeyp
     specs = {spec.trainer_id: spec for spec in get_gaussian_trainer_specs(tmp_path)}
 
     assert tuple(specs) == ("project", "graphdeco")
+    assert specs["project"].label == "Project v7 (gsplat)"
+    assert specs["project"].license == "Apache-2.0"
     assert specs["graphdeco"].revision == GRAPHDECO_COMMIT
     assert specs["graphdeco"].available is False
     assert "repo missing" in (specs["graphdeco"].reason or "")

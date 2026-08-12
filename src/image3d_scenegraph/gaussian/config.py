@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 6
+CONFIG_SCHEMA_VERSION = 7
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
@@ -49,6 +49,7 @@ _STANDARD_V1: dict[str, Any] = {
         "enabled": True,
         "opacity_threshold": 0.005,
         "max_world_scale": 0.1,
+        "screen_radius_enabled": False,
         "max_screen_radius_pixels": 20.0,
     },
     "opacity_reset": {"enabled": True, "every_iterations": 3_000},
@@ -219,9 +220,16 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     pruning = _mapping(
         root["pruning"],
         "pruning",
-        {"enabled", "opacity_threshold", "max_world_scale", "max_screen_radius_pixels"},
+        {
+            "enabled",
+            "opacity_threshold",
+            "max_world_scale",
+            "screen_radius_enabled",
+            "max_screen_radius_pixels",
+        },
     )
     _boolean(pruning["enabled"], "pruning.enabled")
+    _boolean(pruning["screen_radius_enabled"], "pruning.screen_radius_enabled")
     _number(pruning["opacity_threshold"], "pruning.opacity_threshold", minimum=0.0, maximum=1.0)
     _positive(pruning["max_world_scale"], "pruning.max_world_scale", maximum=1.0)
     _positive(

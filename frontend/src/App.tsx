@@ -108,6 +108,11 @@ type Manifest = {
     revision: string;
     license: string;
   };
+  gaussian_config?: {
+    schema_version: number;
+    requested_profile: string;
+    effective_config_hash: string;
+  };
   mesh_variants?: MeshVariant[];
   navigation_status?: "pending" | "not_generated" | "queued" | "generating" | "available" | "unavailable";
   navigation_reason?: string | null;
@@ -767,7 +772,7 @@ export function App() {
                         },
                         {
                           id: "project" as const,
-                          label: "Project (gsplat)",
+                          label: "Project v7 (gsplat)",
                           available: true,
                           reason: null,
                           setup_command: null,
@@ -786,6 +791,12 @@ export function App() {
                 )}
                 {selectedGaussianTrainerStatus?.setup_command && (
                   <small>{selectedGaussianTrainerStatus.setup_command}</small>
+                )}
+                {gaussianTrainer === "project" && (
+                  <small>
+                    Fixed v7 profile: 30k ceiling · 1280px · 3NN initialization · screen pruning off ·
+                    Validation-selected model · normalized arbitrary units.
+                  </small>
                 )}
               </label>
             )}
@@ -1122,6 +1133,14 @@ export function App() {
             <div>
               <dt>Trainer</dt>
               <dd>{manifest?.gaussian_trainer?.label ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>Gaussian profile</dt>
+              <dd>
+                {manifest?.gaussian_config
+                  ? `${manifest.gaussian_config.requested_profile} · v${manifest.gaussian_config.schema_version}`
+                  : "-"}
+              </dd>
             </div>
             <div>
               <dt>Navigation</dt>

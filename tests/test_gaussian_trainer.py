@@ -37,7 +37,7 @@ def model() -> GaussianModel:
     )
 
 
-def test_official_strategy_configuration_uses_graphdeco_screen_pruning():
+def test_v7_strategy_disables_regressive_screen_pruning():
     from gsplat.strategy import DefaultStrategy
 
     config = resolve_internal_config().effective_config
@@ -51,16 +51,18 @@ def test_official_strategy_configuration_uses_graphdeco_screen_pruning():
     assert strategy.prune_opa == pytest.approx(0.005)
     assert strategy.prune_scale3d == pytest.approx(0.1)
     assert strategy.reset_every == 3_000
-    assert strategy.refine_scale2d_stop_iter == 15_000
+    assert strategy.refine_scale2d_stop_iter == 0
     assert strategy.grow_scale2d == pytest.approx(1e10)
-    assert strategy.prune_scale2d == pytest.approx(20 / 1280)
+    assert strategy.prune_scale2d == pytest.approx(1e10)
     assert strategy.absgrad is False
 
 
-def test_screen_pruning_threshold_uses_training_resolution():
+def test_explicit_screen_pruning_uses_training_resolution():
     from gsplat.strategy import DefaultStrategy
 
-    config = resolve_internal_config().effective_config
+    config = resolve_internal_config(
+        overrides={"pruning": {"screen_radius_enabled": True}}
+    ).effective_config
     view = TrainingView(
         RenderCamera("train", torch.eye(4), torch.eye(3), 1000, 600),
         torch.zeros((600, 1000, 3)),

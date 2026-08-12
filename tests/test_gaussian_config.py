@@ -20,7 +20,7 @@ def test_public_profile_resolves_official_baseline_deterministically():
     second = resolve_public_config("standard_v1")
 
     assert first.requested_profile == "standard_v1"
-    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 6
+    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 7
     assert first.effective_config["iterations"] == 30_000
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
@@ -47,6 +47,7 @@ def test_public_profile_resolves_official_baseline_deterministically():
         "enabled": True,
         "opacity_threshold": 0.005,
         "max_world_scale": 0.1,
+        "screen_radius_enabled": False,
         "max_screen_radius_pixels": 20.0,
     }
     assert first.effective_config["evaluation"] == {
@@ -105,6 +106,7 @@ def test_internal_override_is_validated_hashed_and_recorded():
         ),
         ({"densification": {"end_iteration": 500}}, "densification start must precede end"),
         ({"opacity_reset": {"every_iterations": 30_001}}, "exceeds 30000"),
+        ({"pruning": {"screen_radius_enabled": 0}}, "must be a boolean"),
         ({"evaluation": {"validation_iterations": [0, 30_000]}}, "below 1"),
     ],
 )

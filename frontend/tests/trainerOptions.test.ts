@@ -9,7 +9,7 @@ import type { GaussianTrainerStatus } from "../src/trainerOptions.ts";
 const trainers: GaussianTrainerStatus[] = [
   {
     id: "project",
-    label: "Project (gsplat)",
+    label: "Project v7 (gsplat)",
     available: true,
     reason: null,
     setup_command: null,
@@ -28,7 +28,7 @@ const trainers: GaussianTrainerStatus[] = [
 ];
 
 test("trainer options expose availability and preserve ids", () => {
-  assert.equal(formatGaussianTrainerOption(trainers[0]), "Project (gsplat)");
+  assert.equal(formatGaussianTrainerOption(trainers[0]), "Project v7 (gsplat)");
   assert.equal(formatGaussianTrainerOption(trainers[1]), "Graphdeco official (unavailable)");
   assert.equal(findGaussianTrainerStatus(trainers, "graphdeco")?.reason, "environment missing");
   assert.equal(findGaussianTrainerStatus(trainers, "project")?.available, true);

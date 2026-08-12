@@ -83,7 +83,7 @@ def _project_spec() -> GaussianTrainerSpec:
     except ImportError as exc:
         return GaussianTrainerSpec(
             trainer_id="project",
-            label="Project (gsplat)",
+            label="Project v7 (gsplat)",
             available=False,
             reason=f"optional GPU dependency missing: {exc.name}",
             setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",
@@ -93,7 +93,7 @@ def _project_spec() -> GaussianTrainerSpec:
     cuda_available = bool(torch.cuda.is_available())
     return GaussianTrainerSpec(
         trainer_id="project",
-        label="Project (gsplat)",
+        label="Project v7 (gsplat)",
         available=cuda_available,
         reason=None if cuda_available else "CUDA unavailable",
         setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",

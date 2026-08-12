@@ -235,36 +235,56 @@ class ProjectGaussianAdapter:
         _adapter_progress(context, "gaussian_validation", 0.72)
         _run_adapter_command(command_evaluate, context, project_root, env=env)
         evaluation_path = evaluation_dir / "evaluation.json"
-        frozen_candidate_path = training_dir / "evaluation" / attempt_id / "frozen-candidate.json"
-        test_evaluation_dir = training_dir / "evaluation" / attempt_id / "test"
-        command_test = [
-            os.environ.get("IMAGE3D_PYTHON", sys.executable),
-            str(evaluator_script),
-            "--dataset-contract",
-            str(effective_dataset_path),
-            "--dataset-root",
-            str(context.job_dir),
-            "--model",
-            str(model_path),
-            "--resolved-config-json",
-            str(effective_config_path),
-            "--split",
-            "test",
-            "--output-dir",
-            str(test_evaluation_dir),
-            "--progress",
-            str(progress_path),
-            "--frozen-candidate",
-            str(frozen_candidate_path),
-            "--freeze-candidate-id",
-            f"{context.job_id}-{attempt_id}",
-        ]
-        _adapter_progress(context, "gaussian_test_evaluation", 0.80)
-        _run_adapter_command(command_test, context, project_root, env=env)
-        test_evaluation_path = test_evaluation_dir / "evaluation.json"
-        test_consumption_path = frozen_candidate_path.with_name(
-            f"{frozen_candidate_path.stem}.test-consumed.json"
-        )
+        test_assets: dict[str, str] = {}
+        required_test_paths: tuple[Path, ...] = ()
+        test_status = "not_run"
+        test_reason = "project_validation_only_visual_comparison"
+        if _automatic_test_evaluation_enabled(trainer_id):
+            frozen_candidate_path = training_dir / "evaluation" / attempt_id / "frozen-candidate.json"
+            test_evaluation_dir = training_dir / "evaluation" / attempt_id / "test"
+            command_test = [
+                os.environ.get("IMAGE3D_PYTHON", sys.executable),
+                str(evaluator_script),
+                "--dataset-contract",
+                str(effective_dataset_path),
+                "--dataset-root",
+                str(context.job_dir),
+                "--model",
+                str(model_path),
+                "--resolved-config-json",
+                str(effective_config_path),
+                "--split",
+                "test",
+                "--output-dir",
+                str(test_evaluation_dir),
+                "--progress",
+                str(progress_path),
+                "--frozen-candidate",
+                str(frozen_candidate_path),
+                "--freeze-candidate-id",
+                f"{context.job_id}-{attempt_id}",
+            ]
+            _adapter_progress(context, "gaussian_test_evaluation", 0.80)
+            _run_adapter_command(command_test, context, project_root, env=env)
+            test_evaluation_path = test_evaluation_dir / "evaluation.json"
+            test_consumption_path = frozen_candidate_path.with_name(
+                f"{frozen_candidate_path.stem}.test-consumed.json"
+            )
+            required_test_paths = (
+                test_evaluation_path,
+                frozen_candidate_path,
+                test_consumption_path,
+            )
+            test_assets = {
+                "gaussian_test_evaluation": test_evaluation_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
+                "gaussian_test_decision": test_consumption_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
+            }
+            test_status = "complete"
+            test_reason = "frozen_candidate_test_evaluation_complete"
         export_dir = training_dir / "export" / attempt_id
         command_export = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
@@ -293,9 +313,7 @@ class ProjectGaussianAdapter:
             path.is_file()
             for path in (
                 evaluation_path,
-                test_evaluation_path,
-                frozen_candidate_path,
-                test_consumption_path,
+                *required_test_paths,
                 export_metadata_path,
                 scene_splat_path,
                 canonical_path,
@@ -309,6 +327,8 @@ class ProjectGaussianAdapter:
             "output_type=gaussian_splat",
             "adapter=ProjectGaussianAdapter",
             f"gaussian_trainer={trainer_id}",
+            f"gaussian_test_status={test_status}",
+            f"gaussian_test_reason={test_reason}",
             f"trainer={' '.join(command_train)}",
         ]
         if completed.stdout.strip():
@@ -322,8 +342,7 @@ class ProjectGaussianAdapter:
                 "gaussian_dataset": effective_dataset_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_effective_config": effective_config_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_evaluation": evaluation_path.relative_to(context.job_dir).as_posix(),
-                "gaussian_test_evaluation": test_evaluation_path.relative_to(context.job_dir).as_posix(),
-                "gaussian_test_decision": test_consumption_path.relative_to(context.job_dir).as_posix(),
+                **test_assets,
                 "gaussian_export_metadata": export_metadata_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_canonical": canonical_path.relative_to(context.job_dir).as_posix(),
                 "scene_splat": scene_splat_path.relative_to(context.job_dir).as_posix(),
@@ -338,9 +357,15 @@ class ProjectGaussianAdapter:
                 "gaussian_peak_allocated_bytes": int(result["peak_allocated_bytes"]),
                 "gaussian_peak_reserved_bytes": int(result["peak_reserved_bytes"]),
                 "gaussian_training_seconds": float(result["elapsed_seconds"]),
+                "gaussian_test_status": test_status,
+                "gaussian_test_reason": test_reason,
             },
             log_lines=log_lines,
         )
+
+
+def _automatic_test_evaluation_enabled(trainer_id: str) -> bool:
+    return trainer_id != "project"
 
 
 def _adapter_progress(context: ReconstructionContext, stage: str, progress: float) -> None:

@@ -53,14 +53,14 @@ Legacy terminal-only manifests remain valid and readable. They do not gain synth
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | integer | Gaussian configuration schema version; trainer topology repair defines version `2`. |
+| `schema_version` | integer | Gaussian configuration schema version; new Project jobs use version `7`, while historical versions remain immutable evidence. |
 | `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
 | `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
 | `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |
 
 The same schema version, requested profile, effective configuration, and hash are written to `logs/run.log`. Public job submission does not expose raw Gaussian hyperparameters; a future Gaussian-specific public route may select only an allow-listed quality profile. Internal research callers may supply validated overrides, and a recorded ablation must differ from its baseline in exactly one effective leaf field.
 
-Training configuration contains validation cadence but no test cadence. Schema v2 adds screen-normalized densification, duplicate/split controls, and explicitly disabled-by-default normalized screen-size pruning. Held-out test views remain isolated until the candidate, effective configuration, and model hashes are frozen. `standard_v1` remains the only public profile. The measured `rtx4060_8gb_development_v1` is internal-only and exists for reproducible Stage 2D development/smoke runs; it is not a public quality promise.
+Training configuration contains Validation cadence but no Test cadence. Schema v7 retains the 30k/1280px Project baseline and explicitly disables destructive training-time screen-radius pruning while preserving screen-health diagnostics, opacity pruning, and world-scale pruning. New Project v7 frontend jobs export the Validation-selected model without loading Test; `gaussian_test_evaluation` and `gaussian_test_decision` are therefore absent unless a separately authorized frozen-candidate evaluation produces them. `standard_v1` remains the only public profile. The measured `rtx4060_8gb_development_v1` is internal-only and exists for reproducible Stage 2D development/smoke runs; it is not a public quality promise.
 
 Jobs without `gaussian_config`, including all historical geometry jobs and imported-splat fixtures, remain valid. Readers must not add a default profile or infer effective parameters for them.
 
@@ -73,7 +73,7 @@ Common asset roles include:
 - `mesh` and `mesh_diagnostics`
 - `scene_splat`, `scene_graph`, and `log`
 - `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs
-- `gaussian_evaluation`, `gaussian_test_evaluation`, `gaussian_test_decision`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery
+- `gaussian_evaluation`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery; optional `gaussian_test_evaluation` and `gaussian_test_decision` appear only after an authorized frozen-candidate Test evaluation
 - `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
 
 `collision_mesh` is a low-poly invisible local-physics GLB, not the customer-visible `mesh` or `scene_splat`. `navigation` is the versioned normalized-coordinate boundary/spawn/player contract; `navigation_diagnostics` is its Train-only quality record. The three roles are published together only after source path containment, source/model/config/export hashes, split isolation, schema, topology, triangle/size/time budgets, and GLB integrity pass. Validation/Test IDs must be empty and selected render IDs must be a subset of Train.
