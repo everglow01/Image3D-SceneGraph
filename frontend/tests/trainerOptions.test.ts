@@ -28,8 +28,8 @@ const trainers: GaussianTrainerStatus[] = [
 ];
 
 test("trainer options expose availability and preserve ids", () => {
-  assert.equal(formatGaussianTrainerOption(trainers[0]), "Project v7 (gsplat)");
-  assert.equal(formatGaussianTrainerOption(trainers[1]), "Graphdeco official (unavailable)");
+  assert.equal(formatGaussianTrainerOption(trainers[0]), "Project v7（gsplat 高斯栅格化）");
+  assert.equal(formatGaussianTrainerOption(trainers[1]), "Graphdeco 官方训练器（研究与评估）（不可用）");
   assert.equal(findGaussianTrainerStatus(trainers, "graphdeco")?.reason, "environment missing");
   assert.equal(findGaussianTrainerStatus(trainers, "project")?.available, true);
 });

@@ -79,22 +79,22 @@ const MAX_FRAME_SECONDS = 0.1;
 
 const VIEW_PRESETS: Record<ViewPreset, { label: string; direction: THREE.Vector3; up: THREE.Vector3 }> = {
   fit: {
-    label: "Reset",
+    label: "复位视角",
     direction: new THREE.Vector3(0.75, 1, 0.45),
     up: new THREE.Vector3(0, 0, 1)
   },
   top: {
-    label: "Top",
+    label: "俯视图",
     direction: new THREE.Vector3(0, 0, 1),
     up: new THREE.Vector3(0, 1, 0)
   },
   front: {
-    label: "Front",
+    label: "正视图",
     direction: new THREE.Vector3(0, 1, 0.08),
     up: new THREE.Vector3(0, 0, 1)
   },
   side: {
-    label: "Side",
+    label: "侧视图",
     direction: new THREE.Vector3(1, 0, 0.08),
     up: new THREE.Vector3(0, 0, 1)
   }
@@ -197,7 +197,7 @@ export function GaussianSplatViewer({
   const [assetBytes, setAssetBytes] = useState<number | null>(null);
   const [settings, setSettings] = useState<WalkSettings | null>(null);
   const [debugVisible, setDebugVisible] = useState(false);
-  const [walkMessage, setWalkMessage] = useState("Orbit mode");
+  const [walkMessage, setWalkMessage] = useState("环绕查看模式");
   const [boundaryHint, setBoundaryHint] = useState(false);
 
   const setView = (preset: ViewPreset) => {
@@ -216,12 +216,12 @@ export function GaussianSplatViewer({
     }
     const canvas = viewer.renderer?.domElement;
     if (!canvas) {
-      setWalkMessage("Pointer Lock is unavailable");
+      setWalkMessage("浏览器不支持指针锁定（Pointer Lock）");
       return;
     }
     const request = canvas.requestPointerLock();
     if (request && "catch" in request) {
-      void request.catch(() => setWalkMessage("Pointer Lock request was denied"));
+      void request.catch(() => setWalkMessage("指针锁定（Pointer Lock）请求被拒绝"));
     }
   };
 
@@ -252,7 +252,7 @@ export function GaussianSplatViewer({
     runtime.keys.clear();
     applyWalkCamera(viewer, runtime, settingsRef.current);
     viewer.forceRenderNextFrame?.();
-    setWalkMessage("Returned to the safe spawn");
+    setWalkMessage("已返回安全出生点");
   };
 
   const updateSettings = (next: WalkSettings) => {
@@ -299,7 +299,7 @@ export function GaussianSplatViewer({
     viewerModeRef.current = "orbit";
     setAssetBytes(null);
     setSettings(null);
-    setWalkMessage("Orbit mode");
+    setWalkMessage("环绕查看模式");
     mount.replaceChildren();
     void fetch(sourceUrl, { method: "HEAD", signal: controller.signal })
       .then((response) => {
@@ -391,11 +391,11 @@ export function GaussianSplatViewer({
               setBoundaryHint
             );
             setNavigationState("ready");
-            setWalkMessage("Walk ready · Enter Walk to lock the pointer");
+            setWalkMessage("漫游已就绪 · 点击“进入漫游”锁定鼠标");
           } catch (error) {
             if (!cancelled) {
               setNavigationState("error");
-              setWalkMessage(error instanceof Error ? error.message : "Navigation assets failed to load");
+              setWalkMessage(error instanceof Error ? error.message : "导航资产加载失败");
             }
           }
         }
@@ -437,16 +437,16 @@ export function GaussianSplatViewer({
     navigationStatus === "available" && navigationState === "error"
       ? walkMessage
       : navigationReason
-        ? `Walk unavailable: ${navigationReason.replaceAll("_", " ")}`
+        ? `漫游不可用：${navigationReason.replaceAll("_", " ")}`
         : navigationStatus && navigationStatus !== "available"
-          ? `Walk ${navigationStatus.replaceAll("_", " ")}`
-          : "Walk assets not generated";
+          ? `漫游状态：${navigationStatus.replaceAll("_", " ")}`
+          : "尚未生成漫游资产";
 
   return (
     <div className="viewer-surface">
       <div className="splat-root" ref={mountRef} />
       {sourceUrl && (
-        <div className="splat-toolbar" aria-label="Gaussian splat controls">
+        <div className="splat-toolbar" aria-label="高斯泼溅控制">
           {viewerMode === "orbit" &&
             (Object.keys(VIEW_PRESETS) as ViewPreset[]).map((preset) => (
               <button
@@ -465,10 +465,10 @@ export function GaussianSplatViewer({
             onClick={viewerMode === "walk" ? exitWalk : enterWalk}
             type="button"
           >
-            {viewerMode === "walk" ? "Exit Walk" : "Enter Walk"}
+            {viewerMode === "walk" ? "退出漫游" : "进入漫游"}
           </button>
           <button className="viewer-tool-button" disabled={!walkReady} onClick={resetWalk} type="button">
-            Reset Walk
+            重置漫游
           </button>
           <button
             className={debugVisible ? "viewer-tool-button active" : "viewer-tool-button"}
@@ -476,14 +476,14 @@ export function GaussianSplatViewer({
             onClick={() => setDebugVisible((current) => !current)}
             type="button"
           >
-            Debug
+            调试显示
           </button>
         </div>
       )}
       {settings && walkReady && (
-        <div className="walk-settings" aria-label="Walk settings">
+        <div className="walk-settings" aria-label="漫游设置">
           <label>
-            <span>Speed {settings.speedHeightRatio.toFixed(1)}H/s</span>
+            <span>速度 {settings.speedHeightRatio.toFixed(1)}H/s（身高/秒）</span>
             <input
               min={0.4}
               max={1.2}
@@ -494,7 +494,7 @@ export function GaussianSplatViewer({
             />
           </label>
           <label>
-            <span>FOV {settings.fovDegrees.toFixed(0)}°</span>
+            <span>视场角 FOV {settings.fovDegrees.toFixed(0)}°</span>
             <input
               min={50}
               max={90}
@@ -505,7 +505,7 @@ export function GaussianSplatViewer({
             />
           </label>
           <label>
-            <span>Sensitivity {settings.sensitivity.toFixed(4)}</span>
+            <span>鼠标灵敏度 {settings.sensitivity.toFixed(4)}</span>
             <input
               min={0.0005}
               max={0.005}
@@ -520,32 +520,32 @@ export function GaussianSplatViewer({
             type="button"
             onClick={() => updateSettings(defaultWalkSettings(walkRuntimeRef.current!.contract))}
           >
-            Defaults
+            恢复默认
           </button>
         </div>
       )}
       {navigationState === "ready" && viewerMode === "orbit" && (
         <div className="walk-ready-hint">{walkMessage}</div>
       )}
-      {boundaryHint && <div className="boundary-hint">Navigation limit reached</div>}
+      {boundaryHint && <div className="boundary-hint">已到达导航边界</div>}
       <div className="sr-only" aria-live="polite">
         {walkMessage}
       </div>
       {viewerState === "ready" && (
         <div className="viewer-hint">
           {viewerMode === "walk"
-            ? "Walk · WASD/arrows move · Mouse look · Esc exits"
-            : "Canonical normalized coordinates · arbitrary units"}
+            ? "第一人称漫游 · WASD/方向键移动 · 鼠标观察 · Esc 退出"
+            : "标准归一化坐标 · 任意单位（非米制）"}
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
-          {viewerMode === "orbit" ? " · Drag orbit · Shift/right drag pan · Wheel zoom" : ""}
+          {viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
           {navigationState !== "ready" ? ` · ${unavailableMessage}` : ""}
         </div>
       )}
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
-          {viewerState === "idle" && "No Gaussian splat"}
-          {viewerState === "loading" && "Loading Gaussian splat"}
-          {viewerState === "error" && "Failed to load Gaussian splat"}
+          {viewerState === "idle" && "尚未加载高斯泼溅"}
+          {viewerState === "loading" && "正在加载高斯泼溅"}
+          {viewerState === "error" && "高斯泼溅加载失败"}
         </div>
       )}
     </div>
@@ -728,13 +728,13 @@ function installWalkHandlers(
       runtime.previousTime = null;
       runtime.accumulator = 0;
       applyWalkCamera(viewer, runtime, settingsRefValue());
-      setWalkMessage("Walk active · WASD or arrows move · Esc exits");
+      setWalkMessage("漫游中 · WASD 或方向键移动 · Esc 退出");
       runtime.animationFrame = window.requestAnimationFrame(tick);
     } else {
       leaveWalkMode(viewer, runtime, modeRef, setViewerMode, setWalkMessage);
     }
   };
-  const onPointerLockError = () => setWalkMessage("Pointer Lock request was denied");
+  const onPointerLockError = () => setWalkMessage("指针锁定（Pointer Lock）请求被拒绝");
   const onVisibilityChange = () => {
     if (document.hidden) {
       clearKeys();
@@ -841,7 +841,7 @@ function leaveWalkMode(
     controls.saveState();
   }
   viewer.forceRenderNextFrame?.();
-  setWalkMessage("Orbit mode · Walk position preserved");
+  setWalkMessage("环绕查看模式 · 已保留漫游位置");
 }
 
 function stepWalk(

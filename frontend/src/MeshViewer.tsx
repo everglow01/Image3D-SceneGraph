@@ -178,13 +178,13 @@ export function MeshViewer({ sourceUrl }: MeshViewerProps) {
 
   return (
     <div className="viewer-surface" ref={containerRef}>
-      <div className="pointcloud-toolbar" aria-label="Mesh coordinate controls">
-        <div className="variant-toggle" role="group" aria-label="Mesh appearance">
+      <div className="pointcloud-toolbar" aria-label="网格坐标控制">
+        <div className="variant-toggle" role="group" aria-label="网格显示方式">
           <button className={appearance === "rgb" ? "active" : ""} onClick={() => setAppearance("rgb")} type="button">
-            RGB
+            RGB（原色）
           </button>
           <button className={appearance === "lit" ? "active" : ""} onClick={() => setAppearance("lit")} type="button">
-            Lit
+            光照材质
           </button>
         </div>
         <button
@@ -209,12 +209,12 @@ export function MeshViewer({ sourceUrl }: MeshViewerProps) {
           Z
         </button>
       </div>
-      {viewerState === "ready" && <div className="viewer-hint">Drag rotate · Wheel zoom · Right drag pan</div>}
+      {viewerState === "ready" && <div className="viewer-hint">左键拖动旋转 · 滚轮缩放 · 右键拖动平移</div>}
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
-          {viewerState === "idle" && "No mesh"}
-          {viewerState === "loading" && "Loading mesh"}
-          {viewerState === "error" && "Failed to load mesh"}
+          {viewerState === "idle" && "尚未加载网格"}
+          {viewerState === "loading" && "正在加载网格"}
+          {viewerState === "error" && "网格加载失败"}
         </div>
       )}
     </div>

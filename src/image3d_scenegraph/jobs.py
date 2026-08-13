@@ -466,6 +466,36 @@ class JobStore:
                 )
         return [job_id for _, job_id in sorted(queued)]
 
+    def list_jobs(self) -> list[dict[str, object]]:
+        if not self.output_root.is_dir():
+            return []
+        required = {"job_id", "status", "stage", "mode", "geometry_backend", "output_type", "metrics"}
+        jobs: list[dict[str, object]] = []
+        for directory in self.output_root.iterdir():
+            manifest_path = directory / "manifest.json"
+            if not directory.is_dir() or not manifest_path.is_file():
+                continue
+            try:
+                manifest = self._read_json(manifest_path)
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
+            if not required.issubset(manifest) or manifest.get("job_id") != directory.name:
+                continue
+            jobs.append(
+                {
+                    "job_id": directory.name,
+                    "status": str(manifest["status"]),
+                    "geometry_backend": str(manifest["geometry_backend"]),
+                    "output_type": str(manifest["output_type"]),
+                    "updated_at": str(manifest.get("updated_at", manifest.get("created_at", ""))),
+                }
+            )
+        return sorted(
+            jobs,
+            key=lambda job: (str(job["updated_at"]), str(job["job_id"])),
+            reverse=True,
+        )
+
     def list_queued_jobs(self) -> list[str]:
         if not self.output_root.is_dir():
             return []

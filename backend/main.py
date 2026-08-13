@@ -52,6 +52,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
     def get_backends() -> dict:
         return get_backend_status_payload()
 
+    @app.get("/api/jobs")
+    def list_jobs() -> dict[str, list[dict[str, object]]]:
+        return {"jobs": app.state.job_store.list_jobs()}
+
     @app.post("/api/jobs", status_code=status.HTTP_202_ACCEPTED)
     async def create_job(
         files: Annotated[list[UploadFile], File()],

@@ -11,6 +11,8 @@ import {
   UploadCloud,
   Video
 } from "lucide-react";
+import companyLogo from "./assets/yuetron-logo.png";
+import { isBackendAvailable, isOutputSupported } from "./backendOptions";
 import { GeometryViewer } from "./GeometryViewer";
 import {
   findGaussianTrainerStatus,
@@ -184,6 +186,14 @@ type JobStatus = Pick<
   | "metrics"
 >;
 
+type JobSummary = {
+  job_id: string;
+  status: string;
+  geometry_backend: GeometryBackend;
+  output_type: OutputType;
+  updated_at: string;
+};
+
 type BackendStatus = {
   id: GeometryBackend;
   label: string;
@@ -200,32 +210,32 @@ const modeOptions: Array<{
   icon: typeof Image;
   fileHint: string;
 }> = [
-  { id: "image", label: "Image", icon: Image, fileHint: "One image" },
-  { id: "multi_image", label: "Multi-image", icon: Images, fileHint: "Two or more images" },
-  { id: "video", label: "Video", icon: Video, fileHint: "One video" },
-  { id: "panorama", label: "Panorama", icon: FileArchive, fileHint: "One 360 image" }
+  { id: "image", label: "单张图片", icon: Image, fileHint: "上传 1 张图片" },
+  { id: "multi_image", label: "多张图片", icon: Images, fileHint: "上传至少 2 张图片" },
+  { id: "video", label: "视频", icon: Video, fileHint: "上传 1 个视频" },
+  { id: "panorama", label: "全景图", icon: FileArchive, fileHint: "上传 1 张 360° 全景图" }
 ];
 
 const backendOptions: Array<{
   id: GeometryBackend;
   label: string;
 }> = [
-  { id: "mock", label: "Mock" },
-  { id: "vggt", label: "VGGT" },
-  { id: "colmap", label: "COLMAP" },
-  { id: "colmap_vggt", label: "COLMAP + VGGT" },
-  { id: "dust3r", label: "DUSt3R" },
-  { id: "mast3r", label: "MASt3R" },
-  { id: "project_3dgs", label: "Project 3DGS" }
+  { id: "mock", label: "模拟后端（Mock）" },
+  { id: "vggt", label: "VGGT（视觉几何基础模型）" },
+  { id: "colmap", label: "COLMAP（摄影测量重建）" },
+  { id: "colmap_vggt", label: "COLMAP + VGGT（融合重建）" },
+  { id: "dust3r", label: "DUSt3R（稠密三维重建）" },
+  { id: "mast3r", label: "MASt3R（匹配与三维重建）" },
+  { id: "project_3dgs", label: "Project 3DGS（项目高斯重建）" }
 ];
 
 const outputOptions: Array<{
   id: OutputType;
   label: string;
 }> = [
-  { id: "point_cloud", label: "Point cloud" },
-  { id: "mesh", label: "Mesh" },
-  { id: "gaussian_splat", label: "Gaussian splat" }
+  { id: "point_cloud", label: "点云（Point Cloud）" },
+  { id: "mesh", label: "网格（Mesh）" },
+  { id: "gaussian_splat", label: "高斯泼溅（Gaussian Splat）" }
 ];
 
 const defaultMeshSettings: MeshSettings = {
@@ -266,7 +276,8 @@ export function App() {
   const [scene, setScene] = useState<SceneGraph | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
-  const [jobIdInput, setJobIdInput] = useState("");
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState("");
   const [pointCloudVariant, setPointCloudVariant] = useState<"raw" | "aligned">("aligned");
   const [viewerMode, setViewerMode] = useState<ViewerMode>("point_cloud");
   const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
@@ -284,9 +295,9 @@ export function App() {
     gaussianTrainerStatuses,
     gaussianTrainer
   );
-  const selectedBackendAvailable = selectedBackendStatus?.available ?? geometryBackend === "mock";
+  const selectedBackendAvailable = selectedBackendStatus?.available ?? true;
   const selectedOutputSupported =
-    selectedBackendStatus?.supported_outputs.includes(outputType) ?? outputType === "point_cloud";
+    selectedBackendStatus?.supported_outputs.includes(outputType) ?? true;
   const selectedPointCloudAsset =
     pointCloudVariant === "aligned" && manifest?.assets.point_cloud_aligned
       ? manifest.assets.point_cloud_aligned
@@ -384,6 +395,18 @@ export function App() {
         }
       });
 
+    requestJson<{ jobs: JobSummary[] }>("/api/jobs")
+      .then((payload) => {
+        if (!cancelled) {
+          setJobs(payload.jobs);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setJobs([]);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
@@ -411,7 +434,7 @@ export function App() {
         }
       } catch (caught) {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : "Failed to refresh job");
+          setError(caught instanceof Error ? caught.message : "刷新任务失败");
         }
       }
     }, 1000);
@@ -471,15 +494,15 @@ export function App() {
 
   async function createJob() {
     if (!selectedBackendAvailable) {
-      setError(selectedBackendStatus?.reason ?? "Selected geometry backend is not available.");
+      setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
     }
     if (!selectedOutputSupported) {
-      setError(`${outputType} is not supported by ${geometryBackend}.`);
+      setError("所选重建后端不支持当前输出类型。");
       return;
     }
     if (geometryBackend === "project_3dgs" && selectedGaussianTrainerStatus?.available === false) {
-      setError(selectedGaussianTrainerStatus.reason ?? "Selected Gaussian trainer is unavailable.");
+      setError(selectedGaussianTrainerStatus.reason ?? "所选高斯训练器不可用。");
       return;
     }
 
@@ -545,8 +568,19 @@ export function App() {
       applyManifest(created, false, true);
       setJobStatus(created);
       setScene(null);
+      setJobs((current) => [
+        {
+          job_id: created.job_id,
+          status: created.status,
+          geometry_backend: created.geometry_backend,
+          output_type: created.output_type,
+          updated_at: created.updated_at ?? created.created_at
+        },
+        ...current.filter((job) => job.job_id !== created.job_id)
+      ]);
+      setSelectedJobId(created.job_id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to create job");
+      setError(caught instanceof Error ? caught.message : "创建任务失败");
     } finally {
       setIsSubmitting(false);
     }
@@ -568,17 +602,16 @@ export function App() {
         setScene(await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`));
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to refresh job");
+      setError(caught instanceof Error ? caught.message : "刷新任务失败");
     }
   }
 
-  async function loadJobById() {
-    const jobId = jobIdInput.trim();
+  async function loadJobById(jobId: string) {
     if (!jobId) {
-      setError("Enter a job id.");
       return;
     }
 
+    setSelectedJobId(jobId);
     setIsLoadingJob(true);
     setError(null);
     try {
@@ -594,7 +627,7 @@ export function App() {
           : null
       );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to load job");
+      setError(caught instanceof Error ? caught.message : "加载任务失败");
     } finally {
       setIsLoadingJob(false);
     }
@@ -637,7 +670,7 @@ export function App() {
       applyManifest(nextManifest);
       setJobStatus(nextManifest);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to build navigation assets");
+      setError(caught instanceof Error ? caught.message : "生成导航资产失败");
     } finally {
       setIsBuildingNavigation(false);
     }
@@ -667,7 +700,7 @@ export function App() {
       });
       applyManifest(nextManifest, true);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to build mesh variant");
+      setError(caught instanceof Error ? caught.message : "生成网格方案失败");
     } finally {
       setIsBuildingMesh(false);
     }
@@ -689,21 +722,25 @@ export function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <p className="eyebrow">Image3D-SceneGraph</p>
-          <h1>Scene reconstruction console</h1>
+        <div className="brand-lockup">
+          <img className="company-logo" src={companyLogo} alt="越创智数 YUETRON DIGTECH" />
+          <div className="brand-divider" aria-hidden="true" />
+          <div>
+            <p className="eyebrow">Image3D-SceneGraph · 图像三维场景图</p>
+            <h1>智能三维场景重建平台</h1>
+          </div>
         </div>
-        <div className="status-chip">{currentStatus?.status ?? "idle"}</div>
+        <div className="status-chip">{formatStatus(currentStatus?.status)}</div>
       </header>
 
       <section className="workspace">
-        <aside className="panel upload-panel" aria-label="Job input">
+        <aside className="panel upload-panel" aria-label="任务输入">
           <div className="panel-heading">
-            <h2>Input</h2>
+            <h2>数据输入</h2>
             <span>{selectedMode.fileHint}</span>
           </div>
 
-          <div className="mode-grid" role="group" aria-label="Reconstruction mode">
+          <div className="mode-grid" role="group" aria-label="重建模式">
             {modeOptions.map((option) => {
               const Icon = option.icon;
               return (
@@ -722,7 +759,7 @@ export function App() {
 
           <div className="control-stack">
             <label>
-              <span>Geometry backend</span>
+              <span>几何重建后端</span>
               <select
                 value={geometryBackend}
                 onChange={(event) => setGeometryBackend(event.target.value as GeometryBackend)}
@@ -738,14 +775,14 @@ export function App() {
             </label>
 
             <label>
-              <span>Output type</span>
+              <span>输出类型</span>
               <select
                 value={outputType}
                 onChange={(event) => setOutputType(event.target.value as OutputType)}
               >
                 {outputOptions.map((option) => (
                   <option disabled={!isOutputSupported(option.id, selectedBackendStatus)} key={option.id} value={option.id}>
-                    {isOutputSupported(option.id, selectedBackendStatus) ? option.label : `${option.label} (unavailable)`}
+                    {isOutputSupported(option.id, selectedBackendStatus) ? option.label : `${option.label}（不可用）`}
                   </option>
                 ))}
               </select>
@@ -753,7 +790,7 @@ export function App() {
 
             {geometryBackend === "project_3dgs" && (
               <label>
-                <span>Trainer</span>
+                <span>训练器（Trainer）</span>
                 <select
                   value={gaussianTrainer}
                   onChange={(event) => setGaussianTrainer(event.target.value as GaussianTrainer)}
@@ -763,16 +800,16 @@ export function App() {
                     : [
                         {
                           id: "graphdeco" as const,
-                          label: "Graphdeco official",
+                          label: "Graphdeco 官方训练器",
                           available: true,
                           reason: null,
                           setup_command: null,
                           revision: "unknown",
-                          license: "Graphdeco research/evaluation only"
+                          license: "仅限 Graphdeco 研究与评估"
                         },
                         {
                           id: "project" as const,
-                          label: "Project v7 (gsplat)",
+                          label: "Project v7（gsplat 高斯栅格化）",
                           available: true,
                           reason: null,
                           setup_command: null,
@@ -794,8 +831,8 @@ export function App() {
                 )}
                 {gaussianTrainer === "project" && (
                   <small>
-                    Fixed v7 profile: 30k ceiling · 1280px · 3NN initialization · screen pruning off ·
-                    Validation-selected model · normalized arbitrary units.
+                    固定 v7 配置：30,000 次迭代上限 · 最长边 1280px · 3NN（三近邻）初始化 ·
+                    关闭屏幕半径剪枝 · 由验证集选择模型 · 归一化任意单位。
                   </small>
                 )}
               </label>
@@ -804,7 +841,7 @@ export function App() {
             {geometryBackend === "vggt" && (
               <div className="numeric-grid">
                 <label>
-                  <span>Max images</span>
+                  <span>最大图片数</span>
                   <input
                     type="number"
                     min={1}
@@ -815,7 +852,7 @@ export function App() {
                   />
                 </label>
                 <label>
-                  <span>Batch size</span>
+                  <span>批次大小（Batch Size）</span>
                   <input
                     type="number"
                     min={1}
@@ -826,7 +863,7 @@ export function App() {
                   />
                 </label>
                 <label>
-                  <span>Overlap</span>
+                  <span>重叠数量（Overlap）</span>
                   <input
                     type="number"
                     min={1}
@@ -843,7 +880,7 @@ export function App() {
               <>
                 <div className="numeric-grid">
                   <label>
-                    <span>Max points</span>
+                    <span>最大点数</span>
                     <input
                       type="number"
                       min={100000}
@@ -854,7 +891,7 @@ export function App() {
                     />
                   </label>
                   <label>
-                    <span>Depth batch</span>
+                    <span>深度批次</span>
                     <input
                       type="number"
                       min={2}
@@ -865,19 +902,19 @@ export function App() {
                     />
                   </label>
                   <label>
-                    <span>Grouping</span>
+                    <span>分组策略</span>
                     <select
                       value={colmapVggtGrouping}
                       onChange={(event) =>
                         setColmapVggtGrouping(event.target.value as ColmapVggtGrouping)
                       }
                     >
-                      <option value="sequential">Sequential (baseline)</option>
-                      <option value="covisibility">Covisibility</option>
+                      <option value="sequential">顺序分组（基线）</option>
+                      <option value="covisibility">共视分组（Covisibility）</option>
                     </select>
                   </label>
                   <label>
-                    <span>Group overlap</span>
+                    <span>分组重叠数</span>
                     <input
                       type="number"
                       min={1}
@@ -888,7 +925,7 @@ export function App() {
                     />
                   </label>
                   <label>
-                    <span>Confidence</span>
+                    <span>置信度百分位</span>
                     <input
                       type="number"
                       min={0}
@@ -902,41 +939,41 @@ export function App() {
 
                 <section className="ablation-controls" aria-labelledby="ablation-controls-title">
                   <div>
-                    <strong id="ablation-controls-title">Dense-fusion ablations</strong>
-                    <small>Baseline: global + any support + random. Each phase is independent.</small>
+                    <strong id="ablation-controls-title">稠密融合消融实验</strong>
+                    <small>基线：全局阈值 + 任意视图支持 + 随机预算；各阶段相互独立。</small>
                   </div>
                   <label>
-                    <span>Phase 1 · Confidence scope</span>
+                    <span>阶段 1 · 置信度范围</span>
                     <select
                       value={confidenceThresholdScope}
                       onChange={(event) =>
                         setConfidenceThresholdScope(event.target.value as ConfidenceThresholdScope)
                       }
                     >
-                      <option value="global">Global (baseline)</option>
-                      <option value="per_frame">Per frame</option>
+                      <option value="global">全局阈值（基线）</option>
+                      <option value="per_frame">逐帧阈值</option>
                     </select>
                   </label>
                   <label>
-                    <span>Phase 2 · Consistency support</span>
+                    <span>阶段 2 · 一致性支持</span>
                     <select
                       value={consistencySupportPolicy}
                       onChange={(event) =>
                         setConsistencySupportPolicy(event.target.value as ConsistencySupportPolicy)
                       }
                     >
-                      <option value="any_support">Any support (baseline)</option>
-                      <option value="adaptive_two">Adaptive two-view</option>
+                      <option value="any_support">任意视图支持（基线）</option>
+                      <option value="adaptive_two">自适应双视图</option>
                     </select>
                   </label>
                   <label>
-                    <span>Phase 3 · Point budget</span>
+                    <span>阶段 3 · 点数预算</span>
                     <select
                       value={pointBudgetPolicy}
                       onChange={(event) => setPointBudgetPolicy(event.target.value as PointBudgetPolicy)}
                     >
-                      <option value="random">Random (baseline)</option>
-                      <option value="spatial_balanced">Spatial balanced</option>
+                      <option value="random">随机采样（基线）</option>
+                      <option value="spatial_balanced">空间均衡采样</option>
                     </select>
                   </label>
                 </section>
@@ -947,7 +984,7 @@ export function App() {
           <div className="file-picker-grid">
             <label className="file-drop">
               <UploadCloud size={22} aria-hidden="true" />
-              <span>{files.length > 0 ? `${files.length} selected` : "Choose files"}</span>
+              <span>{files.length > 0 ? `已选择 ${files.length} 个文件` : "选择文件"}</span>
               <input
                 type="file"
                 accept={mode === "video" ? "video/*" : "image/*"}
@@ -959,7 +996,7 @@ export function App() {
             {mode === "multi_image" && (
               <label className="file-drop compact">
                 <UploadCloud size={20} aria-hidden="true" />
-                <span>Choose folder</span>
+                <span>选择文件夹</span>
                 <input
                   {...folderInputProps}
                   type="file"
@@ -973,7 +1010,7 @@ export function App() {
 
           <div className="file-list">
             {files.length === 0 ? (
-              <p>No file selected</p>
+              <p>尚未选择文件</p>
             ) : (
               files.map((file) => (
                 <div className="file-row" key={`${getUploadName(file)}-${file.size}`}>
@@ -994,27 +1031,27 @@ export function App() {
             disabled={isSubmitting || !selectedBackendAvailable || !selectedOutputSupported}
           >
             <Play size={18} aria-hidden="true" />
-            <span>{isSubmitting ? "Creating job" : "Create job"}</span>
+            <span>{isSubmitting ? "正在创建任务" : "创建重建任务"}</span>
           </button>
         </aside>
 
         <section className="viewer-column">
           <div className="viewer-header">
             <div>
-              <h2>3D viewer</h2>
-              <span>{viewerAsset ?? "No geometry loaded"}</span>
+              <h2>三维查看器（3D Viewer）</h2>
+              <span>{viewerAsset ?? "尚未加载几何资产"}</span>
             </div>
             <div className="viewer-actions">
               {(hasPointCloud || hasMesh || hasSplat) && (
-                <div className="variant-toggle" role="group" aria-label="Geometry preview">
+                <div className="variant-toggle" role="group" aria-label="几何预览类型">
                   {hasPointCloud && (
                     <button className={viewerMode === "point_cloud" ? "active" : ""} type="button" onClick={() => setViewerMode("point_cloud")}>
-                      Point cloud
+                      点云（Point Cloud）
                     </button>
                   )}
                   {hasMesh && (
                     <button className={viewerMode === "mesh" ? "active" : ""} type="button" onClick={() => setViewerMode("mesh")}>
-                      Mesh
+                      网格（Mesh）
                     </button>
                   )}
                   {hasSplat && (
@@ -1023,19 +1060,19 @@ export function App() {
                       type="button"
                       onClick={() => setViewerMode("gaussian_splat")}
                     >
-                      Gaussian splat
+                      高斯泼溅（Gaussian Splat）
                     </button>
                   )}
                 </div>
               )}
               {hasPointCloud && viewerMode === "point_cloud" && (
-                <div className="variant-toggle" role="group" aria-label="Point cloud view">
+                <div className="variant-toggle" role="group" aria-label="点云视图">
                   <button
                     className={pointCloudVariant === "raw" || !hasAlignedPointCloud ? "active" : ""}
                     type="button"
                     onClick={() => setPointCloudVariant("raw")}
                   >
-                    Raw
+                    原始点云
                   </button>
                   <button
                     className={pointCloudVariant === "aligned" && hasAlignedPointCloud ? "active" : ""}
@@ -1043,24 +1080,24 @@ export function App() {
                     onClick={() => setPointCloudVariant("aligned")}
                     disabled={!hasAlignedPointCloud}
                   >
-                    Aligned
+                    对齐点云
                   </button>
                 </div>
               )}
               <button className="icon-button" type="button" onClick={refreshJob} disabled={!manifest}>
                 <RefreshCw size={17} aria-hidden="true" />
-                <span>Refresh</span>
+                <span>刷新</span>
               </button>
               {canCancel && (
                 <button className="icon-button" type="button" onClick={() => changeLifecycle("cancel")} disabled={isChangingLifecycle}>
                   <Square size={16} aria-hidden="true" />
-                  <span>Cancel</span>
+                  <span>取消</span>
                 </button>
               )}
               {canRetry && (
                 <button className="icon-button" type="button" onClick={() => changeLifecycle("retry")} disabled={isChangingLifecycle}>
                   <RotateCcw size={16} aria-hidden="true" />
-                  <span>Retry</span>
+                  <span>重试</span>
                 </button>
               )}
             </div>
@@ -1083,59 +1120,66 @@ export function App() {
           />
         </section>
 
-        <aside className="panel result-panel" aria-label="Job results">
+        <aside className="panel result-panel" aria-label="任务结果">
           <div className="panel-heading">
-            <h2>Job</h2>
-            <span>{manifest?.job_id ?? "none"}</span>
+            <h2>任务信息</h2>
+            <span>{manifest?.job_id ?? "暂无任务"}</span>
           </div>
 
           <div className="load-job-row">
-            <input
-              aria-label="Job id"
-              placeholder="Load job id"
-              value={jobIdInput}
-              onChange={(event) => setJobIdInput(event.target.value)}
-            />
-            <button type="button" onClick={loadJobById} disabled={isLoadingJob}>
-              {isLoadingJob ? "Loading" : "Load"}
-            </button>
+            <select
+              aria-label="选择历史任务"
+              value={selectedJobId}
+              disabled={isLoadingJob || jobs.length === 0}
+              onChange={(event) => void loadJobById(event.target.value)}
+            >
+              <option value="">
+                {jobs.length === 0 ? "未发现有效任务" : "选择历史任务"}
+              </option>
+              {jobs.map((job) => (
+                <option key={job.job_id} value={job.job_id}>
+                  {formatJobOption(job)}
+                </option>
+              ))}
+            </select>
+            <span className="job-load-status">{isLoadingJob ? "加载中…" : `${jobs.length} 个任务`}</span>
           </div>
 
           <dl className="metrics-grid">
             <div>
-              <dt>Status</dt>
-              <dd>{currentStatus?.status ?? "-"}</dd>
+              <dt>状态</dt>
+              <dd>{formatStatus(currentStatus?.status)}</dd>
             </div>
             <div>
-              <dt>Stage</dt>
-              <dd>{currentStatus?.stage ?? "-"}</dd>
+              <dt>处理阶段</dt>
+              <dd>{formatStage(currentStatus?.stage)}</dd>
             </div>
             <div>
-              <dt>Progress</dt>
+              <dt>进度</dt>
               <dd>{currentStatus ? `${Math.round(currentStatus.progress * 100)}%` : "-"}</dd>
             </div>
             <div>
-              <dt>Attempt</dt>
+              <dt>运行批次</dt>
               <dd>{currentStatus?.active_attempt_id ?? "-"}</dd>
             </div>
             <div>
-              <dt>Mode</dt>
-              <dd>{currentStatus?.mode ?? "-"}</dd>
+              <dt>输入模式</dt>
+              <dd>{formatMode(currentStatus?.mode)}</dd>
             </div>
             <div>
-              <dt>Backend</dt>
-              <dd>{currentStatus?.geometry_backend ?? "-"}</dd>
+              <dt>重建后端</dt>
+              <dd>{formatBackend(currentStatus?.geometry_backend)}</dd>
             </div>
             <div>
-              <dt>Output</dt>
-              <dd>{currentStatus?.output_type ?? "-"}</dd>
+              <dt>输出类型</dt>
+              <dd>{formatOutput(currentStatus?.output_type)}</dd>
             </div>
             <div>
-              <dt>Trainer</dt>
-              <dd>{manifest?.gaussian_trainer?.label ?? "-"}</dd>
+              <dt>训练器</dt>
+              <dd>{formatTrainer(manifest?.gaussian_trainer)}</dd>
             </div>
             <div>
-              <dt>Gaussian profile</dt>
+              <dt>高斯配置</dt>
               <dd>
                 {manifest?.gaussian_config
                   ? `${manifest.gaussian_config.requested_profile} · v${manifest.gaussian_config.schema_version}`
@@ -1143,39 +1187,39 @@ export function App() {
               </dd>
             </div>
             <div>
-              <dt>Navigation</dt>
-              <dd>{manifest?.navigation_status ?? "-"}</dd>
+              <dt>导航资产</dt>
+              <dd>{formatStatus(manifest?.navigation_status)}</dd>
             </div>
             <div>
-              <dt>Inputs</dt>
+              <dt>输入数量</dt>
               <dd>{currentStatus?.metrics.num_inputs ?? "-"}</dd>
             </div>
             <div>
-              <dt>Points</dt>
+              <dt>点数量</dt>
               <dd>{currentStatus?.metrics.num_points ?? "-"}</dd>
             </div>
             <div>
-              <dt>Groups</dt>
+              <dt>分组数量</dt>
               <dd>{currentStatus?.metrics.num_groups ?? "-"}</dd>
             </div>
             <div>
-              <dt>Batch</dt>
+              <dt>批次大小</dt>
               <dd>{currentStatus?.metrics.batch_size ?? currentStatus?.metrics.vggt_batch_size ?? "-"}</dd>
             </div>
             <div>
-              <dt>Grouping</dt>
+              <dt>分组策略</dt>
               <dd>{formatPolicy(currentStatus?.metrics.vggt_grouping)}</dd>
             </div>
             <div>
-              <dt>Overlap</dt>
+              <dt>重叠数量</dt>
               <dd>{currentStatus?.metrics.overlap_size ?? "-"}</dd>
             </div>
             <div>
-              <dt>Alignment</dt>
-              <dd>{currentStatus?.metrics.alignment_status ?? "-"}</dd>
+              <dt>空间对齐</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.alignment_status)}</dd>
             </div>
             <div>
-              <dt>View check</dt>
+              <dt>多视图通过率</dt>
               <dd>
                 {currentStatus?.metrics.consistency_acceptance_rate === undefined
                   ? "-"
@@ -1183,11 +1227,11 @@ export function App() {
               </dd>
             </div>
             <div>
-              <dt>Rejected</dt>
+              <dt>剔除数量</dt>
               <dd>{currentStatus?.metrics.consistency_rejected ?? "-"}</dd>
             </div>
             <div>
-              <dt>Residual P90</dt>
+              <dt>残差 P90（90%分位）</dt>
               <dd>
                 {currentStatus?.metrics.consistency_residual_p90 === undefined
                   ? "-"
@@ -1195,23 +1239,23 @@ export function App() {
               </dd>
             </div>
             <div>
-              <dt>Confidence scope</dt>
+              <dt>置信度范围</dt>
               <dd>{formatPolicy(currentStatus?.metrics.confidence_threshold_scope)}</dd>
             </div>
             <div>
-              <dt>Support policy</dt>
+              <dt>支持策略</dt>
               <dd>{formatPolicy(currentStatus?.metrics.consistency_support_policy)}</dd>
             </div>
             <div>
-              <dt>Point budget</dt>
+              <dt>点数预算</dt>
               <dd>{formatPolicy(currentStatus?.metrics.point_budget_policy)}</dd>
             </div>
             <div>
-              <dt>Budget applied</dt>
+              <dt>是否应用预算</dt>
               <dd>{formatBudgetApplied(currentStatus?.metrics.point_budget_applied)}</dd>
             </div>
             <div>
-              <dt>Budget points</dt>
+              <dt>预算前后点数</dt>
               <dd>
                 {formatPointBudget(
                   currentStatus?.metrics.point_budget_input_points,
@@ -1220,23 +1264,23 @@ export function App() {
               </dd>
             </div>
             <div>
-              <dt>Mesh</dt>
-              <dd>{currentStatus?.metrics.mesh_status ?? "-"}</dd>
+              <dt>网格状态</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.mesh_status)}</dd>
             </div>
             <div>
-              <dt>Method</dt>
-              <dd>{currentStatus?.metrics.mesh_method ?? "-"}</dd>
+              <dt>网格方法</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.mesh_method)}</dd>
             </div>
             <div>
-              <dt>Faces</dt>
+              <dt>三角面数量</dt>
               <dd>{currentStatus?.metrics.mesh_triangles ?? "-"}</dd>
             </div>
             <div>
-              <dt>Components</dt>
+              <dt>连通组件</dt>
               <dd>{currentStatus?.metrics.mesh_component_count ?? "-"}</dd>
             </div>
             <div>
-              <dt>Trimmed</dt>
+              <dt>裁剪面数量</dt>
               <dd>{currentStatus?.metrics.mesh_long_edge_removed_triangles ?? "-"}</dd>
             </div>
           </dl>
@@ -1246,17 +1290,17 @@ export function App() {
             manifest.output_type === "gaussian_splat" && (
               <section className="result-section">
                 <div className="section-heading">
-                  <h3>First-person navigation</h3>
-                  <span>{manifest.navigation_status ?? "not generated"}</span>
+                  <h3>第一人称导航</h3>
+                  <span>{formatStatus(manifest.navigation_status)}</span>
                 </div>
                 {manifest.navigation_status === "available" ? (
-                  <p className="empty-text">Open Gaussian splat and select Enter Walk.</p>
+                  <p className="empty-text">打开高斯泼溅视图，并选择“进入漫游”。</p>
                 ) : (
                   <>
                     <p className="empty-text">
                       {manifest.navigation_reason
-                        ? `Unavailable: ${formatPolicy(manifest.navigation_reason)}`
-                        : "Build Train-only collision and boundary assets without retraining."}
+                        ? `不可用：${formatPolicy(manifest.navigation_reason)}`
+                        : "无需重新训练，使用训练集（Train）生成碰撞体与边界资产。"}
                     </p>
                     <button
                       className="primary-button"
@@ -1267,10 +1311,10 @@ export function App() {
                       <Play size={18} aria-hidden="true" />
                       <span>
                         {["queued", "generating"].includes(manifest.navigation_status ?? "")
-                          ? "Building navigation"
+                          ? "正在生成导航"
                           : isBuildingNavigation
-                            ? "Queueing navigation"
-                            : "Generate navigation assets"}
+                            ? "正在加入导航队列"
+                            : "生成导航资产"}
                       </span>
                     </button>
                   </>
@@ -1281,28 +1325,28 @@ export function App() {
           {canBuildMeshVariant && (
             <section className="result-section mesh-experiment">
               <div className="section-heading">
-                <h3>Mesh variants</h3>
+                <h3>网格方案（Mesh Variants）</h3>
                 <span>{meshVariants.length}</span>
               </div>
 
               <div className="control-stack mesh-settings">
                 <label>
-                  <span>Method</span>
+                  <span>生成方法</span>
                   <select
                     value={meshSettings.method}
                     onChange={(event) =>
                       setMeshSettings((current) => ({ ...current, method: event.target.value as MeshMethod }))
                     }
                   >
-                    <option value="poisson">Poisson</option>
-                    <option value="ball_pivoting">Ball pivoting</option>
-                    <option value="alpha_shape">Alpha shape</option>
+                    <option value="poisson">泊松重建（Poisson）</option>
+                    <option value="ball_pivoting">滚动球法（Ball Pivoting）</option>
+                    <option value="alpha_shape">Alpha Shape（α 形状）</option>
                   </select>
                 </label>
 
                 <div className="numeric-grid">
                   <NumberControl
-                    label="Voxel"
+                    label="体素大小（Voxel）"
                     min={0.005}
                     max={2}
                     step={0.005}
@@ -1310,7 +1354,7 @@ export function App() {
                     onChange={(value) => updateMeshSetting("voxel_size", value)}
                   />
                   <NumberControl
-                    label="Normal radius"
+                    label="法线半径"
                     min={0.01}
                     max={5}
                     step={0.01}
@@ -1318,7 +1362,7 @@ export function App() {
                     onChange={(value) => updateMeshSetting("normal_radius", value)}
                   />
                   <NumberControl
-                    label="Noise std"
+                    label="噪声标准差"
                     min={0.1}
                     max={10}
                     step={0.1}
@@ -1326,7 +1370,7 @@ export function App() {
                     onChange={(value) => updateMeshSetting("statistical_std_ratio", value)}
                   />
                   <NumberControl
-                    label="Edge factor"
+                    label="边缘裁剪系数"
                     min={0.5}
                     max={10}
                     step={0.1}
@@ -1334,7 +1378,7 @@ export function App() {
                     onChange={(value) => updateMeshSetting("edge_trim_factor", value)}
                   />
                   <NumberControl
-                    label="Component ratio"
+                    label="组件最小占比"
                     min={0}
                     max={0.5}
                     step={0.01}
@@ -1342,7 +1386,7 @@ export function App() {
                     onChange={(value) => updateMeshSetting("component_min_ratio", value)}
                   />
                   <NumberControl
-                    label="Max faces"
+                    label="最大三角面数"
                     min={1_000}
                     max={1_000_000}
                     step={10_000}
@@ -1352,7 +1396,7 @@ export function App() {
                   {meshSettings.method === "poisson" && (
                     <>
                       <NumberControl
-                        label="Poisson depth"
+                        label="泊松深度"
                         min={5}
                         max={12}
                         step={1}
@@ -1360,7 +1404,7 @@ export function App() {
                         onChange={(value) => updateMeshSetting("poisson_depth", value)}
                       />
                       <NumberControl
-                        label="Density trim"
+                        label="密度裁剪分位"
                         min={0}
                         max={0.9}
                         step={0.01}
@@ -1371,7 +1415,7 @@ export function App() {
                   )}
                   {meshSettings.method === "alpha_shape" && (
                     <NumberControl
-                      label="Alpha"
+                      label="Alpha（α）"
                       min={0}
                       max={10}
                       step={0.01}
@@ -1384,11 +1428,11 @@ export function App() {
 
               <button className="primary-button" type="button" onClick={buildMeshVariant} disabled={isBuildingMesh}>
                 <Play size={18} aria-hidden="true" />
-                <span>{isBuildingMesh ? "Building mesh" : "Build mesh variant"}</span>
+                <span>{isBuildingMesh ? "正在生成网格" : "生成网格方案"}</span>
               </button>
 
               {meshVariants.length > 0 && (
-                <div className="mesh-variant-list" role="group" aria-label="Mesh variants">
+                <div className="mesh-variant-list" role="group" aria-label="网格方案">
                   {meshVariants.map((variant) => (
                     <button
                       className={variant.id === selectedMeshVariant?.id ? "mesh-variant-row active" : "mesh-variant-row"}
@@ -1401,7 +1445,7 @@ export function App() {
                     >
                       <strong>{variant.label}</strong>
                       <span>
-                        {variant.metrics.mesh_triangles ?? "-"} faces · {variant.metrics.mesh_component_count ?? "-"} components
+                        {variant.metrics.mesh_triangles ?? "-"} 个三角面 · {variant.metrics.mesh_component_count ?? "-"} 个组件
                       </span>
                     </button>
                   ))}
@@ -1411,7 +1455,7 @@ export function App() {
           )}
 
           <section className="result-section">
-            <h3>Objects</h3>
+            <h3>语义对象</h3>
             {scene?.objects.length ? (
               <div className="object-list">
                 {scene.objects.map((object) => (
@@ -1425,38 +1469,38 @@ export function App() {
                 ))}
               </div>
             ) : (
-              <p className="empty-text">No objects</p>
+              <p className="empty-text">暂无语义对象</p>
             )}
           </section>
 
           <section className="result-section">
-            <h3>Assets</h3>
+            <h3>结果资产</h3>
             <div className="asset-links">
-              <AssetLink manifest={manifest} assetKey="point_cloud" label="Point cloud" />
-              <AssetLink manifest={manifest} assetKey="point_cloud_aligned" label="Aligned point cloud" />
-              <AssetLink manifest={manifest} assetKey="mesh" label="Mesh" />
-              <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="Mesh diagnostics" />
-              <AssetLink manifest={manifest} assetKey="scene_splat" label="Gaussian browser asset" />
-              <AssetLink manifest={manifest} assetKey="gaussian_canonical" label="Canonical Gaussian PLY" />
-              <AssetLink manifest={manifest} assetKey="gaussian_export_metadata" label="Gaussian export metadata" />
-              <AssetLink manifest={manifest} assetKey="gaussian_evaluation" label="Gaussian validation" />
-              <AssetLink manifest={manifest} assetKey="gaussian_test_evaluation" label="Gaussian held-out test" />
-              <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="Gaussian test decision" />
-              <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="Gaussian camera path" />
-              <AssetLink manifest={manifest} assetKey="gaussian_bundle" label="Gaussian result bundle" />
-              <AssetLink manifest={manifest} assetKey="collision_mesh" label="Collision mesh" />
-              <AssetLink manifest={manifest} assetKey="navigation" label="Navigation contract" />
-              <AssetLink manifest={manifest} assetKey="navigation_diagnostics" label="Navigation diagnostics" />
-              <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="Alignment" />
-              <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="Fusion diagnostics" />
-              <AssetLink manifest={manifest} assetKey="visibility_graph" label="Visibility graph" />
-              <AssetLink manifest={manifest} assetKey="consistency_diagnostics" label="Consistency diagnostics" />
-              <AssetLink manifest={manifest} assetKey="scene_graph" label="Scene graph" />
-              <AssetLink manifest={manifest} assetKey="log" label="Run log" />
+              <AssetLink manifest={manifest} assetKey="point_cloud" label="点云（Point Cloud）" />
+              <AssetLink manifest={manifest} assetKey="point_cloud_aligned" label="对齐点云" />
+              <AssetLink manifest={manifest} assetKey="mesh" label="三维网格（Mesh）" />
+              <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="网格诊断" />
+              <AssetLink manifest={manifest} assetKey="scene_splat" label="高斯浏览资产" />
+              <AssetLink manifest={manifest} assetKey="gaussian_canonical" label="标准高斯 PLY" />
+              <AssetLink manifest={manifest} assetKey="gaussian_export_metadata" label="高斯导出元数据" />
+              <AssetLink manifest={manifest} assetKey="gaussian_evaluation" label="高斯验证集评估" />
+              <AssetLink manifest={manifest} assetKey="gaussian_test_evaluation" label="高斯留出测试集评估" />
+              <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="高斯测试判定" />
+              <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="高斯相机路径" />
+              <AssetLink manifest={manifest} assetKey="gaussian_bundle" label="高斯结果包" />
+              <AssetLink manifest={manifest} assetKey="collision_mesh" label="碰撞网格" />
+              <AssetLink manifest={manifest} assetKey="navigation" label="导航数据约定" />
+              <AssetLink manifest={manifest} assetKey="navigation_diagnostics" label="导航诊断" />
+              <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="空间对齐诊断" />
+              <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="融合诊断" />
+              <AssetLink manifest={manifest} assetKey="visibility_graph" label="可见性图" />
+              <AssetLink manifest={manifest} assetKey="consistency_diagnostics" label="一致性诊断" />
+              <AssetLink manifest={manifest} assetKey="scene_graph" label="场景图（Scene Graph）" />
+              <AssetLink manifest={manifest} assetKey="log" label="运行日志" />
               {manifest && (
                 <a href={`/api/jobs/${manifest.job_id}/download`}>
                   <Download size={16} aria-hidden="true" />
-                  <span>Bundle</span>
+                  <span>下载完整结果包</span>
                 </a>
               )}
             </div>
@@ -1529,35 +1573,35 @@ function NumberControl({
 
 function validateFiles(mode: Mode, files: File[]) {
   if (files.length === 0) {
-    return "Select at least one file.";
+    return "请至少选择一个文件。";
   }
   if ((mode === "image" || mode === "video" || mode === "panorama") && files.length !== 1) {
-    return `${mode} mode requires exactly one file.`;
+    return "当前模式只能上传一个文件。";
   }
   if (mode === "multi_image" && files.length < 2) {
-    return "Multi-image mode requires at least two files.";
+    return "多图模式至少需要两个文件。";
   }
   return null;
 }
 
 function validateVggtOptions(maxImages: number, batchSize: number, overlapSize: number, fileCount: number) {
   if (!Number.isInteger(maxImages) || maxImages <= 0) {
-    return "VGGT max images must be a positive integer.";
+    return "VGGT 最大图片数必须是正整数。";
   }
   if (!Number.isInteger(batchSize) || batchSize <= 0) {
-    return "VGGT batch size must be a positive integer.";
+    return "VGGT 批次大小必须是正整数。";
   }
   if (!Number.isInteger(overlapSize) || overlapSize <= 0) {
-    return "VGGT overlap must be a positive integer.";
+    return "VGGT 重叠数量必须是正整数。";
   }
   if (fileCount > 1 && batchSize < 2) {
-    return "VGGT batch size must be at least 2 for multi-image jobs.";
+    return "多图任务的 VGGT 批次大小至少为 2。";
   }
   if (overlapSize >= batchSize) {
-    return "VGGT overlap must be smaller than batch size.";
+    return "VGGT 重叠数量必须小于批次大小。";
   }
   if (batchSize > maxImages) {
-    return "VGGT batch size cannot be larger than max images.";
+    return "VGGT 批次大小不能超过最大图片数。";
   }
   return null;
 }
@@ -1569,19 +1613,19 @@ function validateColmapVggtOptions(
   confPercentile: number
 ) {
   if (!Number.isInteger(batchSize) || batchSize < 2) {
-    return "COLMAP+VGGT depth batch must be an integer of at least 2.";
+    return "COLMAP+VGGT 深度批次必须是至少为 2 的整数。";
   }
   if (!Number.isInteger(overlapSize) || overlapSize <= 0) {
-    return "COLMAP+VGGT group overlap must be a positive integer.";
+    return "COLMAP+VGGT 分组重叠数必须是正整数。";
   }
   if (overlapSize >= batchSize) {
-    return "COLMAP+VGGT group overlap must be smaller than depth batch.";
+    return "COLMAP+VGGT 分组重叠数必须小于深度批次。";
   }
   if (!Number.isInteger(maxPoints) || maxPoints <= 0) {
-    return "COLMAP+VGGT max points must be a positive integer.";
+    return "COLMAP+VGGT 最大点数必须是正整数。";
   }
   if (!Number.isFinite(confPercentile) || confPercentile < 0 || confPercentile >= 100) {
-    return "COLMAP+VGGT confidence must be between 0 and 99.";
+    return "COLMAP+VGGT 置信度必须在 0 到 99 之间。";
   }
   return null;
 }
@@ -1589,19 +1633,12 @@ function validateColmapVggtOptions(
 function validateMeshSettings(settings: MeshSettings) {
   const values = Object.entries(settings).filter(([key]) => key !== "method");
   if (values.some(([, value]) => typeof value !== "number" || !Number.isFinite(value))) {
-    return "Mesh settings must be finite numbers.";
+    return "网格参数必须是有效数值。";
   }
   if (!Number.isInteger(settings.poisson_depth) || !Number.isInteger(settings.max_triangles)) {
-    return "Poisson depth and max faces must be integers.";
+    return "泊松深度与最大三角面数必须是整数。";
   }
   return null;
-}
-
-function isBackendAvailable(
-  backendId: GeometryBackend,
-  statuses: Record<GeometryBackend, BackendStatus> | null
-) {
-  return statuses?.[backendId]?.available ?? backendId === "mock";
 }
 
 function formatBackendOption(
@@ -1610,13 +1647,9 @@ function formatBackendOption(
 ) {
   const status = statuses?.[option.id];
   if (!status) {
-    return option.id === "mock" ? option.label : `${option.label} (checking)`;
+    return option.id === "mock" ? option.label : `${option.label}（检查中）`;
   }
-  return status.available ? status.label : `${status.label} (setup required)`;
-}
-
-function isOutputSupported(outputType: OutputType, backendStatus: BackendStatus | undefined) {
-  return backendStatus?.supported_outputs.includes(outputType) ?? outputType === "point_cloud";
+  return status.available ? option.label : `${option.label}（需要安装）`;
 }
 
 function getUploadName(file: File) {
@@ -1640,15 +1673,91 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function formatJobOption(job: JobSummary) {
+  return `${job.job_id} · ${formatStatus(job.status)} · ${formatBackend(job.geometry_backend)} / ${formatOutput(job.output_type)}`;
+}
+
+function formatStatus(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    idle: "空闲",
+    pending: "等待中",
+    queued: "已排队",
+    running: "处理中",
+    exporting: "正在导出",
+    done: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+    not_generated: "未生成",
+    generating: "正在生成",
+    available: "可用",
+    unavailable: "不可用"
+  };
+  return value ? (labels[value] ?? formatPolicy(value)) : "-";
+}
+
+function formatStage(value: string | undefined) {
+  const labels: Record<string, string> = {
+    queued: "等待执行",
+    validating: "校验输入",
+    reconstructing: "几何重建",
+    training: "高斯训练",
+    evaluating: "质量评估",
+    exporting: "导出结果",
+    postprocessing: "后处理",
+    done: "处理完成",
+    failed: "处理失败"
+  };
+  return value ? (labels[value] ?? formatPolicy(value)) : "-";
+}
+
+function formatMode(value: Mode | undefined) {
+  return modeOptions.find((option) => option.id === value)?.label ?? "-";
+}
+
+function formatBackend(value: GeometryBackend | undefined) {
+  return backendOptions.find((option) => option.id === value)?.label ?? "-";
+}
+
+function formatOutput(value: OutputType | undefined) {
+  return outputOptions.find((option) => option.id === value)?.label ?? "-";
+}
+
+function formatTrainer(trainer: Manifest["gaussian_trainer"] | undefined) {
+  if (!trainer) {
+    return "-";
+  }
+  return trainer.id === "project"
+    ? "Project v7（gsplat 高斯栅格化）"
+    : "Graphdeco 官方训练器（研究与评估）";
+}
+
 function formatPolicy(value: string | undefined) {
-  return value?.replaceAll("_", " ") ?? "-";
+  const labels: Record<string, string> = {
+    sequential: "顺序分组（基线）",
+    covisibility: "共视分组（Covisibility）",
+    global: "全局阈值",
+    per_frame: "逐帧阈值",
+    any_support: "任意视图支持",
+    adaptive_two: "自适应双视图",
+    random: "随机采样",
+    spatial_balanced: "空间均衡采样",
+    complete: "完成",
+    skipped: "已跳过",
+    not_run: "未运行",
+    failed: "失败",
+    unavailable: "不可用",
+    poisson: "泊松重建（Poisson）",
+    ball_pivoting: "滚动球法（Ball Pivoting）",
+    alpha_shape: "Alpha Shape（α 形状）"
+  };
+  return value ? (labels[value] ?? value.replaceAll("_", " ")) : "-";
 }
 
 function formatBudgetApplied(value: boolean | undefined) {
   if (value === undefined) {
     return "-";
   }
-  return value ? "yes" : "no";
+  return value ? "是" : "否";
 }
 
 function formatPointBudget(inputPoints: number | undefined, outputPoints: number | undefined) {

@@ -40,6 +40,26 @@ class FakeJobStore:
         }
 
 
+def test_list_jobs_returns_store_summaries(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    store.list_jobs = lambda: [
+        {
+            "job_id": "job-2",
+            "status": "done",
+            "geometry_backend": "colmap",
+            "output_type": "mesh",
+            "updated_at": "2026-08-13T00:00:00Z",
+        }
+    ]
+    app.state.job_store = store
+
+    response = TestClient(app).get("/api/jobs")
+
+    assert response.status_code == 200
+    assert response.json()["jobs"][0]["job_id"] == "job-2"
+
+
 def test_public_job_schema_has_no_raw_gaussian_hyperparameters(tmp_path):
     schema = create_app(tmp_path / "jobs").openapi()
     body_schema = schema["paths"]["/api/jobs"]["post"]["requestBody"]["content"][

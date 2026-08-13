@@ -84,6 +84,55 @@ def test_project_v7_jobs_do_not_automatically_consume_test():
     assert _automatic_test_evaluation_enabled("graphdeco") is True
 
 
+def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):
+    root = tmp_path / "jobs"
+    store = JobStore(output_root=root)
+
+    def write_manifest(job_id: str, updated_at: str) -> None:
+        directory = root / job_id
+        directory.mkdir(parents=True)
+        (directory / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_id,
+                    "status": "done",
+                    "stage": "done",
+                    "mode": "image",
+                    "geometry_backend": "mock",
+                    "output_type": "point_cloud",
+                    "metrics": {},
+                    "updated_at": updated_at,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    write_manifest("older", "2026-08-12T00:00:00Z")
+    write_manifest("newer", "2026-08-13T00:00:00Z")
+    (root / "missing-manifest").mkdir()
+    malformed = root / "malformed"
+    malformed.mkdir()
+    (malformed / "manifest.json").write_text("{", encoding="utf-8")
+    mismatched = root / "mismatched"
+    mismatched.mkdir()
+    (mismatched / "manifest.json").write_text(
+        json.dumps(
+            {
+                "job_id": "other",
+                "status": "done",
+                "stage": "done",
+                "mode": "image",
+                "geometry_backend": "mock",
+                "output_type": "point_cloud",
+                "metrics": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert [job["job_id"] for job in store.list_jobs()] == ["newer", "older"]
+
+
 def test_create_image_job_and_read_outputs(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 

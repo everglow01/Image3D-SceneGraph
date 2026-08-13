@@ -11,7 +11,11 @@ export type GaussianTrainerStatus = {
 };
 
 export function formatGaussianTrainerOption(trainer: GaussianTrainerStatus): string {
-  return trainer.available ? trainer.label : `${trainer.label} (unavailable)`;
+  const label =
+    trainer.id === "project"
+      ? "Project v7（gsplat 高斯栅格化）"
+      : "Graphdeco 官方训练器（研究与评估）";
+  return trainer.available ? label : `${label}（不可用）`;
 }
 
 export function findGaussianTrainerStatus(

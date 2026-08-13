@@ -331,7 +331,7 @@ export function PointCloudViewer({
     anchor.download = `${artifactName || viewArtifactStem}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    setViewMessage("View state exported");
+    setViewMessage("视图状态已导出");
   }
 
   function capturePng() {
@@ -359,7 +359,7 @@ export function PointCloudViewer({
     anchor.href = url;
     anchor.download = `${artifactName || viewArtifactStem}.png`;
     anchor.click();
-    setViewMessage("PNG captured at 1600×1000");
+    setViewMessage("已生成 1600×1000 PNG 截图");
   }
 
   function applyViewState(state: PointCloudViewState) {
@@ -386,9 +386,9 @@ export function PointCloudViewer({
     }
     try {
       applyViewState(JSON.parse(await file.text()) as PointCloudViewState);
-      setViewMessage(`Loaded ${file.name}`);
+      setViewMessage(`已加载 ${file.name}`);
     } catch {
-      setViewMessage("Invalid view state");
+      setViewMessage("视图状态文件无效");
     } finally {
       if (importInputRef.current) {
         importInputRef.current.value = "";
@@ -398,7 +398,7 @@ export function PointCloudViewer({
 
   return (
     <div className="viewer-surface" ref={containerRef}>
-      <div className="pointcloud-toolbar" aria-label="Point cloud coordinate controls">
+      <div className="pointcloud-toolbar" aria-label="点云坐标与视图控制">
         <button
           className={axisSigns.x === -1 ? "viewer-tool-button active" : "viewer-tool-button"}
           onClick={() => toggleAxis("x")}
@@ -426,10 +426,10 @@ export function PointCloudViewer({
           onClick={() => setShowCameras((current) => !current)}
           type="button"
         >
-          Cameras
+          相机位姿
         </button>
         <input
-          aria-label="View artifact name"
+          aria-label="视图资产名称"
           className="viewer-artifact-name"
           onChange={(event) => setArtifactName(event.target.value)}
           value={artifactName}
@@ -440,7 +440,7 @@ export function PointCloudViewer({
           onClick={() => importInputRef.current?.click()}
           type="button"
         >
-          Load view
+          加载视图
         </button>
         <button
           className="viewer-tool-button"
@@ -448,7 +448,7 @@ export function PointCloudViewer({
           onClick={exportViewState}
           type="button"
         >
-          Save view
+          保存视图
         </button>
         <button
           className="viewer-tool-button"
@@ -456,11 +456,11 @@ export function PointCloudViewer({
           onClick={capturePng}
           type="button"
         >
-          Capture PNG
+          截图 PNG
         </button>
         <input
           accept="application/json,.json"
-          aria-label="Load point cloud view state"
+          aria-label="加载点云视图状态"
           hidden
           onChange={(event) => void importViewState(event.target.files?.[0])}
           ref={importInputRef}
@@ -468,9 +468,9 @@ export function PointCloudViewer({
         />
         {viewMessage && <span className="viewer-tool-message">{viewMessage}</span>}
         <label className="point-size-control">
-          <span>Point</span>
+          <span>点大小</span>
           <input
-            aria-label="Point size"
+            aria-label="点大小"
             type="range"
             min={0.01}
             max={0.12}
@@ -482,9 +482,9 @@ export function PointCloudViewer({
       </div>
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
-          {viewerState === "idle" && "No point cloud"}
-          {viewerState === "loading" && "Loading point cloud"}
-          {viewerState === "error" && "Failed to load point cloud"}
+          {viewerState === "idle" && "尚未加载点云"}
+          {viewerState === "loading" && "正在加载点云"}
+          {viewerState === "error" && "点云加载失败"}
         </div>
       )}
     </div>
