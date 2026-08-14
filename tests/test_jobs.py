@@ -80,9 +80,9 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     assert "--gaussian-baseline" in command
 
 
-def test_project_v7_jobs_do_not_automatically_consume_test():
+def test_frontend_gaussian_jobs_do_not_automatically_consume_test():
     assert _automatic_test_evaluation_enabled("project") is False
-    assert _automatic_test_evaluation_enabled("graphdeco") is True
+    assert _automatic_test_evaluation_enabled("graphdeco") is False
 
 
 def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):

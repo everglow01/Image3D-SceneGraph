@@ -241,7 +241,7 @@ class ProjectGaussianAdapter:
         test_assets: dict[str, str] = {}
         required_test_paths: tuple[Path, ...] = ()
         test_status = "not_run"
-        test_reason = "project_validation_only_visual_comparison"
+        test_reason = "frontend_validation_only_visual_comparison"
         if _automatic_test_evaluation_enabled(trainer_id):
             frozen_candidate_path = training_dir / "evaluation" / attempt_id / "frozen-candidate.json"
             test_evaluation_dir = training_dir / "evaluation" / attempt_id / "test"
@@ -368,8 +368,8 @@ class ProjectGaussianAdapter:
         )
 
 
-def _automatic_test_evaluation_enabled(trainer_id: str) -> bool:
-    return trainer_id != "project"
+def _automatic_test_evaluation_enabled(_trainer_id: str) -> bool:
+    return False
 
 
 def _adapter_progress(context: ReconstructionContext, stage: str, progress: float) -> None:
