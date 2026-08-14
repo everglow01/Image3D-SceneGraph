@@ -55,7 +55,7 @@ def render_gaussians(
         width=camera.width,
         height=camera.height,
         sh_degree=sh_degree,
-        packed=True,
+        packed=not distributed,
         backgrounds=background,
         render_mode=render_mode,
         absgrad=gradient_statistics,

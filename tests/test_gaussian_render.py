@@ -31,10 +31,10 @@ def _camera() -> RenderCamera:
 
 
 def test_render_mode_and_distributed_flag_reach_rasterizer(monkeypatch):
-    calls: list[tuple[str, bool]] = []
+    calls: list[tuple[str, bool, bool]] = []
 
-    def rasterization(*args, render_mode="RGB", distributed=False, **kwargs):
-        calls.append((render_mode, distributed))
+    def rasterization(*args, render_mode="RGB", distributed=False, packed=True, **kwargs):
+        calls.append((render_mode, distributed, packed))
         channels = 4 if render_mode == "RGB+ED" else 3
         rendered = torch.arange(2 * 2 * channels, dtype=torch.float32).reshape(1, 2, 2, channels)
         return rendered, torch.ones(1, 2, 2, 1), {}
@@ -46,7 +46,7 @@ def test_render_mode_and_distributed_flag_reach_rasterizer(monkeypatch):
         _model(), _camera(), sh_degree=0, render_mode="RGB+ED", distributed=True
     )
 
-    assert calls == [("RGB", False), ("RGB+ED", True)]
+    assert calls == [("RGB", False, True), ("RGB+ED", True, False)]
     assert rgb.image.shape == (2, 2, 3)
     assert rgb.depth is None
     assert rgb_depth.image.shape == (2, 2, 3)

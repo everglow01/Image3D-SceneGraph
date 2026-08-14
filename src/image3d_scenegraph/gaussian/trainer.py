@@ -310,7 +310,7 @@ def train_gaussians(
                 strategy_state,
                 iteration,
                 rendered.metadata,
-                packed=True,
+                packed=world_size == 1,
             )
             if _opacity_reset_due(config, iteration):
                 reset_opa(
