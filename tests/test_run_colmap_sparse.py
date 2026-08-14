@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import struct
 import subprocess
@@ -65,6 +66,12 @@ def test_colmap_version_includes_cuda_build_line(monkeypatch):
         "COLMAP 4.0.0 -- Structure-from-Motion and Multi-View Stereo "
         "(Commit 8bac7b9 on 2026-03-15 with CUDA)"
     )
+
+
+def test_gpu_indices_accept_multiple_visible_devices():
+    assert run_colmap_sparse.parse_gpu_indices("0,1") == "0,1"
+    with pytest.raises(argparse.ArgumentTypeError, match="comma-separated"):
+        run_colmap_sparse.parse_gpu_indices("0,-1")
 
 
 def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
@@ -138,6 +145,69 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert "use_gpu=False\n" in log
     assert "gpu_index=0\n" in log
     assert "num_threads=4\n" in log
+
+
+def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
+    tmp_path, monkeypatch
+):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    image_dir.mkdir()
+    (image_dir / "frame.jpg").write_bytes(b"image")
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "mapper":
+            model = output_dir / "colmap" / "sparse" / "0"
+            model.mkdir(parents=True)
+            _write_binary_count(model / "images.bin", 12)
+            _write_binary_count(model / "points3D.bin", 100)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            path = output_dir / "geometry" / "points.ply"
+            path.write_text("ply\nelement vertex 1\nend_header\n", encoding="utf-8")
+        return "ok"
+
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "build_camera_payload",
+        lambda _: {
+            "cameras": [{"model": "PINHOLE"}],
+            "images": [{"image_id": index} for index in range(12)],
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--matcher",
+            "exhaustive",
+            "--gaussian-baseline",
+            "--max-image-size",
+            "3072",
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    feature, matcher = commands[:2]
+    undistorter = next(command for command in commands if command[1] == "image_undistorter")
+    assert "--FeatureExtraction.gpu_index" not in feature
+    assert "--FeatureMatching.gpu_index" not in matcher
+    assert undistorter[undistorter.index("--max_image_size") + 1] == "3072"
+    log = (output_dir / "logs" / "run.log").read_text()
+    assert "gpu_index=all_visible\n" in log
+    assert "max_image_size=3072\n" in log
 
 
 def test_runner_rejects_nonpositive_thread_limit(tmp_path, monkeypatch):

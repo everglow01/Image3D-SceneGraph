@@ -45,6 +45,7 @@ def main() -> None:
     parser.add_argument("--parent-attempt-id")
     parser.add_argument("--resume-iteration", type=int)
     parser.add_argument("--cancel-file", type=Path)
+    parser.add_argument("--distributed", action="store_true")
     args = parser.parse_args()
 
     contract = json.loads(args.dataset_contract.read_text(encoding="utf-8"))
@@ -128,9 +129,6 @@ def main() -> None:
         "resolved_config": resolved,
         "run_dir": args.run_dir,
         "attempt_id": args.attempt_id,
-        "cancel_requested": (
-            (lambda: args.cancel_file.exists()) if args.cancel_file is not None else None
-        ),
     }
     if args.trainer == "project":
         trainer_args.update(
@@ -138,12 +136,47 @@ def main() -> None:
             parent_attempt_id=args.parent_attempt_id,
             resume_iteration=args.resume_iteration,
         )
+        if args.distributed:
+            from gsplat.distributed import cli
+
+            cli(
+                _distributed_project_train,
+                {"trainer_args": trainer_args, "cancel_file": args.cancel_file},
+                verbose=True,
+            )
+            result_path = (
+                args.run_dir / "attempts" / args.attempt_id / "artifacts" / "result.json"
+            )
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            print(json.dumps({**result, "trainer_id": args.trainer}, allow_nan=False))
+            return
     else:
+        if args.distributed:
+            raise SystemExit("distributed mode is supported only by the project trainer")
         if args.attempt_kind != "fresh":
             raise SystemExit("external Gaussian trainers currently support fresh attempts only")
         trainer_args["trainer_id"] = args.trainer
+    trainer_args["cancel_requested"] = (
+        (lambda: args.cancel_file.exists()) if args.cancel_file is not None else None
+    )
     result = trainer(**trainer_args)
     print(json.dumps({**result.__dict__, "trainer_id": args.trainer}, allow_nan=False))
+
+
+def _distributed_project_train(
+    local_rank: int, world_rank: int, world_size: int, payload: dict
+) -> None:
+    trainer_args = dict(payload["trainer_args"])
+    cancel_file = payload["cancel_file"]
+    trainer_args.update(
+        local_rank=local_rank,
+        world_rank=world_rank,
+        world_size=world_size,
+        cancel_requested=(
+            (lambda: cancel_file.exists()) if cancel_file is not None else None
+        ),
+    )
+    train_gaussians(**trainer_args)
 
 
 if __name__ == "__main__":

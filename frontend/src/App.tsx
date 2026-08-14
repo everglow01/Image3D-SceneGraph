@@ -256,6 +256,7 @@ export function App() {
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
+  const [gaussianLongestEdge, setGaussianLongestEdge] = useState(1280);
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
   const [vggtBatchSize, setVggtBatchSize] = useState(8);
   const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
@@ -541,6 +542,7 @@ export function App() {
       form.append("output_type", outputType);
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
+        form.append("gaussian_longest_edge", String(gaussianLongestEdge));
       }
       if (geometryBackend === "vggt") {
         form.append("vggt_max_images", String(vggtMaxImages));
@@ -789,53 +791,68 @@ export function App() {
             </label>
 
             {geometryBackend === "project_3dgs" && (
-              <label>
-                <span>训练器（Trainer）</span>
-                <select
-                  value={gaussianTrainer}
-                  onChange={(event) => setGaussianTrainer(event.target.value as GaussianTrainer)}
-                >
-                  {(gaussianTrainerStatuses.length > 0
-                    ? gaussianTrainerStatuses
-                    : [
-                        {
-                          id: "graphdeco" as const,
-                          label: "Graphdeco 官方训练器",
-                          available: true,
-                          reason: null,
-                          setup_command: null,
-                          revision: "unknown",
-                          license: "仅限 Graphdeco 研究与评估"
-                        },
-                        {
-                          id: "project" as const,
-                          label: "Project v7（gsplat 高斯栅格化）",
-                          available: true,
-                          reason: null,
-                          setup_command: null,
-                          revision: "unknown",
-                          license: "Apache-2.0"
-                        }
-                      ]
-                  ).map((trainer) => (
-                    <option disabled={!trainer.available} key={trainer.id} value={trainer.id}>
-                      {formatGaussianTrainerOption(trainer)}
-                    </option>
-                  ))}
-                </select>
-                {selectedGaussianTrainerStatus?.reason && (
-                  <small>{selectedGaussianTrainerStatus.reason}</small>
-                )}
-                {selectedGaussianTrainerStatus?.setup_command && (
-                  <small>{selectedGaussianTrainerStatus.setup_command}</small>
-                )}
-                {gaussianTrainer === "project" && (
-                  <small>
-                    固定 v7 配置：30,000 次迭代上限 · 最长边 1280px · 3NN（三近邻）初始化 ·
-                    关闭屏幕半径剪枝 · 由验证集选择模型 · 归一化任意单位。
-                  </small>
-                )}
-              </label>
+              <>
+                <label>
+                  <span>训练器（Trainer）</span>
+                  <select
+                    value={gaussianTrainer}
+                    onChange={(event) => setGaussianTrainer(event.target.value as GaussianTrainer)}
+                  >
+                    {(gaussianTrainerStatuses.length > 0
+                      ? gaussianTrainerStatuses
+                      : [
+                          {
+                            id: "graphdeco" as const,
+                            label: "Graphdeco 官方训练器",
+                            available: true,
+                            reason: null,
+                            setup_command: null,
+                            revision: "unknown",
+                            license: "仅限 Graphdeco 研究与评估"
+                          },
+                          {
+                            id: "project" as const,
+                            label: "Project v7（gsplat 高斯栅格化）",
+                            available: true,
+                            reason: null,
+                            setup_command: null,
+                            revision: "unknown",
+                            license: "Apache-2.0"
+                          }
+                        ]
+                    ).map((trainer) => (
+                      <option disabled={!trainer.available} key={trainer.id} value={trainer.id}>
+                        {formatGaussianTrainerOption(trainer)}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedGaussianTrainerStatus?.reason && (
+                    <small>{selectedGaussianTrainerStatus.reason}</small>
+                  )}
+                  {selectedGaussianTrainerStatus?.setup_command && (
+                    <small>{selectedGaussianTrainerStatus.setup_command}</small>
+                  )}
+                  {gaussianTrainer === "project" && (
+                    <small>
+                      v7 配置：30,000 次迭代上限 · 自动使用全部可见 GPU · 3NN（三近邻）初始化 ·
+                      关闭屏幕半径剪枝 · 由验证集选择模型 · 归一化任意单位。
+                    </small>
+                  )}
+                </label>
+                <label>
+                  <span>训练图像最长边</span>
+                  <select
+                    value={gaussianLongestEdge}
+                    onChange={(event) => setGaussianLongestEdge(Number(event.target.value))}
+                  >
+                    <option value={1280}>1280px（默认）</option>
+                    <option value={1920}>1920px</option>
+                    <option value={2560}>2560px</option>
+                    <option value={3072}>3072px</option>
+                  </select>
+                  <small>同时控制 COLMAP 去畸变训练图和 3DGS 训练/验证视图；分辨率越高，显存占用越大。</small>
+                </label>
+              </>
             )}
 
             {geometryBackend === "vggt" && (

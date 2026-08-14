@@ -65,6 +65,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         gaussian_trainer: Annotated[
             Literal["project", "graphdeco"], Form()
         ] = "graphdeco",
+        gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3072)] = None,
         vggt_max_images: Annotated[int | None, Form()] = None,
         vggt_batch_size: Annotated[int | None, Form()] = None,
         vggt_overlap_size: Annotated[int | None, Form()] = None,
@@ -99,6 +100,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             for key, value in {
                 "gaussian_trainer": (
                     gaussian_trainer if geometry_backend == "project_3dgs" else None
+                ),
+                "gaussian_longest_edge": (
+                    gaussian_longest_edge if geometry_backend == "project_3dgs" else None
                 ),
                 "vggt_max_images": vggt_max_images,
                 "vggt_batch_size": vggt_batch_size,

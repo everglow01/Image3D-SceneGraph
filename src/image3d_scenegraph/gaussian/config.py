@@ -88,10 +88,12 @@ def effective_config_hash(config: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_config_json(config).encode()).hexdigest()
 
 
-def resolve_public_config(profile: str) -> ResolvedGaussianConfig:
+def resolve_public_config(
+    profile: str, *, longest_edge: int = 1280
+) -> ResolvedGaussianConfig:
     if profile not in PUBLIC_PROFILES:
         raise GaussianConfigError(f"unsupported public Gaussian quality profile: {profile}")
-    return _resolve(profile, None)
+    return _resolve(profile, {"resolution": {"longest_edge": longest_edge}})
 
 
 def resolve_internal_config(
@@ -147,7 +149,7 @@ def validate_effective_config(config: dict[str, Any]) -> None:
 
     resolution = _mapping(root["resolution"], "resolution", {"policy", "longest_edge"})
     _choice(resolution["policy"], "resolution.policy", {"explicit_only"})
-    _integer(resolution["longest_edge"], "resolution.longest_edge", minimum=64, maximum=1280)
+    _integer(resolution["longest_edge"], "resolution.longest_edge", minimum=64, maximum=3072)
 
     loss = _mapping(
         root["loss"], "loss", {"name", "l1_weight", "ssim_weight", "clamp_render"}

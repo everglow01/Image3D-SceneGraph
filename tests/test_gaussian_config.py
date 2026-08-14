@@ -72,6 +72,13 @@ def test_public_profile_resolves_official_baseline_deterministically():
     assert resolve_internal_config("rtx4060_8gb_development_v1").effective_config == second.effective_config
 
 
+def test_public_profile_hashes_selected_training_resolution():
+    resolved = resolve_public_config("standard_v1", longest_edge=3072)
+
+    assert resolved.effective_config["resolution"]["longest_edge"] == 3072
+    assert resolved.effective_config_hash != resolve_public_config("standard_v1").effective_config_hash
+
+
 @pytest.mark.parametrize("profile", ["smoke_v1", "high_quality", ""])
 def test_public_profile_rejects_unapproved_profiles(profile):
     with pytest.raises(GaussianConfigError, match="unsupported public"):
@@ -99,7 +106,7 @@ def test_internal_override_is_validated_hashed_and_recorded():
         ({"iterations": True}, "must be an integer: iterations"),
         ({"iterations": "30000"}, "must be an integer: iterations"),
         ({"loss": {"l1_weight": 1}}, "must be a finite float: loss.l1_weight"),
-        ({"resolution": {"longest_edge": 1281}}, "exceeds 1280"),
+        ({"resolution": {"longest_edge": 3073}}, "exceeds 3072"),
         (
             {"learning_rate": {"position": {"final": 0.001}}},
             "learning_rate.position.final cannot exceed initial",

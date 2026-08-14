@@ -22,15 +22,16 @@ def main() -> None:
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
     parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--gpu-index", type=int, default=0)
+    parser.add_argument("--gpu-index", type=parse_gpu_indices)
     parser.add_argument("--num-threads", type=int)
+    parser.add_argument("--max-image-size", type=int)
     parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--gaussian-baseline", action="store_true")
     args = parser.parse_args()
-    if args.gpu_index < 0:
-        parser.error("--gpu-index must be non-negative")
     if args.num_threads is not None and args.num_threads < 1:
         parser.error("--num-threads must be at least 1")
+    if args.max_image_size is not None and args.max_image_size < 1:
+        parser.error("--max-image-size must be at least 1")
     if args.gaussian_baseline and args.matcher != "exhaustive":
         raise SystemExit("Gaussian baseline requires exhaustive COLMAP matching")
 
@@ -68,9 +69,9 @@ def main() -> None:
         "1" if args.single_camera else "0",
         "--FeatureExtraction.use_gpu",
         "1" if args.use_gpu else "0",
-        "--FeatureExtraction.gpu_index",
-        str(args.gpu_index),
     ]
+    if args.gpu_index is not None:
+        feature_command.extend(("--FeatureExtraction.gpu_index", args.gpu_index))
     if args.gaussian_baseline:
         feature_command.extend(("--ImageReader.camera_model", "OPENCV"))
     if args.num_threads is not None:
@@ -96,9 +97,9 @@ def main() -> None:
         str(work_dir / "database.db"),
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
-        "--FeatureMatching.gpu_index",
-        str(args.gpu_index),
     ]
+    if args.gpu_index is not None:
+        matcher_command.extend(("--FeatureMatching.gpu_index", args.gpu_index))
     if args.num_threads is not None:
         matcher_command.extend(("--FeatureMatching.num_threads", str(args.num_threads)))
     commands = [
@@ -118,22 +119,21 @@ def main() -> None:
     if args.gaussian_baseline:
         undistorted_dir = work_dir / "undistorted"
         write_progress(args.progress_file, "colmap_undistortion")
-        command_logs.append(
-            run_command(
-                [
-                    colmap,
-                    "image_undistorter",
-                    "--image_path",
-                    str(args.image_dir),
-                    "--input_path",
-                    str(model_dir),
-                    "--output_path",
-                    str(undistorted_dir),
-                    "--output_type",
-                    "COLMAP",
-                ]
-            )
-        )
+        undistort_command = [
+            colmap,
+            "image_undistorter",
+            "--image_path",
+            str(args.image_dir),
+            "--input_path",
+            str(model_dir),
+            "--output_path",
+            str(undistorted_dir),
+            "--output_type",
+            "COLMAP",
+        ]
+        if args.max_image_size is not None:
+            undistort_command.extend(("--max_image_size", str(args.max_image_size)))
+        command_logs.append(run_command(undistort_command))
         model_source = undistorted_dir / "sparse"
         text_dir = undistorted_dir / "sparse_txt"
         training_image_dir = undistorted_dir / "images"
@@ -198,8 +198,9 @@ def main() -> None:
         f"colmap_executable={colmap}",
         f"colmap_build={colmap_build}",
         f"use_gpu={args.use_gpu}",
-        f"gpu_index={args.gpu_index}",
+        f"gpu_index={args.gpu_index if args.gpu_index is not None else 'all_visible'}",
         f"num_threads={args.num_threads if args.num_threads is not None else 'auto'}",
+        f"max_image_size={args.max_image_size if args.max_image_size is not None else 'original'}",
         f"gaussian_baseline={args.gaussian_baseline}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
         *command_logs,
@@ -210,6 +211,13 @@ def main() -> None:
     print(f"wrote {geometry_dir / 'cameras.json'}")
     print(f"registered_images={len(camera_payload['images'])}")
     print(f"num_points={num_points}")
+
+
+def parse_gpu_indices(value: str) -> str:
+    parts = value.split(",")
+    if not parts or any(not part.isdigit() for part in parts):
+        raise argparse.ArgumentTypeError("GPU indices must be comma-separated non-negative integers")
+    return ",".join(str(int(part)) for part in parts)
 
 
 def discover_images(image_dir: Path) -> list[Path]:

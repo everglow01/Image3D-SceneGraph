@@ -30,11 +30,11 @@ def _camera() -> RenderCamera:
     )
 
 
-def test_render_mode_preserves_rgb_and_exposes_expected_depth(monkeypatch):
-    calls: list[str] = []
+def test_render_mode_and_distributed_flag_reach_rasterizer(monkeypatch):
+    calls: list[tuple[str, bool]] = []
 
-    def rasterization(*args, render_mode="RGB", **kwargs):
-        calls.append(render_mode)
+    def rasterization(*args, render_mode="RGB", distributed=False, **kwargs):
+        calls.append((render_mode, distributed))
         channels = 4 if render_mode == "RGB+ED" else 3
         rendered = torch.arange(2 * 2 * channels, dtype=torch.float32).reshape(1, 2, 2, channels)
         return rendered, torch.ones(1, 2, 2, 1), {}
@@ -42,9 +42,11 @@ def test_render_mode_preserves_rgb_and_exposes_expected_depth(monkeypatch):
     monkeypatch.setitem(sys.modules, "gsplat.rendering", types.SimpleNamespace(rasterization=rasterization))
 
     rgb = render_gaussians(_model(), _camera(), sh_degree=0)
-    rgb_depth = render_gaussians(_model(), _camera(), sh_degree=0, render_mode="RGB+ED")
+    rgb_depth = render_gaussians(
+        _model(), _camera(), sh_degree=0, render_mode="RGB+ED", distributed=True
+    )
 
-    assert calls == ["RGB", "RGB+ED"]
+    assert calls == [("RGB", False), ("RGB+ED", True)]
     assert rgb.image.shape == (2, 2, 3)
     assert rgb.depth is None
     assert rgb_depth.image.shape == (2, 2, 3)

@@ -34,6 +34,7 @@ def render_gaussians(
     sh_degree: int,
     background: torch.Tensor | None = None,
     gradient_statistics: bool = False,
+    distributed: bool = False,
     render_mode: Literal["RGB", "RGB+ED"] = "RGB",
 ) -> RenderResult:
     try:
@@ -58,6 +59,7 @@ def render_gaussians(
         backgrounds=background,
         render_mode=render_mode,
         absgrad=gradient_statistics,
+        distributed=distributed,
     )
     rendered = image[0]
     if render_mode == "RGB+ED":

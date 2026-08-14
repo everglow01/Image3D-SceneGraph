@@ -16,11 +16,17 @@ from image3d_scenegraph.gaussian.model import GaussianModel
 from image3d_scenegraph.gaussian.render import RenderCamera
 from image3d_scenegraph.gaussian.runtime import TrainingView
 from image3d_scenegraph.gaussian.trainer import (
+    TrainingError,
     _build_strategy,
+    _checkpoint_rank_bytes,
     _checkpoint_state,
     _load_model,
+    _merge_model_shards,
+    _model_bytes,
     _next_camera,
+    _next_camera_batch,
     _opacity_reset_due,
+    _pack_checkpoint_shards,
     _torch_load,
     _training_scene_scale,
     _update_position_learning_rate,
@@ -99,6 +105,49 @@ def test_camera_sampling_visits_each_view_before_reshuffle():
     order, cursor, _ = _next_camera(5, order, cursor)
     assert cursor == 1
     assert order is not old_order
+
+
+def test_distributed_camera_batch_visits_distinct_views_before_reshuffle():
+    torch.manual_seed(7)
+    order, cursor, first = _next_camera_batch(5, [], 0, 2)
+    order, cursor, second = _next_camera_batch(5, order, cursor, 2)
+
+    assert len(set(first + second)) == 4
+    order, cursor, third = _next_camera_batch(5, order, cursor, 2)
+    assert cursor == 1
+    assert set(first + second + third[:1]) == set(range(5))
+
+
+def test_distributed_checkpoint_selects_matching_rank_and_world_size():
+    packed = _pack_checkpoint_shards([b"rank-0", b"rank-1"], 2)
+
+    assert _checkpoint_rank_bytes(packed, 1, 2) == b"rank-1"
+    with pytest.raises(TrainingError, match="world size mismatch"):
+        _checkpoint_rank_bytes(packed, 0, 1)
+    with pytest.raises(TrainingError, match="single-GPU checkpoint"):
+        _checkpoint_rank_bytes(_model_bytes(model()), 0, 2)
+
+
+def test_distributed_model_shards_merge_into_single_snapshot(tmp_path):
+    gaussian = model()
+    paths = [tmp_path / "rank-0.pt", tmp_path / "rank-1.pt"]
+    for rank, path in enumerate(paths):
+        shard = GaussianModel(
+            means=gaussian.means.detach()[rank::2],
+            log_scales=gaussian.log_scales.detach()[rank::2],
+            quats=gaussian.quats.detach()[rank::2],
+            opacity_logits=gaussian.opacity_logits.detach()[rank::2],
+            sh_coeffs=gaussian.sh_coeffs.detach()[rank::2],
+            max_sh_degree=gaussian.max_sh_degree,
+        )
+        path.write_bytes(_model_bytes(shard))
+
+    destination = tmp_path / "model.pt"
+    merged = _merge_model_shards(paths, destination)
+
+    assert merged.count == gaussian.count
+    assert _load_model(destination.read_bytes(), torch.device("cpu")).count == gaussian.count
+    assert not any(path.exists() for path in paths)
 
 
 def test_only_position_learning_rate_decays():

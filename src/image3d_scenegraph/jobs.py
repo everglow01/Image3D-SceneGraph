@@ -135,7 +135,10 @@ class JobStore:
                 normalized_options["gaussian_trainer"] = gaussian_trainer
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
                 if gaussian_config is None:
-                    gaussian_config = resolve_public_config("standard_v1")
+                    gaussian_config = resolve_public_config(
+                        "standard_v1",
+                        longest_edge=normalized_options.get("gaussian_longest_edge", 1280),
+                    )
             gaussian_config_record = (
                 resolved_config_record(gaussian_config) if gaussian_config is not None else None
             )
@@ -602,6 +605,9 @@ class JobStore:
                     gaussian_config_record, sort_keys=True, separators=(",", ":")
                 ),
                 "gaussian_trainer": str(options.get("gaussian_trainer", "graphdeco")),
+                "gaussian_longest_edge": int(
+                    gaussian_config_record["effective_config"]["resolution"]["longest_edge"]
+                ),
             }
         self._check_cancel(cancel_requested)
         try:

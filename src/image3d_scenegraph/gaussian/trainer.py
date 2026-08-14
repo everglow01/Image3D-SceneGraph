@@ -62,6 +62,9 @@ class TrainingResult:
     model_path: str
     result_path: str
     progress_path: str
+    world_size: int = 1
+    per_rank_peak_allocated_bytes: tuple[int, ...] = ()
+    per_rank_peak_reserved_bytes: tuple[int, ...] = ()
 
 
 def seed_training(seed: int) -> None:
@@ -73,7 +76,7 @@ def seed_training(seed: int) -> None:
 
 
 def training_provenance(
-    *, dataset_hash: str, effective_config_hash: str
+    *, dataset_hash: str, effective_config_hash: str, world_size: int = 1
 ) -> CheckpointProvenance:
     source_root = Path(__file__).resolve().parent
     digest = hashlib.sha256()
@@ -93,6 +96,7 @@ def training_provenance(
         "torch": str(getattr(torch, "__version__", "unknown")),
         "cuda": getattr(torch.version, "cuda", None),
         "gsplat": _gsplat_version(),
+        "world_size": world_size,
     }
     return CheckpointProvenance(
         dataset_hash=dataset_hash,
@@ -117,6 +121,9 @@ def train_gaussians(
     resume_iteration: int | None = None,
     cancel_requested: Callable[[], bool] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    local_rank: int = 0,
+    world_rank: int = 0,
+    world_size: int = 1,
 ) -> TrainingResult:
     try:
         from gsplat.strategy import DefaultStrategy
@@ -128,24 +135,33 @@ def train_gaussians(
     validate_effective_config(config)
     if not torch.cuda.is_available():
         raise TrainingError("project Gaussian training requires CUDA")
-    device = torch.device("cuda")
+    if world_size < 1 or not 0 <= world_rank < world_size or local_rank < 0:
+        raise TrainingError("invalid distributed rank configuration")
+    if world_size > 1 and not torch.distributed.is_initialized():
+        raise TrainingError("distributed Gaussian training requires an initialized process group")
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
     seed_training(int(config["seed"]))
     torch.cuda.reset_peak_memory_stats(device)
     run_dir.mkdir(parents=True, exist_ok=True)
     provenance = training_provenance(
         dataset_hash=str(contract["dataset_hash"]),
         effective_config_hash=resolved_config.effective_config_hash,
+        world_size=world_size,
     )
-    create_attempt(
-        run_dir,
-        attempt_id=attempt_id,
-        kind=attempt_kind,
-        provenance=provenance,
-        parent_attempt_id=parent_attempt_id,
-        resume_iteration=resume_iteration,
-    )
+    if world_rank == 0:
+        create_attempt(
+            run_dir,
+            attempt_id=attempt_id,
+            kind=attempt_kind,
+            provenance=provenance,
+            parent_attempt_id=parent_attempt_id,
+            resume_iteration=resume_iteration,
+        )
+        artifact_dir = run_dir / "attempts" / attempt_id / "artifacts"
+        artifact_dir.mkdir()
+    _distributed_barrier(world_size)
     artifact_dir = run_dir / "attempts" / attempt_id / "artifacts"
-    artifact_dir.mkdir()
     progress_path = artifact_dir / "progress.jsonl"
 
     train_views = load_training_views(
@@ -167,10 +183,14 @@ def train_gaussians(
     if loaded_ids & test_ids:
         raise TrainingError("held-out test views entered the trainer runtime")
 
+    if len(initialization.points) < world_size:
+        raise TrainingError("initial Gaussian count is smaller than distributed world size")
+    shard = slice(world_rank, None, world_size)
     model = GaussianModel.from_points(
-        torch.from_numpy(initialization.points).to(device=device, dtype=torch.float32),
-        torch.from_numpy(initialization.colors).to(device=device, dtype=torch.float32) / 255.0,
-        torch.from_numpy(initialization.scales).to(device=device, dtype=torch.float32),
+        torch.from_numpy(initialization.points[shard]).to(device=device, dtype=torch.float32),
+        torch.from_numpy(initialization.colors[shard]).to(device=device, dtype=torch.float32)
+        / 255.0,
+        torch.from_numpy(initialization.scales[shard]).to(device=device, dtype=torch.float32),
         max_sh_degree=int(config["sh_schedule"]["max_degree"]),
     )
     scene_scale = _training_scene_scale(contract)
@@ -192,19 +212,26 @@ def train_gaussians(
             resume_iteration,
             expected_provenance=provenance,
         )
-        model = _load_model(loaded.state.model, device)
+        model = _load_model(
+            _checkpoint_rank_bytes(loaded.state.model, world_rank, world_size), device
+        )
         optimizers = model.optimizers(
             config["learning_rate"], position_scale=scene_scale
         )
-        optimizer_payload = _torch_load(loaded.state.optimizer, device)
+        optimizer_payload = _torch_load(
+            _checkpoint_rank_bytes(loaded.state.optimizer, world_rank, world_size), device
+        )
         for name, optimizer in optimizers.items():
             optimizer.load_state_dict(optimizer_payload[name])
-        dense_payload = _torch_load(loaded.state.densification, device)
+        dense_payload = _torch_load(
+            _checkpoint_rank_bytes(loaded.state.densification, world_rank, world_size),
+            device,
+        )
         strategy_state = dense_payload["strategy_state"]
         camera_order = list(dense_payload["camera_order"])
         camera_cursor = int(dense_payload["camera_cursor"])
         history = list(loaded.state.metric_history)
-        _restore_rng(loaded.state.rng)
+        _restore_rng(_checkpoint_rank_bytes(loaded.state.rng, world_rank, world_size))
         start_iteration = resume_iteration + 1
         strategy.check_sanity(model.params, optimizers)
 
@@ -223,7 +250,7 @@ def train_gaussians(
         for iteration in range(start_iteration, total_iterations + 1):
             if cancel_requested is not None and cancel_requested():
                 if completed_iteration > 0:
-                    _write_latest_checkpoint(
+                    _write_latest_distributed_checkpoint(
                         run_dir,
                         attempt_id=attempt_id,
                         iteration=completed_iteration,
@@ -239,12 +266,15 @@ def train_gaussians(
                             history,
                             completed_iteration,
                         ),
+                        world_rank=world_rank,
+                        world_size=world_size,
                     )
                 raise TrainingCancelled("Gaussian training cancellation requested")
 
-            camera_order, camera_cursor, view_index = _next_camera(
-                len(train_views), camera_order, camera_cursor
+            camera_order, camera_cursor, view_indices = _next_camera_batch(
+                len(train_views), camera_order, camera_cursor, world_size
             )
+            view_index = view_indices[world_rank]
             _update_position_learning_rate(
                 optimizers["means"], config, iteration, total_iterations, scene_scale
             )
@@ -255,6 +285,7 @@ def train_gaussians(
                 train_views,
                 view_index,
                 active_sh_degree(iteration, config["sh_schedule"]),
+                distributed=world_size > 1,
             )
             strategy.step_pre_backward(
                 model.params, optimizers, strategy_state, iteration, rendered.metadata
@@ -267,7 +298,7 @@ def train_gaussians(
             )
             if not torch.isfinite(loss):
                 raise TrainingError(f"non-finite training loss at iteration {iteration}")
-            loss.backward()
+            (loss / world_size).backward()
             model.validate_gradients()
             for optimizer in optimizers.values():
                 optimizer.step()
@@ -290,30 +321,42 @@ def train_gaussians(
                 )
             model.validate()
             after_count = model.count
-            value = float(loss.detach())
+            summary = torch.tensor(
+                [float(loss.detach()), terms["l1"], terms["ssim"], before_count, after_count],
+                dtype=torch.float64,
+                device=device,
+            )
+            if world_size > 1:
+                torch.distributed.all_reduce(summary)
+            value, mean_l1, mean_ssim = (float(item / world_size) for item in summary[:3])
+            global_before, global_after = (int(item) for item in summary[3:])
             if not history:
                 initial_loss = value
+            batch_view_ids = [train_views[index].camera.image_id for index in view_indices]
             event: dict[str, Any] = {
                 "iteration": iteration,
-                "view_id": view.camera.image_id,
+                "view_id": batch_view_ids[0],
+                "batch_view_ids": batch_view_ids,
                 "loss": value,
-                "l1": terms["l1"],
-                "ssim": terms["ssim"],
+                "l1": mean_l1,
+                "ssim": mean_ssim,
                 "sh_degree": active_sh_degree(iteration, config["sh_schedule"]),
-                "gaussian_count": after_count,
+                "gaussian_count": global_after,
+                "world_size": world_size,
             }
-            if after_count != before_count:
+            if global_after != global_before:
                 event.update(
                     {
-                        "topology_count_before": before_count,
-                        "topology_count_after": after_count,
-                        "topology_net_growth": after_count - before_count,
+                        "topology_count_before": global_before,
+                        "topology_count_after": global_after,
+                        "topology_net_growth": global_after - global_before,
                     }
                 )
             if _opacity_reset_due(config, iteration):
                 event["opacity_reset"] = True
             history.append(event)
-            _publish_event(progress_path, event, progress_callback)
+            if world_rank == 0:
+                _publish_event(progress_path, event, progress_callback)
             completed_iteration = iteration
 
             validation_due = iteration in config["evaluation"]["validation_iterations"]
@@ -322,9 +365,22 @@ def train_gaussians(
                     model,
                     validation_views,
                     config,
-                    preview_dir=artifact_dir / "validation" / f"iteration_{iteration:09d}",
+                    preview_dir=(
+                        artifact_dir / "validation" / f"iteration_{iteration:09d}"
+                        if world_rank == 0
+                        else None
+                    ),
                     progress_events=history,
+                    distributed=world_size > 1,
                 )
+                validation_count = torch.tensor(model.count, dtype=torch.int64, device=device)
+                if world_size > 1:
+                    torch.distributed.all_reduce(validation_count)
+                    last_validation["distributed_parameter_health"] = (
+                        "rank_0_shard_diagnostic_full_model_evaluated_after_merge"
+                    )
+                last_validation["gaussian_count"] = int(validation_count)
+                last_validation["world_size"] = world_size
                 validation_event = {
                     "iteration": iteration,
                     "event": "validation",
@@ -334,16 +390,26 @@ def train_gaussians(
                     **last_validation,
                 }
                 history.append(validation_event)
-                _publish_event(progress_path, validation_event, progress_callback)
+                if world_rank == 0:
+                    _publish_event(progress_path, validation_event, progress_callback)
                 candidate = float(last_validation["mean_psnr"])
+                if world_size > 1:
+                    candidate_tensor = torch.tensor(candidate, dtype=torch.float64, device=device)
+                    torch.distributed.broadcast(candidate_tensor, src=0)
+                    candidate = float(candidate_tensor)
                 if candidate > best_validation:
                     best_validation = candidate
                     best_validation_iteration = iteration
                     best_validation_payload = last_validation
-                    (artifact_dir / ".best-model.pt").write_bytes(_model_bytes(model))
+                    candidate_path = artifact_dir / (
+                        ".best-model.pt"
+                        if world_size == 1
+                        else f".best-model-rank-{world_rank:03d}.pt"
+                    )
+                    candidate_path.write_bytes(_model_bytes(model))
 
             if iteration == total_iterations:
-                _write_latest_checkpoint(
+                _write_latest_distributed_checkpoint(
                     run_dir,
                     attempt_id=attempt_id,
                     iteration=iteration,
@@ -359,6 +425,8 @@ def train_gaussians(
                         history,
                         iteration,
                     ),
+                    world_rank=world_rank,
+                    world_size=world_size,
                 )
     except torch.cuda.OutOfMemoryError as exc:
         torch.cuda.empty_cache()
@@ -369,39 +437,74 @@ def train_gaussians(
     elapsed = time.perf_counter() - started
     if best_validation_iteration is None or best_validation_payload is None:
         raise TrainingError("training completed without a Validation candidate")
-    final_checkpoint = load_checkpoint(
-        run_dir, attempt_id, total_iterations, expected_provenance=provenance
+    local_memory = (
+        int(torch.cuda.max_memory_allocated(device)),
+        int(torch.cuda.max_memory_reserved(device)),
+        elapsed,
     )
-    candidate_path = artifact_dir / ".best-model.pt"
-    candidate_model = _load_model(candidate_path.read_bytes(), device)
-    _validate_model_health(candidate_model, len(initialization.points), best_validation_payload)
-    model_path = artifact_dir / "model.pt"
-    model_path.write_bytes(candidate_path.read_bytes())
-    candidate_path.unlink()
+    per_rank_memory = [local_memory]
+    if world_size > 1:
+        gathered: list[tuple[int, int, float] | None] = [None] * world_size
+        torch.distributed.all_gather_object(gathered, local_memory)
+        per_rank_memory = [item for item in gathered if item is not None]
+
     result_path = artifact_dir / "result.json"
-    result = TrainingResult(
-        iteration=total_iterations,
-        candidate_iteration=best_validation_iteration,
-        gaussian_count=candidate_model.count,
-        initial_loss=initial_loss,
-        final_loss=float(next(item["loss"] for item in reversed(history) if "loss" in item)),
-        validation=best_validation_payload,
-        final_validation=last_validation,
-        peak_allocated_bytes=int(torch.cuda.max_memory_allocated(device)),
-        peak_reserved_bytes=int(torch.cuda.max_memory_reserved(device)),
-        elapsed_seconds=elapsed,
-        final_checkpoint_hash=final_checkpoint.record.checkpoint_hash,
-        final_checkpoint_path=(
-            Path("attempts") / attempt_id / "checkpoints" / f"iteration_{total_iterations:09d}"
-        ).as_posix(),
-        model_path=model_path.relative_to(run_dir).as_posix(),
-        result_path=result_path.relative_to(run_dir).as_posix(),
-        progress_path=progress_path.relative_to(run_dir).as_posix(),
+    if world_rank == 0:
+        final_checkpoint = load_checkpoint(
+            run_dir, attempt_id, total_iterations, expected_provenance=provenance
+        )
+        model_path = artifact_dir / "model.pt"
+        if world_size == 1:
+            candidate_path = artifact_dir / ".best-model.pt"
+            candidate_model = _load_model(candidate_path.read_bytes(), device)
+            model_path.write_bytes(candidate_path.read_bytes())
+            candidate_path.unlink()
+        else:
+            candidate_model = _merge_model_shards(
+                [
+                    artifact_dir / f".best-model-rank-{rank:03d}.pt"
+                    for rank in range(world_size)
+                ],
+                model_path,
+            )
+        _validate_model_health(
+            candidate_model, len(initialization.points), best_validation_payload
+        )
+        result = TrainingResult(
+            iteration=total_iterations,
+            candidate_iteration=best_validation_iteration,
+            gaussian_count=candidate_model.count,
+            initial_loss=initial_loss,
+            final_loss=float(next(item["loss"] for item in reversed(history) if "loss" in item)),
+            validation=best_validation_payload,
+            final_validation=last_validation,
+            peak_allocated_bytes=max(item[0] for item in per_rank_memory),
+            peak_reserved_bytes=max(item[1] for item in per_rank_memory),
+            elapsed_seconds=max(item[2] for item in per_rank_memory),
+            final_checkpoint_hash=final_checkpoint.record.checkpoint_hash,
+            final_checkpoint_path=(
+                Path("attempts")
+                / attempt_id
+                / "checkpoints"
+                / f"iteration_{total_iterations:09d}"
+            ).as_posix(),
+            model_path=model_path.relative_to(run_dir).as_posix(),
+            result_path=result_path.relative_to(run_dir).as_posix(),
+            progress_path=progress_path.relative_to(run_dir).as_posix(),
+            world_size=world_size,
+            per_rank_peak_allocated_bytes=tuple(item[0] for item in per_rank_memory),
+            per_rank_peak_reserved_bytes=tuple(item[1] for item in per_rank_memory),
+        )
+        result_path.write_text(
+            json.dumps(result.__dict__, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+        )
+    _distributed_barrier(world_size)
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["per_rank_peak_allocated_bytes"] = tuple(
+        payload["per_rank_peak_allocated_bytes"]
     )
-    result_path.write_text(
-        json.dumps(result.__dict__, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
-    return result
+    payload["per_rank_peak_reserved_bytes"] = tuple(payload["per_rank_peak_reserved_bytes"])
+    return TrainingResult(**payload)
 
 
 @torch.no_grad()
@@ -412,6 +515,7 @@ def evaluate_views(
     *,
     preview_dir: Path | None = None,
     progress_events: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    distributed: bool = False,
 ) -> dict[str, Any]:
     evaluated = evaluate_model(
         model,
@@ -420,7 +524,9 @@ def evaluate_views(
         sh_degree=active_sh_degree(int(config["iterations"]), config["sh_schedule"]),
         preview_dir=preview_dir,
         progress_events=progress_events,
-        renderer=render_gaussians,
+        renderer=lambda model, camera, **kwargs: render_gaussians(
+            model, camera, distributed=distributed, **kwargs
+        ),
         health_thresholds={
             "split_screen_fraction": 0.05,
             "max_screen_fraction": 0.15,
@@ -492,11 +598,24 @@ def _build_strategy(
 def _next_camera(
     count: int, order: list[int], cursor: int
 ) -> tuple[list[int], int, int]:
-    if cursor >= len(order):
-        order = torch.randperm(count, device="cpu").tolist()
-        cursor = 0
-    index = int(order[cursor])
-    return order, cursor + 1, index
+    order, cursor, indices = _next_camera_batch(count, order, cursor, 1)
+    return order, cursor, indices[0]
+
+
+def _next_camera_batch(
+    count: int, order: list[int], cursor: int, batch_size: int
+) -> tuple[list[int], int, list[int]]:
+    if count < 1 or batch_size < 1:
+        raise TrainingError("camera count and batch size must be positive")
+    indices: list[int] = []
+    while len(indices) < batch_size:
+        if cursor >= len(order):
+            order = torch.randperm(count, device="cpu").tolist()
+            cursor = 0
+        take = min(batch_size - len(indices), len(order) - cursor)
+        indices.extend(int(value) for value in order[cursor : cursor + take])
+        cursor += take
+    return order, cursor, indices
 
 
 def _render_visible_training_view(
@@ -504,7 +623,18 @@ def _render_visible_training_view(
     views: list[TrainingView],
     first_index: int,
     sh_degree: int,
+    *,
+    distributed: bool = False,
 ):
+    if distributed:
+        view = views[first_index].to(model.means.device)
+        return view, render_gaussians(
+            model,
+            view.camera,
+            sh_degree=sh_degree,
+            background=None,
+            distributed=True,
+        )
     for offset in range(len(views)):
         view = views[(first_index + offset) % len(views)].to(model.means.device)
         rendered = render_gaussians(
@@ -590,6 +720,110 @@ def _validate_model_health(
         "opacity_p50": float(torch.quantile(opacity, 0.5)),
         "opacity_p90": float(torch.quantile(opacity, 0.9)),
     }
+
+
+def _distributed_barrier(world_size: int) -> None:
+    if world_size > 1:
+        torch.distributed.barrier()
+
+
+def _merge_model_shards(paths: list[Path], destination: Path) -> GaussianModel:
+    if not paths or any(not path.is_file() for path in paths):
+        raise TrainingError("distributed best-model shards are incomplete")
+    models = [_load_model(path.read_bytes(), torch.device("cpu")) for path in paths]
+    degrees = {model.max_sh_degree for model in models}
+    if len(degrees) != 1:
+        raise TrainingError("distributed best-model shards disagree on SH degree")
+    merged = GaussianModel(
+        means=torch.cat([model.means.detach() for model in models]),
+        log_scales=torch.cat([model.log_scales.detach() for model in models]),
+        quats=torch.cat([model.quats.detach() for model in models]),
+        opacity_logits=torch.cat([model.opacity_logits.detach() for model in models]),
+        sh_coeffs=torch.cat([model.sh_coeffs.detach() for model in models]),
+        max_sh_degree=degrees.pop(),
+    )
+    destination.write_bytes(_model_bytes(merged))
+    for path in paths:
+        path.unlink()
+    return merged
+
+
+def _write_latest_distributed_checkpoint(
+    run_dir: Path,
+    *,
+    attempt_id: str,
+    iteration: int,
+    purpose: str,
+    validation_score: float | None,
+    provenance: CheckpointProvenance,
+    state: CheckpointState,
+    world_rank: int,
+    world_size: int,
+) -> None:
+    if world_size == 1:
+        _write_latest_checkpoint(
+            run_dir,
+            attempt_id=attempt_id,
+            iteration=iteration,
+            purpose=purpose,
+            validation_score=validation_score,
+            provenance=provenance,
+            state=state,
+        )
+        return
+    gathered: list[CheckpointState | None] | None = (
+        [None] * world_size if world_rank == 0 else None
+    )
+    torch.distributed.gather_object(state, gathered, dst=0)
+    if world_rank == 0:
+        if gathered is None or any(item is None for item in gathered):
+            raise TrainingError("distributed checkpoint shards are incomplete")
+        shards = [item for item in gathered if item is not None]
+        packed = CheckpointState(
+            model=_pack_checkpoint_shards([item.model for item in shards], world_size),
+            optimizer=_pack_checkpoint_shards(
+                [item.optimizer for item in shards], world_size
+            ),
+            scheduler=shards[0].scheduler,
+            densification=_pack_checkpoint_shards(
+                [item.densification for item in shards], world_size
+            ),
+            rng=_pack_checkpoint_shards([item.rng for item in shards], world_size),
+            metric_history=shards[0].metric_history,
+        )
+        _write_latest_checkpoint(
+            run_dir,
+            attempt_id=attempt_id,
+            iteration=iteration,
+            purpose=purpose,
+            validation_score=validation_score,
+            provenance=provenance,
+            state=packed,
+        )
+    _distributed_barrier(world_size)
+
+
+def _pack_checkpoint_shards(shards: list[bytes], world_size: int) -> bytes:
+    return _torch_bytes(
+        {"distributed_world_size": world_size, "rank_shards": shards}
+    )
+
+
+def _checkpoint_rank_bytes(content: bytes, world_rank: int, world_size: int) -> bytes:
+    payload = _torch_load(content, torch.device("cpu"))
+    if isinstance(payload, dict) and "distributed_world_size" in payload:
+        if payload.get("distributed_world_size") != world_size:
+            raise TrainingError("checkpoint distributed world size mismatch")
+        shards = payload.get("rank_shards")
+        if not isinstance(shards, list) or len(shards) != world_size:
+            raise TrainingError("checkpoint distributed shards are incomplete")
+        shard = shards[world_rank]
+        if not isinstance(shard, bytes):
+            raise TrainingError("checkpoint distributed shard is invalid")
+        return shard
+    if world_size != 1:
+        raise TrainingError("single-GPU checkpoint cannot resume distributed training")
+    return content
 
 
 def _write_latest_checkpoint(

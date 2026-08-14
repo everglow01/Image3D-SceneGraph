@@ -73,7 +73,8 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     command = captured[0]
     assert "--use-gpu" in command
     assert "--no-use-gpu" not in command
-    assert command[command.index("--gpu-index") + 1] == "0"
+    assert "--gpu-index" not in command
+    assert command[command.index("--max-image-size") + 1] == "1280"
     assert command[command.index("--num-threads") + 1] == "8"
     assert command[command.index("--matcher") + 1] == "exhaustive"
     assert "--gaussian-baseline" in command
@@ -209,14 +210,16 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
         files,
         geometry_backend="project_3dgs",
         output_type="gaussian_splat",
-        options={"gaussian_trainer": "graphdeco"},
+        options={"gaussian_trainer": "graphdeco", "gaussian_longest_edge": 3072},
     )
     request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
 
     assert manifest["gaussian_trainer"]["id"] == "graphdeco"
     assert request["options"]["gaussian_trainer"] == "graphdeco"
+    assert request["options"]["gaussian_longest_edge"] == 3072
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
     assert manifest["gaussian_config"]["schema_version"] == 7
+    assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
 
 
 def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):

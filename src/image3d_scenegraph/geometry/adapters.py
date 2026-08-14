@@ -109,6 +109,7 @@ class ProjectGaussianAdapter:
             raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be an integer") from exc
         if colmap_threads < 1:
             raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be at least 1")
+        gaussian_longest_edge = int(context.options.get("gaussian_longest_edge", 1280))
         command_colmap = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(colmap_script),
@@ -120,10 +121,10 @@ class ProjectGaussianAdapter:
             "exhaustive",
             "--gaussian-baseline",
             "--use-gpu",
-            "--gpu-index",
-            "0",
             "--num-threads",
             str(colmap_threads),
+            "--max-image-size",
+            str(gaussian_longest_edge),
             "--progress-file",
             str(colmap_progress_path),
         ]
@@ -195,6 +196,8 @@ class ProjectGaussianAdapter:
             "--max-initial-points",
             str(context.options.get("gaussian_max_initial_points", 1_000_000)),
         ]
+        if trainer_id == "project":
+            command_train.append("--distributed")
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)
         result_candidates = sorted(training_dir.glob("attempts/*/artifacts/result.json"))
@@ -357,6 +360,7 @@ class ProjectGaussianAdapter:
                 "gaussian_peak_allocated_bytes": int(result["peak_allocated_bytes"]),
                 "gaussian_peak_reserved_bytes": int(result["peak_reserved_bytes"]),
                 "gaussian_training_seconds": float(result["elapsed_seconds"]),
+                "gaussian_world_size": int(result.get("world_size", 1)),
                 "gaussian_test_status": test_status,
                 "gaussian_test_reason": test_reason,
             },
