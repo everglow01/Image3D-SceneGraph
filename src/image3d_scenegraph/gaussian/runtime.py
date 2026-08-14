@@ -21,6 +21,11 @@ class TrainingView:
     image: torch.Tensor
 
     def to(self, device: torch.device) -> TrainingView:
+        image = (
+            self.image.to(device=device, dtype=torch.float32).div_(255.0)
+            if self.image.dtype == torch.uint8
+            else self.image.to(device)
+        )
         return TrainingView(
             RenderCamera(
                 image_id=self.camera.image_id,
@@ -29,7 +34,7 @@ class TrainingView:
                 width=self.camera.width,
                 height=self.camera.height,
             ),
-            self.image.to(device),
+            image,
         )
 
 
@@ -102,12 +107,14 @@ def load_views(
             target_height = max(1, int(round(height * scale)))
             if (target_width, target_height) != (width, height):
                 source = source.resize((target_width, target_height), Image.Resampling.LANCZOS)
-            image = torch.from_numpy(np.asarray(source, dtype=np.float32).copy() / 255.0).to(
-                device
-            )
+            image = torch.from_numpy(np.asarray(source, dtype=np.uint8).copy())
         intrinsic = np.asarray(entry["intrinsic"], dtype=np.float64).copy()
         intrinsic[0] *= target_width / width
         intrinsic[1] *= target_height / height
+        if device.type != "cpu" or distortion.get("state") != "none":
+            image = image.to(device=device, dtype=torch.float32).div_(255.0)
+        else:
+            image = image.to(device)
         image = _undistort_image(image, intrinsic, distortion)
         camera_from_world = np.asarray(entry["camera_from_world"], dtype=np.float64)
         camera_from_normalized = camera_from_world @ world_from_normalized

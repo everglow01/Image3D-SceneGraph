@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
 
 torch = pytest.importorskip("torch")
 
@@ -14,7 +15,7 @@ from image3d_scenegraph.gaussian.checkpoint import (
 from image3d_scenegraph.gaussian.config import resolve_internal_config
 from image3d_scenegraph.gaussian.model import GaussianModel
 from image3d_scenegraph.gaussian.render import RenderCamera
-from image3d_scenegraph.gaussian.runtime import TrainingView
+from image3d_scenegraph.gaussian.runtime import TrainingView, load_training_views
 from image3d_scenegraph.gaussian.trainer import (
     TrainingError,
     _build_strategy,
@@ -40,6 +41,48 @@ def model() -> GaussianModel:
         torch.tensor([[0.0, 0.0, 2.0], [0.2, 0.0, 2.0], [-0.2, 0.0, 2.0]]),
         torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
         torch.full((3,), 0.1),
+    )
+
+
+def test_cpu_training_views_keep_uint8_until_device_transfer(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "image3d_scenegraph.gaussian.runtime.validate_contract", lambda *_args: None
+    )
+    image_path = tmp_path / "train.png"
+    image = Image.new("RGB", (2, 1))
+    image.putpixel((0, 0), (0, 127, 255))
+    image.putpixel((1, 0), (255, 64, 0))
+    image.save(image_path)
+    contract = {
+        "splits": {"train": ["train"], "validation": [], "test": []},
+        "normalization": {"normalized_from_world": torch.eye(4).tolist()},
+        "images": [
+            {
+                "image_id": "train",
+                "path": image_path.name,
+                "distortion": {"state": "none"},
+                "intrinsic": torch.eye(3).tolist(),
+                "camera_from_world": torch.eye(4).tolist(),
+            }
+        ],
+    }
+
+    view = load_training_views(
+        contract,
+        tmp_path,
+        split="train",
+        longest_edge=3072,
+        device=torch.device("cpu"),
+    )[0]
+
+    assert view.image.dtype == torch.uint8
+    assert view.image.element_size() == 1
+    transferred = view.to(torch.device("cpu"))
+    assert transferred.image.dtype == torch.float32
+    assert torch.allclose(
+        transferred.image,
+        torch.tensor([[[0, 127, 255], [255, 64, 0]]], dtype=torch.float32)
+        / 255.0,
     )
 
 
