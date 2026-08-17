@@ -164,7 +164,18 @@ def setup_vggt(
         ]
     )
     run(["uv", "pip", "install", "--python", str(python_bin), "--no-deps", "-e", str(repo_dir)])
-    run(["uv", "pip", "install", "--python", str(python_bin), "-e", str(lightglue_repo)])
+    run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python_bin),
+            "--no-deps",
+            "-e",
+            str(lightglue_repo),
+        ]
+    )
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     run(
         [
