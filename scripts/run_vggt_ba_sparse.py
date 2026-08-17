@@ -488,7 +488,7 @@ def load_runtime(args: argparse.Namespace) -> dict[str, Any]:
         dtype=dtype,
         enable_point=False,
     ).eval()
-    tracker = build_vggsfm_tracker(str(args.tracker_checkpoint)).to(device, dtype).eval()
+    tracker = build_vggsfm_tracker(str(args.tracker_checkpoint)).to(device).eval()
     extractors = initialize_feature_extractors(
         MAX_QUERY_POINTS, extractor_method="aliked", device=device
     )
