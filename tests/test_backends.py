@@ -132,9 +132,19 @@ def test_project_gaussian_reports_complete_vggt_ba_dependencies(
     monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(external_root))
     monkeypatch.setenv("IMAGE3D_CHECKPOINT_ROOT", str(checkpoint_root))
     monkeypatch.setenv("PATH", "")
+    probed_modules = set()
+
+    def find_spec(name):
+        probed_modules.add(name)
+        return (
+            object()
+            if name in {"pycolmap", "lightglue", "hydra", "omegaconf"}
+            else None
+        )
+
     monkeypatch.setattr(
         "image3d_scenegraph.geometry.backends.importlib_util.find_spec",
-        lambda name: object() if name in {"pycolmap", "lightglue"} else None,
+        find_spec,
     )
 
     project = {
@@ -147,6 +157,7 @@ def test_project_gaussian_reports_complete_vggt_ba_dependencies(
 
     assert geometry["vggt_ba"]["available"] is True
     assert geometry["vggt_ba"]["supported_modes"] == ["video"]
+    assert {"hydra", "omegaconf"} <= probed_modules
 
 
 def test_backends_api_route_is_registered(tmp_path):

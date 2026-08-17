@@ -174,6 +174,16 @@ def _project_gaussian_spec(
         ),
         *(
             []
+            if importlib_util.find_spec("hydra") is not None
+            else ["hydra-core is not installed"]
+        ),
+        *(
+            []
+            if importlib_util.find_spec("omegaconf") is not None
+            else ["omegaconf is not installed"]
+        ),
+        *(
+            []
             if aliked_checkpoint.is_file()
             else [f"ALIKED checkpoint missing: {aliked_checkpoint}"]
         ),

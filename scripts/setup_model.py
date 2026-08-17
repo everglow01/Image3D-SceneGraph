@@ -159,6 +159,8 @@ def setup_vggt(
             "opencv-python",
             "scipy==1.15.3",
             "pycolmap==3.10.0",
+            "hydra-core==1.3.2",
+            "omegaconf==2.3.0",
         ]
     )
     run(["uv", "pip", "install", "--python", str(python_bin), "--no-deps", "-e", str(repo_dir)])
