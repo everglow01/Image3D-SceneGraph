@@ -21,6 +21,10 @@ Newly completed jobs contain:
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
 | `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
+| `gaussian_geometry_source` | string | Optional effective Gaussian geometry source: stable `colmap` or experimental video-only `vggt_ba`. Historical Gaussian jobs may omit it and follow their recorded assets rather than receiving a synthetic value. |
+| `gaussian_postprocess` | string | Optional requested Gaussian derivative: `none` or experimental `vggt_visibility_v1`. |
+| `gaussian_postprocess_status` | string | Optional derivative lifecycle: `pending`, `not_requested`, `available`, or `unavailable`. Failure is fail-soft and does not invalidate Original Gaussian assets. |
+| `gaussian_postprocess_reason` | string or null | Optional diagnostic reason when the requested derivative is unavailable. |
 | `navigation_status` | string | Optional Gaussian-navigation lifecycle: `pending`, `not_generated`, `queued`, `generating`, `available`, or `unavailable`. Navigation failure never changes a completed Gaussian job from `done`. |
 | `navigation_reason` | string or null | Stable machine-readable reason when navigation is unavailable. |
 | `navigation_details` | object or null | Hashes, budgets, coordinate semantics, and Train-only publication evidence for an available navigation asset set. |
@@ -76,6 +80,8 @@ Common asset roles include:
 - `gaussian_evaluation`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery; optional `gaussian_test_evaluation` and `gaussian_test_decision` appear only after an authorized frozen-candidate Test evaluation
 - `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
 - `video_probe`, `video_frame_selection`, `video_registration_diagnostics`, and `video_keyframe_contact_sheet` for a completed bounded video attempt
+- `vggt_ba_diagnostics`, `vggt_ba_window_graph`, and `vggt_ba_initialization_diagnostics` for a successful experimental VGGT-BA geometry attempt
+- `gaussian_vggt_filtered_model`, `gaussian_vggt_filter_diagnostics`, `gaussian_vggt_filter_mask`, `gaussian_vggt_filtered_evaluation`, `gaussian_vggt_filtered_export_metadata`, `gaussian_vggt_filtered_canonical`, `scene_splat_vggt_filtered`, and `gaussian_vggt_filtered_bundle` for a complete experimental filtered derivative
 
 `collision_mesh` is a low-poly invisible local-physics GLB, not the customer-visible `mesh` or `scene_splat`. `navigation` is the versioned normalized-coordinate boundary/spawn/player contract; `navigation_diagnostics` is its Train-only quality record. The three roles are published together only after source path containment, source/model/config/export hashes, split isolation, schema, topology, triangle/size/time budgets, and GLB integrity pass. Validation/Test IDs must be empty and selected render IDs must be a subset of Train.
 
@@ -100,6 +106,25 @@ Generated keyframe JPEGs are physically upright and use EXIF Orientation `1` plu
 Registered video frames are assigned to deterministic two-second temporal groups. A group belongs wholly to Train, Validation, or Test; the trainer still loads only Train and Validation. Video extraction, registration gates, navigation, and model selection cannot load Test, and video ingestion does not create a `*.test-consumed.json` record.
 
 This contract is bounded offline reconstruction, not realtime SLAM, guaranteed loop closure, metric scale, or a drift-free long-horizon claim. Missing FFmpeg/ffprobe marks only Project video ingestion unavailable; image jobs remain available.
+
+## Experimental Gaussian geometry and filtered derivative
+
+New `project_3dgs + gaussian_splat` requests may independently select:
+
+```text
+gaussian_geometry_source = colmap | vggt_ba
+gaussian_postprocess = none | vggt_visibility_v1
+```
+
+Both fields default to the historical behavior (`colmap` and `none`). `vggt_ba` is video-only and research-only. It writes `vggt_ba_diagnostics` and `vggt_ba_window_graph` only after all bounded VGGT windows, local BA, connected robust Sim(3) graph, COLMAP 4 feature/matching/triangulation/global BA, undistortion, and supported-camera checks pass. It has no automatic COLMAP fallback. Metrics include profile, supported cameras/points, elapsed time, trajectory status, and verified nonlocal-edge count. `open_trajectory_unverified` permits an experimental result to finish but explicitly means that no verified nonlocal bridge established loop evidence.
+
+For VGGT-BA initialization, the global camera/point solution may use all registered images, matching the existing camera-estimation contract. The Gaussian sparse initializer receives only points with at least two Train observations, recolored from Train observations. `vggt_ba_initialization_diagnostics` records accepted, heldout-only rejected, insufficient-Train-support, mixed-track, and recoloring counts. This does not authorize Validation/Test RGB in training.
+
+`vggt_visibility_v1` is a fail-soft derivative after the immutable Original model has completed Validation and export. It recomputes VGGT depth from at most 64 Train images, aligns each usable depth map to final sparse geometry, and conservatively removes only multi-view free-space contradictions with no surface support or unsupported oversized Gaussians outside every Train capture envelope. The mask records row-aligned keep/reason/support arrays. It does not use Validation/Test to derive deletion decisions, fill holes, create walls, alter Original, retrain, or change navigation geometry.
+
+When filtering succeeds, `gaussian_postprocess_status` is `available` and all filtered roles are published together. Original and filtered models receive separate Validation/export records and hashes; filtered bundles include `postprocess/diagnostics.json` and `postprocess/filter-mask.npz`. `scene_splat` remains Original for backward compatibility, while `scene_splat_vggt_filtered` is the optional Viewer A/B derivative. If filtering, filtered Validation, or filtered export fails, status is `unavailable`, a reason is recorded, no partial filtered roles enter `assets`, and Original remains a successful result.
+
+Both capabilities remain experimental/research-only pending real CUDA jobs, cross-scene Validation, resource measurement, and license review. They retain normalized arbitrary units and make no metric-scale, complete-room, guaranteed-loop, or drift-free claim.
 
 ## COLMAP+VGGT effective-policy metrics
 

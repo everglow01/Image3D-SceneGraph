@@ -48,6 +48,8 @@ def export_gaussians(
     evaluation_path: Path,
     output_dir: Path,
     checkpoint_hash: str | None = None,
+    postprocess_record_path: Path | None = None,
+    postprocess_mask_path: Path | None = None,
 ) -> dict[str, Any]:
     validate_contract(contract)
     if output_dir.exists():
@@ -64,6 +66,19 @@ def export_gaussians(
     model_hash = sha256_file(model_path)
     if provenance.get("model_sha256") != model_hash:
         raise GaussianExportError("evaluation model hash mismatch")
+    postprocess = None
+    if postprocess_record_path is not None or postprocess_mask_path is not None:
+        if postprocess_record_path is None or postprocess_mask_path is None:
+            raise GaussianExportError(
+                "postprocess record and mask must be provided together"
+            )
+        if not postprocess_record_path.is_file() or not postprocess_mask_path.is_file():
+            raise GaussianExportError("postprocess provenance assets are missing")
+        postprocess = _read_json(postprocess_record_path)
+        if postprocess.get("filtered_model_sha256") != model_hash:
+            raise GaussianExportError("postprocess filtered model hash mismatch")
+        if postprocess.get("mask_sha256") != sha256_file(postprocess_mask_path):
+            raise GaussianExportError("postprocess mask hash mismatch")
 
     import torch
 
@@ -120,6 +135,14 @@ def export_gaussians(
             "reason": "camera_path_descriptor_is_the_stage2_baseline",
         },
     }
+    if postprocess is not None:
+        metadata["postprocess"] = {
+            "profile": postprocess.get("profile"),
+            "source_model_sha256": postprocess.get("source_model_sha256"),
+            "filtered_model_sha256": postprocess.get("filtered_model_sha256"),
+            "mask_sha256": postprocess.get("mask_sha256"),
+            "counts": postprocess.get("counts"),
+        }
     metadata_path = output_dir / "export.json"
     metadata_path.write_text(
         json.dumps(metadata, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -135,6 +158,13 @@ def export_gaussians(
         ),
         "evaluation/evaluation.json": evaluation_path,
     }
+    if postprocess_record_path is not None and postprocess_mask_path is not None:
+        bundle_entries.update(
+            {
+                "postprocess/diagnostics.json": postprocess_record_path,
+                "postprocess/filter-mask.npz": postprocess_mask_path,
+            }
+        )
     bundle_path = output_dir / "result.zip"
     write_deterministic_zip(bundle_path, bundle_entries)
     bundle_record = {

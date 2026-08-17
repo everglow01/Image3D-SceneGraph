@@ -43,6 +43,8 @@ MAX_VIDEO_BYTES = 2 * 1024**3
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
 VIDEO_PROFILES = {"standard_v1"}
+GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
+GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
     "collision_mesh": "navigation/collision.glb",
@@ -154,7 +156,29 @@ class JobStore:
                 gaussian_trainer = validate_trainer_id(
                     str(normalized_options.get("gaussian_trainer", "graphdeco"))
                 )
-                normalized_options["gaussian_trainer"] = gaussian_trainer
+                geometry_source = str(
+                    normalized_options.get("gaussian_geometry_source", "colmap")
+                )
+                postprocess = str(
+                    normalized_options.get("gaussian_postprocess", "none")
+                )
+                if geometry_source not in GAUSSIAN_GEOMETRY_SOURCES:
+                    raise JobError(
+                        f"unsupported Gaussian geometry source: {geometry_source}"
+                    )
+                if geometry_source == "vggt_ba" and mode != "video":
+                    raise JobError(
+                        "vggt_ba Gaussian geometry currently requires video mode"
+                    )
+                if postprocess not in GAUSSIAN_POSTPROCESSORS:
+                    raise JobError(
+                        f"unsupported Gaussian postprocess: {postprocess}"
+                    )
+                normalized_options.update(
+                    gaussian_trainer=gaussian_trainer,
+                    gaussian_geometry_source=geometry_source,
+                    gaussian_postprocess=postprocess,
+                )
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
                 if gaussian_config is None:
                     gaussian_config = resolve_public_config(
@@ -206,6 +230,15 @@ class JobStore:
         }
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
+                gaussian_geometry_source=str(
+                    normalized_options["gaussian_geometry_source"]
+                ),
+                gaussian_postprocess=str(normalized_options["gaussian_postprocess"]),
+                gaussian_postprocess_status=(
+                    "pending"
+                    if normalized_options["gaussian_postprocess"] != "none"
+                    else "not_requested"
+                ),
                 navigation_status="pending",
                 navigation_reason=None,
                 navigation_details=None,
@@ -777,6 +810,21 @@ class JobStore:
                 gaussian_trainer_record if isinstance(gaussian_trainer_record, dict) else None
             ),
         )
+        if self._is_gaussian_job(result):
+            result.update(
+                gaussian_geometry_source=str(
+                    options.get("gaussian_geometry_source", "colmap")
+                ),
+                gaussian_postprocess=str(
+                    options.get("gaussian_postprocess", "none")
+                ),
+                gaussian_postprocess_status=str(
+                    metrics.get("gaussian_postprocess_status", "not_requested")
+                ),
+                gaussian_postprocess_reason=metrics.get(
+                    "gaussian_postprocess_reason"
+                ),
+            )
         result["created_at"] = queued_manifest["created_at"]
         if navigation_status is not None:
             result.update(

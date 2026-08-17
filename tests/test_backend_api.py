@@ -75,8 +75,20 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     assert "gaussian_trainer" in properties
     assert properties["gaussian_trainer"]["enum"] == ["project", "graphdeco"]
     assert properties["gaussian_trainer"]["default"] == "graphdeco"
+    assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
+    assert properties["gaussian_geometry_source"]["default"] == "colmap"
+    assert properties["gaussian_postprocess"]["enum"] == [
+        "none",
+        "vggt_visibility_v1",
+    ]
+    assert properties["gaussian_postprocess"]["default"] == "none"
     gaussian_names = {name for name in properties if "gaussian" in name}
-    assert gaussian_names == {"gaussian_trainer", "gaussian_longest_edge"}
+    assert gaussian_names == {
+        "gaussian_trainer",
+        "gaussian_geometry_source",
+        "gaussian_postprocess",
+        "gaussian_longest_edge",
+    }
 
 
 def test_create_job_forwards_gaussian_trainer(tmp_path):
@@ -93,6 +105,8 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
             "geometry_backend": "project_3dgs",
             "output_type": "gaussian_splat",
             "gaussian_trainer": "graphdeco",
+            "gaussian_geometry_source": "vggt_ba",
+            "gaussian_postprocess": "vggt_visibility_v1",
             "gaussian_longest_edge": "3072",
         },
         files=[
@@ -104,6 +118,8 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
     assert response.status_code == 202
     assert store.options == {
         "gaussian_trainer": "graphdeco",
+        "gaussian_geometry_source": "vggt_ba",
+        "gaussian_postprocess": "vggt_visibility_v1",
         "gaussian_longest_edge": 3072,
     }
 
@@ -140,6 +156,26 @@ def test_create_job_rejects_invalid_gaussian_trainer(tmp_path):
         files=[("files", ("room.jpg", b"image", "image/jpeg"))],
     )
     assert response.status_code == 422
+
+
+def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    client = TestClient(app)
+    files = [("files", ("room.jpg", b"image", "image/jpeg"))]
+
+    geometry_response = client.post(
+        "/api/jobs",
+        data={"gaussian_geometry_source": "unknown"},
+        files=files,
+    )
+    postprocess_response = client.post(
+        "/api/jobs",
+        data={"gaussian_postprocess": "unknown"},
+        files=files,
+    )
+
+    assert geometry_response.status_code == 422
+    assert postprocess_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):

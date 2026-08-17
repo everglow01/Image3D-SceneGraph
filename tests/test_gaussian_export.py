@@ -19,6 +19,7 @@ from image3d_scenegraph.gaussian.export import (
     _model_rows,
     _scene_frame,
     _write_binary_ply,
+    export_gaussians,
     read_gaussian_ply,
     write_deterministic_zip,
 )
@@ -135,6 +136,122 @@ def test_deterministic_bundle_has_safe_sorted_entries(tmp_path):
         assert archive.namelist() == ["a.txt", "z/b.txt"]
     with pytest.raises(GaussianExportError, match="unsafe bundle"):
         write_deterministic_zip(tmp_path / "bad.zip", {"../escape": source_a})
+
+
+def test_filtered_export_verifies_and_bundles_postprocess_provenance(tmp_path):
+    gaussian = model()
+    model_path = tmp_path / "filtered-model.pt"
+    torch.save(
+        {
+            "state_dict": gaussian.state_dict(),
+            "max_sh_degree": gaussian.max_sh_degree,
+        },
+        model_path,
+    )
+    value = contract()
+    config_hash = "c" * 64
+    evaluation_path = tmp_path / "evaluation.json"
+    evaluation_path.write_text(
+        json.dumps(
+            {
+                "provenance": {
+                    "dataset_hash": value["dataset_hash"],
+                    "effective_config_hash": config_hash,
+                    "model_sha256": sha256_file(model_path),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    mask_path = tmp_path / "filter-mask.npz"
+    np.savez_compressed(mask_path, keep=np.array([True, True]))
+    record_path = tmp_path / "diagnostics.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "profile": "vggt_visibility_v1",
+                "source_model_sha256": "d" * 64,
+                "filtered_model_sha256": sha256_file(model_path),
+                "mask_sha256": sha256_file(mask_path),
+                "counts": {"input": 2, "kept": 2, "removed": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original = export_gaussians(
+        model_path=model_path,
+        contract=value,
+        config_record={"effective_config_hash": config_hash},
+        evaluation_path=evaluation_path,
+        output_dir=tmp_path / "original-export",
+    )
+    assert "postprocess" not in original
+
+    result = export_gaussians(
+        model_path=model_path,
+        contract=value,
+        config_record={"effective_config_hash": config_hash},
+        evaluation_path=evaluation_path,
+        output_dir=tmp_path / "export",
+        postprocess_record_path=record_path,
+        postprocess_mask_path=mask_path,
+    )
+
+    assert result["postprocess"]["profile"] == "vggt_visibility_v1"
+    with zipfile.ZipFile(tmp_path / "export" / "result.zip") as archive:
+        assert "postprocess/diagnostics.json" in archive.namelist()
+        assert "postprocess/filter-mask.npz" in archive.namelist()
+
+
+def test_filtered_export_rejects_mismatched_postprocess_hash(tmp_path):
+    gaussian = model()
+    model_path = tmp_path / "filtered-model.pt"
+    torch.save(
+        {
+            "state_dict": gaussian.state_dict(),
+            "max_sh_degree": gaussian.max_sh_degree,
+        },
+        model_path,
+    )
+    value = contract()
+    config_hash = "c" * 64
+    evaluation_path = tmp_path / "evaluation.json"
+    evaluation_path.write_text(
+        json.dumps(
+            {
+                "provenance": {
+                    "dataset_hash": value["dataset_hash"],
+                    "effective_config_hash": config_hash,
+                    "model_sha256": sha256_file(model_path),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    mask_path = tmp_path / "filter-mask.npz"
+    np.savez_compressed(mask_path, keep=np.array([True, True]))
+    record_path = tmp_path / "diagnostics.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "filtered_model_sha256": sha256_file(model_path),
+                "mask_sha256": "0" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GaussianExportError, match="mask hash mismatch"):
+        export_gaussians(
+            model_path=model_path,
+            contract=value,
+            config_record={"effective_config_hash": config_hash},
+            evaluation_path=evaluation_path,
+            output_dir=tmp_path / "export",
+            postprocess_record_path=record_path,
+            postprocess_mask_path=mask_path,
+        )
 
 
 def test_camera_path_stays_in_normalized_trusted_bound():

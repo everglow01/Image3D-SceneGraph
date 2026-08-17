@@ -68,6 +68,87 @@ def test_backend_specs_report_vggt_available_with_local_assets(tmp_path, monkeyp
     assert specs["vggt"].supported_outputs == ("point_cloud", "mesh")
 
 
+def test_project_gaussian_reports_vggt_postprocess_separately_from_ba(
+    tmp_path, monkeypatch
+):
+    external_root = tmp_path / "external"
+    checkpoint_root = tmp_path / "checkpoints"
+    (external_root / "vggt").mkdir(parents=True)
+    vggt_checkpoint = (
+        checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors"
+    )
+    vggt_checkpoint.parent.mkdir(parents=True)
+    vggt_checkpoint.write_bytes(b"fake-vggt")
+    colmap = external_root / "colmap-4-cuda" / "install" / "bin" / "colmap"
+    colmap.parent.mkdir(parents=True)
+    colmap.write_text("#!/bin/sh\n", encoding="utf-8")
+    colmap.chmod(0o755)
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(external_root))
+    monkeypatch.setenv("IMAGE3D_CHECKPOINT_ROOT", str(checkpoint_root))
+    monkeypatch.setenv("PATH", "")
+
+    project = {
+        spec.backend_id: spec for spec in get_backend_specs(tmp_path)
+    }["project_3dgs"]
+    geometry = {
+        option["id"]: option
+        for option in project.options["gaussian_geometry_sources"]
+    }
+    postprocess = {
+        option["id"]: option
+        for option in project.options["gaussian_postprocessors"]
+    }
+
+    assert geometry["colmap"]["available"] is True
+    assert geometry["vggt_ba"]["available"] is False
+    assert "DINOv2 repo missing" in geometry["vggt_ba"]["reason"]
+    assert "setup_model.py --backend vggt --install" in geometry["vggt_ba"][
+        "setup_command"
+    ]
+    assert postprocess["none"]["available"] is True
+    assert postprocess["vggt_visibility_v1"]["available"] is True
+
+
+def test_project_gaussian_reports_complete_vggt_ba_dependencies(
+    tmp_path, monkeypatch
+):
+    external_root = tmp_path / "external"
+    checkpoint_root = tmp_path / "checkpoints"
+    (external_root / "vggt").mkdir(parents=True)
+    (external_root / "dinov2").mkdir(parents=True)
+    (external_root / "lightglue").mkdir(parents=True)
+    for path in (
+        checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
+        checkpoint_root / "vggt" / "dinov2_vitb14_reg4_pretrain.pth",
+        checkpoint_root / "vggt" / "vggsfm_v2_tracker.pt",
+        checkpoint_root / "vggt" / "torch-hub" / "checkpoints" / "aliked-n16.pth",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"weight")
+    colmap = external_root / "colmap-4-cuda" / "install" / "bin" / "colmap"
+    colmap.parent.mkdir(parents=True)
+    colmap.write_text("#!/bin/sh\n", encoding="utf-8")
+    colmap.chmod(0o755)
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(external_root))
+    monkeypatch.setenv("IMAGE3D_CHECKPOINT_ROOT", str(checkpoint_root))
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.backends.importlib_util.find_spec",
+        lambda name: object() if name in {"pycolmap", "lightglue"} else None,
+    )
+
+    project = {
+        spec.backend_id: spec for spec in get_backend_specs(tmp_path)
+    }["project_3dgs"]
+    geometry = {
+        option["id"]: option
+        for option in project.options["gaussian_geometry_sources"]
+    }
+
+    assert geometry["vggt_ba"]["available"] is True
+    assert geometry["vggt_ba"]["supported_modes"] == ["video"]
+
+
 def test_backends_api_route_is_registered(tmp_path):
     app = create_app(output_root=tmp_path / "jobs")
 

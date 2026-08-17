@@ -326,6 +326,46 @@ def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
 
     assert manifest["gaussian_trainer"]["id"] == "graphdeco"
     assert request["options"]["gaussian_trainer"] == "graphdeco"
+    assert request["options"]["gaussian_geometry_source"] == "colmap"
+    assert request["options"]["gaussian_postprocess"] == "none"
+    assert manifest["gaussian_geometry_source"] == "colmap"
+    assert manifest["gaussian_postprocess"] == "none"
+    assert manifest["gaussian_postprocess_status"] == "not_requested"
+
+
+def test_project_gaussian_job_persists_experimental_options(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.enqueue_job(
+        "video",
+        [UploadedInput(filename="portrait.mp4", content=b"video")],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={
+            "gaussian_geometry_source": "vggt_ba",
+            "gaussian_postprocess": "vggt_visibility_v1",
+        },
+    )
+    request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
+
+    assert request["options"]["gaussian_geometry_source"] == "vggt_ba"
+    assert request["options"]["gaussian_postprocess"] == "vggt_visibility_v1"
+    assert manifest["gaussian_geometry_source"] == "vggt_ba"
+    assert manifest["gaussian_postprocess"] == "vggt_visibility_v1"
+    assert manifest["gaussian_postprocess_status"] == "pending"
+
+
+def test_vggt_ba_gaussian_geometry_rejects_non_video_input(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="requires video mode"):
+        store.enqueue_job(
+            "multi_image",
+            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"gaussian_geometry_source": "vggt_ba"},
+        )
 
 
 def test_project_gaussian_job_rejects_unknown_trainer(tmp_path):
@@ -337,6 +377,31 @@ def test_project_gaussian_job_rejects_unknown_trainer(tmp_path):
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_trainer": "unknown"},
+        )
+
+
+def test_project_gaussian_job_rejects_unknown_experimental_options(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    files = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    with pytest.raises(JobError, match="unsupported Gaussian geometry source"):
+        store.enqueue_job(
+            "multi_image",
+            files,
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"gaussian_geometry_source": "unknown"},
+        )
+    with pytest.raises(JobError, match="unsupported Gaussian postprocess"):
+        store.enqueue_job(
+            "multi_image",
+            files,
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"gaussian_postprocess": "unknown"},
         )
 
 

@@ -82,6 +82,9 @@ Current mock API:
 - `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, or `mast3r`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `gaussian_trainer`: `graphdeco` (default) or `project`; used only with `project_3dgs + gaussian_splat`
+- `gaussian_geometry_source`: `colmap` (default) or video-only `vggt_ba` (experimental/research-only)
+- `gaussian_postprocess`: `none` (default) or `vggt_visibility_v1` (experimental/research-only)
+- `gaussian_longest_edge`: 1280–3072px; used only with `project_3dgs + gaussian_splat`
 - `video_keyframe_profile`: `standard_v1`; used only for bounded video jobs
 - `video_rotation`: `auto`, `clockwise_90`, `counterclockwise_90`, or `180`
 - `files`: one or more uploaded files
@@ -97,6 +100,13 @@ Implemented geometry paths:
 
 Video support is bounded offline reconstruction, not realtime SLAM or evidence of drift-free multi-room mapping. Coordinates remain normalized arbitrary units. FFmpeg and ffprobe are external executable dependencies; their absence disables only video ingestion, not image-based Project jobs.
 
+Two orthogonal research options are available for Gaussian jobs:
+
+- `gaussian_geometry_source=vggt_ba` is currently video-only. It runs fixed 8-frame/4-frame-overlap VGGT windows, ALIKED/VGGSfM local tracks and PyCOLMAP BA, a robust Sim(3) window graph, then the existing COLMAP 4 SIFT/exhaustive triangulation and global BA before either Gaussian trainer. It never silently falls back to ordinary COLMAP. A successful run without a geometrically verified nonlocal bridge is explicitly marked `open_trajectory_unverified`; this is not a loop-closure or bounded-drift claim.
+- `gaussian_postprocess=vggt_visibility_v1` can follow either geometry source. After Original Validation/export, it uses at most 64 Train views and scale-aligned VGGT depth to conservatively remove multi-view free-space floaters and unsupported oversized Gaussians outside the capture envelope. It does not load Validation/Test to derive the mask, fill holes, create walls, retrain, or overwrite the Original model. Filtering is fail-soft: the Original job remains usable if the derivative is unavailable. When successful, the frontend provides Original/VGGT-filtered A/B viewing and separate Validation/export assets while the stable `scene_splat` role continues to identify Original.
+
+Both options are experimental and research-only pending dependency, real-scene, resource, and license validation. VGGT-BA requires the pinned VGGT, DINOv2, LightGlue/ALIKED, VGGSfM tracker, PyCOLMAP, SciPy, and COLMAP dependencies; postprocessing requires the base VGGT repo/checkpoint. `GET /api/backends` reports these capabilities separately so missing BA dependencies do not disable ordinary COLMAP Gaussian jobs or base VGGT cleanup.
+
 For a same-input visual comparison with retained Official job `20260806_060729_a5d1d377`, select `Multi-image` → `Project 3DGS` → `Gaussian splat` → `Project v7 (gsplat)` and upload the same 225 source images. The frontend shows `standard_v1 · v7` on the resulting job. New Project v7 jobs stop after Train/Validation model selection and export; they do not load Test or create a Test-consumption record. Coordinates remain normalized arbitrary units, not metres.
 
 DUSt3R, MASt3R, and panorama-to-geometry are still API contract placeholders and return a clear not implemented error.
@@ -107,7 +117,7 @@ Optional geometry backends are not downloaded with the base project. Check local
 uv run python scripts/setup_model.py --backend vggt
 ```
 
-VGGT setup is intentionally explicit because the checkpoint is about 5GB and the full environment can require substantially more disk space. Install only after checking free space:
+VGGT setup is intentionally explicit because the base checkpoint is about 5GB and the full experimental VGGT-BA dependency set requires substantially more disk space. Install only after checking free space. The installer pins the VGGT, DINOv2, LightGlue, VGGSfM, and ALIKED sources, downloads the VGGT/DINOv2/VGGSfM/ALIKED weights into project-local ignored paths, installs PyCOLMAP/SciPy/LightGlue, and writes checkpoint hashes to `checkpoints/vggt/ba-dependencies.json`; jobs do not download at runtime:
 
 ```bash
 uv run python scripts/setup_model.py --backend vggt --install

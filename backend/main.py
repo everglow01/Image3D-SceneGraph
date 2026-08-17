@@ -93,6 +93,12 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         gaussian_trainer: Annotated[
             Literal["project", "graphdeco"], Form()
         ] = "graphdeco",
+        gaussian_geometry_source: Annotated[
+            Literal["colmap", "vggt_ba"], Form()
+        ] = "colmap",
+        gaussian_postprocess: Annotated[
+            Literal["none", "vggt_visibility_v1"], Form()
+        ] = "none",
         gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3072)] = None,
         video_keyframe_profile: Annotated[Literal["standard_v1"], Form()] = "standard_v1",
         video_rotation: Annotated[
@@ -159,6 +165,14 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             for key, value in {
                 "gaussian_trainer": (
                     gaussian_trainer if geometry_backend == "project_3dgs" else None
+                ),
+                "gaussian_geometry_source": (
+                    gaussian_geometry_source
+                    if geometry_backend == "project_3dgs"
+                    else None
+                ),
+                "gaussian_postprocess": (
+                    gaussian_postprocess if geometry_backend == "project_3dgs" else None
                 ),
                 "gaussian_longest_edge": (
                     gaussian_longest_edge if geometry_backend == "project_3dgs" else None

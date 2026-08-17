@@ -105,16 +105,69 @@ class ProjectGaussianAdapter:
 
         return update
 
+    @staticmethod
+    def _vggt_ba_progress_callback(
+        context: ReconstructionContext, path: Path
+    ) -> Callable[[], None]:
+        progress_by_stage = {
+            "vggt_ba_descriptors": 0.14,
+            "vggt_ba_windows": 0.18,
+            "vggt_ba_pose_graph": 0.22,
+            "vggt_ba_feature_extraction": 0.25,
+            "vggt_ba_feature_matching": 0.27,
+            "vggt_ba_global_triangulation": 0.29,
+            "vggt_ba_global_bundle_adjustment": 0.30,
+            "colmap_undistortion": 0.31,
+        }
+        last_stage: str | None = None
+
+        def update() -> None:
+            nonlocal last_stage
+            try:
+                stage = str(json.loads(path.read_text(encoding="utf-8"))["stage"])
+            except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
+                return
+            if stage == last_stage or stage not in progress_by_stage:
+                return
+            last_stage = stage
+            _adapter_progress(context, stage, progress_by_stage[stage])
+
+        return update
+
     def run(self, context: ReconstructionContext) -> ReconstructionResult:
         if context.mode not in {"multi_image", "video"}:
             raise ReconstructionError("project 3DGS training requires multi_image or video input")
         project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
         video_script = project_root / "scripts" / "extract_video_keyframes.py"
         colmap_script = project_root / "scripts" / "run_colmap_sparse.py"
+        vggt_ba_script = project_root / "scripts" / "run_vggt_ba_sparse.py"
         trainer_script = project_root / "scripts" / "run_gaussian_training.py"
         evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
         exporter_script = project_root / "scripts" / "export_gaussian.py"
-        required_scripts = [colmap_script, trainer_script, evaluator_script, exporter_script]
+        filter_script = project_root / "scripts" / "filter_gaussian_vggt.py"
+        required_scripts = [trainer_script, evaluator_script, exporter_script]
+        postprocess = str(context.options.get("gaussian_postprocess", "none"))
+        if postprocess not in {"none", "vggt_visibility_v1"}:
+            raise ReconstructionError(
+                f"unsupported Gaussian postprocess: {postprocess}"
+            )
+        if postprocess == "vggt_visibility_v1":
+            required_scripts.append(filter_script)
+        geometry_source = str(
+            context.options.get("gaussian_geometry_source", "colmap")
+        )
+        if geometry_source == "colmap":
+            required_scripts.append(colmap_script)
+        elif geometry_source == "vggt_ba":
+            if context.mode != "video":
+                raise ReconstructionError(
+                    "vggt_ba Gaussian geometry currently requires video mode"
+                )
+            required_scripts.append(vggt_ba_script)
+        else:
+            raise ReconstructionError(
+                f"unsupported Gaussian geometry source: {geometry_source}"
+            )
         if context.mode == "video":
             required_scripts.append(video_script)
         if not all(path.is_file() for path in required_scripts):
@@ -183,7 +236,6 @@ class ProjectGaussianAdapter:
             }
         sparse_dir = context.job_dir / "colmap" / "undistorted" / "sparse_txt"
         points_path = sparse_dir / "points3D.txt"
-        colmap_progress_path = context.job_dir / "colmap" / "progress.json"
         default_colmap_threads = min(8, max(1, (os.cpu_count() or 1) // 2))
         try:
             colmap_threads = int(
@@ -193,37 +245,125 @@ class ProjectGaussianAdapter:
             raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be an integer") from exc
         if colmap_threads < 1:
             raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be at least 1")
-        command_colmap = [
-            os.environ.get("IMAGE3D_PYTHON", sys.executable),
-            str(colmap_script),
-            "--image-dir",
-            str(image_dir),
-            "--output-dir",
-            str(context.job_dir),
-            "--matcher",
-            "exhaustive",
-            "--gaussian-baseline",
-            "--use-gpu",
-            "--num-threads",
-            str(colmap_threads),
-            "--max-image-size",
-            str(gaussian_longest_edge),
-            "--progress-file",
-            str(colmap_progress_path),
-        ]
         env = os.environ.copy()
         env.pop("LD_LIBRARY_PATH", None)
+        geometry_assets: dict[str, str] = {}
+        geometry_metrics: dict[str, int | float | str | bool] = {
+            "gaussian_geometry_source": geometry_source,
+        }
+        if geometry_source == "colmap":
+            progress_path = context.job_dir / "colmap" / "progress.json"
+            command_geometry = [
+                os.environ.get("IMAGE3D_PYTHON", sys.executable),
+                str(colmap_script),
+                "--image-dir",
+                str(image_dir),
+                "--output-dir",
+                str(context.job_dir),
+                "--matcher",
+                "exhaustive",
+                "--gaussian-baseline",
+                "--use-gpu",
+                "--num-threads",
+                str(colmap_threads),
+                "--max-image-size",
+                str(gaussian_longest_edge),
+                "--progress-file",
+                str(progress_path),
+            ]
+            progress_callback = self._colmap_progress_callback(context, progress_path)
+        else:
+            external_root = Path(
+                os.environ.get("IMAGE3D_EXTERNAL_ROOT", project_root / "external")
+            )
+            checkpoint_root = Path(
+                os.environ.get("IMAGE3D_CHECKPOINT_ROOT", project_root / "checkpoints")
+            )
+            progress_path = context.job_dir / "vggt_ba" / "progress.json"
+            command_geometry = [
+                os.environ.get("IMAGE3D_PYTHON", sys.executable),
+                str(vggt_ba_script),
+                "--image-dir",
+                str(image_dir),
+                "--output-dir",
+                str(context.job_dir),
+                "--repo-dir",
+                str(external_root / "vggt"),
+                "--checkpoint-dir",
+                str(checkpoint_root / "vggt" / "facebook--VGGT-1B"),
+                "--dinov2-repo",
+                str(external_root / "dinov2"),
+                "--lightglue-repo",
+                str(external_root / "lightglue"),
+                "--dinov2-checkpoint",
+                os.environ.get(
+                    "IMAGE3D_DINOV2_CHECKPOINT",
+                    str(checkpoint_root / "vggt" / "dinov2_vitb14_reg4_pretrain.pth"),
+                ),
+                "--tracker-checkpoint",
+                os.environ.get(
+                    "IMAGE3D_VGGSFM_TRACKER_CHECKPOINT",
+                    str(checkpoint_root / "vggt" / "vggsfm_v2_tracker.pt"),
+                ),
+                "--aliked-checkpoint",
+                os.environ.get(
+                    "IMAGE3D_ALIKED_CHECKPOINT",
+                    str(
+                        checkpoint_root
+                        / "vggt"
+                        / "torch-hub"
+                        / "checkpoints"
+                        / "aliked-n16.pth"
+                    ),
+                ),
+                "--max-image-size",
+                str(gaussian_longest_edge),
+                "--num-threads",
+                str(colmap_threads),
+                "--progress-file",
+                str(progress_path),
+            ]
+            progress_callback = self._vggt_ba_progress_callback(context, progress_path)
         _adapter_progress(context, "geometry_reconstruction", 0.15)
         _run_adapter_command(
-            command_colmap,
+            command_geometry,
             context,
             project_root,
-            env=None,
-            poll_callback=self._colmap_progress_callback(context, colmap_progress_path),
+            env=(None if geometry_source == "colmap" else env),
+            poll_callback=progress_callback,
         )
         cameras_path = context.job_dir / "geometry" / "cameras.json"
         if not cameras_path.is_file() or not points_path.is_file():
-            raise ReconstructionError("COLMAP did not produce project 3DGS camera/sparse inputs")
+            raise ReconstructionError(
+                f"{geometry_source} did not produce project 3DGS camera/sparse inputs"
+            )
+        if geometry_source == "vggt_ba":
+            diagnostics_path = context.job_dir / "diagnostics" / "vggt_ba.json"
+            graph_path = context.job_dir / "vggt_ba" / "window_graph.json"
+            if not diagnostics_path.is_file() or not graph_path.is_file():
+                raise ReconstructionError("VGGT-BA geometry diagnostics are incomplete")
+            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            graph = diagnostics["window_graph"]
+            geometry_assets = {
+                "vggt_ba_diagnostics": diagnostics_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
+                "vggt_ba_window_graph": graph_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
+            }
+            geometry_metrics.update(
+                vggt_ba_profile=str(diagnostics["profile"]),
+                vggt_ba_supported_camera_count=int(
+                    diagnostics["supported_camera_count"]
+                ),
+                vggt_ba_point_count=int(diagnostics["point_count"]),
+                vggt_ba_trajectory_status=str(graph["trajectory_status"]),
+                vggt_ba_verified_nonlocal_edge_count=int(
+                    graph["verified_nonlocal_edge_count"]
+                ),
+                vggt_ba_elapsed_seconds=float(diagnostics["elapsed_seconds"]),
+            )
         temporal_timestamps: dict[str, float] | None = None
         if video_selection is not None:
             registration_path = context.job_dir / "diagnostics" / "video_registration.json"
@@ -246,6 +386,43 @@ class ProjectGaussianAdapter:
             temporal_timestamps=temporal_timestamps,
         )
         write_contract(dataset_path, contract)
+        training_points_path = points_path
+        if geometry_source == "vggt_ba":
+            try:
+                from image3d_scenegraph.geometry.vggt_ba import (
+                    filter_train_supported_points,
+                    write_json as write_vggt_json,
+                )
+
+                filtered_points_path = (
+                    context.job_dir / "vggt_ba" / "train_points3D.txt"
+                )
+                filter_diagnostics = filter_train_supported_points(
+                    points_path,
+                    sparse_dir / "images.txt",
+                    context.job_dir / "colmap" / "undistorted" / "images",
+                    {int(image_id) for image_id in contract["splits"]["train"]},
+                    filtered_points_path,
+                    minimum_train_observations=2,
+                )
+                filter_diagnostics_path = (
+                    context.job_dir / "diagnostics" / "vggt_ba_initialization.json"
+                )
+                write_vggt_json(filter_diagnostics_path, filter_diagnostics)
+            except (OSError, ValueError) as exc:
+                raise ReconstructionError(
+                    f"VGGT-BA Train-supported initialization failed: {exc}"
+                ) from exc
+            training_points_path = filtered_points_path
+            geometry_assets["vggt_ba_initialization_diagnostics"] = (
+                filter_diagnostics_path.relative_to(context.job_dir).as_posix()
+            )
+            geometry_metrics["vggt_ba_train_supported_point_count"] = int(
+                filter_diagnostics["counts"]["accepted"]
+            )
+            geometry_metrics["vggt_ba_heldout_only_point_count"] = int(
+                filter_diagnostics["counts"]["heldout_only_rejected"]
+            )
         config_record = context.options.get("gaussian_config_record")
         if not isinstance(config_record, str):
             raise ReconstructionError("project 3DGS requires a resolved Gaussian config record")
@@ -284,7 +461,7 @@ class ProjectGaussianAdapter:
             "--initialization",
             "sparse",
             "--points",
-            str(points_path),
+            str(training_points_path),
             "--resolved-config-json",
             str(config_path),
             "--max-initial-points",
@@ -419,14 +596,46 @@ class ProjectGaussianAdapter:
             )
         ):
             raise ReconstructionError("project Gaussian export is incomplete")
+        (
+            postprocess_assets,
+            postprocess_metrics,
+            postprocess_status,
+            postprocess_reason,
+            postprocess_log_lines,
+        ) = _try_build_vggt_filtered_variant(
+            context=context,
+            postprocess=postprocess,
+            project_root=project_root,
+            filter_script=filter_script,
+            evaluator_script=evaluator_script,
+            exporter_script=exporter_script,
+            env=env,
+            training_dir=training_dir,
+            attempt_id=attempt_id,
+            model_path=model_path,
+            effective_dataset_path=effective_dataset_path,
+            effective_config_path=effective_config_path,
+            progress_path=progress_path,
+            sparse_dir=sparse_dir,
+            checkpoint_hash=str(result["final_checkpoint_hash"]),
+        )
         log_lines = [
             "geometry_backend=project_3dgs",
             "output_type=gaussian_splat",
             "adapter=ProjectGaussianAdapter",
             f"gaussian_trainer={trainer_id}",
+            f"gaussian_geometry_source={geometry_source}",
             f"gaussian_test_status={test_status}",
             f"gaussian_test_reason={test_reason}",
+            f"gaussian_postprocess={postprocess}",
+            f"gaussian_postprocess_status={postprocess_status}",
+            *(
+                [f"gaussian_postprocess_reason={postprocess_reason}"]
+                if postprocess_reason
+                else []
+            ),
             f"trainer={' '.join(command_train)}",
+            *postprocess_log_lines,
         ]
         if completed.stdout.strip():
             log_lines.append(f"stdout={completed.stdout.strip()}")
@@ -434,6 +643,7 @@ class ProjectGaussianAdapter:
             stage="gaussian_export",
             assets={
                 **video_assets,
+                **geometry_assets,
                 "gaussian_model": model_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_progress": progress_path.relative_to(context.job_dir).as_posix(),
@@ -446,9 +656,11 @@ class ProjectGaussianAdapter:
                 "scene_splat": scene_splat_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_camera_path": camera_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_bundle": bundle_path.relative_to(context.job_dir).as_posix(),
+                **postprocess_assets,
             },
             metrics={
                 **video_metrics,
+                **geometry_metrics,
                 "gaussian_count": int(result["gaussian_count"]),
                 "gaussian_trainer": trainer_id,
                 "gaussian_initial_loss": float(result["initial_loss"]),
@@ -459,9 +671,197 @@ class ProjectGaussianAdapter:
                 "gaussian_world_size": int(result.get("world_size", 1)),
                 "gaussian_test_status": test_status,
                 "gaussian_test_reason": test_reason,
+                "gaussian_postprocess": postprocess,
+                "gaussian_postprocess_status": postprocess_status,
+                **(
+                    {"gaussian_postprocess_reason": postprocess_reason}
+                    if postprocess_reason
+                    else {}
+                ),
+                **postprocess_metrics,
             },
             log_lines=log_lines,
         )
+
+
+def _try_build_vggt_filtered_variant(
+    *,
+    context: ReconstructionContext,
+    postprocess: str,
+    project_root: Path,
+    filter_script: Path,
+    evaluator_script: Path,
+    exporter_script: Path,
+    env: dict[str, str],
+    training_dir: Path,
+    attempt_id: str,
+    model_path: Path,
+    effective_dataset_path: Path,
+    effective_config_path: Path,
+    progress_path: Path,
+    sparse_dir: Path,
+    checkpoint_hash: str,
+) -> tuple[
+    dict[str, str],
+    dict[str, int | float | str | bool],
+    str,
+    str | None,
+    list[str],
+]:
+    if postprocess == "none":
+        return {}, {}, "not_requested", None, []
+    if postprocess != "vggt_visibility_v1":
+        raise ReconstructionError(f"unsupported Gaussian postprocess: {postprocess}")
+    postprocess_dir = training_dir / "postprocess" / attempt_id
+    filtered_evaluation_dir = (
+        training_dir / "evaluation" / attempt_id / "validation-vggt-filtered"
+    )
+    filtered_export_dir = training_dir / "export" / f"{attempt_id}-vggt-filtered"
+    external_root = Path(
+        os.environ.get("IMAGE3D_EXTERNAL_ROOT", project_root / "external")
+    )
+    checkpoint_root = Path(
+        os.environ.get("IMAGE3D_CHECKPOINT_ROOT", project_root / "checkpoints")
+    )
+    command_filter = [
+        os.environ.get("IMAGE3D_PYTHON", sys.executable),
+        str(filter_script),
+        "--dataset-contract",
+        str(effective_dataset_path),
+        "--dataset-root",
+        str(context.job_dir),
+        "--model",
+        str(model_path),
+        "--colmap-model-dir",
+        str(sparse_dir),
+        "--output-dir",
+        str(postprocess_dir),
+        "--repo-dir",
+        str(external_root / "vggt"),
+        "--checkpoint-dir",
+        str(checkpoint_root / "vggt" / "facebook--VGGT-1B"),
+    ]
+    try:
+        _adapter_progress(context, "gaussian_vggt_postprocess", 0.89)
+        completed = _run_adapter_command(
+            command_filter, context, project_root, env=env
+        )
+        result_path = postprocess_dir / "result.json"
+        diagnostics_path = postprocess_dir / "diagnostics.json"
+        mask_path = postprocess_dir / "filter-mask.npz"
+        if not all(path.is_file() for path in (result_path, diagnostics_path, mask_path)):
+            raise ReconstructionError("VGGT Gaussian postprocess output is incomplete")
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        filtered_model_path = Path(str(result["filtered_model"]))
+        if not filtered_model_path.is_absolute():
+            filtered_model_path = (project_root / filtered_model_path).resolve()
+        if not filtered_model_path.is_file():
+            raise ReconstructionError("VGGT filtered model is missing")
+
+        command_evaluate = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(evaluator_script),
+            "--dataset-contract",
+            str(effective_dataset_path),
+            "--dataset-root",
+            str(context.job_dir),
+            "--model",
+            str(filtered_model_path),
+            "--resolved-config-json",
+            str(effective_config_path),
+            "--split",
+            "validation",
+            "--output-dir",
+            str(filtered_evaluation_dir),
+            "--progress",
+            str(progress_path),
+        ]
+        _adapter_progress(context, "gaussian_vggt_filtered_validation", 0.91)
+        _run_adapter_command(command_evaluate, context, project_root, env=env)
+        filtered_evaluation_path = filtered_evaluation_dir / "evaluation.json"
+        command_export = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(exporter_script),
+            "--model",
+            str(filtered_model_path),
+            "--dataset-contract",
+            str(effective_dataset_path),
+            "--resolved-config-json",
+            str(effective_config_path),
+            "--evaluation",
+            str(filtered_evaluation_path),
+            "--output-dir",
+            str(filtered_export_dir),
+            "--checkpoint-hash",
+            checkpoint_hash,
+            "--postprocess-record",
+            str(diagnostics_path),
+            "--postprocess-mask",
+            str(mask_path),
+        ]
+        _adapter_progress(context, "gaussian_vggt_filtered_export", 0.93)
+        _run_adapter_command(command_export, context, project_root, env=env)
+        filtered_export_metadata = filtered_export_dir / "export.json"
+        filtered_scene = filtered_export_dir / "scene.ply"
+        filtered_canonical = filtered_export_dir / "canonical.ply"
+        filtered_bundle = filtered_export_dir / "result.zip"
+        required = (
+            filtered_model_path,
+            filtered_evaluation_path,
+            filtered_export_metadata,
+            filtered_scene,
+            filtered_canonical,
+            filtered_bundle,
+        )
+        if not all(path.is_file() for path in required):
+            raise ReconstructionError("VGGT filtered Gaussian export is incomplete")
+        evaluation = json.loads(filtered_evaluation_path.read_text(encoding="utf-8"))
+        assets = {
+            "gaussian_vggt_filtered_model": filtered_model_path.relative_to(
+                context.job_dir.resolve()
+            ).as_posix(),
+            "gaussian_vggt_filter_diagnostics": diagnostics_path.relative_to(
+                context.job_dir
+            ).as_posix(),
+            "gaussian_vggt_filter_mask": mask_path.relative_to(
+                context.job_dir
+            ).as_posix(),
+            "gaussian_vggt_filtered_evaluation": filtered_evaluation_path.relative_to(
+                context.job_dir
+            ).as_posix(),
+            "gaussian_vggt_filtered_export_metadata": filtered_export_metadata.relative_to(
+                context.job_dir
+            ).as_posix(),
+            "gaussian_vggt_filtered_canonical": filtered_canonical.relative_to(
+                context.job_dir
+            ).as_posix(),
+            "scene_splat_vggt_filtered": filtered_scene.relative_to(
+                context.job_dir
+            ).as_posix(),
+            "gaussian_vggt_filtered_bundle": filtered_bundle.relative_to(
+                context.job_dir
+            ).as_posix(),
+        }
+        metrics: dict[str, int | float | str | bool] = {
+            "gaussian_vggt_filter_input_count": int(result["input_count"]),
+            "gaussian_vggt_filter_kept_count": int(result["kept_count"]),
+            "gaussian_vggt_filter_removed_count": int(result["removed_count"]),
+            "gaussian_vggt_filtered_validation_psnr": float(
+                evaluation["psnr"]["mean"]
+            ),
+            "gaussian_vggt_filtered_validation_ssim": float(
+                evaluation["ssim"]["mean"]
+            ),
+        }
+        log_lines = [
+            f"gaussian_postprocess_command={' '.join(command_filter)}",
+            *([f"gaussian_postprocess_stdout={completed.stdout.strip()}"] if completed.stdout.strip() else []),
+        ]
+        return assets, metrics, "available", None, log_lines
+    except (KeyError, OSError, ValueError, ReconstructionError) as exc:
+        if context.cancel_requested is not None and context.cancel_requested():
+            raise
+        return {}, {}, "unavailable", str(exc), [f"gaussian_postprocess_error={exc}"]
 
 
 def _write_video_registration_diagnostics(

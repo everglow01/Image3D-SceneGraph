@@ -18,6 +18,8 @@ def main() -> None:
     parser.add_argument("--evaluation", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--checkpoint-hash")
+    parser.add_argument("--postprocess-record", type=Path)
+    parser.add_argument("--postprocess-mask", type=Path)
     args = parser.parse_args()
 
     metadata = export_gaussians(
@@ -27,6 +29,8 @@ def main() -> None:
         evaluation_path=args.evaluation,
         output_dir=args.output_dir,
         checkpoint_hash=args.checkpoint_hash,
+        postprocess_record_path=args.postprocess_record,
+        postprocess_mask_path=args.postprocess_mask,
     )
     print(json.dumps(metadata, allow_nan=False))
 

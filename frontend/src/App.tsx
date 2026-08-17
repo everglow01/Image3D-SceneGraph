@@ -30,6 +30,19 @@ type ConsistencySupportPolicy = "any_support" | "adaptive_two";
 type PointBudgetPolicy = "random" | "spatial_balanced";
 type ColmapVggtGrouping = "sequential" | "covisibility";
 type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
+type GaussianGeometrySource = "colmap" | "vggt_ba";
+type GaussianPostprocess = "none" | "vggt_visibility_v1";
+type GaussianVariant = "original" | "vggt_filtered";
+
+type ExperimentalOptionStatus<T extends string> = {
+  id: T;
+  label: string;
+  available: boolean;
+  reason: string | null;
+  experimental: boolean;
+  supported_modes?: Mode[];
+  setup_command?: string | null;
+};
 
 type MeshSettings = {
   method: MeshMethod;
@@ -99,6 +112,17 @@ type Manifest = {
     gaussian_canonical?: string;
     gaussian_camera_path?: string;
     gaussian_bundle?: string;
+    vggt_ba_diagnostics?: string;
+    vggt_ba_window_graph?: string;
+    vggt_ba_initialization_diagnostics?: string;
+    gaussian_vggt_filtered_model?: string;
+    gaussian_vggt_filter_diagnostics?: string;
+    gaussian_vggt_filter_mask?: string;
+    gaussian_vggt_filtered_evaluation?: string;
+    gaussian_vggt_filtered_export_metadata?: string;
+    gaussian_vggt_filtered_canonical?: string;
+    scene_splat_vggt_filtered?: string;
+    gaussian_vggt_filtered_bundle?: string;
     collision_mesh?: string;
     navigation?: string;
     navigation_diagnostics?: string;
@@ -109,6 +133,10 @@ type Manifest = {
     scene_graph?: string;
     log?: string;
   };
+  gaussian_geometry_source?: GaussianGeometrySource;
+  gaussian_postprocess?: GaussianPostprocess;
+  gaussian_postprocess_status?: "not_requested" | "pending" | "available" | "unavailable";
+  gaussian_postprocess_reason?: string | null;
   gaussian_trainer?: {
     id: GaussianTrainer;
     label: string;
@@ -159,6 +187,20 @@ type Manifest = {
     video_registered_count?: number;
     video_registration_rate?: number;
     video_registration_temporal_coverage?: number;
+    gaussian_geometry_source?: GaussianGeometrySource;
+    vggt_ba_profile?: string;
+    vggt_ba_trajectory_status?: string;
+    vggt_ba_verified_nonlocal_edge_count?: number;
+    vggt_ba_supported_camera_count?: number;
+    vggt_ba_point_count?: number;
+    gaussian_postprocess?: GaussianPostprocess;
+    gaussian_postprocess_status?: string;
+    gaussian_postprocess_reason?: string;
+    gaussian_vggt_filter_input_count?: number;
+    gaussian_vggt_filter_kept_count?: number;
+    gaussian_vggt_filter_removed_count?: number;
+    gaussian_vggt_filtered_validation_psnr?: number;
+    gaussian_vggt_filtered_validation_ssim?: number;
   };
 };
 
@@ -215,6 +257,8 @@ type BackendStatus = {
   supported_outputs: OutputType[];
   setup_command: string | null;
   gaussian_trainers?: GaussianTrainerStatus[];
+  gaussian_geometry_sources?: ExperimentalOptionStatus<GaussianGeometrySource>[];
+  gaussian_postprocessors?: ExperimentalOptionStatus<GaussianPostprocess>[];
   video_ingestion?: {
     available: boolean;
     reason: string | null;
@@ -277,6 +321,10 @@ export function App() {
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
+  const [gaussianGeometrySource, setGaussianGeometrySource] =
+    useState<GaussianGeometrySource>("colmap");
+  const [gaussianPostprocess, setGaussianPostprocess] =
+    useState<GaussianPostprocess>("none");
   const [gaussianLongestEdge, setGaussianLongestEdge] = useState(1280);
   const [videoRotation, setVideoRotation] = useState<VideoRotation>("auto");
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
@@ -302,6 +350,7 @@ export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [pointCloudVariant, setPointCloudVariant] = useState<"raw" | "aligned">("aligned");
+  const [gaussianVariant, setGaussianVariant] = useState<GaussianVariant>("original");
   const [viewerMode, setViewerMode] = useState<ViewerMode>("point_cloud");
   const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
   const [selectedMeshVariantId, setSelectedMeshVariantId] = useState<string | null>(null);
@@ -317,6 +366,14 @@ export function App() {
   const selectedGaussianTrainerStatus = findGaussianTrainerStatus(
     gaussianTrainerStatuses,
     gaussianTrainer
+  );
+  const gaussianGeometryStatuses = selectedBackendStatus?.gaussian_geometry_sources ?? [];
+  const gaussianPostprocessStatuses = selectedBackendStatus?.gaussian_postprocessors ?? [];
+  const selectedGaussianGeometryStatus = gaussianGeometryStatuses.find(
+    (option) => option.id === gaussianGeometrySource
+  );
+  const selectedGaussianPostprocessStatus = gaussianPostprocessStatuses.find(
+    (option) => option.id === gaussianPostprocess
   );
   const selectedBackendAvailable = selectedBackendStatus?.available ?? true;
   const selectedVideoAvailable =
@@ -345,18 +402,26 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.alignment_diagnostics}`;
   }, [manifest]);
+  const selectedSplatAsset =
+    gaussianVariant === "vggt_filtered" && manifest?.assets.scene_splat_vggt_filtered
+      ? manifest.assets.scene_splat_vggt_filtered
+      : manifest?.assets.scene_splat;
+  const selectedSplatMetadata =
+    gaussianVariant === "vggt_filtered" && manifest?.assets.gaussian_vggt_filtered_export_metadata
+      ? manifest.assets.gaussian_vggt_filtered_export_metadata
+      : manifest?.assets.gaussian_export_metadata;
   const splatUrl = useMemo(() => {
-    if (!manifest?.assets.scene_splat) {
+    if (!manifest || !selectedSplatAsset) {
       return null;
     }
-    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.scene_splat}`;
-  }, [manifest]);
+    return `/api/jobs/${manifest.job_id}/assets/${selectedSplatAsset}`;
+  }, [manifest, selectedSplatAsset]);
   const splatMetadataUrl = useMemo(() => {
-    if (!manifest?.assets.gaussian_export_metadata) {
+    if (!manifest || !selectedSplatMetadata) {
       return null;
     }
-    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.gaussian_export_metadata}`;
-  }, [manifest]);
+    return `/api/jobs/${manifest.job_id}/assets/${selectedSplatMetadata}`;
+  }, [manifest, selectedSplatMetadata]);
   const splatCameraPathUrl = useMemo(() => {
     if (!manifest?.assets.gaussian_camera_path) {
       return null;
@@ -394,7 +459,7 @@ export function App() {
       ? selectedPointCloudAsset
       : viewerMode === "mesh"
         ? selectedMeshAsset
-        : manifest?.assets.scene_splat;
+        : selectedSplatAsset;
   const visiblePointCloudUrl = viewerMode === "point_cloud" ? pointCloudUrl : null;
   const visibleMeshUrl = viewerMode === "mesh" ? meshUrl : null;
   const visibleSplatUrl = viewerMode === "gaussian_splat" ? splatUrl : null;
@@ -472,6 +537,9 @@ export function App() {
   function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
     setManifest(nextManifest);
     setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
+    setGaussianVariant(
+      nextManifest.assets.scene_splat_vggt_filtered ? "vggt_filtered" : "original"
+    );
     setViewerMode((current) => {
       const hasPointCloud = Boolean(nextManifest.assets.point_cloud || nextManifest.assets.point_cloud_aligned);
       const hasMesh = Boolean(nextManifest.assets.mesh);
@@ -511,6 +579,8 @@ export function App() {
     if (nextMode === "video") {
       setGeometryBackend("project_3dgs");
       setOutputType("gaussian_splat");
+    } else if (gaussianGeometrySource === "vggt_ba") {
+      setGaussianGeometrySource("colmap");
     }
     setFiles([]);
     setError(null);
@@ -540,6 +610,18 @@ export function App() {
     }
     if (geometryBackend === "project_3dgs" && selectedGaussianTrainerStatus?.available === false) {
       setError(selectedGaussianTrainerStatus.reason ?? "所选高斯训练器不可用。");
+      return;
+    }
+    if (geometryBackend === "project_3dgs" && selectedGaussianGeometryStatus?.available === false) {
+      setError(selectedGaussianGeometryStatus.reason ?? "所选高斯几何来源不可用。");
+      return;
+    }
+    if (gaussianGeometrySource === "vggt_ba" && mode !== "video") {
+      setError("VGGT + BA 几何首版仅支持视频模式。");
+      return;
+    }
+    if (geometryBackend === "project_3dgs" && selectedGaussianPostprocessStatus?.available === false) {
+      setError(selectedGaussianPostprocessStatus.reason ?? "所选高斯后处理不可用。");
       return;
     }
 
@@ -578,6 +660,8 @@ export function App() {
       form.append("output_type", outputType);
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
+        form.append("gaussian_geometry_source", gaussianGeometrySource);
+        form.append("gaussian_postprocess", gaussianPostprocess);
         form.append("gaussian_longest_edge", String(gaussianLongestEdge));
       }
       if (mode === "video") {
@@ -894,6 +978,110 @@ export function App() {
                   )}
                 </label>
                 <label>
+                  <span>几何来源</span>
+                  <select
+                    value={gaussianGeometrySource}
+                    onChange={(event) =>
+                      setGaussianGeometrySource(event.target.value as GaussianGeometrySource)
+                    }
+                  >
+                    {(gaussianGeometryStatuses.length > 0
+                      ? gaussianGeometryStatuses
+                      : [
+                          {
+                            id: "colmap" as const,
+                            label: "COLMAP",
+                            available: true,
+                            reason: null,
+                            experimental: false
+                          },
+                          {
+                            id: "vggt_ba" as const,
+                            label: "VGGT + BA",
+                            available: false,
+                            reason: "服务器尚未报告 VGGT-BA 能力",
+                            experimental: true,
+                            supported_modes: ["video" as Mode]
+                          }
+                        ]
+                    ).map((option) => (
+                      <option
+                        key={option.id}
+                        value={option.id}
+                        disabled={!option.available || (option.id === "vggt_ba" && mode !== "video")}
+                      >
+                        {option.label}
+                        {option.experimental ? "（实验）" : "（默认）"}
+                        {!option.available ? "（不可用）" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedGaussianGeometryStatus?.reason && (
+                    <small>{selectedGaussianGeometryStatus.reason}</small>
+                  )}
+                  {selectedGaussianGeometryStatus?.available === false &&
+                    selectedGaussianGeometryStatus.setup_command && (
+                      <small>
+                        安装：<code>{selectedGaussianGeometryStatus.setup_command}</code>
+                      </small>
+                    )}
+                  {gaussianGeometrySource === "vggt_ba" && (
+                    <small>
+                      研究实验：8/4 重叠窗口 · ALIKED/VGGSfM 局部 BA · 全局 Sim(3) 图 ·
+                      COLMAP triangulation/global BA。没有闭环时结果会标记为未验证开放轨迹。
+                    </small>
+                  )}
+                </label>
+                <label>
+                  <span>训练后清理</span>
+                  <select
+                    value={gaussianPostprocess}
+                    onChange={(event) =>
+                      setGaussianPostprocess(event.target.value as GaussianPostprocess)
+                    }
+                  >
+                    {(gaussianPostprocessStatuses.length > 0
+                      ? gaussianPostprocessStatuses
+                      : [
+                          {
+                            id: "none" as const,
+                            label: "关闭",
+                            available: true,
+                            reason: null,
+                            experimental: false
+                          },
+                          {
+                            id: "vggt_visibility_v1" as const,
+                            label: "VGGT Train-depth 清理",
+                            available: false,
+                            reason: "服务器尚未报告 VGGT 后处理能力",
+                            experimental: true
+                          }
+                        ]
+                    ).map((option) => (
+                      <option disabled={!option.available} key={option.id} value={option.id}>
+                        {option.label}
+                        {option.experimental ? "（实验）" : "（默认）"}
+                        {!option.available ? "（不可用）" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedGaussianPostprocessStatus?.reason && (
+                    <small>{selectedGaussianPostprocessStatus.reason}</small>
+                  )}
+                  {selectedGaussianPostprocessStatus?.available === false &&
+                    selectedGaussianPostprocessStatus.setup_command && (
+                      <small>
+                        安装：<code>{selectedGaussianPostprocessStatus.setup_command}</code>
+                      </small>
+                    )}
+                  {gaussianPostprocess === "vggt_visibility_v1" && (
+                    <small>
+                      只使用 Train 图像的 VGGT depth 删除有多视图自由空间矛盾的漂浮物和拍摄包络外的大型高斯；保留原始结果供 A/B，不补墙、不使用 Test。
+                    </small>
+                  )}
+                </label>
+                <label>
                   <span>训练图像最长边</span>
                   <select
                     value={gaussianLongestEdge}
@@ -1124,7 +1312,10 @@ export function App() {
               isSubmitting ||
               !selectedBackendAvailable ||
               !selectedVideoAvailable ||
-              !selectedOutputSupported
+              !selectedOutputSupported ||
+              (geometryBackend === "project_3dgs" &&
+                (selectedGaussianGeometryStatus?.available === false ||
+                  selectedGaussianPostprocessStatus?.available === false))
             }
           >
             <Play size={18} aria-hidden="true" />
@@ -1178,6 +1369,25 @@ export function App() {
                     disabled={!hasAlignedPointCloud}
                   >
                     对齐点云
+                  </button>
+                </div>
+              )}
+              {hasSplat && viewerMode === "gaussian_splat" && (
+                <div className="variant-toggle" role="group" aria-label="高斯清理前后视图">
+                  <button
+                    className={gaussianVariant === "original" ? "active" : ""}
+                    type="button"
+                    onClick={() => setGaussianVariant("original")}
+                  >
+                    Original
+                  </button>
+                  <button
+                    className={gaussianVariant === "vggt_filtered" ? "active" : ""}
+                    type="button"
+                    onClick={() => setGaussianVariant("vggt_filtered")}
+                    disabled={!manifest?.assets.scene_splat_vggt_filtered}
+                  >
+                    VGGT-filtered
                   </button>
                 </div>
               )}
@@ -1281,6 +1491,38 @@ export function App() {
                 {manifest?.gaussian_config
                   ? `${manifest.gaussian_config.requested_profile} · v${manifest.gaussian_config.schema_version}`
                   : "-"}
+              </dd>
+            </div>
+            <div>
+              <dt>高斯几何来源</dt>
+              <dd>{formatPolicy(manifest?.gaussian_geometry_source ?? currentStatus?.metrics.gaussian_geometry_source)}</dd>
+            </div>
+            <div>
+              <dt>VGGT-BA 轨迹</dt>
+              <dd>{formatPolicy(currentStatus?.metrics.vggt_ba_trajectory_status)}</dd>
+            </div>
+            <div>
+              <dt>验证闭环边</dt>
+              <dd>{currentStatus?.metrics.vggt_ba_verified_nonlocal_edge_count ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>VGGT 后处理</dt>
+              <dd>{formatStatus(manifest?.gaussian_postprocess_status ?? currentStatus?.metrics.gaussian_postprocess_status)}</dd>
+            </div>
+            <div>
+              <dt>高斯保留 / 删除</dt>
+              <dd>
+                {currentStatus?.metrics.gaussian_vggt_filter_kept_count === undefined
+                  ? "-"
+                  : `${currentStatus.metrics.gaussian_vggt_filter_kept_count} / ${currentStatus.metrics.gaussian_vggt_filter_removed_count ?? "-"}`}
+              </dd>
+            </div>
+            <div>
+              <dt>过滤版 Validation</dt>
+              <dd>
+                {currentStatus?.metrics.gaussian_vggt_filtered_validation_psnr === undefined
+                  ? "-"
+                  : `${currentStatus.metrics.gaussian_vggt_filtered_validation_psnr.toFixed(3)} dB · SSIM ${(currentStatus.metrics.gaussian_vggt_filtered_validation_ssim ?? 0).toFixed(4)}`}
               </dd>
             </div>
             <div>
@@ -1413,6 +1655,17 @@ export function App() {
               <dd>{currentStatus?.metrics.mesh_long_edge_removed_triangles ?? "-"}</dd>
             </div>
           </dl>
+
+          {currentStatus?.metrics.vggt_ba_trajectory_status === "open_trajectory_unverified" && (
+            <p className="error-message">
+              VGGT-BA 未找到通过几何验证的非局部闭环；当前结果是未验证开放轨迹，不能解释为无漂移全屋重建。
+            </p>
+          )}
+          {manifest?.gaussian_postprocess_status === "unavailable" && (
+            <p className="error-message">
+              VGGT 后处理不可用：{manifest.gaussian_postprocess_reason ?? "未生成过滤版；原始 Gaussian 结果仍然有效。"}
+            </p>
+          )}
 
           {manifest?.status === "done" &&
             manifest.geometry_backend === "project_3dgs" &&
@@ -1617,6 +1870,15 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="高斯测试判定" />
               <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="高斯相机路径" />
               <AssetLink manifest={manifest} assetKey="gaussian_bundle" label="高斯结果包" />
+              <AssetLink manifest={manifest} assetKey="vggt_ba_diagnostics" label="VGGT-BA 诊断" />
+              <AssetLink manifest={manifest} assetKey="vggt_ba_window_graph" label="VGGT-BA 窗口图" />
+              <AssetLink manifest={manifest} assetKey="vggt_ba_initialization_diagnostics" label="VGGT-BA Train 初始化诊断" />
+              <AssetLink manifest={manifest} assetKey="scene_splat_vggt_filtered" label="VGGT 清理后高斯浏览资产" />
+              <AssetLink manifest={manifest} assetKey="gaussian_vggt_filtered_canonical" label="VGGT 清理后标准高斯 PLY" />
+              <AssetLink manifest={manifest} assetKey="gaussian_vggt_filter_diagnostics" label="VGGT 高斯清理诊断" />
+              <AssetLink manifest={manifest} assetKey="gaussian_vggt_filter_mask" label="VGGT 高斯清理掩码" />
+              <AssetLink manifest={manifest} assetKey="gaussian_vggt_filtered_evaluation" label="VGGT 清理后验证评估" />
+              <AssetLink manifest={manifest} assetKey="gaussian_vggt_filtered_bundle" label="VGGT 清理后结果包" />
               <AssetLink manifest={manifest} assetKey="collision_mesh" label="碰撞网格" />
               <AssetLink manifest={manifest} assetKey="navigation" label="导航数据约定" />
               <AssetLink manifest={manifest} assetKey="navigation_diagnostics" label="导航诊断" />
@@ -1844,6 +2106,16 @@ function formatStage(value: string | undefined) {
     video_probing: "探测视频与方向",
     video_frame_scoring: "分析候选视频帧",
     video_frame_extraction: "生成视频关键帧",
+    vggt_ba_descriptors: "VGGT-BA 图像关系描述",
+    vggt_ba_windows: "VGGT-BA 分批相机与局部 BA",
+    vggt_ba_pose_graph: "VGGT-BA 全局窗口图",
+    vggt_ba_feature_extraction: "VGGT 初始化后的 COLMAP 特征提取",
+    vggt_ba_feature_matching: "VGGT 初始化后的 COLMAP 特征匹配",
+    vggt_ba_global_triangulation: "VGGT 相机全局三角化",
+    vggt_ba_global_bundle_adjustment: "VGGT 相机全局 BA",
+    gaussian_vggt_postprocess: "VGGT Train-depth 高斯清理",
+    gaussian_vggt_filtered_validation: "VGGT 清理后验证",
+    gaussian_vggt_filtered_export: "VGGT 清理后导出",
     reconstructing: "几何重建",
     training: "高斯训练",
     evaluating: "质量评估",
@@ -1886,6 +2158,12 @@ function formatPolicy(value: string | undefined) {
     adaptive_two: "自适应双视图",
     random: "随机采样",
     spatial_balanced: "空间均衡采样",
+    colmap: "COLMAP（默认）",
+    vggt_ba: "VGGT + BA（实验）",
+    none: "关闭",
+    vggt_visibility_v1: "VGGT Train-depth 清理（实验）",
+    closed_graph_verified: "已验证非局部图边",
+    open_trajectory_unverified: "未验证开放轨迹",
     complete: "完成",
     skipped: "已跳过",
     not_run: "未运行",
