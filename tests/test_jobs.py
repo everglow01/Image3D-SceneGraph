@@ -13,6 +13,7 @@ from image3d_scenegraph.geometry.adapters import (
     ReconstructionContext,
     ReconstructionError,
     _automatic_test_evaluation_enabled,
+    _write_video_registration_diagnostics,
 )
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
 
@@ -83,6 +84,46 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
 def test_frontend_gaussian_jobs_do_not_automatically_consume_test():
     assert _automatic_test_evaluation_enabled("project") is False
     assert _automatic_test_evaluation_enabled("graphdeco") is False
+
+
+def test_video_registration_gate_writes_temporal_diagnostics(tmp_path):
+    selected = [
+        {
+            "path": f"frames/selected/frame_{index:03d}.jpg",
+            "time_seconds": float(index),
+        }
+        for index in range(20)
+    ]
+    cameras = {
+        "cameras": [
+            {
+                "camera_id": 1,
+                "model": "PINHOLE",
+            }
+        ],
+        "images": [
+            {
+                "image_id": index + 1,
+                "camera_id": 1,
+                "name": f"frame_{index:03d}.jpg",
+            }
+            for index in range(18)
+        ],
+    }
+    cameras_path = tmp_path / "cameras.json"
+    output_path = tmp_path / "video_registration.json"
+    cameras_path.write_text(json.dumps(cameras), encoding="utf-8")
+
+    timestamps, metrics = _write_video_registration_diagnostics(
+        {"profile": "video_keyframes_standard_v1", "selected": selected},
+        cameras_path,
+        output_path,
+    )
+
+    assert len(timestamps) == 18
+    assert metrics["video_registration_rate"] == 0.9
+    assert metrics["video_registration_temporal_coverage"] > 0.8
+    assert json.loads(output_path.read_text())["registered_count"] == 18
 
 
 def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):
@@ -220,6 +261,52 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
     assert manifest["gaussian_config"]["schema_version"] == 7
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
+
+
+def test_project_video_job_stages_source_and_persists_profile(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    staging = tmp_path / "source.upload"
+    staging.write_bytes(b"video-bytes")
+
+    manifest = store.enqueue_job(
+        "video",
+        [
+            UploadedInput(
+                filename="portrait.mp4",
+                staged_path=staging,
+                size_bytes=11,
+                sha256="a" * 64,
+                content_type="video/mp4",
+            )
+        ],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"video_rotation": "clockwise_90"},
+    )
+    job_dir = store.job_dir(manifest["job_id"])
+    request = json.loads((job_dir / "request.json").read_text())
+
+    assert not staging.exists()
+    assert (job_dir / "input" / "portrait.mp4").read_bytes() == b"video-bytes"
+    assert manifest["inputs"][0]["sha256"] == "a" * 64
+    assert request["video_source"] == manifest["inputs"][0]
+    assert request["options"]["video_keyframe_profile"] == "standard_v1"
+    assert request["options"]["video_rotation"] == "clockwise_90"
+
+
+def test_video_job_rejects_non_project_pipeline(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    with pytest.raises(JobError, match="project_3dgs"):
+        store.enqueue_job(
+            "video",
+            [UploadedInput(filename="portrait.mp4", content=b"video")],
+            geometry_backend="mock",
+            output_type="point_cloud",
+        )
+    assert (
+        store._execution_error_code("runner: insufficient_video_keyframes: 7 accepted")
+        == "insufficient_video_keyframes"
+    )
 
 
 def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):

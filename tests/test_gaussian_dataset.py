@@ -12,6 +12,7 @@ from image3d_scenegraph.gaussian.dataset import (
     build_colmap_contract,
     contract_hash,
     deterministic_spatial_split,
+    deterministic_temporal_group_split,
     validate_contract,
 )
 
@@ -44,6 +45,27 @@ def test_spatial_split_is_deterministic_disjoint_and_not_upload_order():
 def test_spatial_split_rejects_too_few_registered_images():
     with pytest.raises(DatasetContractError, match="at least 12"):
         deterministic_spatial_split(make_images(11))
+
+
+def test_video_split_keeps_two_second_groups_disjoint():
+    images = make_images(20)
+    timestamps = {}
+    for index, image in enumerate(images):
+        name = f"frame_{index:03d}.jpg"
+        image["path"] = f"images/{name}"
+        timestamps[name] = index * 1.1
+
+    split = deterministic_temporal_group_split(images, timestamps)
+
+    owners = {image_id: name for name, ids in split.items() for image_id in ids}
+    assert set(owners) == {image["image_id"] for image in images}
+    groups = {}
+    for image in images:
+        name = Path(image["path"]).name
+        groups.setdefault(int(timestamps[name] // 2), set()).add(owners[image["image_id"]])
+    assert all(len(destinations) == 1 for destinations in groups.values())
+    assert len(split["validation"]) >= 2
+    assert len(split["test"]) >= 2
 
 
 def write_colmap_fixture(root: Path, count: int = 12) -> None:

@@ -17,7 +17,7 @@ Newly completed jobs contain:
 | `geometry_backend` | string | Effective geometry backend. |
 | `output_type` | string | Requested geometry asset type. |
 | `created_at` | string | UTC creation timestamp. |
-| `inputs` | array | Stored input filename, relative path, content type, and byte count. |
+| `inputs` | array | Stored input filename, relative path, content type, byte count, and SHA-256. |
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
 | `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
@@ -75,6 +75,7 @@ Common asset roles include:
 - `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs
 - `gaussian_evaluation`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery; optional `gaussian_test_evaluation` and `gaussian_test_decision` appear only after an authorized frozen-candidate Test evaluation
 - `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
+- `video_probe`, `video_frame_selection`, `video_registration_diagnostics`, and `video_keyframe_contact_sheet` for a completed bounded video attempt
 
 `collision_mesh` is a low-poly invisible local-physics GLB, not the customer-visible `mesh` or `scene_splat`. `navigation` is the versioned normalized-coordinate boundary/spawn/player contract; `navigation_diagnostics` is its Train-only quality record. The three roles are published together only after source path containment, source/model/config/export hashes, split isolation, schema, topology, triangle/size/time budgets, and GLB integrity pass. Validation/Test IDs must be empty and selected render IDs must be a subset of Train.
 
@@ -87,6 +88,18 @@ The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mes
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
 Only roles present in `assets` are available. Generic postprocessing can add existing alignment or mesh assets when an older manifest is loaded; this does not rerun reconstruction.
+
+## Bounded video contract
+
+`mode=video` is implemented only with `project_3dgs + gaussian_splat`. The public `standard_v1` keyframe profile accepts one MP4/MOV/M4V/WebM, 10–600 seconds (606 seconds is the technical container-tolerance limit), at most 2 GiB, and at most 800 selected keyframes from no more than 2,424 candidates. Upload staging uses bounded chunks; the original video remains under `input/` and retry regenerates keyframes from it.
+
+`video_probe` records the normalized ffprobe result, source hash, source/display dimensions, and applied quarter-turn without exposing location values. `video_frame_selection` is the authoritative source-PTS, quality, rejection, output hash, dimensions, and minimal generated-EXIF record. `video_keyframe_contact_sheet` is display-only. `video_registration_diagnostics` maps selected source timestamps to COLMAP registrations and records registration rate, temporal coverage, and largest gap. Complete jobs expose corresponding `video_*` metrics for profile, duration, orientation, source/display dimensions, candidate/selected/rejection counts, registration count/rate, and registration temporal coverage.
+
+Generated keyframe JPEGs are physically upright and use EXIF Orientation `1` plus a Software tag. Container creation time/device tags are not fabricated as per-frame photographic EXIF; focal length, ISO, shutter, GPS, and original-photo timestamps are not invented. Estimated camera parameters remain in `geometry/cameras.json`. COLMAP must register at least 12 selected frames, at least 70% of selected frames, and at least 80% of their selected temporal span before Gaussian training starts.
+
+Registered video frames are assigned to deterministic two-second temporal groups. A group belongs wholly to Train, Validation, or Test; the trainer still loads only Train and Validation. Video extraction, registration gates, navigation, and model selection cannot load Test, and video ingestion does not create a `*.test-consumed.json` record.
+
+This contract is bounded offline reconstruction, not realtime SLAM, guaranteed loop closure, metric scale, or a drift-free long-horizon claim. Missing FFmpeg/ffprobe marks only Project video ingestion unavailable; image jobs remain available.
 
 ## COLMAP+VGGT effective-policy metrics
 

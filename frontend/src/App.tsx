@@ -29,6 +29,7 @@ type ConfidenceThresholdScope = "global" | "per_frame";
 type ConsistencySupportPolicy = "any_support" | "adaptive_two";
 type PointBudgetPolicy = "random" | "spatial_balanced";
 type ColmapVggtGrouping = "sequential" | "covisibility";
+type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 
 type MeshSettings = {
   method: MeshMethod;
@@ -101,6 +102,10 @@ type Manifest = {
     collision_mesh?: string;
     navigation?: string;
     navigation_diagnostics?: string;
+    video_probe?: string;
+    video_frame_selection?: string;
+    video_registration_diagnostics?: string;
+    video_keyframe_contact_sheet?: string;
     scene_graph?: string;
     log?: string;
   };
@@ -146,6 +151,14 @@ type Manifest = {
     mesh_method?: string;
     mesh_component_count?: number;
     mesh_long_edge_removed_triangles?: number;
+    video_profile?: string;
+    video_duration_seconds?: number;
+    video_orientation?: string;
+    video_candidate_count?: number;
+    video_selected_count?: number;
+    video_registered_count?: number;
+    video_registration_rate?: number;
+    video_registration_temporal_coverage?: number;
   };
 };
 
@@ -202,6 +215,14 @@ type BackendStatus = {
   supported_outputs: OutputType[];
   setup_command: string | null;
   gaussian_trainers?: GaussianTrainerStatus[];
+  video_ingestion?: {
+    available: boolean;
+    reason: string | null;
+    supported_profiles: string[];
+    max_duration_seconds: number;
+    max_size_bytes: number;
+    max_keyframes: number;
+  };
 };
 
 const modeOptions: Array<{
@@ -257,6 +278,7 @@ export function App() {
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [gaussianLongestEdge, setGaussianLongestEdge] = useState(1280);
+  const [videoRotation, setVideoRotation] = useState<VideoRotation>("auto");
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
   const [vggtBatchSize, setVggtBatchSize] = useState(8);
   const [vggtOverlapSize, setVggtOverlapSize] = useState(4);
@@ -297,6 +319,8 @@ export function App() {
     gaussianTrainer
   );
   const selectedBackendAvailable = selectedBackendStatus?.available ?? true;
+  const selectedVideoAvailable =
+    mode !== "video" || (selectedBackendStatus?.video_ingestion?.available ?? true);
   const selectedOutputSupported =
     selectedBackendStatus?.supported_outputs.includes(outputType) ?? true;
   const selectedPointCloudAsset =
@@ -484,6 +508,10 @@ export function App() {
 
   function onModeChange(nextMode: Mode) {
     setMode(nextMode);
+    if (nextMode === "video") {
+      setGeometryBackend("project_3dgs");
+      setOutputType("gaussian_splat");
+    }
     setFiles([]);
     setError(null);
   }
@@ -494,6 +522,14 @@ export function App() {
   }
 
   async function createJob() {
+    if (mode === "video" && (geometryBackend !== "project_3dgs" || outputType !== "gaussian_splat")) {
+      setError("视频模式目前仅支持 Project 3DGS + Gaussian Splat。");
+      return;
+    }
+    if (mode === "video" && selectedBackendStatus?.video_ingestion?.available === false) {
+      setError(selectedBackendStatus.video_ingestion.reason ?? "服务器缺少视频处理工具。");
+      return;
+    }
     if (!selectedBackendAvailable) {
       setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
@@ -543,6 +579,10 @@ export function App() {
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
         form.append("gaussian_longest_edge", String(gaussianLongestEdge));
+      }
+      if (mode === "video") {
+        form.append("video_keyframe_profile", "standard_v1");
+        form.append("video_rotation", videoRotation);
       }
       if (geometryBackend === "vggt") {
         form.append("vggt_max_images", String(vggtMaxImages));
@@ -767,7 +807,14 @@ export function App() {
                 onChange={(event) => setGeometryBackend(event.target.value as GeometryBackend)}
               >
                 {backendOptions.map((option) => (
-                  <option disabled={!isBackendAvailable(option.id, backendStatuses)} key={option.id} value={option.id}>
+                  <option
+                    disabled={
+                      !isBackendAvailable(option.id, backendStatuses) ||
+                      (mode === "video" && option.id !== "project_3dgs")
+                    }
+                    key={option.id}
+                    value={option.id}
+                  >
                     {formatBackendOption(option, backendStatuses)}
                   </option>
                 ))}
@@ -783,7 +830,14 @@ export function App() {
                 onChange={(event) => setOutputType(event.target.value as OutputType)}
               >
                 {outputOptions.map((option) => (
-                  <option disabled={!isOutputSupported(option.id, selectedBackendStatus)} key={option.id} value={option.id}>
+                  <option
+                    disabled={
+                      !isOutputSupported(option.id, selectedBackendStatus) ||
+                      (mode === "video" && option.id !== "gaussian_splat")
+                    }
+                    key={option.id}
+                    value={option.id}
+                  >
                     {isOutputSupported(option.id, selectedBackendStatus) ? option.label : `${option.label}（不可用）`}
                   </option>
                 ))}
@@ -852,6 +906,27 @@ export function App() {
                   </select>
                   <small>同时控制 COLMAP 去畸变训练图和 3DGS 训练/验证视图；分辨率越高，显存占用越大。</small>
                 </label>
+                {mode === "video" && (
+                  <label>
+                    <span>视频方向</span>
+                    <select
+                      value={videoRotation}
+                      onChange={(event) => setVideoRotation(event.target.value as VideoRotation)}
+                    >
+                      <option value="auto">自动读取视频方向</option>
+                      <option value="clockwise_90">强制顺时针旋转 90°</option>
+                      <option value="counterclockwise_90">强制逆时针旋转 90°</option>
+                      <option value="180">强制旋转 180°</option>
+                    </select>
+                    <small>
+                      支持 10 秒–10 分钟、最大 2 GiB 的 MP4/MOV/M4V/WebM；覆盖 1080p30
+                      竖拍输入，最多选择 800 张关键帧。坐标仍为归一化任意单位。
+                    </small>
+                    {selectedBackendStatus?.video_ingestion?.reason && (
+                      <small>{selectedBackendStatus.video_ingestion.reason}</small>
+                    )}
+                  </label>
+                )}
               </>
             )}
 
@@ -1004,7 +1079,7 @@ export function App() {
               <span>{files.length > 0 ? `已选择 ${files.length} 个文件` : "选择文件"}</span>
               <input
                 type="file"
-                accept={mode === "video" ? "video/*" : "image/*"}
+                accept={mode === "video" ? ".mp4,.mov,.m4v,.webm,video/*" : "image/*"}
                 multiple={mode === "multi_image"}
                 onChange={onFilesChange}
               />
@@ -1045,7 +1120,12 @@ export function App() {
             className="primary-button"
             type="button"
             onClick={createJob}
-            disabled={isSubmitting || !selectedBackendAvailable || !selectedOutputSupported}
+            disabled={
+              isSubmitting ||
+              !selectedBackendAvailable ||
+              !selectedVideoAvailable ||
+              !selectedOutputSupported
+            }
           >
             <Play size={18} aria-hidden="true" />
             <span>{isSubmitting ? "正在创建任务" : "创建重建任务"}</span>
@@ -1210,6 +1290,38 @@ export function App() {
             <div>
               <dt>输入数量</dt>
               <dd>{currentStatus?.metrics.num_inputs ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>视频时长</dt>
+              <dd>
+                {currentStatus?.metrics.video_duration_seconds === undefined
+                  ? "-"
+                  : `${currentStatus.metrics.video_duration_seconds.toFixed(1)} 秒`}
+              </dd>
+            </div>
+            <div>
+              <dt>候选 / 关键帧</dt>
+              <dd>
+                {currentStatus?.metrics.video_candidate_count === undefined
+                  ? "-"
+                  : `${currentStatus.metrics.video_candidate_count} / ${currentStatus.metrics.video_selected_count ?? "-"}`}
+              </dd>
+            </div>
+            <div>
+              <dt>视频注册率</dt>
+              <dd>
+                {currentStatus?.metrics.video_registration_rate === undefined
+                  ? "-"
+                  : `${(currentStatus.metrics.video_registration_rate * 100).toFixed(1)}%`}
+              </dd>
+            </div>
+            <div>
+              <dt>注册时间覆盖</dt>
+              <dd>
+                {currentStatus?.metrics.video_registration_temporal_coverage === undefined
+                  ? "-"
+                  : `${(currentStatus.metrics.video_registration_temporal_coverage * 100).toFixed(1)}%`}
+              </dd>
             </div>
             <div>
               <dt>点数量</dt>
@@ -1508,6 +1620,10 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="collision_mesh" label="碰撞网格" />
               <AssetLink manifest={manifest} assetKey="navigation" label="导航数据约定" />
               <AssetLink manifest={manifest} assetKey="navigation_diagnostics" label="导航诊断" />
+              <AssetLink manifest={manifest} assetKey="video_probe" label="视频探测信息" />
+              <AssetLink manifest={manifest} assetKey="video_frame_selection" label="视频关键帧选择" />
+              <AssetLink manifest={manifest} assetKey="video_registration_diagnostics" label="视频注册诊断" />
+              <AssetLink manifest={manifest} assetKey="video_keyframe_contact_sheet" label="视频关键帧预览" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="空间对齐诊断" />
               <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="融合诊断" />
               <AssetLink manifest={manifest} assetKey="visibility_graph" label="可见性图" />
@@ -1597,6 +1713,15 @@ function validateFiles(mode: Mode, files: File[]) {
   }
   if (mode === "multi_image" && files.length < 2) {
     return "多图模式至少需要两个文件。";
+  }
+  if (mode === "video") {
+    const file = files[0];
+    if (file.size > 2 * 1024 ** 3) {
+      return "视频文件不能超过 2 GiB。";
+    }
+    if (!/\.(mp4|mov|m4v|webm)$/i.test(file.name)) {
+      return "视频必须使用 MP4、MOV、M4V 或 WebM 格式。";
+    }
   }
   return null;
 }
@@ -1716,6 +1841,9 @@ function formatStage(value: string | undefined) {
   const labels: Record<string, string> = {
     queued: "等待执行",
     validating: "校验输入",
+    video_probing: "探测视频与方向",
+    video_frame_scoring: "分析候选视频帧",
+    video_frame_extraction: "生成视频关键帧",
     reconstructing: "几何重建",
     training: "高斯训练",
     evaluating: "质量评估",

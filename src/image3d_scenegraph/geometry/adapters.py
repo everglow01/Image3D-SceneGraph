@@ -81,22 +81,106 @@ class ProjectGaussianAdapter:
 
         return update
 
+    @staticmethod
+    def _video_progress_callback(
+        context: ReconstructionContext, path: Path
+    ) -> Callable[[], None]:
+        progress_by_stage = {
+            "video_probing": 0.06,
+            "video_frame_scoring": 0.08,
+            "video_frame_extraction": 0.12,
+        }
+        last_stage: str | None = None
+
+        def update() -> None:
+            nonlocal last_stage
+            try:
+                stage = str(json.loads(path.read_text(encoding="utf-8"))["stage"])
+            except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
+                return
+            if stage == last_stage or stage not in progress_by_stage:
+                return
+            last_stage = stage
+            _adapter_progress(context, stage, progress_by_stage[stage])
+
+        return update
+
     def run(self, context: ReconstructionContext) -> ReconstructionResult:
-        if context.mode != "multi_image":
-            raise ReconstructionError("project 3DGS training requires multi_image input")
+        if context.mode not in {"multi_image", "video"}:
+            raise ReconstructionError("project 3DGS training requires multi_image or video input")
         project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
+        video_script = project_root / "scripts" / "extract_video_keyframes.py"
         colmap_script = project_root / "scripts" / "run_colmap_sparse.py"
         trainer_script = project_root / "scripts" / "run_gaussian_training.py"
         evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
         exporter_script = project_root / "scripts" / "export_gaussian.py"
-        if not all(
-            path.is_file()
-            for path in (colmap_script, trainer_script, evaluator_script, exporter_script)
-        ):
+        required_scripts = [colmap_script, trainer_script, evaluator_script, exporter_script]
+        if context.mode == "video":
+            required_scripts.append(video_script)
+        if not all(path.is_file() for path in required_scripts):
             raise ReconstructionError("project 3DGS runner scripts are missing")
         config_path = context.job_dir / "gaussian_config.json"
         dataset_path = context.job_dir / "dataset.json"
+        gaussian_longest_edge = int(context.options.get("gaussian_longest_edge", 1280))
         image_dir = context.job_dir / "input" / "images"
+        video_assets: dict[str, str] = {}
+        video_metrics: dict[str, int | float | str | bool] = {}
+        video_selection: dict[str, Any] | None = None
+        if context.mode == "video":
+            if len(context.input_assets) != 1:
+                raise ReconstructionError("video mode requires exactly one persisted input")
+            source = context.job_dir / str(context.input_assets[0]["path"])
+            video_progress_path = context.job_dir / "frames" / "progress.json"
+            command_video = [
+                os.environ.get("IMAGE3D_PYTHON", sys.executable),
+                str(video_script),
+                "--input",
+                str(source),
+                "--output-dir",
+                str(context.job_dir),
+                "--longest-edge",
+                str(gaussian_longest_edge),
+                "--rotation",
+                str(context.options.get("video_rotation", "auto")),
+                "--progress-file",
+                str(video_progress_path),
+            ]
+            _adapter_progress(context, "video_probing", 0.06)
+            _run_adapter_command(
+                command_video,
+                context,
+                project_root,
+                env=None,
+                poll_callback=self._video_progress_callback(context, video_progress_path),
+            )
+            selection_path = context.job_dir / "frames" / "selection.json"
+            probe_path = context.job_dir / "diagnostics" / "video_probe.json"
+            contact_sheet_path = context.job_dir / "diagnostics" / "video_keyframes.jpg"
+            if not all(path.is_file() for path in (selection_path, probe_path, contact_sheet_path)):
+                raise ReconstructionError("video keyframe extraction did not produce complete diagnostics")
+            video_selection = json.loads(selection_path.read_text(encoding="utf-8"))
+            probe = json.loads(probe_path.read_text(encoding="utf-8"))
+            image_dir = context.job_dir / "frames" / "selected"
+            video_assets = {
+                "video_probe": probe_path.relative_to(context.job_dir).as_posix(),
+                "video_frame_selection": selection_path.relative_to(context.job_dir).as_posix(),
+                "video_keyframe_contact_sheet": contact_sheet_path.relative_to(context.job_dir).as_posix(),
+            }
+            video_metrics = {
+                "video_profile": str(video_selection["profile"]),
+                "video_duration_seconds": float(video_selection["duration_seconds"]),
+                "video_orientation": str(probe["orientation"]),
+                "video_rotation_degrees": int(probe["rotation"]["applied_degrees"]),
+                "video_source_width": int(probe["source_width"]),
+                "video_source_height": int(probe["source_height"]),
+                "video_display_width": int(probe["display_width"]),
+                "video_display_height": int(probe["display_height"]),
+                "video_candidate_count": int(video_selection["candidate_count"]),
+                "video_selected_count": int(video_selection["selected_count"]),
+                "video_rejection_counts": json.dumps(
+                    video_selection.get("rejection_counts", {}), sort_keys=True
+                ),
+            }
         sparse_dir = context.job_dir / "colmap" / "undistorted" / "sparse_txt"
         points_path = sparse_dir / "points3D.txt"
         colmap_progress_path = context.job_dir / "colmap" / "progress.json"
@@ -109,7 +193,6 @@ class ProjectGaussianAdapter:
             raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be an integer") from exc
         if colmap_threads < 1:
             raise ReconstructionError("IMAGE3D_COLMAP_NUM_THREADS must be at least 1")
-        gaussian_longest_edge = int(context.options.get("gaussian_longest_edge", 1280))
         command_colmap = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(colmap_script),
@@ -141,6 +224,16 @@ class ProjectGaussianAdapter:
         cameras_path = context.job_dir / "geometry" / "cameras.json"
         if not cameras_path.is_file() or not points_path.is_file():
             raise ReconstructionError("COLMAP did not produce project 3DGS camera/sparse inputs")
+        temporal_timestamps: dict[str, float] | None = None
+        if video_selection is not None:
+            registration_path = context.job_dir / "diagnostics" / "video_registration.json"
+            temporal_timestamps, registration_metrics = _write_video_registration_diagnostics(
+                video_selection, cameras_path, registration_path
+            )
+            video_assets["video_registration_diagnostics"] = registration_path.relative_to(
+                context.job_dir
+            ).as_posix()
+            video_metrics.update(registration_metrics)
         try:
             from image3d_scenegraph.gaussian.dataset import build_colmap_contract, write_contract
         except ImportError as exc:
@@ -150,6 +243,7 @@ class ProjectGaussianAdapter:
             dataset_root=context.job_dir,
             image_root="colmap/undistorted/images",
             cameras_path="geometry/cameras.json",
+            temporal_timestamps=temporal_timestamps,
         )
         write_contract(dataset_path, contract)
         config_record = context.options.get("gaussian_config_record")
@@ -339,6 +433,7 @@ class ProjectGaussianAdapter:
         return ReconstructionResult(
             stage="gaussian_export",
             assets={
+                **video_assets,
                 "gaussian_model": model_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_progress": progress_path.relative_to(context.job_dir).as_posix(),
@@ -353,6 +448,7 @@ class ProjectGaussianAdapter:
                 "gaussian_bundle": bundle_path.relative_to(context.job_dir).as_posix(),
             },
             metrics={
+                **video_metrics,
                 "gaussian_count": int(result["gaussian_count"]),
                 "gaussian_trainer": trainer_id,
                 "gaussian_initial_loss": float(result["initial_loss"]),
@@ -366,6 +462,112 @@ class ProjectGaussianAdapter:
             },
             log_lines=log_lines,
         )
+
+
+def _write_video_registration_diagnostics(
+    selection: dict[str, Any], cameras_path: Path, output_path: Path
+) -> tuple[dict[str, float], dict[str, int | float | str | bool]]:
+    selected_payload = selection.get("selected")
+    if not isinstance(selected_payload, list) or not selected_payload:
+        raise ReconstructionError("video selection metadata has no selected frames")
+    selected_by_name: dict[str, dict[str, Any]] = {}
+    for item in selected_payload:
+        if not isinstance(item, dict):
+            raise ReconstructionError("video selection metadata is invalid")
+        name = Path(str(item.get("path", ""))).name
+        if not name or name in selected_by_name:
+            raise ReconstructionError("video selection frame names are invalid")
+        selected_by_name[name] = item
+    try:
+        cameras_payload = json.loads(cameras_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReconstructionError("cannot read COLMAP cameras for video registration") from exc
+    cameras = {
+        int(camera["camera_id"]): camera
+        for camera in cameras_payload.get("cameras", [])
+        if isinstance(camera, dict) and "camera_id" in camera
+    }
+    registered_by_name = {
+        Path(str(image.get("name", ""))).name: image
+        for image in cameras_payload.get("images", [])
+        if isinstance(image, dict)
+    }
+    registered_names = sorted(set(selected_by_name) & set(registered_by_name))
+    selected_count = len(selected_by_name)
+    registered_count = len(registered_names)
+    registration_rate = registered_count / selected_count
+    gate_failures: list[str] = []
+    if registered_count < 12:
+        gate_failures.append(
+            f"registered_count {registered_count} is below the 12-frame minimum"
+        )
+    if registration_rate < 0.70:
+        gate_failures.append(
+            f"registration_rate {registration_rate:.3f} is below 0.700"
+        )
+    selected_times = sorted(float(item["time_seconds"]) for item in selected_by_name.values())
+    registered_times = sorted(
+        float(selected_by_name[name]["time_seconds"]) for name in registered_names
+    )
+    selected_span = selected_times[-1] - selected_times[0]
+    registered_span = registered_times[-1] - registered_times[0]
+    temporal_coverage = registered_span / selected_span if selected_span > 0 else 0.0
+    if temporal_coverage < 0.80:
+        gate_failures.append(
+            f"temporal_coverage {temporal_coverage:.3f} is below 0.800"
+        )
+    gaps = [right - left for left, right in zip(registered_times, registered_times[1:])]
+    records = []
+    for name, selected in sorted(
+        selected_by_name.items(), key=lambda item: float(item[1]["time_seconds"])
+    ):
+        registered = registered_by_name.get(name)
+        camera = cameras.get(int(registered["camera_id"])) if registered is not None else None
+        records.append(
+            {
+                "filename": name,
+                "source_time_seconds": float(selected["time_seconds"]),
+                "registered": registered is not None,
+                "image_id": int(registered["image_id"]) if registered is not None else None,
+                "camera_id": int(registered["camera_id"]) if registered is not None else None,
+                "camera_model": camera.get("model") if camera is not None else None,
+            }
+        )
+    payload = {
+        "schema_version": 1,
+        "profile": str(selection.get("profile", "unknown")),
+        "selected_count": selected_count,
+        "registered_count": registered_count,
+        "registration_rate": registration_rate,
+        "temporal_coverage": temporal_coverage,
+        "maximum_registered_gap_seconds": max(gaps, default=0.0),
+        "gate": {
+            "passed": not gate_failures,
+            "failures": gate_failures,
+            "minimum_registered_count": 12,
+            "minimum_registration_rate": 0.70,
+            "minimum_temporal_coverage": 0.80,
+        },
+        "frames": records,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    if gate_failures:
+        raise ReconstructionError(
+            "video_registration_quality_gate_failed: " + "; ".join(gate_failures)
+        )
+    timestamps = {
+        name: float(selected_by_name[name]["time_seconds"]) for name in registered_names
+    }
+    return timestamps, {
+        "video_registered_count": registered_count,
+        "video_registration_rate": registration_rate,
+        "video_registration_temporal_coverage": temporal_coverage,
+        "video_registration_max_gap_seconds": max(gaps, default=0.0),
+    }
 
 
 def _automatic_test_evaluation_enabled(_trainer_id: str) -> bool:

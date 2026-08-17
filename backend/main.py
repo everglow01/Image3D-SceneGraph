@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
@@ -24,6 +26,32 @@ class MeshVariantRequest(BaseModel):
     edge_trim_factor: float = Field(default=2.5, ge=0.5, le=10.0)
     max_triangles: int = Field(default=120_000, ge=1_000, le=1_000_000)
     alpha: float = Field(default=0.12, ge=0.0, le=10.0)
+
+
+async def _stage_video_upload(store: JobStore, upload: UploadFile) -> UploadedInput:
+    staging_dir = store.output_root / ".uploads"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    path = staging_dir / f"{uuid.uuid4().hex}.upload"
+    digest = hashlib.sha256()
+    size_bytes = 0
+    try:
+        with path.open("xb") as handle:
+            while chunk := await upload.read(8 * 1024 * 1024):
+                size_bytes += len(chunk)
+                if size_bytes > 2 * 1024**3:
+                    raise JobError("video exceeds the 2 GiB limit")
+                digest.update(chunk)
+                handle.write(chunk)
+        return UploadedInput(
+            filename=upload.filename or "",
+            content_type=upload.content_type,
+            staged_path=path,
+            size_bytes=size_bytes,
+            sha256=digest.hexdigest(),
+        )
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def create_app(output_root: Path | str | None = None, *, start_worker: bool = True) -> FastAPI:
@@ -66,6 +94,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             Literal["project", "graphdeco"], Form()
         ] = "graphdeco",
         gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3072)] = None,
+        video_keyframe_profile: Annotated[Literal["standard_v1"], Form()] = "standard_v1",
+        video_rotation: Annotated[
+            Literal["auto", "clockwise_90", "counterclockwise_90", "180"], Form()
+        ] = "auto",
         vggt_max_images: Annotated[int | None, Form()] = None,
         vggt_batch_size: Annotated[int | None, Form()] = None,
         vggt_overlap_size: Annotated[int | None, Form()] = None,
@@ -85,15 +117,42 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             Literal["random", "spatial_balanced"] | None, Form()
         ] = None,
     ) -> dict:
+        if mode == "video" and (
+            geometry_backend != "project_3dgs" or output_type != "gaussian_splat"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="video mode currently requires project_3dgs + gaussian_splat",
+            )
+        if mode == "video" and len(files) != 1:
+            raise HTTPException(status_code=400, detail="video mode requires exactly one file")
+        if mode == "video" and Path(files[0].filename or "").suffix.lower() not in {
+            ".mp4",
+            ".mov",
+            ".m4v",
+            ".webm",
+        }:
+            raise HTTPException(
+                status_code=400, detail="video must use MP4, MOV, M4V, or WebM"
+            )
         uploaded: list[UploadedInput] = []
         for file in files:
-            uploaded.append(
-                UploadedInput(
-                    filename=file.filename or "",
-                    content=await file.read(),
-                    content_type=file.content_type,
+            if mode == "video":
+                try:
+                    uploaded.append(await _stage_video_upload(app.state.job_store, file))
+                except JobError as exc:
+                    for item in uploaded:
+                        if item.staged_path is not None:
+                            item.staged_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+            else:
+                uploaded.append(
+                    UploadedInput(
+                        filename=file.filename or "",
+                        content=await file.read(),
+                        content_type=file.content_type,
+                    )
                 )
-            )
 
         options = {
             key: value
@@ -104,6 +163,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 "gaussian_longest_edge": (
                     gaussian_longest_edge if geometry_backend == "project_3dgs" else None
                 ),
+                "video_keyframe_profile": (
+                    video_keyframe_profile if mode == "video" else None
+                ),
+                "video_rotation": video_rotation if mode == "video" else None,
                 "vggt_max_images": vggt_max_images,
                 "vggt_batch_size": vggt_batch_size,
                 "vggt_overlap_size": vggt_overlap_size,
@@ -144,6 +207,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             return manifest
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            for item in uploaded:
+                if item.staged_path is not None:
+                    item.staged_path.unlink(missing_ok=True)
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> dict:

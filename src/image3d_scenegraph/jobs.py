@@ -39,6 +39,10 @@ MESH_METHODS = {"poisson", "ball_pivoting", "alpha_shape"}
 LIFECYCLE_SCHEMA_VERSION = 1
 TERMINAL_STATUSES = {"done", "failed", "cancelled"}
 MAX_ATTEMPTS = 3
+MAX_VIDEO_BYTES = 2 * 1024**3
+VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
+VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
+VIDEO_PROFILES = {"standard_v1"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
     "collision_mesh": "navigation/collision.glb",
@@ -67,8 +71,11 @@ MESH_OPTION_DEFAULTS = {
 @dataclass(frozen=True)
 class UploadedInput:
     filename: str
-    content: bytes
+    content: bytes | None = None
     content_type: str | None = None
+    staged_path: Path | None = None
+    size_bytes: int | None = None
+    sha256: str | None = None
 
 
 class JobError(ValueError):
@@ -126,6 +133,21 @@ class JobStore:
         """Persist a validated job and return before reconstruction starts."""
         self._validate_request(mode, files)
         normalized_options = dict(options or {})
+        if mode == "video":
+            if geometry_backend != "project_3dgs" or output_type != "gaussian_splat":
+                raise JobError(
+                    "video mode currently requires project_3dgs + gaussian_splat"
+                )
+            profile = str(normalized_options.get("video_keyframe_profile", "standard_v1"))
+            rotation = str(normalized_options.get("video_rotation", "auto"))
+            if profile not in VIDEO_PROFILES:
+                raise JobError(f"unsupported video keyframe profile: {profile}")
+            if rotation not in VIDEO_ROTATIONS:
+                raise JobError(f"unsupported video rotation: {rotation}")
+            normalized_options.update(
+                video_keyframe_profile=profile,
+                video_rotation=rotation,
+            )
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
             if geometry_backend == "project_3dgs":
@@ -152,7 +174,11 @@ class JobStore:
         job_id = self._new_job_id()
         job_dir = self.job_dir(job_id)
         self._create_job_dirs(job_dir, queued=True)
-        input_assets = self._write_inputs(job_dir, mode, files)
+        try:
+            input_assets = self._write_inputs(job_dir, mode, files)
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
         now = self._timestamp()
         attempt = self._attempt_record("attempt-001", "fresh", None, now)
         manifest: dict[str, Any] = {
@@ -197,6 +223,7 @@ class JobStore:
             "options": normalized_options,
             "gaussian_config": gaussian_config_record,
             "gaussian_trainer": gaussian_trainer_record,
+            **({"video_source": input_assets[0]} if mode == "video" else {}),
         }
         self._write_json(job_dir / "request.json", request)
         self._write_json(job_dir / "manifest.json", manifest)
@@ -261,7 +288,10 @@ class JobStore:
             return self._finish_unsuccessful(job_id, "cancelled", "cancelled", str(exc))
         except (JobError, ReconstructionError, OSError, ValueError) as exc:
             self._preserve_workspace(job_dir, workspace, attempt_id)
-            return self._finish_unsuccessful(job_id, "failed", "execution_failed", str(exc))
+            message = str(exc)
+            return self._finish_unsuccessful(
+                job_id, "failed", self._execution_error_code(message), message
+            )
         except Exception as exc:
             self._preserve_workspace(job_dir, workspace, attempt_id)
             return self._finish_unsuccessful(
@@ -1230,6 +1260,16 @@ class JobStore:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(text)
 
+    def _execution_error_code(self, message: str) -> str:
+        for code in (
+            "insufficient_video_keyframes",
+            "insufficient_video_temporal_coverage",
+            "video_registration_quality_gate_failed",
+        ):
+            if code in message:
+                return code
+        return "execution_failed"
+
     def _check_cancel(self, cancel_requested: Callable[[], bool] | None) -> None:
         if cancel_requested is not None and cancel_requested():
             raise JobCancelled("job cancellation requested")
@@ -1367,6 +1407,19 @@ class JobStore:
             raise JobError("multi_image mode requires at least two files")
         if mode == "video" and len(files) != 1:
             raise JobError("video mode requires exactly one file")
+        if mode == "video":
+            uploaded = files[0]
+            if Path(uploaded.filename).suffix.lower() not in VIDEO_SUFFIXES:
+                raise JobError("video must use MP4, MOV, M4V, or WebM")
+            size_bytes = uploaded.size_bytes
+            if size_bytes is None and uploaded.content is not None:
+                size_bytes = len(uploaded.content)
+            if size_bytes is None or size_bytes <= 0:
+                raise JobError("video input is empty")
+            if size_bytes > MAX_VIDEO_BYTES:
+                raise JobError("video exceeds the 2 GiB limit")
+            if uploaded.content is None and uploaded.staged_path is None:
+                raise JobError("video input has no staged content")
         if mode == "panorama" and len(files) != 1:
             raise JobError("panorama mode requires exactly one file")
 
@@ -1395,13 +1448,23 @@ class JobStore:
                 destination = job_dir / "input" / "images" / filename
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination = self._deduplicate_destination(destination, index)
-            destination.write_bytes(uploaded.content)
+            if uploaded.staged_path is not None:
+                if not uploaded.staged_path.is_file():
+                    raise JobError("staged upload is missing")
+                os.replace(uploaded.staged_path, destination)
+            elif uploaded.content is not None:
+                destination.write_bytes(uploaded.content)
+            else:
+                raise JobError("uploaded input has no content")
+            size_bytes = destination.stat().st_size
+            digest = uploaded.sha256 or sha256_file(destination)
             assets.append(
                 {
                     "filename": destination.name,
                     "path": destination.relative_to(job_dir).as_posix(),
                     "content_type": uploaded.content_type,
-                    "size_bytes": len(uploaded.content),
+                    "size_bytes": size_bytes,
+                    "sha256": digest,
                 }
             )
         return assets

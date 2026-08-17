@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,9 @@ def _project_gaussian_spec(
     colmap_available = colmap is not None
     if not colmap_available:
         reasons.append("colmap executable not found")
+    ffmpeg = shutil.which(os.environ.get("IMAGE3D_FFMPEG_BIN") or "ffmpeg")
+    ffprobe = shutil.which(os.environ.get("IMAGE3D_FFPROBE_BIN") or "ffprobe")
+    video_available = bool(ffmpeg and ffprobe)
     return BackendSpec(
         backend_id="project_3dgs",
         label="Project 3DGS",
@@ -110,7 +114,19 @@ def _project_gaussian_spec(
         available=bool(available_trainers) and colmap_available,
         reason=None if available_trainers and colmap_available else "; ".join(reasons),
         setup_command="uv run python scripts/setup_colmap_cuda.py --install && uv run python scripts/setup_gaussian_trainer.py --trainer <trainer>",
-        options={"gaussian_trainers": [trainer.to_dict() for trainer in trainers]},
+        options={
+            "gaussian_trainers": [trainer.to_dict() for trainer in trainers],
+            "video_ingestion": {
+                "available": video_available,
+                "reason": None
+                if video_available
+                else "ffmpeg and ffprobe executables are required",
+                "supported_profiles": ["standard_v1"],
+                "max_duration_seconds": 600,
+                "max_size_bytes": 2 * 1024**3,
+                "max_keyframes": 800,
+            },
+        },
     )
 
 

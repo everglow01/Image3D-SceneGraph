@@ -94,6 +94,54 @@ def spatial_order(image_ids: list[str], centers: np.ndarray, seed: int = SPLIT_S
     return selected
 
 
+def deterministic_temporal_group_split(
+    images: list[dict[str, Any]],
+    timestamps: dict[str, float],
+    seed: int = SPLIT_SEED,
+    group_seconds: float = 2.0,
+) -> dict[str, list[str]]:
+    if len(images) < MIN_REGISTERED_IMAGES:
+        raise DatasetContractError(f"at least {MIN_REGISTERED_IMAGES} registered images are required")
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for image in images:
+        name = Path(str(image["path"])).name
+        try:
+            timestamp = float(timestamps[name])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DatasetContractError(f"missing video timestamp for registered image: {name}") from exc
+        if not np.isfinite(timestamp) or timestamp < 0:
+            raise DatasetContractError(f"invalid video timestamp for registered image: {name}")
+        groups.setdefault(int(timestamp // group_seconds), []).append(image)
+    if len(groups) < 5:
+        raise DatasetContractError("video split requires at least five temporal groups")
+    group_ids = sorted(groups)
+    centers = np.stack(
+        [
+            np.mean(
+                [np.asarray(image["world_from_camera"], dtype=np.float64)[:3, 3] for image in groups[group]],
+                axis=0,
+            )
+            for group in group_ids
+        ]
+    )
+    order = spatial_order([str(group) for group in group_ids], centers, seed)
+    heldout_count = min(max(2, int(round(len(groups) * 0.1))), (len(groups) - 1) // 2)
+    heldout = order[: 2 * heldout_count]
+    validation_groups = {group_ids[index] for index in heldout[1::2]}
+    test_groups = {group_ids[index] for index in heldout[::2]}
+    split = {"train": [], "validation": [], "test": []}
+    for group, entries in groups.items():
+        destination = (
+            "validation"
+            if group in validation_groups
+            else "test"
+            if group in test_groups
+            else "train"
+        )
+        split[destination].extend(str(image["image_id"]) for image in entries)
+    return {name: sorted(ids) for name, ids in split.items()}
+
+
 def deterministic_spatial_split(images: list[dict[str, Any]], seed: int = SPLIT_SEED) -> dict[str, list[str]]:
     if len(images) < MIN_REGISTERED_IMAGES:
         raise DatasetContractError(f"at least {MIN_REGISTERED_IMAGES} registered images are required")
@@ -140,6 +188,7 @@ def build_colmap_contract(
     cameras_path: str,
     max_views: int | None = None,
     seed: int = SPLIT_SEED,
+    temporal_timestamps: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     root = dataset_root.resolve()
     camera_file = (root / cameras_path).resolve()
@@ -208,7 +257,11 @@ def build_colmap_contract(
             "image_root": image_root,
         },
         "images": image_entries,
-        "splits": deterministic_spatial_split(image_entries, seed),
+        "splits": (
+            deterministic_temporal_group_split(image_entries, temporal_timestamps, seed)
+            if temporal_timestamps is not None
+            else deterministic_spatial_split(image_entries, seed)
+        ),
         "initialization": {"coordinate_frame": "world", "asset": None, "sha256": None},
     }
     contract["dataset_hash"] = contract_hash(contract)

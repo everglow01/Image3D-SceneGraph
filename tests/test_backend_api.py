@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
@@ -104,6 +106,29 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
         "gaussian_trainer": "graphdeco",
         "gaussian_longest_edge": 3072,
     }
+
+
+def test_create_video_job_streams_to_persisted_input(tmp_path):
+    root = tmp_path / "jobs"
+    app = create_app(root, start_worker=False)
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "video",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "video_rotation": "counterclockwise_90",
+        },
+        files=[("files", ("portrait.mp4", b"video-content", "video/mp4"))],
+    )
+
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+    request = json.loads((root / job_id / "request.json").read_text())
+    assert (root / job_id / "input" / "portrait.mp4").read_bytes() == b"video-content"
+    assert request["options"]["video_keyframe_profile"] == "standard_v1"
+    assert request["options"]["video_rotation"] == "counterclockwise_90"
+    assert not list((root / ".uploads").glob("*.upload"))
 
 
 def test_create_job_rejects_invalid_gaussian_trainer(tmp_path):
