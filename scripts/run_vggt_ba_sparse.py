@@ -108,6 +108,9 @@ def main() -> None:
         runtime["device"],
         runtime["torch"],
     )
+    del runtime["dino_model"]
+    if runtime["device"].type == "cuda":
+        runtime["torch"].cuda.empty_cache()
     bases = sequential_windows(
         len(image_paths), window_size=WINDOW_SIZE, overlap=WINDOW_OVERLAP
     )
@@ -587,29 +590,37 @@ def process_window(
     intrinsic_np = intrinsic.squeeze(0).detach().float().cpu().numpy()
     del predictions, images_518
 
-    fmaps = runtime["tracker"].process_images_to_fmaps(images)
-    query_indices = choose_queries(descriptors[list(spec.image_indices)], QUERY_FRAME_COUNT)
-    tracks = []
-    visibility = []
-    point_parts = []
-    color_parts = []
-    for query_index in query_indices:
-        track, visible, _conf, point, color = _forward_on_query(
-            query_index,
-            images,
-            confidence,
-            points_3d,
-            fmaps,
-            runtime["extractors"],
-            runtime["tracker"],
-            163840,
-            True,
-            runtime["device"],
+    tracker_autocast = (
+        torch.cuda.amp.autocast(dtype=runtime["dtype"])
+        if runtime["device"].type == "cuda"
+        else nullcontext()
+    )
+    with torch.no_grad(), tracker_autocast:
+        fmaps = runtime["tracker"].process_images_to_fmaps(images)
+        query_indices = choose_queries(
+            descriptors[list(spec.image_indices)], QUERY_FRAME_COUNT
         )
-        tracks.append(track)
-        visibility.append(visible)
-        point_parts.append(point)
-        color_parts.append(color)
+        tracks = []
+        visibility = []
+        point_parts = []
+        color_parts = []
+        for query_index in query_indices:
+            track, visible, _conf, point, color = _forward_on_query(
+                query_index,
+                images,
+                confidence,
+                points_3d,
+                fmaps,
+                runtime["extractors"],
+                runtime["tracker"],
+                163840,
+                True,
+                runtime["device"],
+            )
+            tracks.append(track)
+            visibility.append(visible)
+            point_parts.append(point)
+            color_parts.append(color)
     tracks_np = np.concatenate(tracks, axis=1)
     visibility_np = np.concatenate(visibility, axis=1)
     points_np = np.concatenate(point_parts, axis=0)
