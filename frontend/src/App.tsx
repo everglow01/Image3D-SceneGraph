@@ -134,6 +134,9 @@ type Manifest = {
     log?: string;
   };
   gaussian_geometry_source?: GaussianGeometrySource;
+  gaussian_geometry_effective_source?: GaussianGeometrySource | null;
+  gaussian_geometry_fallback_applied?: boolean;
+  gaussian_geometry_fallback_reason?: string | null;
   gaussian_postprocess?: GaussianPostprocess;
   gaussian_postprocess_status?: "not_requested" | "pending" | "available" | "unavailable";
   gaussian_postprocess_reason?: string | null;
@@ -188,6 +191,9 @@ type Manifest = {
     video_registration_rate?: number;
     video_registration_temporal_coverage?: number;
     gaussian_geometry_source?: GaussianGeometrySource;
+    gaussian_geometry_effective_source?: GaussianGeometrySource;
+    gaussian_geometry_fallback_applied?: boolean;
+    gaussian_geometry_fallback_reason?: string;
     vggt_ba_profile?: string;
     vggt_ba_trajectory_status?: string;
     vggt_ba_verified_nonlocal_edge_count?: number;
@@ -1027,8 +1033,8 @@ export function App() {
                     )}
                   {gaussianGeometrySource === "vggt_ba" && (
                     <small>
-                      研究实验：8/4 重叠窗口 · ALIKED/VGGSfM 局部 BA · 全局 Sim(3) 图 ·
-                      COLMAP triangulation/global BA。没有闭环时结果会标记为未验证开放轨迹。
+                      研究实验：8/4 重叠窗口 · 弱帧恢复 · ALIKED/VGGSfM 局部 BA · 全局 Sim(3) 图 ·
+                      COLMAP 补注册/global BA。仅在有界恢复后的几何质量门失败时显式回退 COLMAP；结果会标明实际来源。
                     </small>
                   )}
                 </label>
@@ -1494,8 +1500,17 @@ export function App() {
               </dd>
             </div>
             <div>
-              <dt>高斯几何来源</dt>
+              <dt>请求的高斯几何</dt>
               <dd>{formatPolicy(manifest?.gaussian_geometry_source ?? currentStatus?.metrics.gaussian_geometry_source)}</dd>
+            </div>
+            <div>
+              <dt>实际高斯几何</dt>
+              <dd>
+                {formatPolicy(
+                  manifest?.gaussian_geometry_effective_source ??
+                    currentStatus?.metrics.gaussian_geometry_effective_source
+                )}
+              </dd>
             </div>
             <div>
               <dt>VGGT-BA 轨迹</dt>
@@ -1656,7 +1671,22 @@ export function App() {
             </div>
           </dl>
 
-          {currentStatus?.metrics.vggt_ba_trajectory_status === "open_trajectory_unverified" && (
+          {(manifest?.gaussian_geometry_fallback_applied ??
+            currentStatus?.metrics.gaussian_geometry_fallback_applied) && (
+            <p className="error-message">
+              VGGT-BA 已在完成有界弱帧恢复和注册质量门后回退到普通 COLMAP。
+              实际几何来源为 COLMAP；此 Job 可查看，但不能计为成功的 VGGT-BA A/B 证据。
+              原因：
+              {formatPolicy(
+                manifest?.gaussian_geometry_fallback_reason ??
+                  currentStatus?.metrics.gaussian_geometry_fallback_reason
+              )}
+              。
+            </p>
+          )}
+          {!(manifest?.gaussian_geometry_fallback_applied ??
+            currentStatus?.metrics.gaussian_geometry_fallback_applied) &&
+            currentStatus?.metrics.vggt_ba_trajectory_status === "open_trajectory_unverified" && (
             <p className="error-message">
               VGGT-BA 未找到通过几何验证的非局部闭环；当前结果是未验证开放轨迹，不能解释为无漂移全屋重建。
             </p>
@@ -2108,11 +2138,14 @@ function formatStage(value: string | undefined) {
     video_frame_extraction: "生成视频关键帧",
     vggt_ba_descriptors: "VGGT-BA 图像关系描述",
     vggt_ba_windows: "VGGT-BA 分批相机与局部 BA",
+    vggt_ba_recovery: "VGGT-BA 弱帧连通恢复",
     vggt_ba_pose_graph: "VGGT-BA 全局窗口图",
     vggt_ba_feature_extraction: "VGGT 初始化后的 COLMAP 特征提取",
     vggt_ba_feature_matching: "VGGT 初始化后的 COLMAP 特征匹配",
     vggt_ba_global_triangulation: "VGGT 相机全局三角化",
+    vggt_ba_image_registration: "COLMAP 补注册弱帧",
     vggt_ba_global_bundle_adjustment: "VGGT 相机全局 BA",
+    colmap_fallback_mapping: "普通 COLMAP 几何回退",
     gaussian_vggt_postprocess: "VGGT Train-depth 高斯清理",
     gaussian_vggt_filtered_validation: "VGGT 清理后验证",
     gaussian_vggt_filtered_export: "VGGT 清理后导出",
@@ -2164,6 +2197,9 @@ function formatPolicy(value: string | undefined) {
     vggt_visibility_v1: "VGGT Train-depth 清理（实验）",
     closed_graph_verified: "已验证非局部图边",
     open_trajectory_unverified: "未验证开放轨迹",
+    vggt_graph_unusable_after_recovery: "有界恢复后 VGGT 窗口图仍不可用",
+    vggt_seed_geometry_insufficient: "VGGT 初值无法形成足够稀疏几何",
+    vggt_registration_gate_failed: "VGGT 初值的最终注册质量门未通过",
     complete: "完成",
     skipped: "已跳过",
     not_run: "未运行",

@@ -21,7 +21,10 @@ Newly completed jobs contain:
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
 | `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
-| `gaussian_geometry_source` | string | Optional effective Gaussian geometry source: stable `colmap` or experimental video-only `vggt_ba`. Historical Gaussian jobs may omit it and follow their recorded assets rather than receiving a synthetic value. |
+| `gaussian_geometry_source` | string | Optional requested Gaussian geometry source: stable `colmap` or experimental video-only `vggt_ba`. Historical Gaussian jobs may omit it. |
+| `gaussian_geometry_effective_source` | string or null | Geometry actually used by a completed Gaussian job: `colmap` or `vggt_ba`; queued jobs use `null`. Historical jobs may omit it rather than receiving a synthetic value. |
+| `gaussian_geometry_fallback_applied` | boolean | Whether a requested `vggt_ba` job completed using the explicit ordinary-COLMAP fallback. |
+| `gaussian_geometry_fallback_reason` | string or null | One allow-listed geometry-quality reason when fallback occurred; otherwise `null`. |
 | `gaussian_postprocess` | string | Optional requested Gaussian derivative: `none` or experimental `vggt_visibility_v1`. |
 | `gaussian_postprocess_status` | string | Optional derivative lifecycle: `pending`, `not_requested`, `available`, or `unavailable`. Failure is fail-soft and does not invalidate Original Gaussian assets. |
 | `gaussian_postprocess_reason` | string or null | Optional diagnostic reason when the requested derivative is unavailable. |
@@ -80,7 +83,7 @@ Common asset roles include:
 - `gaussian_evaluation`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery; optional `gaussian_test_evaluation` and `gaussian_test_decision` appear only after an authorized frozen-candidate Test evaluation
 - `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
 - `video_probe`, `video_frame_selection`, `video_registration_diagnostics`, and `video_keyframe_contact_sheet` for a completed bounded video attempt
-- `vggt_ba_diagnostics`, `vggt_ba_window_graph`, and `vggt_ba_initialization_diagnostics` for a successful experimental VGGT-BA geometry attempt
+- `vggt_ba_diagnostics` and `vggt_ba_window_graph` for a completed experimental VGGT-BA attempt, including one that used the explicit COLMAP fallback; `vggt_ba_initialization_diagnostics` appears only when VGGT-BA remained the effective source
 - `gaussian_vggt_filtered_model`, `gaussian_vggt_filter_diagnostics`, `gaussian_vggt_filter_mask`, `gaussian_vggt_filtered_evaluation`, `gaussian_vggt_filtered_export_metadata`, `gaussian_vggt_filtered_canonical`, `scene_splat_vggt_filtered`, and `gaussian_vggt_filtered_bundle` for a complete experimental filtered derivative
 
 `collision_mesh` is a low-poly invisible local-physics GLB, not the customer-visible `mesh` or `scene_splat`. `navigation` is the versioned normalized-coordinate boundary/spawn/player contract; `navigation_diagnostics` is its Train-only quality record. The three roles are published together only after source path containment, source/model/config/export hashes, split isolation, schema, topology, triangle/size/time budgets, and GLB integrity pass. Validation/Test IDs must be empty and selected render IDs must be a subset of Train.
@@ -116,9 +119,31 @@ gaussian_geometry_source = colmap | vggt_ba
 gaussian_postprocess = none | vggt_visibility_v1
 ```
 
-Both fields default to the historical behavior (`colmap` and `none`). `vggt_ba` is video-only and research-only. It writes `vggt_ba_diagnostics` and `vggt_ba_window_graph` only after all bounded VGGT windows, local BA, connected robust Sim(3) graph, COLMAP 4 feature/matching/triangulation/global BA, undistortion, and supported-camera checks pass. It has no automatic COLMAP fallback. Metrics include profile, supported cameras/points, elapsed time, trajectory status, and verified nonlocal-edge count. `open_trajectory_unverified` permits an experimental result to finish but explicitly means that no verified nonlocal bridge established loop evidence.
+Both request fields default to the historical behavior (`colmap` and `none`). `vggt_ba` is video-only and research-only. Its local windows classify a frame as strong at 32 or more reliable observations; weak frames do not enter local BA or Sim(3) edge evidence. Each adjacent disconnect receives at most one deterministic recovery window of no more than eight frames, with at least three reliable frames from each side. Existing bounded DINOv2 nonlocal bridge windows remain independent.
 
-For VGGT-BA initialization, the global camera/point solution may use all registered images, matching the existing camera-estimation contract. The Gaussian sparse initializer receives only points with at least two Train observations, recolored from Train observations. `vggt_ba_initialization_diagnostics` records accepted, heldout-only rejected, insufficient-Train-support, mixed-track, and recoloring counts. This does not authorize Validation/Test RGB in training.
+After recovery, only a connected component with at least 12 reliable cameras, at least 70% reliable-camera coverage, at least 80% index-span temporal coverage, finite Sim(3), and non-worsening pose-graph optimization may seed geometry. The seeded path is:
+
+```text
+partial VGGT camera model
+-> COLMAP point_triangulator
+-> COLMAP image_registrator
+-> COLMAP bundle_adjuster
+-> final registration gates
+```
+
+SIFT extraction and exhaustive matching run once for all selected keyframes. Ordinary COLMAP Mapper may reuse that database and those matches only for these three classified quality states:
+
+```text
+vggt_graph_unusable_after_recovery
+vggt_seed_geometry_insufficient
+vggt_registration_gate_failed
+```
+
+There is no broad exception fallback. OOM/CUDA, dependency or checkpoint, non-finite, corrupted-input, I/O, cancellation, unexpected-code, and unclassified subprocess failures remain failed Jobs. A fallback model must pass the same 12-camera/70%/80% gates or the Job fails. Missing verified nonlocal edges remains `open_trajectory_unverified`; it does not trigger fallback and is not loop-closure or bounded-drift evidence.
+
+Completed manifests preserve `gaussian_geometry_source=vggt_ba` as the request and publish `gaussian_geometry_effective_source`, `gaussian_geometry_fallback_applied`, and the nullable allow-listed reason. Fallback Jobs remain viewable and retain VGGT diagnostics, but they are not successful VGGT-BA A/B evidence. Metrics also include profile, supported cameras/points, elapsed time, trajectory status, and verified nonlocal-edge count.
+
+When VGGT-BA remains the effective source, the global camera/point solution may use all registered images, matching the existing camera-estimation contract. The Gaussian sparse initializer receives only points with at least two Train observations, recolored from Train observations. A COLMAP fallback follows ordinary-COLMAP initialization semantics instead. `vggt_ba_initialization_diagnostics` records accepted, heldout-only rejected, insufficient-Train-support, mixed-track, and recoloring counts only for effective VGGT-BA initialization. This does not authorize Validation/Test RGB in training.
 
 `vggt_visibility_v1` is a fail-soft derivative after the immutable Original model has completed Validation and export. It recomputes VGGT depth from at most 64 Train images, aligns each usable depth map to final sparse geometry, and conservatively removes only multi-view free-space contradictions with no surface support or unsupported oversized Gaussians outside every Train capture envelope. The mask records row-aligned keep/reason/support arrays. It does not use Validation/Test to derive deletion decisions, fill holes, create walls, alter Original, retrain, or change navigation geometry.
 

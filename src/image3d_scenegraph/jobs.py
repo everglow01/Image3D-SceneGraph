@@ -233,6 +233,9 @@ class JobStore:
                 gaussian_geometry_source=str(
                     normalized_options["gaussian_geometry_source"]
                 ),
+                gaussian_geometry_effective_source=None,
+                gaussian_geometry_fallback_applied=False,
+                gaussian_geometry_fallback_reason=None,
                 gaussian_postprocess=str(normalized_options["gaussian_postprocess"]),
                 gaussian_postprocess_status=(
                     "pending"
@@ -814,6 +817,18 @@ class JobStore:
             result.update(
                 gaussian_geometry_source=str(
                     options.get("gaussian_geometry_source", "colmap")
+                ),
+                gaussian_geometry_effective_source=str(
+                    metrics.get(
+                        "gaussian_geometry_effective_source",
+                        options.get("gaussian_geometry_source", "colmap"),
+                    )
+                ),
+                gaussian_geometry_fallback_applied=bool(
+                    metrics.get("gaussian_geometry_fallback_applied", False)
+                ),
+                gaussian_geometry_fallback_reason=metrics.get(
+                    "gaussian_geometry_fallback_reason"
                 ),
                 gaussian_postprocess=str(
                     options.get("gaussian_postprocess", "none")

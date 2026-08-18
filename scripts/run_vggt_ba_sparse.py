@@ -15,13 +15,21 @@ from PIL import Image
 
 from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 from image3d_scenegraph.geometry.vggt_ba import (
+    MIN_RELIABLE_CAMERAS,
+    MIN_RELIABLE_CAMERA_RATE,
     MIN_SUPPORTED_OBSERVATIONS,
+    MIN_TEMPORAL_COVERAGE,
+    VGGT_BA_FALLBACK_REASONS,
     VggtBaError,
     bridge_windows,
+    classify_frame_support,
     count_frame_inliers,
     estimate_window_edge,
     merge_window_cameras,
     optimize_window_graph,
+    read_colmap_database_image_ids,
+    recovery_windows,
+    select_reliable_component,
     sequential_windows,
     supported_image_ids,
     write_initial_colmap_model,
@@ -30,7 +38,9 @@ from image3d_scenegraph.geometry.vggt_ba import (
 from scripts.run_colmap_sparse import (
     build_camera_payload,
     colmap_version,
+    find_largest_sparse_model,
     read_ply_vertex_count,
+    read_sparse_model_counts,
 )
 from scripts.run_vggt_pointcloud import load_vggt_model, select_dtype
 
@@ -122,7 +132,6 @@ def main() -> None:
         minimum_index_gap=WINDOW_SIZE * 2,
         maximum_bridges=MAX_BRIDGES,
     )
-    window_specs = [*bases, *bridges]
     write_json(
         work_dir / "profile.json",
         {
@@ -140,30 +149,72 @@ def main() -> None:
 
     write_progress(args.progress_file, "vggt_ba_windows")
     windows: dict[str, dict[int, dict[str, np.ndarray]]] = {}
-    window_records = []
-    rejected_bridges = []
-    for ordinal, spec in enumerate(window_specs):
-        try:
-            cameras, record = process_window(
-                spec,
-                image_paths,
-                descriptors,
-                runtime,
-                windows_dir / spec.window_id,
-                args,
-            )
-        except Exception as exc:
-            if spec.kind == "bridge":
-                rejected_bridges.append(
-                    {"window_id": spec.window_id, "reason": str(exc)}
-                )
-                continue
-            raise
-        windows[spec.window_id] = cameras
+    window_records: list[dict[str, Any]] = []
+    processed_specs = []
+    for spec in bases:
+        cameras, record = process_window(
+            spec,
+            image_paths,
+            descriptors,
+            runtime,
+            windows_dir / spec.window_id,
+            args,
+        )
+        processed_specs.append(spec)
         window_records.append(record)
+        if cameras:
+            windows[spec.window_id] = cameras
         print(
-            f"window={spec.window_id} kind={spec.kind} images={len(spec.image_indices)} "
-            f"progress={ordinal + 1}/{len(window_specs)}",
+            f"window={spec.window_id} kind={spec.kind} status={record['status']} "
+            f"images={len(spec.image_indices)}",
+            flush=True,
+        )
+
+    reliable_by_window = {
+        window_id: set(cameras) for window_id, cameras in windows.items()
+    }
+    usable_bases = [
+        spec for spec in bases if len(reliable_by_window.get(spec.window_id, set())) >= 3
+    ]
+    forced_recovery_pairs = set()
+    for left, right in zip(usable_bases, usable_bases[1:], strict=False):
+        left_cameras = windows[left.window_id]
+        right_cameras = windows[right.window_id]
+        if len(set(left_cameras) & set(right_cameras)) < 3:
+            continue
+        try:
+            estimate_window_edge(
+                left.window_id,
+                right.window_id,
+                {index: camera["extrinsic"] for index, camera in left_cameras.items()},
+                {index: camera["extrinsic"] for index, camera in right_cameras.items()},
+            )
+        except VggtBaError:
+            forced_recovery_pairs.add((left.window_id, right.window_id))
+    recoveries = recovery_windows(
+        bases,
+        reliable_by_window,
+        window_size=WINDOW_SIZE,
+        forced_pairs=forced_recovery_pairs,
+    )
+    if recoveries:
+        write_progress(args.progress_file, "vggt_ba_recovery")
+    for spec in [*recoveries, *bridges]:
+        cameras, record = process_window(
+            spec,
+            image_paths,
+            descriptors,
+            runtime,
+            windows_dir / spec.window_id,
+            args,
+        )
+        processed_specs.append(spec)
+        window_records.append(record)
+        if cameras:
+            windows[spec.window_id] = cameras
+        print(
+            f"window={spec.window_id} kind={spec.kind} status={record['status']} "
+            f"images={len(spec.image_indices)}",
             flush=True,
         )
 
@@ -194,19 +245,63 @@ def main() -> None:
                 edge_rejections.append(
                     {"source": source, "target": target, "reason": str(exc)}
                 )
-    transforms, graph_metrics = optimize_window_graph(window_ids, edges)
-    merged, merge_metrics = merge_window_cameras(windows, transforms)
-    kinds = {spec.window_id: spec.kind for spec in window_specs}
-    loop_edges = [
+    selected_ids, component_metrics = select_reliable_component(
+        windows, edges, len(image_paths)
+    )
+    selected_windows = {
+        window_id: windows[window_id] for window_id in selected_ids
+    }
+    selected_edges = [
         edge
         for edge in edges
+        if edge.source in selected_windows and edge.target in selected_windows
+    ]
+    fallback_reason = None
+    initial_record = None
+    merged: dict[int, dict[str, np.ndarray]] = {}
+    merge_metrics: dict[str, Any] = {"camera_count": 0}
+    if selected_ids:
+        try:
+            transforms, graph_metrics = optimize_window_graph(
+                selected_ids, selected_edges
+            )
+        except VggtBaError as exc:
+            message = str(exc)
+            if not (
+                message.startswith("window pose graph optimization failed:")
+                or message == "window pose graph residual increased"
+            ):
+                raise
+            graph_metrics = {
+                "connected": True,
+                "edge_count": len(selected_edges),
+                "status": "unusable_after_recovery",
+                "reason": message,
+            }
+            fallback_reason = "vggt_graph_unusable_after_recovery"
+        else:
+            merged, merge_metrics = merge_window_cameras(
+                selected_windows, transforms
+            )
+    else:
+        graph_metrics = {
+            "connected": False,
+            "edge_count": len(edges),
+            "status": "unusable_after_recovery",
+        }
+        fallback_reason = "vggt_graph_unusable_after_recovery"
+
+    kinds = {spec.window_id: spec.kind for spec in processed_specs}
+    loop_edges = [
+        edge
+        for edge in selected_edges
         if kinds.get(edge.source) == "bridge" or kinds.get(edge.target) == "bridge"
     ]
     graph_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": PROFILE_ID,
         "windows": window_records,
-        "rejected_bridges": rejected_bridges,
+        "recovery_attempt_count": len(recoveries),
         "edges": [
             {
                 "source": edge.source,
@@ -219,6 +314,8 @@ def main() -> None:
             for edge in edges
         ],
         "rejected_edges": edge_rejections,
+        "component_selection": component_metrics,
+        "selected_window_ids": selected_ids,
         "graph": graph_metrics,
         "merge": merge_metrics,
         "verified_nonlocal_edge_count": len(loop_edges),
@@ -232,9 +329,6 @@ def main() -> None:
     image_sizes = {
         index: Image.open(path).size for index, path in enumerate(image_paths)
     }
-    initial_record = write_initial_colmap_model(
-        work_dir / "initial_model", image_names, merged, image_sizes
-    )
 
     write_progress(args.progress_file, "vggt_ba_feature_extraction")
     command_logs: list[str] = []
@@ -271,56 +365,166 @@ def main() -> None:
             ]
         )
     )
-    write_progress(args.progress_file, "vggt_ba_global_triangulation")
-    triangulated_dir = work_dir / "triangulated"
-    triangulated_dir.mkdir()
-    command_logs.append(
-        run_command(
-            [
-                colmap,
-                "point_triangulator",
-                "--database_path",
-                str(database_path),
-                "--image_path",
-                str(args.image_dir),
-                "--input_path",
-                str(work_dir / "initial_model"),
-                "--output_path",
-                str(triangulated_dir),
-                "--clear_points",
-                "1",
-                "--refine_intrinsics",
-                "1",
-                "--Mapper.num_threads",
-                str(args.num_threads),
-                "--Mapper.ba_global_function_tolerance",
-                "0.000001",
-            ]
+    image_ids_by_name = read_colmap_database_image_ids(database_path)
+    image_index_by_name = {
+        name: index for index, name in enumerate(image_names)
+    }
+    if set(image_ids_by_name) != set(image_index_by_name):
+        raise RuntimeError(
+            "COLMAP database image names do not match the selected inputs"
         )
-    )
-    write_progress(args.progress_file, "vggt_ba_global_bundle_adjustment")
-    bundled_dir = work_dir / "global_model"
-    bundled_dir.mkdir()
-    command_logs.append(
-        run_command(
-            [
-                colmap,
-                "bundle_adjuster",
-                "--input_path",
-                str(triangulated_dir),
-                "--output_path",
-                str(bundled_dir),
-                "--BundleAdjustment.refine_focal_length",
-                "1",
-                "--BundleAdjustment.refine_principal_point",
-                "0",
-                "--BundleAdjustment.refine_extra_params",
-                "1",
-                "--BundleAdjustmentCeres.function_tolerance",
-                "0.000001",
-            ]
+    image_index_by_id = {
+        image_id: image_index_by_name[name]
+        for name, image_id in image_ids_by_name.items()
+    }
+    final_model: Path | None = None
+    seeded_registration = None
+    if fallback_reason is None:
+        initial_record = write_initial_colmap_model(
+            work_dir / "initial_model",
+            image_names,
+            merged,
+            image_sizes,
+            image_ids_by_name=image_ids_by_name,
         )
-    )
+        write_progress(args.progress_file, "vggt_ba_global_triangulation")
+        triangulated_dir = work_dir / "triangulated"
+        triangulated_dir.mkdir()
+        command_logs.append(
+            run_command(
+                [
+                    colmap,
+                    "point_triangulator",
+                    "--database_path",
+                    str(database_path),
+                    "--image_path",
+                    str(args.image_dir),
+                    "--input_path",
+                    str(work_dir / "initial_model"),
+                    "--output_path",
+                    str(triangulated_dir),
+                    "--clear_points",
+                    "1",
+                    "--refine_intrinsics",
+                    "1",
+                    "--Mapper.num_threads",
+                    str(args.num_threads),
+                    "--Mapper.ba_global_function_tolerance",
+                    "0.000001",
+                ]
+            )
+        )
+        _triangulated_images, triangulated_points = read_sparse_model_counts(
+            triangulated_dir
+        )
+        if triangulated_points == 0:
+            fallback_reason = "vggt_seed_geometry_insufficient"
+        else:
+            write_progress(args.progress_file, "vggt_ba_image_registration")
+            registered_dir = work_dir / "registered_model"
+            registered_dir.mkdir()
+            command_logs.append(
+                run_command(
+                    [
+                        colmap,
+                        "image_registrator",
+                        "--database_path",
+                        str(database_path),
+                        "--input_path",
+                        str(triangulated_dir),
+                        "--output_path",
+                        str(registered_dir),
+                    ]
+                )
+            )
+            write_progress(
+                args.progress_file, "vggt_ba_global_bundle_adjustment"
+            )
+            bundled_dir = work_dir / "global_model"
+            bundled_dir.mkdir()
+            command_logs.append(
+                run_command(
+                    [
+                        colmap,
+                        "bundle_adjuster",
+                        "--input_path",
+                        str(registered_dir),
+                        "--output_path",
+                        str(bundled_dir),
+                        "--BundleAdjustment.refine_focal_length",
+                        "1",
+                        "--BundleAdjustment.refine_principal_point",
+                        "0",
+                        "--BundleAdjustment.refine_extra_params",
+                        "1",
+                        "--BundleAdjustmentCeres.function_tolerance",
+                        "0.000001",
+                    ]
+                )
+            )
+            seeded_text = work_dir / "global_model_txt"
+            seeded_registration = inspect_model_registration(
+                colmap,
+                bundled_dir,
+                seeded_text,
+                image_index_by_id,
+                len(image_paths),
+                command_logs,
+            )
+            if seeded_registration["usable"]:
+                final_model = bundled_dir
+            else:
+                fallback_reason = "vggt_registration_gate_failed"
+
+    fallback_applied = fallback_reason is not None
+    effective_source = "vggt_ba"
+    fallback_registration = None
+    if fallback_applied:
+        if fallback_reason not in VGGT_BA_FALLBACK_REASONS:
+            raise RuntimeError(
+                f"unclassified VGGT-BA fallback reason: {fallback_reason}"
+            )
+        write_progress(args.progress_file, "colmap_fallback_mapping")
+        fallback_sparse = work_dir / "fallback_sparse"
+        fallback_sparse.mkdir()
+        command_logs.append(
+            run_command(
+                [
+                    colmap,
+                    "mapper",
+                    "--database_path",
+                    str(database_path),
+                    "--image_path",
+                    str(args.image_dir),
+                    "--output_path",
+                    str(fallback_sparse),
+                    "--Mapper.num_threads",
+                    str(args.num_threads),
+                    "--Mapper.ba_global_function_tolerance",
+                    "0.000001",
+                ]
+            )
+        )
+        final_model, _registered_images, _sparse_points = find_largest_sparse_model(
+            fallback_sparse
+        )
+        fallback_registration = inspect_model_registration(
+            colmap,
+            final_model,
+            work_dir / "fallback_model_txt",
+            image_index_by_id,
+            len(image_paths),
+            command_logs,
+        )
+        if not fallback_registration["usable"]:
+            raise RuntimeError(
+                "ordinary COLMAP fallback failed the final registration gates: "
+                f"{fallback_registration}"
+            )
+        effective_source = "colmap"
+
+    if final_model is None:
+        raise RuntimeError("geometry state machine did not produce a final COLMAP model")
 
     write_progress(args.progress_file, "colmap_undistortion")
     undistorted_dir = colmap_dir / "undistorted"
@@ -332,7 +536,7 @@ def main() -> None:
                 "--image_path",
                 str(args.image_dir),
                 "--input_path",
-                str(bundled_dir),
+                str(final_model),
                 "--output_path",
                 str(undistorted_dir),
                 "--output_type",
@@ -384,20 +588,29 @@ def main() -> None:
     ]
     if len(camera_payload["images"]) < 12:
         raise RuntimeError(
-            f"VGGT-BA global model has only {len(camera_payload['images'])} geometrically supported cameras"
+            f"final COLMAP model has only {len(camera_payload['images'])} geometrically supported cameras"
         )
     write_json(geometry_dir / "cameras.json", camera_payload)
 
+    graph_payload["effective_geometry_source"] = effective_source
+    graph_payload["fallback_applied"] = fallback_applied
+    graph_payload["fallback_reason"] = fallback_reason
+    write_json(work_dir / "window_graph.json", graph_payload)
     elapsed = time.perf_counter() - started_at
     diagnostics = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": PROFILE_ID,
         "geometry_source": "vggt_ba",
+        "effective_geometry_source": effective_source,
+        "fallback_applied": fallback_applied,
+        "fallback_reason": fallback_reason,
         "input_count": len(image_paths),
         "supported_camera_count": len(camera_payload["images"]),
         "supported_camera_rate": len(camera_payload["images"]) / len(image_paths),
         "point_count": read_ply_vertex_count(points_ply),
         "initial_camera": initial_record,
+        "seeded_registration": seeded_registration,
+        "fallback_registration": fallback_registration,
         "window_graph": graph_payload,
         "colmap_executable": colmap,
         "colmap_build": colmap_version(colmap),
@@ -410,6 +623,9 @@ def main() -> None:
         "\n".join(
             [
                 "geometry_source=vggt_ba",
+                f"effective_geometry_source={effective_source}",
+                f"fallback_applied={str(fallback_applied).lower()}",
+                f"fallback_reason={fallback_reason or 'none'}",
                 f"profile={PROFILE_ID}",
                 f"input_count={len(image_paths)}",
                 f"supported_camera_count={len(camera_payload['images'])}",
@@ -424,6 +640,8 @@ def main() -> None:
     )
     print(f"supported_cameras={len(camera_payload['images'])}")
     print(f"num_points={diagnostics['point_count']}")
+    print(f"effective_geometry_source={effective_source}")
+    print(f"fallback_reason={fallback_reason or 'none'}")
     print(f"trajectory_status={graph_payload['trajectory_status']}")
 
 
@@ -433,6 +651,57 @@ def discover_images(image_dir: Path) -> list[Path]:
         for path in sorted(image_dir.rglob("*"))
         if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
     ]
+
+
+def inspect_model_registration(
+    colmap: str,
+    model_dir: Path,
+    text_dir: Path,
+    image_index_by_id: dict[int, int],
+    image_count: int,
+    command_logs: list[str],
+) -> dict[str, Any]:
+    text_dir.mkdir()
+    command_logs.append(
+        run_command(
+            [
+                colmap,
+                "model_converter",
+                "--input_path",
+                str(model_dir),
+                "--output_path",
+                str(text_dir),
+                "--output_type",
+                "TXT",
+            ]
+        )
+    )
+    supported = supported_image_ids(
+        text_dir / "images.txt",
+        minimum_observations=MIN_SUPPORTED_OBSERVATIONS,
+    )
+    unknown = supported - set(image_index_by_id)
+    if unknown:
+        raise RuntimeError(
+            f"COLMAP model references unknown database image IDs: {sorted(unknown)}"
+        )
+    indices = sorted(image_index_by_id[image_id] for image_id in supported)
+    camera_rate = len(indices) / image_count
+    temporal_coverage = (
+        (indices[-1] - indices[0] + 1) / image_count if indices else 0.0
+    )
+    return {
+        "supported_camera_count": len(indices),
+        "supported_camera_rate": camera_rate,
+        "temporal_coverage": temporal_coverage,
+        "first_image_index": indices[0] if indices else None,
+        "last_image_index": indices[-1] if indices else None,
+        "usable": (
+            len(indices) >= MIN_RELIABLE_CAMERAS
+            and camera_rate >= MIN_RELIABLE_CAMERA_RATE
+            and temporal_coverage >= MIN_TEMPORAL_COVERAGE
+        ),
+    }
 
 
 def validate_runtime(args: argparse.Namespace) -> None:
@@ -634,68 +903,131 @@ def process_window(
         intrinsic_np,
     )
     reprojection_errors = np.linalg.norm(projected_points - tracks_np, axis=-1)
-    mask = np.logical_and(visibility_np > 0.2, reprojection_errors < 8.0)
+    visibility_mask = visibility_np > 0.2
+    reprojection_mask = reprojection_errors < 8.0
+    mask = np.logical_and(visibility_mask, reprojection_mask)
+    visibility_counts = count_frame_inliers(visibility_mask)
+    reprojection_counts = count_frame_inliers(reprojection_mask)
     inlier_counts = count_frame_inliers(mask)
+    strong_local, weak_local = classify_frame_support(inlier_counts)
+    strong_global = [spec.image_indices[index] for index in strong_local]
+    weak_global = [spec.image_indices[index] for index in weak_local]
     print(
         f"window={spec.window_id} inliers_per_frame={inlier_counts}",
         flush=True,
     )
-    reconstruction, _valid = batch_np_matrix_to_pycolmap(
-        points_np,
-        extrinsic_np,
-        intrinsic_np,
-        tracks_np,
-        np.array([1024, 1024]),
-        masks=mask,
-        shared_camera=False,
-        camera_type="SIMPLE_PINHOLE",
-        min_inlier_per_frame=MIN_SUPPORTED_OBSERVATIONS,
-        points_rgb=colors_np,
-    )
-    if reconstruction is None:
-        raise RuntimeError(
-            f"{spec.window_id} has fewer than {MIN_SUPPORTED_OBSERVATIONS} "
-            f"track inliers in at least one frame: {inlier_counts}"
-        )
-    before = reconstruction.compute_mean_reprojection_error()
-    options = pycolmap.BundleAdjustmentOptions()
-    pycolmap.bundle_adjustment(reconstruction, options)
-    after = reconstruction.compute_mean_reprojection_error()
-    if not np.isfinite(after) or after > before * 1.05 + 1e-6:
-        raise RuntimeError(
-            f"{spec.window_id} local BA reprojection increased: {before} -> {after}"
-        )
-    reconstruction = restore_original_coordinates(
-        reconstruction,
-        [path.name for path in paths],
-        original_coords.detach().cpu().numpy(),
-        1024,
-    )
     output_dir.mkdir(parents=True, exist_ok=False)
-    reconstruction.write(output_dir)
-    cameras: dict[int, dict[str, np.ndarray]] = {}
-    for local_index, global_index in enumerate(spec.image_indices):
-        image = reconstruction.images[local_index + 1]
-        camera = reconstruction.cameras[image.camera_id]
-        cameras[global_index] = {
-            "extrinsic": np.asarray(image.cam_from_world.matrix(), dtype=np.float64)[:3, :4],
-            "intrinsic": np.asarray(camera.calibration_matrix(), dtype=np.float64),
-        }
-    elapsed = time.perf_counter() - started
     record = {
         "window_id": spec.window_id,
         "kind": spec.kind,
         "image_indices": list(spec.image_indices),
         "image_names": [path.name for path in paths],
         "query_indices": query_indices,
+        "visibility_per_frame": visibility_counts,
+        "reprojection_pass_per_frame": reprojection_counts,
         "inliers_per_frame": inlier_counts,
+        "strong_image_indices": strong_global,
+        "weak_image_indices": weak_global,
         "minimum_inliers_per_frame": MIN_SUPPORTED_OBSERVATIONS,
-        "point_count": len(reconstruction.points3D),
         "track_count": int(tracks_np.shape[1]),
-        "mean_reprojection_before": float(before),
-        "mean_reprojection_after": float(after),
-        "elapsed_seconds": elapsed,
     }
+    if len(strong_local) < 3:
+        record.update(
+            {
+                "status": "rejected",
+                "reason": "fewer_than_three_reliable_cameras",
+                "point_count": 0,
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        write_json(output_dir / "window.json", record)
+        del images, fmaps
+        if runtime["device"].type == "cuda":
+            torch.cuda.empty_cache()
+        return {}, record
+
+    strong_array = np.asarray(strong_local, dtype=np.int64)
+    reconstruction, _valid = batch_np_matrix_to_pycolmap(
+        points_np,
+        extrinsic_np[strong_array],
+        intrinsic_np[strong_array],
+        tracks_np[strong_array],
+        np.array([1024, 1024]),
+        masks=mask[strong_array],
+        shared_camera=False,
+        camera_type="SIMPLE_PINHOLE",
+        min_inlier_per_frame=0,
+        points_rgb=colors_np,
+    )
+    if reconstruction is None or len(reconstruction.points3D) == 0:
+        record.update(
+            {
+                "status": "rejected",
+                "reason": "no_shared_reliable_track_geometry",
+                "point_count": 0,
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        write_json(output_dir / "window.json", record)
+        del images, fmaps
+        if runtime["device"].type == "cuda":
+            torch.cuda.empty_cache()
+        return {}, record
+    before = reconstruction.compute_mean_reprojection_error()
+    if not np.isfinite(before):
+        raise RuntimeError(
+            f"{spec.window_id} local BA input reprojection is non-finite"
+        )
+    options = pycolmap.BundleAdjustmentOptions()
+    pycolmap.bundle_adjustment(reconstruction, options)
+    after = reconstruction.compute_mean_reprojection_error()
+    if not np.isfinite(after):
+        raise RuntimeError(f"{spec.window_id} local BA produced non-finite reprojection")
+    if after > before * 1.05 + 1e-6:
+        record.update(
+            {
+                "status": "rejected",
+                "reason": "local_ba_reprojection_increased",
+                "point_count": len(reconstruction.points3D),
+                "mean_reprojection_before": float(before),
+                "mean_reprojection_after": float(after),
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        write_json(output_dir / "window.json", record)
+        del images, fmaps
+        if runtime["device"].type == "cuda":
+            torch.cuda.empty_cache()
+        return {}, record
+    reconstruction = restore_original_coordinates(
+        reconstruction,
+        [paths[index].name for index in strong_local],
+        original_coords.detach().cpu().numpy()[strong_array],
+        1024,
+    )
+    reconstruction.write(output_dir)
+    cameras: dict[int, dict[str, np.ndarray]] = {}
+    for ba_index, local_index in enumerate(strong_local):
+        global_index = spec.image_indices[local_index]
+        image = reconstruction.images[ba_index + 1]
+        camera = reconstruction.cameras[image.camera_id]
+        cameras[global_index] = {
+            "extrinsic": np.asarray(
+                image.cam_from_world.matrix(), dtype=np.float64
+            )[:3, :4],
+            "intrinsic": np.asarray(camera.calibration_matrix(), dtype=np.float64),
+        }
+    elapsed = time.perf_counter() - started
+    record.update(
+        {
+            "status": "accepted",
+            "reason": None,
+            "point_count": len(reconstruction.points3D),
+            "mean_reprojection_before": float(before),
+            "mean_reprojection_after": float(after),
+            "elapsed_seconds": elapsed,
+        }
+    )
     write_json(output_dir / "window.json", record)
     del images, fmaps
     if runtime["device"].type == "cuda":

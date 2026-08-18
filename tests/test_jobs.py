@@ -44,6 +44,36 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
     ]
 
 
+def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallback(
+    tmp_path,
+):
+    progress_path = tmp_path / "progress.json"
+    updates = []
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="video",
+        input_assets=[],
+        options={},
+        progress_callback=lambda stage, progress: updates.append((stage, progress)),
+    )
+    poll = ProjectGaussianAdapter._vggt_ba_progress_callback(context, progress_path)
+
+    for stage in (
+        "vggt_ba_recovery",
+        "vggt_ba_image_registration",
+        "colmap_fallback_mapping",
+    ):
+        progress_path.write_text(json.dumps({"stage": stage}), encoding="utf-8")
+        poll()
+
+    assert updates == [
+        ("vggt_ba_recovery", 0.20),
+        ("vggt_ba_image_registration", 0.295),
+        ("colmap_fallback_mapping", 0.30),
+    ]
+
+
 def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     tmp_path, monkeypatch
 ):
@@ -329,6 +359,9 @@ def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
     assert request["options"]["gaussian_geometry_source"] == "colmap"
     assert request["options"]["gaussian_postprocess"] == "none"
     assert manifest["gaussian_geometry_source"] == "colmap"
+    assert manifest["gaussian_geometry_effective_source"] is None
+    assert manifest["gaussian_geometry_fallback_applied"] is False
+    assert manifest["gaussian_geometry_fallback_reason"] is None
     assert manifest["gaussian_postprocess"] == "none"
     assert manifest["gaussian_postprocess_status"] == "not_requested"
 
@@ -351,6 +384,9 @@ def test_project_gaussian_job_persists_experimental_options(tmp_path):
     assert request["options"]["gaussian_geometry_source"] == "vggt_ba"
     assert request["options"]["gaussian_postprocess"] == "vggt_visibility_v1"
     assert manifest["gaussian_geometry_source"] == "vggt_ba"
+    assert manifest["gaussian_geometry_effective_source"] is None
+    assert manifest["gaussian_geometry_fallback_applied"] is False
+    assert manifest["gaussian_geometry_fallback_reason"] is None
     assert manifest["gaussian_postprocess"] == "vggt_visibility_v1"
     assert manifest["gaussian_postprocess_status"] == "pending"
 

@@ -112,11 +112,14 @@ class ProjectGaussianAdapter:
         progress_by_stage = {
             "vggt_ba_descriptors": 0.14,
             "vggt_ba_windows": 0.18,
+            "vggt_ba_recovery": 0.20,
             "vggt_ba_pose_graph": 0.22,
             "vggt_ba_feature_extraction": 0.25,
             "vggt_ba_feature_matching": 0.27,
-            "vggt_ba_global_triangulation": 0.29,
+            "vggt_ba_global_triangulation": 0.285,
+            "vggt_ba_image_registration": 0.295,
             "vggt_ba_global_bundle_adjustment": 0.30,
+            "colmap_fallback_mapping": 0.30,
             "colmap_undistortion": 0.31,
         }
         last_stage: str | None = None
@@ -250,6 +253,8 @@ class ProjectGaussianAdapter:
         geometry_assets: dict[str, str] = {}
         geometry_metrics: dict[str, int | float | str | bool] = {
             "gaussian_geometry_source": geometry_source,
+            "gaussian_geometry_effective_source": geometry_source,
+            "gaussian_geometry_fallback_applied": False,
         }
         if geometry_source == "colmap":
             progress_path = context.job_dir / "colmap" / "progress.json"
@@ -344,6 +349,32 @@ class ProjectGaussianAdapter:
                 raise ReconstructionError("VGGT-BA geometry diagnostics are incomplete")
             diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
             graph = diagnostics["window_graph"]
+            effective_geometry_source = str(
+                diagnostics.get("effective_geometry_source", "vggt_ba")
+            )
+            fallback_applied = bool(diagnostics.get("fallback_applied", False))
+            fallback_reason = diagnostics.get("fallback_reason")
+            allowed_fallback_reasons = {
+                "vggt_graph_unusable_after_recovery",
+                "vggt_seed_geometry_insufficient",
+                "vggt_registration_gate_failed",
+            }
+            if effective_geometry_source not in {"vggt_ba", "colmap"}:
+                raise ReconstructionError(
+                    "VGGT-BA diagnostics contain an invalid effective geometry source"
+                )
+            if fallback_applied != (effective_geometry_source == "colmap"):
+                raise ReconstructionError(
+                    "VGGT-BA diagnostics contain inconsistent fallback state"
+                )
+            if fallback_applied and fallback_reason not in allowed_fallback_reasons:
+                raise ReconstructionError(
+                    "VGGT-BA diagnostics contain an unclassified fallback reason"
+                )
+            if not fallback_applied and fallback_reason is not None:
+                raise ReconstructionError(
+                    "VGGT-BA diagnostics contain a fallback reason without fallback"
+                )
             geometry_assets = {
                 "vggt_ba_diagnostics": diagnostics_path.relative_to(
                     context.job_dir
@@ -353,6 +384,8 @@ class ProjectGaussianAdapter:
                 ).as_posix(),
             }
             geometry_metrics.update(
+                gaussian_geometry_effective_source=effective_geometry_source,
+                gaussian_geometry_fallback_applied=fallback_applied,
                 vggt_ba_profile=str(diagnostics["profile"]),
                 vggt_ba_supported_camera_count=int(
                     diagnostics["supported_camera_count"]
@@ -364,6 +397,10 @@ class ProjectGaussianAdapter:
                 ),
                 vggt_ba_elapsed_seconds=float(diagnostics["elapsed_seconds"]),
             )
+            if fallback_applied:
+                geometry_metrics["gaussian_geometry_fallback_reason"] = str(
+                    fallback_reason
+                )
         temporal_timestamps: dict[str, float] | None = None
         if video_selection is not None:
             registration_path = context.job_dir / "diagnostics" / "video_registration.json"
@@ -387,7 +424,7 @@ class ProjectGaussianAdapter:
         )
         write_contract(dataset_path, contract)
         training_points_path = points_path
-        if geometry_source == "vggt_ba":
+        if geometry_metrics["gaussian_geometry_effective_source"] == "vggt_ba":
             try:
                 from image3d_scenegraph.geometry.vggt_ba import (
                     filter_train_supported_points,
@@ -625,6 +662,16 @@ class ProjectGaussianAdapter:
             "adapter=ProjectGaussianAdapter",
             f"gaussian_trainer={trainer_id}",
             f"gaussian_geometry_source={geometry_source}",
+            f"gaussian_geometry_effective_source={geometry_metrics['gaussian_geometry_effective_source']}",
+            f"gaussian_geometry_fallback_applied={str(geometry_metrics['gaussian_geometry_fallback_applied']).lower()}",
+            *(
+                [
+                    "gaussian_geometry_fallback_reason="
+                    + str(geometry_metrics["gaussian_geometry_fallback_reason"])
+                ]
+                if "gaussian_geometry_fallback_reason" in geometry_metrics
+                else []
+            ),
             f"gaussian_test_status={test_status}",
             f"gaussian_test_reason={test_reason}",
             f"gaussian_postprocess={postprocess}",

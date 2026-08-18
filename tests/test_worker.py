@@ -129,6 +129,51 @@ def test_workspace_copies_inputs_for_dataset_root_integrity(tmp_path, monkeypatc
     assert (store.job_dir(queued["job_id"]) / "input" / "images" / "room.jpg").is_file()
 
 
+def test_completed_gaussian_manifest_publishes_geometry_fallback_provenance(
+    tmp_path, monkeypatch
+):
+    store = JobStore(tmp_path / "jobs")
+    queued = store.enqueue_job(
+        "video",
+        [UploadedInput(filename="room.mp4", content=b"video")],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"gaussian_geometry_source": "vggt_ba"},
+    )
+
+    class FallbackAdapter:
+        def run(self, _context):
+            return ReconstructionResult(
+                "gaussian_export",
+                {},
+                {
+                    "gaussian_geometry_source": "vggt_ba",
+                    "gaussian_geometry_effective_source": "colmap",
+                    "gaussian_geometry_fallback_applied": True,
+                    "gaussian_geometry_fallback_reason": (
+                        "vggt_graph_unusable_after_recovery"
+                    ),
+                },
+                [],
+            )
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.get_reconstruction_adapter",
+        lambda *_: FallbackAdapter(),
+    )
+
+    done = store.execute_job(queued["job_id"])
+
+    assert done["status"] == "done"
+    assert done["gaussian_geometry_source"] == "vggt_ba"
+    assert done["gaussian_geometry_effective_source"] == "colmap"
+    assert done["gaussian_geometry_fallback_applied"] is True
+    assert (
+        done["gaussian_geometry_fallback_reason"]
+        == "vggt_graph_unusable_after_recovery"
+    )
+
+
 def test_running_cancellation_preserves_partial_workspace(tmp_path, monkeypatch):
     store = JobStore(tmp_path / "jobs")
     queued = store.enqueue_job("image", upload())

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import sqlite3
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,16 @@ from scipy.spatial.transform import Rotation
 
 
 MIN_SUPPORTED_OBSERVATIONS = 32
+MIN_RELIABLE_CAMERAS = 12
+MIN_RELIABLE_CAMERA_RATE = 0.70
+MIN_TEMPORAL_COVERAGE = 0.80
+VGGT_BA_FALLBACK_REASONS = frozenset(
+    {
+        "vggt_graph_unusable_after_recovery",
+        "vggt_seed_geometry_insufficient",
+        "vggt_registration_gate_failed",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -124,6 +135,139 @@ def bridge_windows(
         bridges.append(WindowSpec(f"bridge-{len(bridges):04d}", members, "bridge"))
         used_pairs.add(pair)
     return bridges
+
+
+def classify_frame_support(
+    inlier_counts: list[int],
+    *,
+    minimum_observations: int = MIN_SUPPORTED_OBSERVATIONS,
+) -> tuple[list[int], list[int]]:
+    if minimum_observations < 1 or any(count < 0 for count in inlier_counts):
+        raise VggtBaError(
+            "frame support counts must be non-negative and threshold must be positive"
+        )
+    strong = [index for index, count in enumerate(inlier_counts) if count >= minimum_observations]
+    weak = [index for index, count in enumerate(inlier_counts) if count < minimum_observations]
+    return strong, weak
+
+
+def recovery_windows(
+    base_windows: list[WindowSpec],
+    reliable_indices: dict[str, set[int]],
+    *,
+    window_size: int = 8,
+    minimum_side_frames: int = 3,
+    forced_pairs: set[tuple[str, str]] | None = None,
+) -> list[WindowSpec]:
+    if window_size < minimum_side_frames * 2:
+        raise VggtBaError("recovery window cannot hold both reliable sides")
+    usable = [
+        window
+        for window in base_windows
+        if len(reliable_indices.get(window.window_id, set())) >= minimum_side_frames
+    ]
+    recoveries = []
+    forced = forced_pairs or set()
+    side_count = window_size // 2
+    for left, right in zip(usable, usable[1:], strict=False):
+        pair = (left.window_id, right.window_id)
+        left_reliable = set(reliable_indices[left.window_id])
+        right_reliable = set(reliable_indices[right.window_id])
+        shared = left_reliable & right_reliable
+        if len(shared) >= minimum_side_frames and pair not in forced:
+            continue
+        left_candidates = [
+            *sorted(left_reliable - right_reliable, reverse=True),
+            *sorted(shared, reverse=True),
+        ]
+        right_candidates = [
+            *sorted(right_reliable - left_reliable),
+            *sorted(shared),
+        ]
+        left_members = tuple(left_candidates[:side_count])
+        right_members = tuple(right_candidates[:side_count])
+        members = tuple(sorted(set(left_members + right_members)))
+        if len(set(members) & left_reliable) < minimum_side_frames:
+            continue
+        if len(set(members) & right_reliable) < minimum_side_frames:
+            continue
+        if len(members) < minimum_side_frames * 2:
+            continue
+        recoveries.append(
+            WindowSpec(f"recovery-{len(recoveries):04d}", members, "recovery")
+        )
+    return recoveries
+
+
+def select_reliable_component(
+    windows: dict[str, dict[int, dict[str, np.ndarray]]],
+    edges: list[WindowEdge],
+    image_count: int,
+    *,
+    minimum_camera_count: int = MIN_RELIABLE_CAMERAS,
+    minimum_camera_rate: float = MIN_RELIABLE_CAMERA_RATE,
+    minimum_temporal_coverage: float = MIN_TEMPORAL_COVERAGE,
+) -> tuple[list[str], dict[str, Any]]:
+    if image_count < 1:
+        raise VggtBaError("component selection requires at least one image")
+    adjacency = {window_id: set() for window_id in windows}
+    for edge in edges:
+        if edge.source not in adjacency or edge.target not in adjacency:
+            raise VggtBaError("window edge references an unknown window")
+        adjacency[edge.source].add(edge.target)
+        adjacency[edge.target].add(edge.source)
+    remaining = set(windows)
+    records = []
+    while remaining:
+        first = min(remaining)
+        component = set()
+        queue = deque([first])
+        while queue:
+            window_id = queue.popleft()
+            if window_id in component:
+                continue
+            component.add(window_id)
+            remaining.discard(window_id)
+            queue.extend(sorted(adjacency[window_id] - component))
+        image_indices = sorted(
+            {index for window_id in component for index in windows[window_id]}
+        )
+        camera_rate = len(image_indices) / image_count
+        temporal_coverage = (
+            (image_indices[-1] - image_indices[0] + 1) / image_count
+            if image_indices
+            else 0.0
+        )
+        records.append(
+            {
+                "window_ids": sorted(component),
+                "reliable_camera_count": len(image_indices),
+                "reliable_camera_rate": camera_rate,
+                "temporal_coverage": temporal_coverage,
+                "first_image_index": image_indices[0] if image_indices else None,
+                "last_image_index": image_indices[-1] if image_indices else None,
+                "usable": (
+                    len(image_indices) >= minimum_camera_count
+                    and camera_rate >= minimum_camera_rate
+                    and temporal_coverage >= minimum_temporal_coverage
+                ),
+            }
+        )
+    records.sort(
+        key=lambda record: (
+            -record["reliable_camera_count"],
+            -record["temporal_coverage"],
+            record["window_ids"],
+        )
+    )
+    selected = next((record for record in records if record["usable"]), None)
+    return (list(selected["window_ids"]) if selected else []), {
+        "minimum_camera_count": minimum_camera_count,
+        "minimum_camera_rate": minimum_camera_rate,
+        "minimum_temporal_coverage": minimum_temporal_coverage,
+        "components": records,
+        "selected": selected,
+    }
 
 
 def estimate_window_edge(
@@ -321,14 +465,19 @@ def write_initial_colmap_model(
     image_names: list[str],
     cameras: dict[int, dict[str, np.ndarray]],
     image_sizes: dict[int, tuple[int, int]],
+    *,
+    image_ids_by_name: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    if set(cameras) != set(range(len(image_names))):
-        raise VggtBaError("global camera model does not cover every image")
-    sizes = {image_sizes[index] for index in range(len(image_names))}
+    camera_indices = sorted(cameras)
+    if not camera_indices:
+        raise VggtBaError("global camera model is empty")
+    if any(index < 0 or index >= len(image_names) for index in camera_indices):
+        raise VggtBaError("global camera model references an unknown image")
+    sizes = {image_sizes[index] for index in camera_indices}
     if len(sizes) != 1:
         raise VggtBaError("video VGGT-BA requires one shared image size")
     width, height = next(iter(sizes))
-    intrinsics = np.stack([cameras[index]["intrinsic"] for index in range(len(image_names))])
+    intrinsics = np.stack([cameras[index]["intrinsic"] for index in camera_indices])
     fx = float(np.median(intrinsics[:, 0, 0]))
     fy = float(np.median(intrinsics[:, 1, 1]))
     cx = float(np.median(intrinsics[:, 0, 2]))
@@ -342,13 +491,22 @@ def write_initial_colmap_model(
         encoding="utf-8",
     )
     image_rows = ["# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME"]
-    for image_index, name in enumerate(image_names):
+    image_ids = image_ids_by_name or {
+        name: index + 1 for index, name in enumerate(image_names)
+    }
+    selected_ids = [image_ids.get(image_names[index]) for index in camera_indices]
+    if any(image_id is None or image_id < 1 for image_id in selected_ids):
+        raise VggtBaError("COLMAP database does not contain every reliable image")
+    if len(set(selected_ids)) != len(selected_ids):
+        raise VggtBaError("COLMAP database image IDs must be unique")
+    for image_index, image_id in zip(camera_indices, selected_ids, strict=True):
+        name = image_names[image_index]
         extrinsic = np.asarray(cameras[image_index]["extrinsic"], dtype=np.float64)
         qvec = rotmat_to_qvec(extrinsic[:3, :3])
         tvec = extrinsic[:3, 3]
         image_rows.extend(
             (
-                f"{image_index + 1} {' '.join(f'{value:.17g}' for value in qvec)} "
+                f"{image_id} {' '.join(f'{value:.17g}' for value in qvec)} "
                 f"{' '.join(f'{value:.17g}' for value in tvec)} 1 {name}",
                 "",
             )
@@ -367,6 +525,7 @@ def write_initial_colmap_model(
     return {
         "camera_model": "OPENCV",
         "shared_camera": True,
+        "camera_count": len(camera_indices),
         "width": width,
         "height": height,
         "fx": fx,
@@ -471,6 +630,15 @@ def filter_train_supported_points(
 
 def count_frame_inliers(mask: np.ndarray) -> list[int]:
     return np.asarray(mask, dtype=bool).sum(axis=1).astype(int).tolist()
+
+
+def read_colmap_database_image_ids(database_path: Path) -> dict[str, int]:
+    with sqlite3.connect(database_path) as connection:
+        rows = connection.execute("SELECT name, image_id FROM images").fetchall()
+    result = {str(name): int(image_id) for name, image_id in rows}
+    if len(result) != len(rows):
+        raise VggtBaError("COLMAP database contains duplicate image names")
+    return result
 
 
 def supported_image_ids(
