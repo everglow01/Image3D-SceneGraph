@@ -26,7 +26,7 @@ def test_ten_minute_video_limits() -> None:
     assert target_keyframe_count(360) == 720
     assert target_keyframe_count(600) == MAX_KEYFRAMES == 800
     assert target_keyframe_count(606) == 800
-    assert MAX_CANDIDATES == 2_424
+    assert MAX_CANDIDATES == 7_272
 
 
 def test_frame_quality_and_selection_are_bounded() -> None:
