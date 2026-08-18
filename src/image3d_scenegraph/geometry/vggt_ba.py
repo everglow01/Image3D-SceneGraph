@@ -14,6 +14,9 @@ from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 
+MIN_SUPPORTED_OBSERVATIONS = 32
+
+
 @dataclass(frozen=True)
 class WindowSpec:
     window_id: str
@@ -466,7 +469,15 @@ def filter_train_supported_points(
     }
 
 
-def supported_image_ids(images_text: Path, *, minimum_observations: int = 32) -> set[int]:
+def count_frame_inliers(mask: np.ndarray) -> list[int]:
+    return np.asarray(mask, dtype=bool).sum(axis=1).astype(int).tolist()
+
+
+def supported_image_ids(
+    images_text: Path,
+    *,
+    minimum_observations: int = MIN_SUPPORTED_OBSERVATIONS,
+) -> set[int]:
     lines = [
         line.strip()
         for line in images_text.read_text(encoding="utf-8").splitlines()

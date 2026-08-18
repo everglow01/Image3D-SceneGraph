@@ -6,14 +6,28 @@ import numpy as np
 from PIL import Image
 
 from image3d_scenegraph.geometry.vggt_ba import (
+    MIN_SUPPORTED_OBSERVATIONS,
     WindowEdge,
     bridge_windows,
+    count_frame_inliers,
     filter_train_supported_points,
     optimize_window_graph,
     sequential_windows,
     supported_image_ids,
     write_initial_colmap_model,
 )
+
+
+def test_local_ba_inlier_gate_uses_bounded_per_frame_counts():
+    mask = np.array(
+        [
+            [True, False, True, True],
+            [False, False, True, False],
+        ]
+    )
+
+    assert MIN_SUPPORTED_OBSERVATIONS == 32
+    assert count_frame_inliers(mask) == [3, 1]
 
 
 def test_sequential_and_bridge_windows_are_bounded_and_deterministic():

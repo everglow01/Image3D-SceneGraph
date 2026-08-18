@@ -15,8 +15,10 @@ from PIL import Image
 
 from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 from image3d_scenegraph.geometry.vggt_ba import (
+    MIN_SUPPORTED_OBSERVATIONS,
     VggtBaError,
     bridge_windows,
+    count_frame_inliers,
     estimate_window_edge,
     merge_window_cameras,
     optimize_window_graph,
@@ -40,7 +42,6 @@ WINDOW_OVERLAP = 4
 QUERY_FRAME_COUNT = 5
 MAX_QUERY_POINTS = 2048
 MAX_BRIDGES = 16
-MIN_SUPPORTED_OBSERVATIONS = 32
 
 
 def main() -> None:
@@ -554,6 +555,7 @@ def process_window(
 ) -> tuple[dict[int, dict[str, np.ndarray]], dict[str, Any]]:
     import pycolmap
     from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap
+    from vggt.dependency.projection import project_3D_points_np
     from vggt.dependency.track_predict import _forward_on_query
     from vggt.utils.geometry import unproject_depth_map_to_point_map
     from vggt.utils.load_fn import load_and_preprocess_images_square
@@ -626,7 +628,18 @@ def process_window(
     points_np = np.concatenate(point_parts, axis=0)
     colors_np = np.concatenate(color_parts, axis=0)
     intrinsic_np[:, :2, :] *= 1024 / 518
-    mask = visibility_np > 0.2
+    projected_points, _projected_cameras = project_3D_points_np(
+        points_np,
+        extrinsic_np,
+        intrinsic_np,
+    )
+    reprojection_errors = np.linalg.norm(projected_points - tracks_np, axis=-1)
+    mask = np.logical_and(visibility_np > 0.2, reprojection_errors < 8.0)
+    inlier_counts = count_frame_inliers(mask)
+    print(
+        f"window={spec.window_id} inliers_per_frame={inlier_counts}",
+        flush=True,
+    )
     reconstruction, _valid = batch_np_matrix_to_pycolmap(
         points_np,
         extrinsic_np,
@@ -634,13 +647,16 @@ def process_window(
         tracks_np,
         np.array([1024, 1024]),
         masks=mask,
-        max_reproj_error=8.0,
         shared_camera=False,
         camera_type="SIMPLE_PINHOLE",
+        min_inlier_per_frame=MIN_SUPPORTED_OBSERVATIONS,
         points_rgb=colors_np,
     )
     if reconstruction is None:
-        raise RuntimeError(f"{spec.window_id} did not produce enough track inliers")
+        raise RuntimeError(
+            f"{spec.window_id} has fewer than {MIN_SUPPORTED_OBSERVATIONS} "
+            f"track inliers in at least one frame: {inlier_counts}"
+        )
     before = reconstruction.compute_mean_reprojection_error()
     options = pycolmap.BundleAdjustmentOptions()
     pycolmap.bundle_adjustment(reconstruction, options)
@@ -672,6 +688,8 @@ def process_window(
         "image_indices": list(spec.image_indices),
         "image_names": [path.name for path in paths],
         "query_indices": query_indices,
+        "inliers_per_frame": inlier_counts,
+        "minimum_inliers_per_frame": MIN_SUPPORTED_OBSERVATIONS,
         "point_count": len(reconstruction.points3D),
         "track_count": int(tracks_np.shape[1]),
         "mean_reprojection_before": float(before),
