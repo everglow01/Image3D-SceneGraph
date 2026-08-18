@@ -30,7 +30,7 @@ def sparse_initialization(
     normalized_from_world: np.ndarray,
     *,
     max_points: int,
-    min_track_length: int = 2,
+    min_track_length: int = 3,
     max_reprojection_error: float = 4.0,
 ) -> InitializationResult:
     points, colors, errors, tracks = read_colmap_points_text(points_path)

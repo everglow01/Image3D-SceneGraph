@@ -19,8 +19,8 @@ from image3d_scenegraph.gaussian.dataset import build_colmap_contract
 def write_sparse(path: Path) -> None:
     path.write_text(
         "# point data\n"
-        "1 0 0 2 255 0 0 0.2 1 1 2 1\n"
-        "2 1 0 2 0 255 0 8.0 1 2 2 2\n"
+        "1 0 0 2 255 0 0 0.2 1 1 2 1 3 1\n"
+        "2 1 0 2 0 255 0 8.0 1 2 2 2 3 2\n"
         "3 0 1 2 0 0 255 0.3 1 3\n",
         encoding="utf-8",
     )
@@ -68,6 +68,22 @@ def test_sparse_initialization_filters_and_hashes_deterministically(tmp_path):
     }
     assert first.points.tolist() == [[0.0, 0.0, 2.0]]
     assert np.all(first.scales > 0)
+
+
+def test_sparse_initialization_default_rejects_two_view_points(tmp_path):
+    source = tmp_path / "points3D.txt"
+    source.write_text(
+        "# point data\n"
+        "1 0 0 2 255 0 0 0.2 1 1 2 1\n"
+        "2 1 0 2 0 255 0 0.3 1 2 2 2 3 2\n",
+        encoding="utf-8",
+    )
+
+    result = sparse_initialization(source, np.eye(4), max_points=10)
+
+    assert result.points.tolist() == [[1.0, 0.0, 2.0]]
+    assert result.diagnostics["counts"]["rejected_track_support"] == 1
+    assert result.diagnostics["settings"]["min_track_length"] == 3
 
 
 def test_dense_initialization_applies_support_voxel_and_budget(tmp_path, monkeypatch):
