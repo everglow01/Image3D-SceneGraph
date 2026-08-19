@@ -108,7 +108,56 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     assert command[command.index("--max-image-size") + 1] == "1280"
     assert command[command.index("--num-threads") + 1] == "8"
     assert command[command.index("--matcher") + 1] == "exhaustive"
+    assert "--vocab-tree-path" not in command
     assert "--gaussian-baseline" in command
+
+
+def test_project_gaussian_sequential_matcher_threads_vocab_tree(
+    tmp_path, monkeypatch
+):
+    vocab_tree = tmp_path / "vocab_tree.bin"
+    vocab_tree.write_bytes(b"tree")
+    captured = []
+
+    def fake_run(command, *args, **kwargs):
+        captured.append(command)
+        raise ReconstructionError("stop after COLMAP command capture")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
+    )
+    monkeypatch.delenv("IMAGE3D_GAUSSIAN_COLMAP_MATCHER", raising=False)
+    monkeypatch.setenv("IMAGE3D_COLMAP_VOCAB_TREE", str(vocab_tree))
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={"colmap_matcher": "sequential"},
+    )
+
+    with pytest.raises(ReconstructionError, match="stop after COLMAP"):
+        ProjectGaussianAdapter().run(context)
+
+    command = captured[0]
+    assert command[command.index("--matcher") + 1] == "sequential"
+    assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
+
+
+def test_project_gaussian_sequential_matcher_without_vocab_tree_fails(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("IMAGE3D_COLMAP_VOCAB_TREE", str(tmp_path / "missing.bin"))
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={"colmap_matcher": "sequential"},
+    )
+
+    with pytest.raises(ReconstructionError, match="vocab tree"):
+        ProjectGaussianAdapter().run(context)
 
 
 def test_frontend_gaussian_jobs_do_not_automatically_consume_test():
@@ -401,6 +450,19 @@ def test_vggt_ba_gaussian_geometry_rejects_non_video_input(tmp_path):
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_geometry_source": "vggt_ba"},
+        )
+
+
+def test_sequential_colmap_matcher_rejects_non_video_input(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="requires video mode"):
+        store.enqueue_job(
+            "multi_image",
+            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"colmap_matcher": "sequential"},
         )
 
 

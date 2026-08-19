@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from image3d_scenegraph.gaussian.trainers import get_gaussian_trainer_specs
-from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
+from image3d_scenegraph.geometry.colmap import (
+    resolve_colmap_executable,
+    resolve_colmap_vocab_tree,
+)
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,7 @@ def _project_gaussian_spec(
     colmap_available = colmap is not None
     if not colmap_available:
         reasons.append("colmap executable not found")
+    vocab_tree = resolve_colmap_vocab_tree(project_root)
     ffmpeg = shutil.which(os.environ.get("IMAGE3D_FFMPEG_BIN") or "ffmpeg")
     ffprobe = shutil.which(os.environ.get("IMAGE3D_FFPROBE_BIN") or "ffprobe")
     video_available = bool(ffmpeg and ffprobe)
@@ -233,6 +237,36 @@ def _project_gaussian_spec(
                     "setup_command": "uv run python scripts/setup_colmap_cuda.py --install && uv run python scripts/setup_model.py --backend vggt --install",
                 },
             ],
+            "colmap_matchers": [
+                {
+                    "id": "exhaustive",
+                    "label": "Exhaustive matching",
+                    "available": colmap_available,
+                    "reason": None
+                    if colmap_available
+                    else "colmap executable not found",
+                    "experimental": False,
+                    "setup_command": None,
+                },
+                {
+                    "id": "sequential",
+                    "label": "Sequential matching with vocab tree",
+                    "available": colmap_available and vocab_tree is not None,
+                    "reason": None
+                    if colmap_available and vocab_tree is not None
+                    else "; ".join(
+                        (["colmap executable not found"] if not colmap_available else [])
+                        + (
+                            []
+                            if vocab_tree is not None
+                            else ["COLMAP vocab tree missing"]
+                        )
+                    ),
+                    "experimental": True,
+                    "supported_modes": ["video"],
+                    "setup_command": "uv run python scripts/setup_colmap_vocab_tree.py --install",
+                },
+            ],
             "gaussian_postprocessors": [
                 {
                     "id": "none",
@@ -259,9 +293,9 @@ def _project_gaussian_spec(
                 if video_available
                 else "ffmpeg and ffprobe executables are required",
                 "supported_profiles": ["standard_v1"],
-                "max_duration_seconds": 600,
+                "max_duration_seconds": 606,
                 "max_size_bytes": 2 * 1024**3,
-                "max_keyframes": 800,
+                "max_keyframes": 3_636,
             },
         },
     )

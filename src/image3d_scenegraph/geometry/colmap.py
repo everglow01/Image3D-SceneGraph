@@ -21,6 +21,21 @@ def resolve_colmap_executable(project_root: Path | str | None = None) -> Path | 
     return _executable(Path(found)) if found else None
 
 
+def resolve_colmap_vocab_tree(project_root: Path | str | None = None) -> Path | None:
+    """Resolve the COLMAP vocab tree used for sequential matching loop detection."""
+    configured = os.environ.get("IMAGE3D_COLMAP_VOCAB_TREE")
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        return path if path.is_file() else None
+
+    root = Path(project_root or os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
+    external_root = Path(os.environ.get("IMAGE3D_EXTERNAL_ROOT", root / "external")).expanduser()
+    local = (
+        external_root / "colmap-vocab" / "vocab_tree_flickr100K_words256K.bin"
+    ).resolve()
+    return local if local.is_file() else None
+
+
 def _executable(path: Path) -> Path | None:
     resolved = path.resolve()
     if resolved.is_file() and os.access(resolved, os.X_OK):

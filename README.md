@@ -156,6 +156,12 @@ uv run python scripts/setup_colmap_cuda.py --install
 
 The pinned production build is installed under ignored `external/colmap-4-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`. The RTX 4060 development build uses CUDA 12.2, SM 89, ONNX Runtime, and cuDNN 9.
 
+Sequential matching with vocab-tree loop detection (experimental `colmap_matcher=sequential` for video Gaussian jobs, and `run_colmap_sparse.py --vocab-tree-path`) needs the Flickr100K vocab tree under ignored `external/colmap-vocab/`. The setup script is a dry run unless `--install` is supplied:
+
+```bash
+uv run python scripts/setup_colmap_vocab_tree.py --install
+```
+
 The production pipeline retains SIFT extraction, brute-force matching, and incremental Mapper. COLMAP 4's ALIKED, LightGlue, and Global Mapper remain experimental and require controlled Validation ablations before any promotion; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Run COLMAP sparse SfM directly for a local image folder:

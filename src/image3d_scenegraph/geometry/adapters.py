@@ -257,6 +257,26 @@ class ProjectGaussianAdapter:
             "gaussian_geometry_fallback_applied": False,
         }
         if geometry_source == "colmap":
+            colmap_matcher = _choice_option(
+                context,
+                "colmap_matcher",
+                "IMAGE3D_GAUSSIAN_COLMAP_MATCHER",
+                "exhaustive",
+                {"exhaustive", "sequential"},
+            )
+            geometry_metrics["colmap_matcher"] = colmap_matcher
+            matcher_args = ["--matcher", colmap_matcher]
+            if colmap_matcher == "sequential":
+                from image3d_scenegraph.geometry.colmap import resolve_colmap_vocab_tree
+
+                vocab_tree = resolve_colmap_vocab_tree(project_root)
+                if vocab_tree is None:
+                    raise ReconstructionError(
+                        "sequential COLMAP matching requires the vocab tree; run "
+                        "`uv run python scripts/setup_colmap_vocab_tree.py --install` "
+                        "or set IMAGE3D_COLMAP_VOCAB_TREE"
+                    )
+                matcher_args.extend(("--vocab-tree-path", str(vocab_tree)))
             progress_path = context.job_dir / "colmap" / "progress.json"
             command_geometry = [
                 os.environ.get("IMAGE3D_PYTHON", sys.executable),
@@ -265,8 +285,7 @@ class ProjectGaussianAdapter:
                 str(image_dir),
                 "--output-dir",
                 str(context.job_dir),
-                "--matcher",
-                "exhaustive",
+                *matcher_args,
                 "--gaussian-baseline",
                 "--use-gpu",
                 "--num-threads",

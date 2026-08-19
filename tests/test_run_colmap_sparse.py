@@ -210,6 +210,91 @@ def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
     assert "max_image_size=3072\n" in log
 
 
+def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
+    tmp_path, monkeypatch
+):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    vocab_tree = tmp_path / "vocab_tree.bin"
+    image_dir.mkdir()
+    (image_dir / "frame.jpg").write_bytes(b"image")
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "mapper":
+            model = output_dir / "colmap" / "sparse" / "0"
+            model.mkdir(parents=True)
+            _write_binary_count(model / "images.bin", 12)
+            _write_binary_count(model / "points3D.bin", 100)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            path = output_dir / "geometry" / "points.ply"
+            path.write_text("ply\nelement vertex 1\nend_header\n", encoding="utf-8")
+        return "ok"
+
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "build_camera_payload",
+        lambda _: {
+            "cameras": [{"model": "PINHOLE"}],
+            "images": [{"image_id": index} for index in range(12)],
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--matcher",
+            "sequential",
+            "--gaussian-baseline",
+            "--vocab-tree-path",
+            str(vocab_tree),
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    matcher = commands[1]
+    assert matcher[1] == "sequential_matcher"
+    assert matcher[matcher.index("--SequentialMatching.loop_detection") + 1] == "1"
+    assert (
+        matcher[matcher.index("--SequentialMatching.vocab_tree_path") + 1]
+        == str(vocab_tree)
+    )
+    log = (output_dir / "logs" / "run.log").read_text()
+    assert f"vocab_tree={vocab_tree}\n" in log
+
+
+def test_gaussian_baseline_sequential_requires_vocab_tree(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path),
+            "--matcher",
+            "sequential",
+            "--gaussian-baseline",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="vocab-tree-path"):
+        run_colmap_sparse.main()
+
+
 def test_runner_rejects_nonpositive_thread_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sys,

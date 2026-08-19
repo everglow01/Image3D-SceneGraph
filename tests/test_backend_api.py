@@ -124,6 +124,48 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
     }
 
 
+def test_create_video_job_forwards_colmap_matcher(tmp_path):
+    root = tmp_path / "jobs"
+    app = create_app(root, start_worker=False)
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "video",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "colmap_matcher": "sequential",
+        },
+        files=[("files", ("room.mp4", b"video", "video/mp4"))],
+    )
+
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+    request = json.loads((root / job_id / "request.json").read_text())
+    assert request["options"]["colmap_matcher"] == "sequential"
+
+
+def test_create_job_omits_colmap_matcher_for_non_video_jobs(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "colmap_matcher": "sequential",
+        },
+        files=[("files", ("room.jpg", b"image", "image/jpeg"))],
+    )
+
+    assert response.status_code == 202
+    assert "colmap_matcher" not in store.options
+
+
 def test_create_video_job_streams_to_persisted_input(tmp_path):
     root = tmp_path / "jobs"
     app = create_app(root, start_worker=False)
@@ -173,9 +215,15 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
         data={"gaussian_postprocess": "unknown"},
         files=files,
     )
+    matcher_response = client.post(
+        "/api/jobs",
+        data={"colmap_matcher": "unknown"},
+        files=files,
+    )
 
     assert geometry_response.status_code == 422
     assert postprocess_response.status_code == 422
+    assert matcher_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):

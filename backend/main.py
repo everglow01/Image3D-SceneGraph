@@ -100,6 +100,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             Literal["none", "vggt_visibility_v1"], Form()
         ] = "none",
         gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3072)] = None,
+        colmap_matcher: Annotated[
+            Literal["exhaustive", "sequential"] | None, Form()
+        ] = None,
         video_keyframe_profile: Annotated[Literal["standard_v1"], Form()] = "standard_v1",
         video_rotation: Annotated[
             Literal["auto", "clockwise_90", "counterclockwise_90", "180"], Form()
@@ -176,6 +179,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "gaussian_longest_edge": (
                     gaussian_longest_edge if geometry_backend == "project_3dgs" else None
+                ),
+                "colmap_matcher": (
+                    colmap_matcher
+                    if mode == "video" and geometry_backend == "project_3dgs"
+                    else None
                 ),
                 "video_keyframe_profile": (
                     video_keyframe_profile if mode == "video" else None

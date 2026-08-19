@@ -27,13 +27,16 @@ def main() -> None:
     parser.add_argument("--max-image-size", type=int)
     parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--gaussian-baseline", action="store_true")
+    parser.add_argument("--vocab-tree-path", type=Path)
     args = parser.parse_args()
     if args.num_threads is not None and args.num_threads < 1:
         parser.error("--num-threads must be at least 1")
     if args.max_image_size is not None and args.max_image_size < 1:
         parser.error("--max-image-size must be at least 1")
-    if args.gaussian_baseline and args.matcher != "exhaustive":
-        raise SystemExit("Gaussian baseline requires exhaustive COLMAP matching")
+    if args.gaussian_baseline and args.matcher == "sequential" and args.vocab_tree_path is None:
+        raise SystemExit(
+            "Gaussian baseline sequential matching requires --vocab-tree-path for loop closure"
+        )
 
     started_at = time.perf_counter()
     colmap_path = resolve_colmap_executable()
@@ -98,6 +101,15 @@ def main() -> None:
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
     ]
+    if args.matcher == "sequential" and args.vocab_tree_path is not None:
+        matcher_command.extend(
+            (
+                "--SequentialMatching.loop_detection",
+                "1",
+                "--SequentialMatching.vocab_tree_path",
+                str(args.vocab_tree_path),
+            )
+        )
     if args.gpu_index is not None:
         matcher_command.extend(("--FeatureMatching.gpu_index", args.gpu_index))
     if args.num_threads is not None:
@@ -194,6 +206,7 @@ def main() -> None:
         f"training_image_dir={training_image_dir}",
         f"camera_models={','.join(sorted(camera['model'] for camera in camera_payload['cameras']))}",
         f"matcher={args.matcher}",
+        f"vocab_tree={args.vocab_tree_path if args.vocab_tree_path is not None else 'none'}",
         f"single_camera={args.single_camera}",
         f"colmap_executable={colmap}",
         f"colmap_build={colmap_build}",

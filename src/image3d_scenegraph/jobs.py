@@ -45,6 +45,7 @@ VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
 VIDEO_PROFILES = {"standard_v1"}
 GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
+COLMAP_MATCHERS = {"exhaustive", "sequential"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
     "collision_mesh": "navigation/collision.glb",
@@ -174,6 +175,14 @@ class JobStore:
                     raise JobError(
                         f"unsupported Gaussian postprocess: {postprocess}"
                     )
+                if "colmap_matcher" in normalized_options:
+                    colmap_matcher = str(normalized_options["colmap_matcher"])
+                    if colmap_matcher not in COLMAP_MATCHERS:
+                        raise JobError(f"unsupported COLMAP matcher: {colmap_matcher}")
+                    if colmap_matcher == "sequential" and mode != "video":
+                        raise JobError(
+                            "sequential COLMAP matching currently requires video mode"
+                        )
                 normalized_options.update(
                     gaussian_trainer=gaussian_trainer,
                     gaussian_geometry_source=geometry_source,
