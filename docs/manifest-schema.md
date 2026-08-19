@@ -100,7 +100,7 @@ Only roles present in `assets` are available. Generic postprocessing can add exi
 
 ## Bounded video contract
 
-`mode=video` is implemented only with `project_3dgs + gaussian_splat`. The public `standard_v1` keyframe profile accepts one MP4/MOV/M4V/WebM, 10–600 seconds (606 seconds is the technical container-tolerance limit), at most 2 GiB, and at most 800 selected keyframes from no more than 2,424 candidates. Upload staging uses bounded chunks; the original video remains under `input/` and retry regenerates keyframes from it.
+`mode=video` is implemented only with `project_3dgs + gaussian_splat`. The public `standard_v1` keyframe profile accepts one MP4/MOV/M4V/WebM, 10–600 seconds (606 seconds is the technical container-tolerance limit), at most 2 GiB, and at most 3,636 selected keyframes from no more than 7,272 candidates. Upload staging uses bounded chunks; the original video remains under `input/` and retry regenerates keyframes from it.
 
 `video_probe` records the normalized ffprobe result, source hash, source/display dimensions, and applied quarter-turn without exposing location values. `video_frame_selection` is the authoritative source-PTS, quality, rejection, output hash, dimensions, and minimal generated-EXIF record. `video_keyframe_contact_sheet` is display-only. `video_registration_diagnostics` maps selected source timestamps to COLMAP registrations and records registration rate, temporal coverage, and largest gap. Complete jobs expose corresponding `video_*` metrics for profile, duration, orientation, source/display dimensions, candidate/selected/rejection counts, registration count/rate, and registration temporal coverage.
 

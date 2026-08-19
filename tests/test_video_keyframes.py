@@ -20,12 +20,12 @@ from image3d_scenegraph.video.keyframes import (
 
 
 def test_ten_minute_video_limits() -> None:
-    assert target_keyframe_count(10) == 24
-    assert target_keyframe_count(60) == 120
-    assert target_keyframe_count(240) == 480
-    assert target_keyframe_count(360) == 720
-    assert target_keyframe_count(600) == MAX_KEYFRAMES == 800
-    assert target_keyframe_count(606) == 800
+    assert target_keyframe_count(10) == 60
+    assert target_keyframe_count(60) == 360
+    assert target_keyframe_count(240) == 1440
+    assert target_keyframe_count(360) == 2160
+    assert target_keyframe_count(600) == 3600
+    assert target_keyframe_count(606) == MAX_KEYFRAMES == 3_636
     assert MAX_CANDIDATES == 7_272
 
 
@@ -103,9 +103,9 @@ def test_extracts_upright_video_with_truthful_exif(tmp_path: Path) -> None:
         check=True,
     )
     result = extract_video_keyframes(source, tmp_path / "out", longest_edge=1280)
-    assert result["selection"]["selected_count"] == 24
+    assert result["selection"]["selected_count"] == target_keyframe_count(10.2)
     selected = sorted((tmp_path / "out" / "frames" / "selected").glob("*.jpg"))
-    assert len(selected) == 24
+    assert len(selected) == target_keyframe_count(10.2)
     with Image.open(selected[0]) as image:
         assert image.height > image.width
         assert image.getexif().get(274) == 1

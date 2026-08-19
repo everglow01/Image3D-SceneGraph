@@ -24,7 +24,7 @@ MAX_DURATION_SECONDS = 606.0
 MAX_VIDEO_BYTES = 2 * 1024**3
 CANDIDATE_FPS = 12
 MAX_CANDIDATES = 7_272
-MAX_KEYFRAMES = 800
+MAX_KEYFRAMES = 3_636
 MIN_KEYFRAMES = 24
 ANALYSIS_SIZE = 320
 EXTRACTION_DEADLINE_SECONDS = 30 * 60
@@ -39,7 +39,7 @@ class VideoKeyframeError(ValueError):
 def target_keyframe_count(duration_seconds: float) -> int:
     if not math.isfinite(duration_seconds):
         raise VideoKeyframeError("video duration must be finite")
-    return min(MAX_KEYFRAMES, max(MIN_KEYFRAMES, round(duration_seconds * 2)))
+    return min(MAX_KEYFRAMES, max(MIN_KEYFRAMES, round(duration_seconds * 6)))
 
 
 def resolve_video_tools() -> tuple[str, str]:
