@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from image3d_scenegraph.gaussian.evaluation import load_model_snapshot
-from image3d_scenegraph.gaussian.export import PLY_FIELDS, _write_binary_ply
+from image3d_scenegraph.gaussian.export import PLY_FIELDS, write_binary_ply
 from image3d_scenegraph.gaussian.importer import import_inria_ply
 
 
@@ -16,7 +16,7 @@ def test_import_inria_ply_applies_similarity_to_means_and_scales(tmp_path):
     rows[0, 55:58] = np.log([0.1, 0.2, 0.3])
     rows[0, 58] = 1.0
     source = tmp_path / "native.ply"
-    _write_binary_ply(source, rows)
+    write_binary_ply(source, rows)
     transform = np.eye(4)
     transform[:3, :3] *= 2.0
     transform[:3, 3] = [1.0, -1.0, 0.5]

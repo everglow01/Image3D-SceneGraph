@@ -91,8 +91,8 @@ def export_gaussians(
     output_dir.mkdir(parents=True, exist_ok=False)
     canonical_path = output_dir / "canonical.ply"
     browser_path = output_dir / "scene.ply"
-    _write_binary_ply(canonical_path, rows)
-    _write_binary_ply(browser_path, rows)
+    write_binary_ply(canonical_path, rows)
+    write_binary_ply(browser_path, rows)
     camera_path = _camera_path(contract)
     (output_dir / "camera_path.json").write_text(
         json.dumps(camera_path, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -267,7 +267,7 @@ def _model_rows(model) -> np.ndarray:
     return rows
 
 
-def _write_binary_ply(path: Path, rows: np.ndarray) -> None:
+def write_binary_ply(path: Path, rows: np.ndarray) -> None:
     header = [
         "ply",
         "format binary_little_endian 1.0",

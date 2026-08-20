@@ -18,7 +18,7 @@ from image3d_scenegraph.gaussian.export import (
     _camera_path,
     _model_rows,
     _scene_frame,
-    _write_binary_ply,
+    write_binary_ply,
     export_gaussians,
     read_gaussian_ply,
     write_deterministic_zip,
@@ -90,8 +90,8 @@ def test_canonical_ply_round_trips_all_owned_attributes(tmp_path):
     first = tmp_path / "first.ply"
     second = tmp_path / "second.ply"
 
-    _write_binary_ply(first, rows)
-    _write_binary_ply(second, rows)
+    write_binary_ply(first, rows)
+    write_binary_ply(second, rows)
     decoded = read_gaussian_ply(first)
 
     assert first.read_bytes() == second.read_bytes()

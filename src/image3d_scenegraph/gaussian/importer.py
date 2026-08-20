@@ -56,7 +56,10 @@ def import_inria_ply(
     payload = {
         "max_sh_degree": 3,
         "state_dict": {
-            name: torch.from_numpy(value.astype(np.float32, copy=False))
+            # ascontiguousarray: the state arrays are views of one 62-column
+            # matrix; without a contiguous copy torch.save stores the full
+            # base matrix once per tensor (~5x snapshot bloat).
+            name: torch.from_numpy(np.ascontiguousarray(value, dtype=np.float32))
             for name, value in state.items()
         },
         "external_trainer": trainer,
