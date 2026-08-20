@@ -100,6 +100,36 @@ const VIEW_PRESETS: Record<ViewPreset, { label: string; direction: THREE.Vector3
   }
 };
 
+function patchSplatAlphaThreshold(viewer: GaussianSplats3D.Viewer, threshold: number): boolean {
+  const material = viewer.getSplatMesh().material;
+  if (!(material instanceof THREE.ShaderMaterial) || material.uniforms.alphaThreshold) {
+    return false;
+  }
+  // SplatMaterial3D (default) and SplatMaterial2D use different fragment shaders; match either.
+  const anchor = [
+    "float opacity = exp(-0.5 * A) * vColor.a;",
+    "float opa = vColor.a;"
+  ].find((candidate) => material.fragmentShader.includes(candidate));
+  if (!anchor || !material.fragmentShader.includes("varying vec2 vPosition;")) {
+    return false;
+  }
+  material.fragmentShader = material.fragmentShader
+    .replace("varying vec2 vPosition;", "varying vec2 vPosition;\nuniform float alphaThreshold;")
+    .replace(anchor, `if (vColor.a < alphaThreshold) discard;\n${anchor}`);
+  material.uniforms.alphaThreshold = { value: threshold };
+  material.needsUpdate = true;
+  return true;
+}
+
+function applySplatAlphaThreshold(viewer: GaussianSplats3D.Viewer | null, threshold: number) {
+  const material = viewer?.getSplatMesh().material;
+  if (!(material instanceof THREE.ShaderMaterial) || !material.uniforms.alphaThreshold) {
+    return;
+  }
+  material.uniforms.alphaThreshold.value = threshold;
+  viewer?.forceRenderNextFrame?.();
+}
+
 function configureControls(viewer: GaussianSplats3D.Viewer, frame: SceneFrame) {
   const controls = viewer.controls;
   if (!controls) {
@@ -199,6 +229,7 @@ export function GaussianSplatViewer({
   const [debugVisible, setDebugVisible] = useState(false);
   const [walkMessage, setWalkMessage] = useState("环绕查看模式");
   const [boundaryHint, setBoundaryHint] = useState(false);
+  const [alphaControl, setAlphaControl] = useState<{ baseline: number; value: number } | null>(null);
 
   const setView = (preset: ViewPreset) => {
     const viewer = viewerRef.current;
@@ -270,6 +301,11 @@ export function GaussianSplatViewer({
     }
   };
 
+  const updateAlphaThreshold = (value: number) => {
+    setAlphaControl((current) => (current ? { ...current, value } : current));
+    applySplatAlphaThreshold(viewerRef.current, value);
+  };
+
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
@@ -300,6 +336,7 @@ export function GaussianSplatViewer({
     setAssetBytes(null);
     setSettings(null);
     setWalkMessage("环绕查看模式");
+    setAlphaControl(null);
     mount.replaceChildren();
     void fetch(sourceUrl, { method: "HEAD", signal: controller.signal })
       .then((response) => {
@@ -361,6 +398,9 @@ export function GaussianSplatViewer({
         sceneFrameRef.current = getSceneFrame(viewer, metadata.scene_center, metadata.scene_radius_p95, cameraFrame);
         configureControls(viewer, sceneFrameRef.current);
         applyViewPreset(viewer, sceneFrameRef.current, "fit");
+        if (patchSplatAlphaThreshold(viewer, metadata.viewer_minimum_opacity)) {
+          setAlphaControl({ baseline: metadata.viewer_minimum_opacity, value: metadata.viewer_minimum_opacity });
+        }
         viewer.start();
         setViewerState("ready");
 
@@ -519,6 +559,28 @@ export function GaussianSplatViewer({
             className="viewer-tool-button"
             type="button"
             onClick={() => updateSettings(defaultWalkSettings(walkRuntimeRef.current!.contract))}
+          >
+            恢复默认
+          </button>
+        </div>
+      )}
+      {alphaControl && viewerState === "ready" && viewerMode === "orbit" && (
+        <div className="walk-settings render-settings" aria-label="渲染设置">
+          <label>
+            <span>不透明度阈值 {alphaControl.value.toFixed(3)}</span>
+            <input
+              min={alphaControl.baseline}
+              max={0.25}
+              step={0.005}
+              type="range"
+              value={alphaControl.value}
+              onChange={(event) => updateAlphaThreshold(Number(event.target.value))}
+            />
+          </label>
+          <button
+            className="viewer-tool-button"
+            type="button"
+            onClick={() => updateAlphaThreshold(alphaControl.baseline)}
           >
             恢复默认
           </button>

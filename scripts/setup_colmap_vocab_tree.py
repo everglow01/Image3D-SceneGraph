@@ -13,9 +13,15 @@ import sys
 import urllib.request
 from pathlib import Path
 
-VOCAB_TREE_URL = "https://demuc.de/colmap/vocab_tree_flickr100K_words256K.bin"
-VOCAB_TREE_SHA256 = "d2055600452a531b5b0a62aa5943e1a07195273dc4eeebcf23d3a924d881d53a"
-VOCAB_TREE_BYTES = 117_893_693
+# COLMAP switched its visual index from flann to faiss in May 2025; the legacy
+# demuc.de flann trees abort with "Failed to read faiss index" on COLMAP >= 3.11.
+# This is the official faiss tree COLMAP itself auto-downloads.
+VOCAB_TREE_URL = (
+    "https://github.com/colmap/colmap/releases/download/3.11.1/"
+    "vocab_tree_faiss_flickr100K_words256K.bin"
+)
+VOCAB_TREE_SHA256 = "96ca8ec8ea60b1f73465aaf2c401fd3b3ca75cdba2d3c50d6a2f6f760f275ddc"
+VOCAB_TREE_BYTES = 72_412_636
 
 
 def main() -> None:
@@ -24,7 +30,7 @@ def main() -> None:
     args = parser.parse_args()
 
     project_root = Path.cwd()
-    destination = project_root / "external" / "colmap-vocab" / "vocab_tree_flickr100K_words256K.bin"
+    destination = project_root / "external" / "colmap-vocab" / "vocab_tree_faiss_flickr100K_words256K.bin"
 
     print("COLMAP vocab tree setup")
     print(f"  url: {VOCAB_TREE_URL}")

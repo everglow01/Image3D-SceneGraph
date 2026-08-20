@@ -31,7 +31,7 @@ def resolve_colmap_vocab_tree(project_root: Path | str | None = None) -> Path | 
     root = Path(project_root or os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
     external_root = Path(os.environ.get("IMAGE3D_EXTERNAL_ROOT", root / "external")).expanduser()
     local = (
-        external_root / "colmap-vocab" / "vocab_tree_flickr100K_words256K.bin"
+        external_root / "colmap-vocab" / "vocab_tree_faiss_flickr100K_words256K.bin"
     ).resolve()
     return local if local.is_file() else None
 
