@@ -249,6 +249,18 @@ uv run python scripts/align_pointcloud.py \
 The alignment step preserves the original point cloud and writes a separate aligned PLY. By default it rotates the strongest detected plane to the +Z axis and translates that plane to zero height. The point-cloud viewer uses the same Z-up convention and displays its grid on the XY plane.
 Job creation also runs this alignment as a generic point-cloud postprocess. Any backend that returns a `point_cloud` asset can expose `point_cloud_aligned` in the manifest, and the frontend viewer lets the user switch between Raw and Aligned when the aligned asset exists.
 
+Census free-space floater populations in an exported Gaussian splat:
+
+```bash
+uv run python scripts/analyze_gaussian_floaters.py \
+  --gaussian-ply outputs/jobs/{job_id}/gaussian/export/train-001/scene.ply \
+  --points outputs/jobs/{job_id}/geometry/points.ply \
+  --cameras outputs/jobs/{job_id}/geometry/cameras.json \
+  --output /tmp/floater_census.json
+```
+
+The census splits gaussians into opacity bands (haze < 0.05, core, thick ≥ 0.25) and reports each band's distance to the SfM surface and camera path in colmap_world, the hugging fraction (inside the SfM neighbor-spacing median), and the free-space count (beyond the neighbor-spacing p90 and farther than 1.0 world unit from every camera). Scales stay in the normalized training frame. These numbers are the reference gate for floater mitigation experiments (codex.md §17).
+
 ## ETH3D Geometry Evaluation
 
 The optional ETH3D benchmark evaluates geometric reconstruction separately from the API and `JobStore`. Dataset files stay under the ignored `data/` directory and are not redistributed by this repository. The first frozen scene is `pipes`, defined by `benchmarks/eth3d-v1/pipes.json`.
