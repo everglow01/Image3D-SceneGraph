@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 7
+CONFIG_SCHEMA_VERSION = 8
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
@@ -52,7 +52,7 @@ _STANDARD_V1: dict[str, Any] = {
         "screen_radius_enabled": False,
         "max_screen_radius_pixels": 20.0,
     },
-    "opacity_reset": {"enabled": True, "every_iterations": 3_000},
+    "opacity_reset": {"enabled": True, "every_iterations": 3_000, "floor_multiplier": 2.0},
     "evaluation": {
         "validation_iterations": [
             3_000,
@@ -242,10 +242,14 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     opacity_reset = _mapping(
         root["opacity_reset"],
         "opacity_reset",
-        {"enabled", "every_iterations"},
+        {"enabled", "every_iterations", "floor_multiplier"},
     )
     _boolean(opacity_reset["enabled"], "opacity_reset.enabled")
     _integer(opacity_reset["every_iterations"], "opacity_reset.every_iterations", minimum=1, maximum=iterations)
+    floor_multiplier = _positive(opacity_reset["floor_multiplier"], "opacity_reset.floor_multiplier", maximum=10.0)
+    reset_value = float(pruning["opacity_threshold"]) * floor_multiplier
+    if reset_value >= 1.0:
+        raise GaussianConfigError("opacity_threshold * opacity_reset.floor_multiplier must stay below 1.0")
 
     evaluation = _mapping(root["evaluation"], "evaluation", {"validation_iterations"})
     validation_iterations = evaluation["validation_iterations"]

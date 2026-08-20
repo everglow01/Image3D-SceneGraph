@@ -20,7 +20,7 @@ def test_public_profile_resolves_official_baseline_deterministically():
     second = resolve_public_config("standard_v1")
 
     assert first.requested_profile == "standard_v1"
-    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 7
+    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 8
     assert first.effective_config["iterations"] == 30_000
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
@@ -49,6 +49,12 @@ def test_public_profile_resolves_official_baseline_deterministically():
         "max_world_scale": 0.1,
         "screen_radius_enabled": False,
         "max_screen_radius_pixels": 20.0,
+    }
+    assert first.effective_config["opacity_reset"] == {
+        "enabled": True,
+        "every_iterations": 3_000,
+        # 2.0 keeps the pre-schema-8 reset floor (0.005 * 2.0 = 0.01).
+        "floor_multiplier": 2.0,
     }
     assert first.effective_config["evaluation"] == {
         "validation_iterations": [
@@ -113,6 +119,12 @@ def test_internal_override_is_validated_hashed_and_recorded():
         ),
         ({"densification": {"end_iteration": 500}}, "densification start must precede end"),
         ({"opacity_reset": {"every_iterations": 30_001}}, "exceeds 30000"),
+        ({"opacity_reset": {"floor_multiplier": 0.0}}, "greater than 0.0"),
+        ({"opacity_reset": {"floor_multiplier": 10.5}}, "exceeds 10.0"),
+        (
+            {"pruning": {"opacity_threshold": 0.5}, "opacity_reset": {"floor_multiplier": 2.0}},
+            "must stay below 1.0",
+        ),
         ({"pruning": {"screen_radius_enabled": 0}}, "must be a boolean"),
         ({"evaluation": {"validation_iterations": [0, 30_000]}}, "below 1"),
     ],

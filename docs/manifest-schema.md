@@ -60,7 +60,7 @@ Legacy terminal-only manifests remain valid and readable. They do not gain synth
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | integer | Gaussian configuration schema version; new Project jobs use version `7`, while historical versions remain immutable evidence. |
+| `schema_version` | integer | Gaussian configuration schema version; new Project jobs use version `8`, while historical versions remain immutable evidence. |
 | `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
 | `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
 | `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |

@@ -308,11 +308,11 @@ def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
     )
 
     record = manifest["gaussian_config"]
-    assert record["schema_version"] == 7
+    assert record["schema_version"] == 8
     assert record["requested_profile"] == "standard_v1"
     assert record["effective_config_hash"] == effective_config_hash(record["effective_config"])
     log = store.get_asset_path(manifest["job_id"], "logs/run.log").read_text(encoding="utf-8")
-    assert "gaussian_config_schema_version=7\n" in log
+    assert "gaussian_config_schema_version=8\n" in log
     assert "gaussian_requested_profile=standard_v1\n" in log
     assert f"gaussian_effective_config_hash={record['effective_config_hash']}\n" in log
     assert 'gaussian_effective_config={"densification":' in log
@@ -338,7 +338,7 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["options"]["gaussian_trainer"] == "graphdeco"
     assert request["options"]["gaussian_longest_edge"] == 3072
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
-    assert manifest["gaussian_config"]["schema_version"] == 7
+    assert manifest["gaussian_config"]["schema_version"] == 8
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
 
 

@@ -317,7 +317,8 @@ def train_gaussians(
                     params=model.params,
                     optimizers=optimizers,
                     state=strategy_state,
-                    value=float(config["pruning"]["opacity_threshold"]) * 2.0,
+                    value=float(config["pruning"]["opacity_threshold"])
+                    * float(config["opacity_reset"]["floor_multiplier"]),
                 )
             model.validate()
             after_count = model.count
