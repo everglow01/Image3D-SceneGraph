@@ -20,7 +20,7 @@ def test_public_profile_resolves_official_baseline_deterministically():
     second = resolve_public_config("standard_v1")
 
     assert first.requested_profile == "standard_v1"
-    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 8
+    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 9
     assert first.effective_config["iterations"] == 30_000
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
@@ -55,6 +55,12 @@ def test_public_profile_resolves_official_baseline_deterministically():
         "every_iterations": 3_000,
         # 2.0 keeps the pre-schema-8 reset floor (0.005 * 2.0 = 0.01).
         "floor_multiplier": 2.0,
+        # Disabled by default: schema 9 adds the leaf without changing behavior.
+        "recovery_prune": {
+            "enabled": False,
+            "window_iterations": 500,
+            "opacity_threshold": 0.05,
+        },
     }
     assert first.effective_config["evaluation"] == {
         "validation_iterations": [
@@ -126,6 +132,15 @@ def test_internal_override_is_validated_hashed_and_recorded():
             "must stay below 1.0",
         ),
         ({"pruning": {"screen_radius_enabled": 0}}, "must be a boolean"),
+        ({"opacity_reset": {"recovery_prune": {"window_iterations": 0}}}, "below 1"),
+        (
+            {"opacity_reset": {"recovery_prune": {"opacity_threshold": 0.01}}},
+            "must exceed",
+        ),
+        (
+            {"opacity_reset": {"recovery_prune": {"opacity_threshold": 1.0}}},
+            "must stay below 1.0",
+        ),
         ({"evaluation": {"validation_iterations": [0, 30_000]}}, "below 1"),
     ],
 )

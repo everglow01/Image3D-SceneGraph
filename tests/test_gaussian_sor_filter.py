@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -74,6 +75,74 @@ def test_removal_limit_rejects_overaggressive_filter():
         sor.check_removal_limit(keep, 0.5)
 
     sor.check_removal_limit(keep, 0.61)  # 0.60 removed is within a 0.61 limit
+
+
+@pytest.fixture()
+def snapshot_path(tmp_path):
+    torch = pytest.importorskip("torch")
+    rows = scene_rows()
+    count = len(rows)
+    payload = {
+        "max_sh_degree": 0,
+        "state_dict": {
+            "means": torch.from_numpy(rows[:, :3].astype(np.float32)),
+            "log_scales": torch.from_numpy(rows[:, 55:58].astype(np.float32)),
+            "quats": torch.from_numpy(
+                np.tile(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32), (count, 1))
+            ),
+            "opacity_logits": torch.from_numpy(rows[:, 54].astype(np.float32)),
+            "sh_coeffs": torch.zeros(count, 1, 3),
+        },
+    }
+    path = tmp_path / "model.pt"
+    torch.save(payload, path)
+    return path
+
+
+def test_model_snapshot_mode_filters_rows_and_writes_records(
+    tmp_path, snapshot_path, monkeypatch
+):
+    torch = pytest.importorskip("torch")
+    out_dir = tmp_path / "filtered"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "filter_gaussian_sor.py",
+            "--model-snapshot",
+            str(snapshot_path),
+            "--output-dir",
+            str(out_dir),
+            "--nb-neighbors",
+            "6",
+            "--std-ratio",
+            "1.0",
+            "--band-opacity",
+            "0.05",
+        ],
+    )
+
+    sor.main()
+
+    record = json.loads((out_dir / "filter-record.json").read_text(encoding="utf-8"))
+    assert record["variant"] == "band"
+    assert record["input_count"] == 66
+    assert record["kept_count"] == 65
+    assert record["removed_count"] == 1
+    for key in (
+        "source_model_sha256",
+        "filtered_model",
+        "filtered_model_sha256",
+        "mask_sha256",
+    ):
+        assert record[key]
+    assert (out_dir / "filter-mask.npz").is_file()
+
+    from image3d_scenegraph.gaussian.evaluation import load_model_snapshot
+
+    filtered = load_model_snapshot(out_dir / "filtered-model.pt", torch.device("cpu"))
+    assert filtered.means.shape[0] == 65
+    assert filtered.max_sh_degree == 0
 
 
 def test_write_binary_ply_round_trips_through_reader(tmp_path):

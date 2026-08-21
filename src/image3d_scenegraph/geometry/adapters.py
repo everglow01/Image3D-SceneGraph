@@ -148,6 +148,7 @@ class ProjectGaussianAdapter:
         evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
         exporter_script = project_root / "scripts" / "export_gaussian.py"
         filter_script = project_root / "scripts" / "filter_gaussian_vggt.py"
+        sor_filter_script = project_root / "scripts" / "filter_gaussian_sor.py"
         required_scripts = [trainer_script, evaluator_script, exporter_script]
         postprocess = str(context.options.get("gaussian_postprocess", "none"))
         if postprocess not in {"none", "vggt_visibility_v1"}:
@@ -156,6 +157,15 @@ class ProjectGaussianAdapter:
             )
         if postprocess == "vggt_visibility_v1":
             required_scripts.append(filter_script)
+        sor_filter = _choice_option(
+            context,
+            "gaussian_sor_filter",
+            "IMAGE3D_GAUSSIAN_SOR_FILTER",
+            "on",
+            {"on", "off"},
+        )
+        if sor_filter == "on":
+            required_scripts.append(sor_filter_script)
         geometry_source = str(
             context.options.get("gaussian_geometry_source", "colmap")
         )
@@ -543,6 +553,32 @@ class ProjectGaussianAdapter:
         ):
             raise ReconstructionError("project Gaussian trainer result references missing assets")
 
+        (
+            model_path,
+            sor_metrics,
+            sor_status,
+            sor_reason,
+            sor_log_lines,
+            sor_record_path,
+            sor_mask_path,
+        ) = _try_apply_sor_filter(
+            context=context,
+            sor_filter=sor_filter,
+            project_root=project_root,
+            filter_script=sor_filter_script,
+            training_dir=training_dir,
+            attempt_id=attempt_id,
+            model_path=model_path,
+            env=env,
+        )
+        sor_assets = (
+            {
+                "gaussian_sor_filter_record": sor_record_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_sor_filter_mask": sor_mask_path.relative_to(context.job_dir).as_posix(),
+            }
+            if sor_record_path is not None and sor_mask_path is not None
+            else {}
+        )
         evaluation_dir = training_dir / "evaluation" / attempt_id / "validation"
         command_evaluate = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
@@ -632,6 +668,13 @@ class ProjectGaussianAdapter:
             "--checkpoint-hash",
             str(result["final_checkpoint_hash"]),
         ]
+        if sor_record_path is not None and sor_mask_path is not None:
+            command_export += [
+                "--postprocess-record",
+                str(sor_record_path),
+                "--postprocess-mask",
+                str(sor_mask_path),
+            ]
         _adapter_progress(context, "gaussian_export", 0.86)
         _run_adapter_command(command_export, context, project_root, env=env)
         export_metadata_path = export_dir / "export.json"
@@ -700,7 +743,15 @@ class ProjectGaussianAdapter:
                 if postprocess_reason
                 else []
             ),
+            f"gaussian_sor_filter={sor_filter}",
+            f"gaussian_sor_filter_status={sor_status}",
+            *(
+                [f"gaussian_sor_filter_reason={sor_reason}"]
+                if sor_reason
+                else []
+            ),
             f"trainer={' '.join(command_train)}",
+            *sor_log_lines,
             *postprocess_log_lines,
         ]
         if completed.stdout.strip():
@@ -722,6 +773,7 @@ class ProjectGaussianAdapter:
                 "scene_splat": scene_splat_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_camera_path": camera_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_bundle": bundle_path.relative_to(context.job_dir).as_posix(),
+                **sor_assets,
                 **postprocess_assets,
             },
             metrics={
@@ -744,6 +796,14 @@ class ProjectGaussianAdapter:
                     if postprocess_reason
                     else {}
                 ),
+                "gaussian_sor_filter": sor_filter,
+                "gaussian_sor_filter_status": sor_status,
+                **(
+                    {"gaussian_sor_filter_reason": sor_reason}
+                    if sor_reason
+                    else {}
+                ),
+                **sor_metrics,
                 **postprocess_metrics,
             },
             log_lines=log_lines,
@@ -928,6 +988,80 @@ def _try_build_vggt_filtered_variant(
         if context.cancel_requested is not None and context.cancel_requested():
             raise
         return {}, {}, "unavailable", str(exc), [f"gaussian_postprocess_error={exc}"]
+
+
+def _try_apply_sor_filter(
+    *,
+    context: ReconstructionContext,
+    sor_filter: str,
+    project_root: Path,
+    filter_script: Path,
+    training_dir: Path,
+    attempt_id: str,
+    model_path: Path,
+    env: dict[str, str] | None,
+) -> tuple[Path, dict[str, int | float | str | bool], str, str | None, list[str], Path | None, Path | None]:
+    """In-place conservative-band SOR cleanup of the selected model snapshot.
+
+    On success the returned model_path replaces the training snapshot for
+    evaluation/export; on any failure the original model continues unchanged.
+    """
+    if sor_filter != "on":
+        return model_path, {}, "disabled", None, [], None, None
+    try:
+        output_dir = training_dir / "sor" / attempt_id
+        command_filter = [
+            os.environ.get("IMAGE3D_PYTHON", sys.executable),
+            str(filter_script),
+            "--model-snapshot",
+            str(model_path),
+            "--output-dir",
+            str(output_dir),
+            # Conservative band preset: the only render-lossless configuration
+            # from the Stage 1 room evidence (codex.md 2026-08-20).
+            "--nb-neighbors",
+            "30",
+            "--std-ratio",
+            "2.0",
+            "--band-opacity",
+            "0.05",
+        ]
+        _adapter_progress(context, "gaussian_sor_filter", 0.70)
+        completed = _run_adapter_command(command_filter, context, project_root, env=env)
+        filtered_model_path = output_dir / "filtered-model.pt"
+        record_path = output_dir / "filter-record.json"
+        mask_path = output_dir / "filter-mask.npz"
+        if not all(
+            path.is_file() for path in (filtered_model_path, record_path, mask_path)
+        ):
+            raise ReconstructionError("SOR filter output is incomplete")
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        metrics: dict[str, int | float | str | bool] = {
+            "gaussian_sor_filter_input_count": int(record["input_count"]),
+            "gaussian_sor_filter_kept_count": int(record["kept_count"]),
+            "gaussian_sor_filter_removed_count": int(record["removed_count"]),
+        }
+        log_lines = [
+            f"gaussian_sor_filter_command={' '.join(command_filter)}",
+            *(
+                [f"gaussian_sor_filter_stdout={completed.stdout.strip()}"]
+                if completed.stdout.strip()
+                else []
+            ),
+        ]
+        return filtered_model_path, metrics, "available", None, log_lines, record_path, mask_path
+    except (KeyError, OSError, ValueError, ReconstructionError) as exc:
+        if context.cancel_requested is not None and context.cancel_requested():
+            raise
+        return (
+            model_path,
+            {},
+            "unavailable",
+            str(exc),
+            [f"gaussian_sor_filter_error={exc}"],
+            None,
+            None,
+        )
 
 
 def _write_video_registration_diagnostics(

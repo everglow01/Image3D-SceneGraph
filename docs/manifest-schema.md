@@ -28,6 +28,9 @@ Newly completed jobs contain:
 | `gaussian_postprocess` | string | Optional requested Gaussian derivative: `none` or experimental `vggt_visibility_v1`. |
 | `gaussian_postprocess_status` | string | Optional derivative lifecycle: `pending`, `not_requested`, `available`, or `unavailable`. Failure is fail-soft and does not invalidate Original Gaussian assets. |
 | `gaussian_postprocess_reason` | string or null | Optional diagnostic reason when the requested derivative is unavailable. |
+| `gaussian_sor_filter` | string | Optional SOR floater-cleanup request for project Gaussian jobs: `on` (default) or `off`. Absent on historical manifests, which never ran the filter. |
+| `gaussian_sor_filter_status` | string | Optional SOR lifecycle: `pending`, `disabled`, `available`, or `unavailable`. Failure is fail-soft and the unfiltered model remains a successful result. |
+| `gaussian_sor_filter_reason` | string or null | Optional diagnostic reason when the requested SOR cleanup is unavailable. |
 | `navigation_status` | string | Optional Gaussian-navigation lifecycle: `pending`, `not_generated`, `queued`, `generating`, `available`, or `unavailable`. Navigation failure never changes a completed Gaussian job from `done`. |
 | `navigation_reason` | string or null | Stable machine-readable reason when navigation is unavailable. |
 | `navigation_details` | object or null | Hashes, budgets, coordinate semantics, and Train-only publication evidence for an available navigation asset set. |
@@ -60,7 +63,7 @@ Legacy terminal-only manifests remain valid and readable. They do not gain synth
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | integer | Gaussian configuration schema version; new Project jobs use version `8`, while historical versions remain immutable evidence. |
+| `schema_version` | integer | Gaussian configuration schema version; new Project jobs use version `9`, while historical versions remain immutable evidence. |
 | `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
 | `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
 | `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |
@@ -150,6 +153,22 @@ When VGGT-BA remains the effective source, the global camera/point solution may 
 When filtering succeeds, `gaussian_postprocess_status` is `available` and all filtered roles are published together. Original and filtered models receive separate Validation/export records and hashes; filtered bundles include `postprocess/diagnostics.json` and `postprocess/filter-mask.npz`. `scene_splat` remains Original for backward compatibility, while `scene_splat_vggt_filtered` is the optional Viewer A/B derivative. If filtering, filtered Validation, or filtered export fails, status is `unavailable`, a reason is recorded, no partial filtered roles enter `assets`, and Original remains a successful result.
 
 Both capabilities remain experimental/research-only pending real CUDA jobs, cross-scene Validation, resource measurement, and license review. They retain normalized arbitrary units and make no metric-scale, complete-room, guaranteed-loop, or drift-free claim.
+
+## Gaussian SOR floater cleanup (default pipeline step)
+
+New `project_3dgs + gaussian_splat` jobs run a post-hoc statistical outlier removal (SOR) cleanup on the selected model snapshot before Validation evaluation and export. The request field defaults to the historical behavior plus cleanup:
+
+```text
+gaussian_sor_filter = on | off          (default on)
+```
+
+An operator may disable it per job through the API/frontend, or server-wide with `IMAGE3D_GAUSSIAN_SOR_FILTER=off` when the request does not override it. Only the Stage-1 render-lossless conservative band preset is used (`nb_neighbors=30`, `std_ratio=2.0`, `band_opacity=0.05`, 50% removal safety gate); no other tuning is exposed.
+
+On success `gaussian_sor_filter_status` is `available`, the filtered snapshot replaces the training snapshot for Validation evaluation and export (so `scene_splat` is the cleaned model), and the export bundle records `postprocess/filter-record.json` and `postprocess/filter-mask.npz`. Asset roles `gaussian_sor_filter_record` and `gaussian_sor_filter_mask` point to the per-attempt record and mask. Metrics include `gaussian_sor_filter_input_count`, `gaussian_sor_filter_kept_count`, and `gaussian_sor_filter_removed_count`.
+
+Failure is fail-soft: the status is `unavailable` with a reason, the unfiltered snapshot continues through Validation/export unchanged, and the job remains a successful result. Setting the field to `off` records status `disabled` and skips the filter entirely.
+
+This step is independent of `gaussian_postprocess`. When both are requested, the SOR cleanup runs first on the selected snapshot, and any `vggt_visibility_v1` derivative is then derived from the SOR-filtered model; each lifecycle status is reported separately.
 
 ## COLMAP+VGGT effective-policy metrics
 

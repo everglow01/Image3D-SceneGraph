@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 8
+CONFIG_SCHEMA_VERSION = 9
 PUBLIC_PROFILES = ("standard_v1",)
 INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
 
@@ -52,7 +52,16 @@ _STANDARD_V1: dict[str, Any] = {
         "screen_radius_enabled": False,
         "max_screen_radius_pixels": 20.0,
     },
-    "opacity_reset": {"enabled": True, "every_iterations": 3_000, "floor_multiplier": 2.0},
+    "opacity_reset": {
+        "enabled": True,
+        "every_iterations": 3_000,
+        "floor_multiplier": 2.0,
+        "recovery_prune": {
+            "enabled": False,
+            "window_iterations": 500,
+            "opacity_threshold": 0.05,
+        },
+    },
     "evaluation": {
         "validation_iterations": [
             3_000,
@@ -242,7 +251,7 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     opacity_reset = _mapping(
         root["opacity_reset"],
         "opacity_reset",
-        {"enabled", "every_iterations", "floor_multiplier"},
+        {"enabled", "every_iterations", "floor_multiplier", "recovery_prune"},
     )
     _boolean(opacity_reset["enabled"], "opacity_reset.enabled")
     _integer(opacity_reset["every_iterations"], "opacity_reset.every_iterations", minimum=1, maximum=iterations)
@@ -250,6 +259,33 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     reset_value = float(pruning["opacity_threshold"]) * floor_multiplier
     if reset_value >= 1.0:
         raise GaussianConfigError("opacity_threshold * opacity_reset.floor_multiplier must stay below 1.0")
+    recovery_prune = _mapping(
+        opacity_reset["recovery_prune"],
+        "opacity_reset.recovery_prune",
+        {"enabled", "window_iterations", "opacity_threshold"},
+    )
+    _boolean(recovery_prune["enabled"], "opacity_reset.recovery_prune.enabled")
+    _integer(
+        recovery_prune["window_iterations"],
+        "opacity_reset.recovery_prune.window_iterations",
+        minimum=1,
+        maximum=iterations,
+    )
+    recovery_threshold = _number(
+        recovery_prune["opacity_threshold"],
+        "opacity_reset.recovery_prune.opacity_threshold",
+        minimum=0.0,
+        minimum_exclusive=True,
+    )
+    if recovery_threshold >= 1.0:
+        raise GaussianConfigError(
+            "opacity_reset.recovery_prune.opacity_threshold must stay below 1.0"
+        )
+    if recovery_threshold <= reset_value:
+        raise GaussianConfigError(
+            "opacity_reset.recovery_prune.opacity_threshold must exceed "
+            "opacity_threshold * opacity_reset.floor_multiplier"
+        )
 
     evaluation = _mapping(root["evaluation"], "evaluation", {"validation_iterations"})
     validation_iterations = evaluation["validation_iterations"]

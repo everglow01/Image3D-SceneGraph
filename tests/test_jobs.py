@@ -308,11 +308,11 @@ def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
     )
 
     record = manifest["gaussian_config"]
-    assert record["schema_version"] == 8
+    assert record["schema_version"] == 9
     assert record["requested_profile"] == "standard_v1"
     assert record["effective_config_hash"] == effective_config_hash(record["effective_config"])
     log = store.get_asset_path(manifest["job_id"], "logs/run.log").read_text(encoding="utf-8")
-    assert "gaussian_config_schema_version=8\n" in log
+    assert "gaussian_config_schema_version=9\n" in log
     assert "gaussian_requested_profile=standard_v1\n" in log
     assert f"gaussian_effective_config_hash={record['effective_config_hash']}\n" in log
     assert 'gaussian_effective_config={"densification":' in log
@@ -338,7 +338,7 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["options"]["gaussian_trainer"] == "graphdeco"
     assert request["options"]["gaussian_longest_edge"] == 3072
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
-    assert manifest["gaussian_config"]["schema_version"] == 8
+    assert manifest["gaussian_config"]["schema_version"] == 9
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
 
 
@@ -413,6 +413,9 @@ def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
     assert manifest["gaussian_geometry_fallback_reason"] is None
     assert manifest["gaussian_postprocess"] == "none"
     assert manifest["gaussian_postprocess_status"] == "not_requested"
+    assert request["options"]["gaussian_sor_filter"] == "on"
+    assert manifest["gaussian_sor_filter"] == "on"
+    assert manifest["gaussian_sor_filter_status"] == "pending"
 
 
 def test_project_gaussian_job_persists_experimental_options(tmp_path):
@@ -426,18 +429,51 @@ def test_project_gaussian_job_persists_experimental_options(tmp_path):
         options={
             "gaussian_geometry_source": "vggt_ba",
             "gaussian_postprocess": "vggt_visibility_v1",
+            "gaussian_sor_filter": "off",
         },
     )
     request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
 
     assert request["options"]["gaussian_geometry_source"] == "vggt_ba"
     assert request["options"]["gaussian_postprocess"] == "vggt_visibility_v1"
+    assert request["options"]["gaussian_sor_filter"] == "off"
     assert manifest["gaussian_geometry_source"] == "vggt_ba"
     assert manifest["gaussian_geometry_effective_source"] is None
     assert manifest["gaussian_geometry_fallback_applied"] is False
     assert manifest["gaussian_geometry_fallback_reason"] is None
     assert manifest["gaussian_postprocess"] == "vggt_visibility_v1"
     assert manifest["gaussian_postprocess_status"] == "pending"
+    assert manifest["gaussian_sor_filter"] == "off"
+    assert manifest["gaussian_sor_filter_status"] == "disabled"
+
+
+def test_project_gaussian_job_env_disables_sor_filter(tmp_path, monkeypatch):
+    monkeypatch.setenv("IMAGE3D_GAUSSIAN_SOR_FILTER", "off")
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.enqueue_job(
+        "multi_image",
+        [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={},
+    )
+
+    assert manifest["gaussian_sor_filter"] == "off"
+    assert manifest["gaussian_sor_filter_status"] == "disabled"
+
+
+def test_project_gaussian_job_rejects_unknown_sor_filter_setting(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="SOR filter"):
+        store.enqueue_job(
+            "multi_image",
+            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"gaussian_sor_filter": "maybe"},
+        )
 
 
 def test_vggt_ba_gaussian_geometry_rejects_non_video_input(tmp_path):

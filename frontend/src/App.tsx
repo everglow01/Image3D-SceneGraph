@@ -32,6 +32,7 @@ type ColmapVggtGrouping = "sequential" | "covisibility";
 type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
+type GaussianSorFilter = "on" | "off";
 type GaussianVariant = "original" | "vggt_filtered";
 
 type ExperimentalOptionStatus<T extends string> = {
@@ -140,6 +141,9 @@ type Manifest = {
   gaussian_postprocess?: GaussianPostprocess;
   gaussian_postprocess_status?: "not_requested" | "pending" | "available" | "unavailable";
   gaussian_postprocess_reason?: string | null;
+  gaussian_sor_filter?: GaussianSorFilter;
+  gaussian_sor_filter_status?: "pending" | "disabled" | "available" | "unavailable";
+  gaussian_sor_filter_reason?: string | null;
   gaussian_trainer?: {
     id: GaussianTrainer;
     label: string;
@@ -207,6 +211,9 @@ type Manifest = {
     gaussian_vggt_filter_removed_count?: number;
     gaussian_vggt_filtered_validation_psnr?: number;
     gaussian_vggt_filtered_validation_ssim?: number;
+    gaussian_sor_filter_input_count?: number;
+    gaussian_sor_filter_kept_count?: number;
+    gaussian_sor_filter_removed_count?: number;
   };
 };
 
@@ -331,6 +338,8 @@ export function App() {
     useState<GaussianGeometrySource>("colmap");
   const [gaussianPostprocess, setGaussianPostprocess] =
     useState<GaussianPostprocess>("none");
+  const [gaussianSorFilter, setGaussianSorFilter] =
+    useState<GaussianSorFilter>("on");
   const [gaussianLongestEdge, setGaussianLongestEdge] = useState(1280);
   const [videoRotation, setVideoRotation] = useState<VideoRotation>("auto");
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
@@ -668,6 +677,7 @@ export function App() {
         form.append("gaussian_trainer", gaussianTrainer);
         form.append("gaussian_geometry_source", gaussianGeometrySource);
         form.append("gaussian_postprocess", gaussianPostprocess);
+        form.append("gaussian_sor_filter", gaussianSorFilter);
         form.append("gaussian_longest_edge", String(gaussianLongestEdge));
       }
       if (mode === "video") {
@@ -1086,6 +1096,21 @@ export function App() {
                       只使用 Train 图像的 VGGT depth 删除有多视图自由空间矛盾的漂浮物和拍摄包络外的大型高斯；保留原始结果供 A/B，不补墙、不使用 Test。
                     </small>
                   )}
+                </label>
+                <label>
+                  <span>SOR 浮点清理</span>
+                  <select
+                    value={gaussianSorFilter}
+                    onChange={(event) =>
+                      setGaussianSorFilter(event.target.value as GaussianSorFilter)
+                    }
+                  >
+                    <option value="on">开启（默认）</option>
+                    <option value="off">关闭</option>
+                  </select>
+                  <small>
+                    导出前用保守 SOR band 参数原位删除孤立低透明度高斯（渲染无损证据）；失败自动回退为未过滤结果。
+                  </small>
                 </label>
                 <label>
                   <span>训练图像最长边</span>
@@ -1524,6 +1549,17 @@ export function App() {
               <dt>VGGT 后处理</dt>
               <dd>{formatStatus(manifest?.gaussian_postprocess_status ?? currentStatus?.metrics.gaussian_postprocess_status)}</dd>
             </div>
+            {(manifest?.gaussian_sor_filter !== undefined ||
+              currentStatus?.metrics.gaussian_sor_filter_removed_count !== undefined) && (
+              <div>
+                <dt>SOR 浮点清理</dt>
+                <dd>
+                  {formatStatus(manifest?.gaussian_sor_filter_status)}
+                  {currentStatus?.metrics.gaussian_sor_filter_removed_count !== undefined &&
+                    ` · 删除 ${currentStatus.metrics.gaussian_sor_filter_removed_count}`}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>高斯保留 / 删除</dt>
               <dd>

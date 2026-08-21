@@ -127,7 +127,7 @@ def train_gaussians(
 ) -> TrainingResult:
     try:
         from gsplat.strategy import DefaultStrategy
-        from gsplat.strategy.ops import reset_opa
+        from gsplat.strategy.ops import remove, reset_opa
     except ImportError as exc:
         raise TrainingError("project Gaussian training requires pinned gsplat") from exc
 
@@ -320,6 +320,16 @@ def train_gaussians(
                     value=float(config["pruning"]["opacity_threshold"])
                     * float(config["opacity_reset"]["floor_multiplier"]),
                 )
+            recovery_prune_threshold = _recovery_prune_due(config, iteration)
+            if recovery_prune_threshold is not None:
+                recovery_prune_before = model.count
+                remove(
+                    params=model.params,
+                    optimizers=optimizers,
+                    state=strategy_state,
+                    mask=model.opacity_logits.detach().sigmoid()
+                    < recovery_prune_threshold,
+                )
             model.validate()
             after_count = model.count
             summary = torch.tensor(
@@ -355,6 +365,15 @@ def train_gaussians(
                 )
             if _opacity_reset_due(config, iteration):
                 event["opacity_reset"] = True
+            if recovery_prune_threshold is not None:
+                event.update(
+                    {
+                        "recovery_prune": True,
+                        "recovery_prune_threshold": recovery_prune_threshold,
+                        "recovery_prune_count_before": recovery_prune_before,
+                        "recovery_prune_count_after": model.count,
+                    }
+                )
             history.append(event)
             if world_rank == 0:
                 _publish_event(progress_path, event, progress_callback)
@@ -659,6 +678,28 @@ def _opacity_reset_due(config: dict[str, Any], iteration: int) -> bool:
         and iteration < int(config["densification"]["end_iteration"])
         and iteration % int(reset["every_iterations"]) == 0
     )
+
+
+def _recovery_prune_due(config: dict[str, Any], iteration: int) -> float | None:
+    """Return the prune threshold when a recovery-window prune fires here.
+
+    Fires once per opacity reset: at `reset_iteration + window_iterations`,
+    where `reset_iteration` is any iteration `_opacity_reset_due` accepts.
+    """
+    reset = config["opacity_reset"]
+    recovery = reset["recovery_prune"]
+    if not (
+        bool(recovery["enabled"])
+        and bool(reset["enabled"])
+        and bool(config["densification"]["enabled"])
+    ):
+        return None
+    origin = iteration - int(recovery["window_iterations"])
+    if not _opacity_reset_due(config, origin):
+        return None
+    if iteration >= int(config["iterations"]):
+        return None
+    return float(recovery["opacity_threshold"])
 
 
 def _training_scene_scale(contract: dict[str, Any]) -> float:

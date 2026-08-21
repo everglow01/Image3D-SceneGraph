@@ -30,9 +30,11 @@ PROFILE = "sor_v1"
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Filter isolated gaussians out of a canonical Gaussian PLY with SOR."
+        description="Filter isolated gaussians out of a Gaussian splat with SOR."
     )
-    parser.add_argument("--gaussian-ply", required=True, type=Path, help="Canonical exported scene.ply or canonical.ply.")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--gaussian-ply", type=Path, help="Canonical exported scene.ply or canonical.ply.")
+    source.add_argument("--model-snapshot", type=Path, help="Training model snapshot .pt; writes a row-filtered filtered-model.pt.")
     parser.add_argument("--output-dir", required=True, type=Path, help="Output directory; must not exist.")
     parser.add_argument("--nb-neighbors", type=int, default=20, help="SOR neighbor count k.")
     parser.add_argument("--std-ratio", type=float, default=1.5, help="SOR standard-deviation ratio.")
@@ -50,16 +52,19 @@ def main() -> None:
 
     started = time.perf_counter()
     try:
-        fields = read_gaussian_ply(args.gaussian_ply)
-        rows = np.column_stack([fields[name] for name in PLY_FIELDS])
-        kept_rows, keep = apply_sor_filter(
-            rows,
-            nb_neighbors=args.nb_neighbors,
-            std_ratio=args.std_ratio,
-            band_opacity=args.band_opacity,
-        )
-        check_removal_limit(keep, args.max_removal_fraction)
-        write_outputs(args, keep, kept_rows, started)
+        if args.model_snapshot is not None:
+            filter_model_snapshot(args, started)
+        else:
+            fields = read_gaussian_ply(args.gaussian_ply)
+            rows = np.column_stack([fields[name] for name in PLY_FIELDS])
+            kept_rows, keep = apply_sor_filter(
+                rows,
+                nb_neighbors=args.nb_neighbors,
+                std_ratio=args.std_ratio,
+                band_opacity=args.band_opacity,
+            )
+            check_removal_limit(keep, args.max_removal_fraction)
+            write_outputs(args, keep, kept_rows, started)
     except (ValueError, RuntimeError, OSError) as exc:
         raise SystemExit(str(exc))
 
@@ -72,11 +77,25 @@ def apply_sor_filter(
     band_opacity: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     positions = rows[:, :3].astype(np.float64)
+    opacity = 1.0 / (1.0 + np.exp(-rows[:, 54].astype(np.float64)))
+    keep = compute_band_keep_mask(
+        positions, opacity, nb_neighbors=nb_neighbors, std_ratio=std_ratio, band_opacity=band_opacity
+    )
+    return rows[keep], keep
+
+
+def compute_band_keep_mask(
+    positions: np.ndarray,
+    opacity: np.ndarray,
+    *,
+    nb_neighbors: int,
+    std_ratio: float,
+    band_opacity: float | None,
+) -> np.ndarray:
     keep = compute_sor_keep_mask(positions, nb_neighbors=nb_neighbors, std_ratio=std_ratio)
     if band_opacity is not None:
-        opacity = 1.0 / (1.0 + np.exp(-rows[:, 54].astype(np.float64)))
         keep = keep | (opacity >= band_opacity)
-    return rows[keep], keep
+    return keep
 
 
 def compute_sor_keep_mask(
@@ -105,6 +124,86 @@ def check_removal_limit(keep: np.ndarray, max_removal_fraction: float) -> None:
             f"safety limit: SOR would remove {removed_fraction:.3f} of gaussians "
             f"(limit {max_removal_fraction:.3f})"
         )
+
+
+def filter_model_snapshot(args: argparse.Namespace, started: float) -> None:
+    """Row-filter a training snapshot .pt; mirrors filter_gaussian_vggt.py output."""
+    import io
+    import os
+
+    import torch
+
+    from image3d_scenegraph.gaussian.evaluation import load_model_snapshot
+
+    source_model = load_model_snapshot(args.model_snapshot, torch.device("cpu"))
+    positions = source_model.means.detach().to(torch.float64).numpy()
+    opacity = source_model.opacity_logits.detach().sigmoid().numpy().astype(np.float64)
+    keep = compute_band_keep_mask(
+        positions,
+        opacity,
+        nb_neighbors=args.nb_neighbors,
+        std_ratio=args.std_ratio,
+        band_opacity=args.band_opacity,
+    )
+    check_removal_limit(keep, args.max_removal_fraction)
+    indices = torch.from_numpy(np.flatnonzero(keep)).long()
+    payload = {
+        "max_sh_degree": source_model.max_sh_degree,
+        "state_dict": {
+            "means": source_model.means.detach()[indices],
+            "log_scales": source_model.log_scales.detach()[indices],
+            "quats": source_model.quats.detach()[indices],
+            "opacity_logits": source_model.opacity_logits.detach()[indices],
+            "sh_coeffs": source_model.sh_coeffs.detach()[indices],
+        },
+        "postprocess": {
+            "profile": PROFILE,
+            "source_model_sha256": sha256_file(args.model_snapshot),
+        },
+    }
+    args.output_dir.mkdir(parents=True, exist_ok=False)
+    filtered_path = args.output_dir / "filtered-model.pt"
+    buffer = io.BytesIO()
+    torch.save(payload, buffer)
+    temporary = filtered_path.with_suffix(".pt.tmp")
+    temporary.write_bytes(buffer.getvalue())
+    os.replace(temporary, filtered_path)
+    mask_path = args.output_dir / "filter-mask.npz"
+    np.savez_compressed(
+        mask_path,
+        keep=keep,
+        nb_neighbors=np.int64(args.nb_neighbors),
+        std_ratio=np.float64(args.std_ratio),
+        band_opacity=np.float64(args.band_opacity) if args.band_opacity is not None else np.float64(np.nan),
+    )
+    record: dict[str, Any] = {
+        "profile": PROFILE,
+        "variant": "band" if args.band_opacity is not None else "full",
+        "params": {
+            "nb_neighbors": args.nb_neighbors,
+            "std_ratio": args.std_ratio,
+            "band_opacity": args.band_opacity,
+            "max_removal_fraction": args.max_removal_fraction,
+        },
+        "source_model": str(args.model_snapshot),
+        "source_model_sha256": sha256_file(args.model_snapshot),
+        "filtered_model": str(filtered_path),
+        "filtered_model_sha256": sha256_file(filtered_path),
+        "mask": str(mask_path),
+        "mask_sha256": sha256_file(mask_path),
+        "input_count": int(len(keep)),
+        "kept_count": int(keep.sum()),
+        "removed_count": int((~keep).sum()),
+        "elapsed_seconds": time.perf_counter() - started,
+    }
+    (args.output_dir / "filter-record.json").write_text(
+        json.dumps(record, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(f"filtered_model={filtered_path}")
+    print(f"variant={record['variant']}")
+    print(f"kept_gaussians={record['kept_count']}")
+    print(f"removed_gaussians={record['removed_count']}")
+    print(f"removed_fraction={record['removed_count'] / record['input_count']:.4f}")
 
 
 def write_outputs(args: argparse.Namespace, keep: np.ndarray, kept_rows: np.ndarray, started: float) -> None:

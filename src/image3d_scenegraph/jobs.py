@@ -45,6 +45,7 @@ VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
 VIDEO_PROFILES = {"standard_v1"}
 GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
+GAUSSIAN_SOR_FILTERS = {"on", "off"}
 COLMAP_MATCHERS = {"exhaustive", "sequential"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
@@ -175,6 +176,16 @@ class JobStore:
                     raise JobError(
                         f"unsupported Gaussian postprocess: {postprocess}"
                     )
+                sor_filter = str(
+                    normalized_options.get(
+                        "gaussian_sor_filter",
+                        os.environ.get("IMAGE3D_GAUSSIAN_SOR_FILTER", "on"),
+                    )
+                )
+                if sor_filter not in GAUSSIAN_SOR_FILTERS:
+                    raise JobError(
+                        f"unsupported Gaussian SOR filter setting: {sor_filter}"
+                    )
                 if "colmap_matcher" in normalized_options:
                     colmap_matcher = str(normalized_options["colmap_matcher"])
                     if colmap_matcher not in COLMAP_MATCHERS:
@@ -187,6 +198,7 @@ class JobStore:
                     gaussian_trainer=gaussian_trainer,
                     gaussian_geometry_source=geometry_source,
                     gaussian_postprocess=postprocess,
+                    gaussian_sor_filter=sor_filter,
                 )
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
                 if gaussian_config is None:
@@ -250,6 +262,12 @@ class JobStore:
                     "pending"
                     if normalized_options["gaussian_postprocess"] != "none"
                     else "not_requested"
+                ),
+                gaussian_sor_filter=str(normalized_options["gaussian_sor_filter"]),
+                gaussian_sor_filter_status=(
+                    "pending"
+                    if normalized_options["gaussian_sor_filter"] == "on"
+                    else "disabled"
                 ),
                 navigation_status="pending",
                 navigation_reason=None,
@@ -847,6 +865,13 @@ class JobStore:
                 ),
                 gaussian_postprocess_reason=metrics.get(
                     "gaussian_postprocess_reason"
+                ),
+                gaussian_sor_filter=str(options.get("gaussian_sor_filter", "on")),
+                gaussian_sor_filter_status=str(
+                    metrics.get("gaussian_sor_filter_status", "unavailable")
+                ),
+                gaussian_sor_filter_reason=metrics.get(
+                    "gaussian_sor_filter_reason"
                 ),
             )
         result["created_at"] = queued_manifest["created_at"]

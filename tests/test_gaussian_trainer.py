@@ -27,6 +27,7 @@ from image3d_scenegraph.gaussian.trainer import (
     _next_camera,
     _next_camera_batch,
     _opacity_reset_due,
+    _recovery_prune_due,
     _pack_checkpoint_shards,
     _torch_load,
     _training_scene_scale,
@@ -235,6 +236,30 @@ def test_reset_schedule_stops_at_refinement_boundary():
 
     config["densification"]["enabled"] = False
     assert not _opacity_reset_due(config, 3_000)
+
+
+def test_recovery_prune_schedule_fires_once_per_reset_window():
+    config = resolve_internal_config(
+        overrides={"opacity_reset": {"recovery_prune": {"enabled": True}}}
+    ).effective_config
+
+    for iteration in (3_500, 6_500, 9_500, 12_500):
+        assert _recovery_prune_due(config, iteration) == 0.05
+    for iteration in (3_000, 3_499, 3_501, 13_000, 15_000, 15_500, 30_000):
+        assert _recovery_prune_due(config, iteration) is None
+
+    config["opacity_reset"]["recovery_prune"]["enabled"] = False
+    assert _recovery_prune_due(config, 3_500) is None
+
+    config["opacity_reset"]["recovery_prune"]["enabled"] = True
+    config["opacity_reset"]["enabled"] = False
+    assert _recovery_prune_due(config, 3_500) is None
+    config["opacity_reset"]["enabled"] = True
+
+    # A window longer than the run never lands inside the training loop.
+    config["opacity_reset"]["recovery_prune"]["window_iterations"] = 20_000
+    assert _recovery_prune_due(config, 23_000) == 0.05
+    assert _recovery_prune_due(config, 20_000) is None  # origin 0 is not a reset
 
 
 def test_validation_payload_marks_lpips_not_run(monkeypatch):
