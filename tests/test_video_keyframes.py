@@ -22,11 +22,11 @@ from image3d_scenegraph.video.keyframes import (
 def test_ten_minute_video_limits() -> None:
     assert target_keyframe_count(10) == 60
     assert target_keyframe_count(60) == 360
-    assert target_keyframe_count(240) == 1440
-    assert target_keyframe_count(360) == 2160
-    assert target_keyframe_count(600) == 3600
-    assert target_keyframe_count(606) == MAX_KEYFRAMES == 3_636
-    assert MAX_CANDIDATES == 7_272
+    assert target_keyframe_count(240) == MAX_KEYFRAMES == 1_000
+    assert target_keyframe_count(360) == 1_000
+    assert target_keyframe_count(600) == 1_000
+    assert target_keyframe_count(606) == 1_000
+    assert MAX_CANDIDATES == 3_636
 
 
 def test_frame_quality_and_selection_are_bounded() -> None:

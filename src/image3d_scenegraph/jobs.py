@@ -19,6 +19,7 @@ from image3d_scenegraph.gaussian.config import (
     ResolvedGaussianConfig,
     canonical_config_json,
     resolved_config_record,
+    resolve_internal_config,
     resolve_public_config,
 )
 from image3d_scenegraph.gaussian.dataset import sha256_file
@@ -46,6 +47,7 @@ VIDEO_PROFILES = {"standard_v1"}
 GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
+GAUSSIAN_RECOVERY_PRUNE_SETTINGS = {"on", "off"}
 COLMAP_MATCHERS = {"exhaustive", "sequential"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
@@ -186,6 +188,16 @@ class JobStore:
                     raise JobError(
                         f"unsupported Gaussian SOR filter setting: {sor_filter}"
                     )
+                recovery_prune = str(
+                    normalized_options.get(
+                        "gaussian_recovery_prune",
+                        os.environ.get("IMAGE3D_GAUSSIAN_RECOVERY_PRUNE", "off"),
+                    )
+                )
+                if recovery_prune not in GAUSSIAN_RECOVERY_PRUNE_SETTINGS:
+                    raise JobError(
+                        f"unsupported Gaussian recovery prune setting: {recovery_prune}"
+                    )
                 if "colmap_matcher" in normalized_options:
                     colmap_matcher = str(normalized_options["colmap_matcher"])
                     if colmap_matcher not in COLMAP_MATCHERS:
@@ -199,13 +211,26 @@ class JobStore:
                     gaussian_geometry_source=geometry_source,
                     gaussian_postprocess=postprocess,
                     gaussian_sor_filter=sor_filter,
+                    gaussian_recovery_prune=recovery_prune,
                 )
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
                 if gaussian_config is None:
-                    gaussian_config = resolve_public_config(
-                        "standard_v1",
-                        longest_edge=normalized_options.get("gaussian_longest_edge", 1280),
-                    )
+                    longest_edge = normalized_options.get("gaussian_longest_edge", 1280)
+                    if recovery_prune == "on":
+                        gaussian_config = resolve_internal_config(
+                            "standard_v1",
+                            overrides={
+                                "resolution": {"longest_edge": longest_edge},
+                                "opacity_reset": {
+                                    "recovery_prune": {"enabled": True}
+                                },
+                            },
+                        )
+                    else:
+                        gaussian_config = resolve_public_config(
+                            "standard_v1",
+                            longest_edge=longest_edge,
+                        )
             gaussian_config_record = (
                 resolved_config_record(gaussian_config) if gaussian_config is not None else None
             )
@@ -268,6 +293,9 @@ class JobStore:
                     "pending"
                     if normalized_options["gaussian_sor_filter"] == "on"
                     else "disabled"
+                ),
+                gaussian_recovery_prune=str(
+                    normalized_options["gaussian_recovery_prune"]
                 ),
                 navigation_status="pending",
                 navigation_reason=None,

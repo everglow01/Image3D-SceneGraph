@@ -83,12 +83,14 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     ]
     assert properties["gaussian_postprocess"]["default"] == "none"
     assert properties["gaussian_sor_filter"].get("default") is None
+    assert properties["gaussian_recovery_prune"].get("default") is None
     gaussian_names = {name for name in properties if "gaussian" in name}
     assert gaussian_names == {
         "gaussian_trainer",
         "gaussian_geometry_source",
         "gaussian_postprocess",
         "gaussian_sor_filter",
+        "gaussian_recovery_prune",
         "gaussian_longest_edge",
     }
 
@@ -146,6 +148,28 @@ def test_create_job_forwards_gaussian_sor_filter(tmp_path):
 
     assert response.status_code == 202
     assert store.options["gaussian_sor_filter"] == "off"
+
+
+def test_create_job_forwards_gaussian_recovery_prune(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "gaussian_recovery_prune": "on",
+        },
+        files=[("files", ("room.jpg", b"image", "image/jpeg"))],
+    )
+
+    assert response.status_code == 202
+    assert store.options["gaussian_recovery_prune"] == "on"
 
 
 def test_create_video_job_forwards_colmap_matcher(tmp_path):
@@ -249,11 +273,17 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
         data={"gaussian_sor_filter": "unknown"},
         files=files,
     )
+    recovery_prune_response = client.post(
+        "/api/jobs",
+        data={"gaussian_recovery_prune": "unknown"},
+        files=files,
+    )
 
     assert geometry_response.status_code == 422
     assert postprocess_response.status_code == 422
     assert matcher_response.status_code == 422
     assert sor_response.status_code == 422
+    assert recovery_prune_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):

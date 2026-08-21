@@ -102,6 +102,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         gaussian_sor_filter: Annotated[
             Literal["on", "off"] | None, Form()
         ] = None,
+        gaussian_recovery_prune: Annotated[
+            Literal["on", "off"] | None, Form()
+        ] = None,
         gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3072)] = None,
         colmap_matcher: Annotated[
             Literal["exhaustive", "sequential"] | None, Form()
@@ -182,6 +185,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "gaussian_sor_filter": (
                     gaussian_sor_filter if geometry_backend == "project_3dgs" else None
+                ),
+                "gaussian_recovery_prune": (
+                    gaussian_recovery_prune
+                    if geometry_backend == "project_3dgs"
+                    else None
                 ),
                 "gaussian_longest_edge": (
                     gaussian_longest_edge if geometry_backend == "project_3dgs" else None

@@ -31,6 +31,7 @@ Newly completed jobs contain:
 | `gaussian_sor_filter` | string | Optional SOR floater-cleanup request for project Gaussian jobs: `on` (default) or `off`. Absent on historical manifests, which never ran the filter. |
 | `gaussian_sor_filter_status` | string | Optional SOR lifecycle: `pending`, `disabled`, `available`, or `unavailable`. Failure is fail-soft and the unfiltered model remains a successful result. |
 | `gaussian_sor_filter_reason` | string or null | Optional diagnostic reason when the requested SOR cleanup is unavailable. |
+| `gaussian_recovery_prune` | string | Optional experimental recovery-gated prune request for project Gaussian jobs: `on` or `off` (default). When `on`, the effective Gaussian config enables `opacity_reset.recovery_prune`. Absent on historical manifests. |
 | `navigation_status` | string | Optional Gaussian-navigation lifecycle: `pending`, `not_generated`, `queued`, `generating`, `available`, or `unavailable`. Navigation failure never changes a completed Gaussian job from `done`. |
 | `navigation_reason` | string or null | Stable machine-readable reason when navigation is unavailable. |
 | `navigation_details` | object or null | Hashes, budgets, coordinate semantics, and Train-only publication evidence for an available navigation asset set. |
@@ -103,7 +104,7 @@ Only roles present in `assets` are available. Generic postprocessing can add exi
 
 ## Bounded video contract
 
-`mode=video` is implemented only with `project_3dgs + gaussian_splat`. The public `standard_v1` keyframe profile accepts one MP4/MOV/M4V/WebM, 10–600 seconds (606 seconds is the technical container-tolerance limit), at most 2 GiB, and at most 3,636 selected keyframes from no more than 7,272 candidates. Upload staging uses bounded chunks; the original video remains under `input/` and retry regenerates keyframes from it.
+`mode=video` is implemented only with `project_3dgs + gaussian_splat`. The public `standard_v1` keyframe profile accepts one MP4/MOV/M4V/WebM, 10–600 seconds (606 seconds is the technical container-tolerance limit), at most 2 GiB, and at most 1,000 selected keyframes from no more than 3,636 candidates. Upload staging uses bounded chunks; the original video remains under `input/` and retry regenerates keyframes from it.
 
 `video_probe` records the normalized ffprobe result, source hash, source/display dimensions, and applied quarter-turn without exposing location values. `video_frame_selection` is the authoritative source-PTS, quality, rejection, output hash, dimensions, and minimal generated-EXIF record. `video_keyframe_contact_sheet` is display-only. `video_registration_diagnostics` maps selected source timestamps to COLMAP registrations and records registration rate, temporal coverage, and largest gap. Complete jobs expose corresponding `video_*` metrics for profile, duration, orientation, source/display dimensions, candidate/selected/rejection counts, registration count/rate, and registration temporal coverage.
 
@@ -169,6 +170,14 @@ On success `gaussian_sor_filter_status` is `available`, the filtered snapshot re
 Failure is fail-soft: the status is `unavailable` with a reason, the unfiltered snapshot continues through Validation/export unchanged, and the job remains a successful result. Setting the field to `off` records status `disabled` and skips the filter entirely.
 
 This step is independent of `gaussian_postprocess`. When both are requested, the SOR cleanup runs first on the selected snapshot, and any `vggt_visibility_v1` derivative is then derived from the SOR-filtered model; each lifecycle status is reported separately.
+
+## Gaussian recovery-gated prune (experimental option)
+
+```text
+gaussian_recovery_prune = on | off      (default off)
+```
+
+When requested `on` (API form field, or server-wide `IMAGE3D_GAUSSIAN_RECOVERY_PRUNE=on` when the request does not override it), the resolved Gaussian config enables the schema-9 `opacity_reset.recovery_prune` leaf, and the project trainer fires a one-shot prune of gaussians still below the recovery threshold 500 iterations after each opacity reset (progress events carry `recovery_prune` with before/after counts). The request is echoed as the `gaussian_recovery_prune` manifest field, and the effective leaf is visible in the `gaussian_config` record. This is a research-only option: the room A/B passed its gates, but promotion to a default requires floater-rich video-job confirmation. No frontend switch exists yet.
 
 ## COLMAP+VGGT effective-policy metrics
 

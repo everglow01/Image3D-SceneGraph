@@ -416,6 +416,12 @@ def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
     assert request["options"]["gaussian_sor_filter"] == "on"
     assert manifest["gaussian_sor_filter"] == "on"
     assert manifest["gaussian_sor_filter_status"] == "pending"
+    assert request["options"]["gaussian_recovery_prune"] == "off"
+    assert manifest["gaussian_recovery_prune"] == "off"
+    recovery_prune_leaf = manifest["gaussian_config"]["effective_config"][
+        "opacity_reset"
+    ]["recovery_prune"]
+    assert recovery_prune_leaf["enabled"] is False
 
 
 def test_project_gaussian_job_persists_experimental_options(tmp_path):
@@ -430,6 +436,7 @@ def test_project_gaussian_job_persists_experimental_options(tmp_path):
             "gaussian_geometry_source": "vggt_ba",
             "gaussian_postprocess": "vggt_visibility_v1",
             "gaussian_sor_filter": "off",
+            "gaussian_recovery_prune": "on",
         },
     )
     request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
@@ -445,6 +452,31 @@ def test_project_gaussian_job_persists_experimental_options(tmp_path):
     assert manifest["gaussian_postprocess_status"] == "pending"
     assert manifest["gaussian_sor_filter"] == "off"
     assert manifest["gaussian_sor_filter_status"] == "disabled"
+    assert request["options"]["gaussian_recovery_prune"] == "on"
+    assert manifest["gaussian_recovery_prune"] == "on"
+    recovery_prune_leaf = manifest["gaussian_config"]["effective_config"][
+        "opacity_reset"
+    ]["recovery_prune"]
+    assert recovery_prune_leaf["enabled"] is True
+
+
+def test_project_gaussian_job_env_enables_recovery_prune(tmp_path, monkeypatch):
+    monkeypatch.setenv("IMAGE3D_GAUSSIAN_RECOVERY_PRUNE", "on")
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.enqueue_job(
+        "multi_image",
+        [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={},
+    )
+
+    assert manifest["gaussian_recovery_prune"] == "on"
+    recovery_prune_leaf = manifest["gaussian_config"]["effective_config"][
+        "opacity_reset"
+    ]["recovery_prune"]
+    assert recovery_prune_leaf["enabled"] is True
 
 
 def test_project_gaussian_job_env_disables_sor_filter(tmp_path, monkeypatch):
@@ -473,6 +505,19 @@ def test_project_gaussian_job_rejects_unknown_sor_filter_setting(tmp_path):
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_sor_filter": "maybe"},
+        )
+
+
+def test_project_gaussian_job_rejects_unknown_recovery_prune_setting(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="recovery prune"):
+        store.enqueue_job(
+            "multi_image",
+            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"gaussian_recovery_prune": "maybe"},
         )
 
 
