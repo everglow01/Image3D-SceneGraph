@@ -19,6 +19,7 @@ VALID_GEOMETRY_BACKENDS = {
     "project_3dgs",
 }
 VALID_OUTPUT_TYPES = {"point_cloud", "mesh", "gaussian_splat"}
+MAX_REGISTERED_GAP_SECONDS = 2.0
 
 
 class ReconstructionError(ValueError):
@@ -431,15 +432,32 @@ class ProjectGaussianAdapter:
                     fallback_reason
                 )
         temporal_timestamps: dict[str, float] | None = None
+        registration_log_lines: list[str] = []
         if video_selection is not None:
             registration_path = context.job_dir / "diagnostics" / "video_registration.json"
-            temporal_timestamps, registration_metrics = _write_video_registration_diagnostics(
+            (
+                temporal_timestamps,
+                registration_metrics,
+                gap_violations,
+            ) = _write_video_registration_diagnostics(
                 video_selection, cameras_path, registration_path
             )
             video_assets["video_registration_diagnostics"] = registration_path.relative_to(
                 context.job_dir
             ).as_posix()
             video_metrics.update(registration_metrics)
+            if gap_violations:
+                maximum_violation = max(
+                    violation["seconds"] for violation in gap_violations
+                )
+                intervals = ",".join(
+                    f"{violation['start_seconds']:.1f}-{violation['end_seconds']:.1f}"
+                    for violation in gap_violations
+                )
+                registration_log_lines.append(
+                    f"video_registration_gap_warning={len(gap_violations)} "
+                    f"max={maximum_violation:.2f}s intervals={intervals}"
+                )
         try:
             from image3d_scenegraph.gaussian.dataset import build_colmap_contract, write_contract
         except ImportError as exc:
@@ -750,6 +768,7 @@ class ProjectGaussianAdapter:
                 if sor_reason
                 else []
             ),
+            *registration_log_lines,
             f"trainer={' '.join(command_train)}",
             *sor_log_lines,
             *postprocess_log_lines,
@@ -1066,7 +1085,11 @@ def _try_apply_sor_filter(
 
 def _write_video_registration_diagnostics(
     selection: dict[str, Any], cameras_path: Path, output_path: Path
-) -> tuple[dict[str, float], dict[str, int | float | str | bool]]:
+) -> tuple[
+    dict[str, float],
+    dict[str, int | float | str | bool],
+    list[dict[str, float]],
+]:
     selected_payload = selection.get("selected")
     if not isinstance(selected_payload, list) or not selected_payload:
         raise ReconstructionError("video selection metadata has no selected frames")
@@ -1117,6 +1140,11 @@ def _write_video_registration_diagnostics(
             f"temporal_coverage {temporal_coverage:.3f} is below 0.800"
         )
     gaps = [right - left for left, right in zip(registered_times, registered_times[1:])]
+    gap_violations = [
+        {"start_seconds": left, "end_seconds": right, "seconds": right - left}
+        for left, right in zip(registered_times, registered_times[1:])
+        if right - left > MAX_REGISTERED_GAP_SECONDS
+    ]
     records = []
     for name, selected in sorted(
         selected_by_name.items(), key=lambda item: float(item[1]["time_seconds"])
@@ -1141,6 +1169,8 @@ def _write_video_registration_diagnostics(
         "registration_rate": registration_rate,
         "temporal_coverage": temporal_coverage,
         "maximum_registered_gap_seconds": max(gaps, default=0.0),
+        "maximum_registered_gap_threshold_seconds": MAX_REGISTERED_GAP_SECONDS,
+        "gap_violations": gap_violations,
         "gate": {
             "passed": not gate_failures,
             "failures": gate_failures,
@@ -1162,12 +1192,15 @@ def _write_video_registration_diagnostics(
     timestamps = {
         name: float(selected_by_name[name]["time_seconds"]) for name in registered_names
     }
-    return timestamps, {
+    metrics: dict[str, int | float | str | bool] = {
         "video_registered_count": registered_count,
         "video_registration_rate": registration_rate,
         "video_registration_temporal_coverage": temporal_coverage,
         "video_registration_max_gap_seconds": max(gaps, default=0.0),
     }
+    if gap_violations:
+        metrics["video_registration_gap_violation_count"] = len(gap_violations)
+    return timestamps, metrics, gap_violations
 
 
 def _automatic_test_evaluation_enabled(_trainer_id: str) -> bool:

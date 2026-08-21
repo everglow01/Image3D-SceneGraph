@@ -68,6 +68,91 @@ def test_video_split_keeps_two_second_groups_disjoint():
     assert len(split["test"]) >= 2
 
 
+def make_video_images(times: list[float]) -> tuple[list[dict], dict[str, float]]:
+    images = []
+    timestamps = {}
+    for index, time in enumerate(times):
+        name = f"frame_{index:03d}.jpg"
+        world_from_camera = np.eye(4)
+        world_from_camera[:3, 3] = [float(index), 0.0, 0.0]
+        images.append(
+            {
+                "image_id": f"view-{index:02d}",
+                "path": f"images/{name}",
+                "world_from_camera": world_from_camera.tolist(),
+            }
+        )
+        timestamps[name] = time
+    return images, timestamps
+
+
+def test_video_split_keeps_gap_adjacent_groups_in_train():
+    # 5s registration hole between frame 9 (t=9) and frame 10 (t=14).
+    times = [float(index) for index in range(10)] + [
+        float(index) + 4.0 for index in range(10, 20)
+    ]
+    images, timestamps = make_video_images(times)
+
+    split = deterministic_temporal_group_split(images, timestamps)
+
+    owners = {image_id: part for part, ids in split.items() for image_id in ids}
+    assert set(owners) == {image["image_id"] for image in images}
+    protected = {int(timestamps[f"frame_{index:03d}.jpg"] // 2.0) for index in (9, 10)}
+    for image in images:
+        name = Path(image["path"]).name
+        if int(timestamps[name] // 2.0) in protected:
+            assert owners[image["image_id"]] == "train"
+    assert len(split["validation"]) >= 2
+    assert len(split["test"]) >= 2
+
+
+def test_video_split_shrinks_holdout_when_many_groups_protected():
+    # 11 two-to-six-frame blocks separated by holes: only 6 of 26 groups
+    # stay eligible, so the held-out budget shrinks from 3 groups to 2.
+    times: list[float] = []
+    group = 0
+    for size in [6] + [2] * 10:
+        for _ in range(size):
+            times.append(group * 2.0 + 0.5)
+            group += 1
+        group += 2
+    images, timestamps = make_video_images(times)
+
+    split = deterministic_temporal_group_split(images, timestamps)
+
+    assert len(split["validation"]) == 2
+    assert len(split["test"]) == 2
+    assert len(split["train"]) == 22
+    ordered = sorted(timestamps.values())
+    protected = {
+        int(time // 2.0)
+        for left, right in zip(ordered, ordered[1:])
+        if right - left > 2.0
+        for time in (left, right)
+    }
+    owners = {image_id: part for part, ids in split.items() for image_id in ids}
+    for image in images:
+        name = Path(image["path"]).name
+        if int(timestamps[name] // 2.0) in protected:
+            assert owners[image["image_id"]] == "train"
+
+
+def test_video_split_rejects_when_gap_avoidance_starves_holdout():
+    # Six two-frame blocks separated by holes leave only two eligible groups,
+    # which cannot fund two validation and two test groups.
+    times: list[float] = []
+    group = 0
+    for _ in range(6):
+        for _ in range(2):
+            times.append(group * 2.0 + 0.5)
+            group += 1
+        group += 2
+    images, timestamps = make_video_images(times)
+
+    with pytest.raises(DatasetContractError, match="too few temporal groups"):
+        deterministic_temporal_group_split(images, timestamps)
+
+
 def write_colmap_fixture(root: Path, count: int = 12) -> None:
     (root / "images").mkdir(parents=True)
     images = []

@@ -193,7 +193,7 @@ def test_video_registration_gate_writes_temporal_diagnostics(tmp_path):
     output_path = tmp_path / "video_registration.json"
     cameras_path.write_text(json.dumps(cameras), encoding="utf-8")
 
-    timestamps, metrics = _write_video_registration_diagnostics(
+    timestamps, metrics, gap_violations = _write_video_registration_diagnostics(
         {"profile": "video_keyframes_standard_v1", "selected": selected},
         cameras_path,
         output_path,
@@ -202,7 +202,91 @@ def test_video_registration_gate_writes_temporal_diagnostics(tmp_path):
     assert len(timestamps) == 18
     assert metrics["video_registration_rate"] == 0.9
     assert metrics["video_registration_temporal_coverage"] > 0.8
+    assert gap_violations == []
+    assert "video_registration_gap_violation_count" not in metrics
     assert json.loads(output_path.read_text())["registered_count"] == 18
+
+
+def test_video_registration_gap_violation_is_soft_warning(tmp_path):
+    selected = [
+        {
+            "path": f"frames/selected/frame_{index:03d}.jpg",
+            "time_seconds": float(index),
+        }
+        for index in range(9)
+    ] + [
+        {
+            "path": f"frames/selected/frame_{index:03d}.jpg",
+            "time_seconds": float(index) + 4.0,
+        }
+        for index in range(9, 18)
+    ]
+    cameras = {
+        "cameras": [{"camera_id": 1, "model": "PINHOLE"}],
+        "images": [
+            {
+                "image_id": index + 1,
+                "camera_id": 1,
+                "name": f"frame_{index:03d}.jpg",
+            }
+            for index in range(18)
+        ],
+    }
+    cameras_path = tmp_path / "cameras.json"
+    output_path = tmp_path / "video_registration.json"
+    cameras_path.write_text(json.dumps(cameras), encoding="utf-8")
+
+    timestamps, metrics, gap_violations = _write_video_registration_diagnostics(
+        {"profile": "video_keyframes_standard_v1", "selected": selected},
+        cameras_path,
+        output_path,
+    )
+
+    payload = json.loads(output_path.read_text())
+    assert payload["maximum_registered_gap_threshold_seconds"] == 2.0
+    assert payload["gap_violations"] == [
+        {"start_seconds": 8.0, "end_seconds": 13.0, "seconds": 5.0}
+    ]
+    assert gap_violations == payload["gap_violations"]
+    assert metrics["video_registration_gap_violation_count"] == 1
+    assert len(timestamps) == 18
+
+
+def test_video_registration_gate_failure_raises_and_writes_diagnostics(tmp_path):
+    selected = [
+        {
+            "path": f"frames/selected/frame_{index:03d}.jpg",
+            "time_seconds": float(index),
+        }
+        for index in range(20)
+    ]
+    cameras = {
+        "cameras": [{"camera_id": 1, "model": "PINHOLE"}],
+        "images": [
+            {
+                "image_id": index + 1,
+                "camera_id": 1,
+                "name": f"frame_{index:03d}.jpg",
+            }
+            for index in range(12)
+        ],
+    }
+    cameras_path = tmp_path / "cameras.json"
+    output_path = tmp_path / "video_registration.json"
+    cameras_path.write_text(json.dumps(cameras), encoding="utf-8")
+
+    with pytest.raises(
+        ReconstructionError, match="video_registration_quality_gate_failed"
+    ):
+        _write_video_registration_diagnostics(
+            {"profile": "video_keyframes_standard_v1", "selected": selected},
+            cameras_path,
+            output_path,
+        )
+
+    payload = json.loads(output_path.read_text())
+    assert payload["gate"]["passed"] is False
+    assert any("registration_rate" in failure for failure in payload["gate"]["failures"])
 
 
 def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):

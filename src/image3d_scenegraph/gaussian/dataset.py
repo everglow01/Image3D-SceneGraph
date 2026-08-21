@@ -103,6 +103,7 @@ def deterministic_temporal_group_split(
     if len(images) < MIN_REGISTERED_IMAGES:
         raise DatasetContractError(f"at least {MIN_REGISTERED_IMAGES} registered images are required")
     groups: dict[int, list[dict[str, Any]]] = {}
+    ordered_times: list[float] = []
     for image in images:
         name = Path(str(image["path"])).name
         try:
@@ -112,8 +113,15 @@ def deterministic_temporal_group_split(
         if not np.isfinite(timestamp) or timestamp < 0:
             raise DatasetContractError(f"invalid video timestamp for registered image: {name}")
         groups.setdefault(int(timestamp // group_seconds), []).append(image)
+        ordered_times.append(timestamp)
     if len(groups) < 5:
         raise DatasetContractError("video split requires at least five temporal groups")
+    ordered_times.sort()
+    protected: set[int] = set()
+    for left, right in zip(ordered_times, ordered_times[1:]):
+        if right - left > group_seconds:
+            protected.add(int(left // group_seconds))
+            protected.add(int(right // group_seconds))
     group_ids = sorted(groups)
     centers = np.stack(
         [
@@ -126,7 +134,13 @@ def deterministic_temporal_group_split(
     )
     order = spatial_order([str(group) for group in group_ids], centers, seed)
     heldout_count = min(max(2, int(round(len(groups) * 0.1))), (len(groups) - 1) // 2)
-    heldout = order[: 2 * heldout_count]
+    eligible_order = [index for index in order if group_ids[index] not in protected]
+    heldout_count = min(heldout_count, (len(eligible_order) - 1) // 2)
+    if heldout_count < 2:
+        raise DatasetContractError(
+            "registration-gap avoidance leaves too few temporal groups for held-out splits"
+        )
+    heldout = eligible_order[: 2 * heldout_count]
     validation_groups = {group_ids[index] for index in heldout[1::2]}
     test_groups = {group_ids[index] for index in heldout[::2]}
     split = {"train": [], "validation": [], "test": []}
