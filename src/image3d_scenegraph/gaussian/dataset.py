@@ -10,6 +10,8 @@ from typing import Any
 
 import numpy as np
 
+from image3d_scenegraph.video.registration import registered_gap_violations
+
 
 SCHEMA_VERSION = 1
 MIN_REGISTERED_IMAGES = 12
@@ -118,10 +120,12 @@ def deterministic_temporal_group_split(
         raise DatasetContractError("video split requires at least five temporal groups")
     ordered_times.sort()
     protected: set[int] = set()
-    for left, right in zip(ordered_times, ordered_times[1:]):
-        if right - left > group_seconds:
-            protected.add(int(left // group_seconds))
-            protected.add(int(right // group_seconds))
+    for violation in registered_gap_violations(
+        ordered_times,
+        maximum_gap_seconds=group_seconds,
+    ):
+        protected.add(int(violation["start_seconds"] // group_seconds))
+        protected.add(int(violation["end_seconds"] // group_seconds))
     group_ids = sorted(groups)
     centers = np.stack(
         [

@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import importlib
+import json
 import sqlite3
+import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
+
+scripts_dir = str(Path(__file__).resolve().parents[1] / "scripts")
+sys.path.insert(0, scripts_dir)
+try:
+    run_vggt_ba_sparse = importlib.import_module("scripts.run_vggt_ba_sparse")
+finally:
+    sys.path.remove(scripts_dir)
 
 from image3d_scenegraph.geometry.vggt_ba import (
     MIN_SUPPORTED_OBSERVATIONS,
@@ -240,3 +251,128 @@ def test_train_supported_points_are_recolored_only_from_train(tmp_path):
     row = (tmp_path / "filtered.txt").read_text().splitlines()[1].split()
     assert row[4:7] == ["30", "40", "50"]
     assert diagnostics["counts"]["mixed_track_points"] == 1
+
+
+def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = {
+        "profile": "video_keyframes_standard_v2",
+        "selected": [
+            {
+                "path": f"frames/selected/frame_{index:03d}.jpg",
+                "time_seconds": float(index),
+                "pts": index,
+            }
+            for index in range(12)
+        ],
+    }
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"video")
+    initial_model = tmp_path / "seeded"
+    recovered_model = tmp_path / "recovered"
+    call = {}
+
+    def fake_recovery(**kwargs):
+        call.update(kwargs)
+        return recovered_model, {"status": "recovered", "rounds": [{}]}, ["recovery-log"]
+
+    monkeypatch.setattr(
+        run_vggt_ba_sparse, "recover_video_registration", fake_recovery
+    )
+    logs = []
+    model, diagnostics, fallback_registration = (
+        run_vggt_ba_sparse.apply_video_registration_recovery(
+            colmap="colmap",
+            database_path=tmp_path / "database.db",
+            image_dir=tmp_path / "images",
+            final_model=initial_model,
+            video_selection=selection,
+            video_source=source,
+            selection_path=selection_path,
+            diagnostics_dir=tmp_path / "diagnostics",
+            work_dir=tmp_path / "work",
+            num_threads=8,
+            progress_file=tmp_path / "progress.json",
+            fallback_applied=False,
+            command_logs=logs,
+        )
+    )
+
+    assert model == recovered_model
+    assert diagnostics["status"] == "recovered"
+    assert fallback_registration is None
+    assert call["initial_model"] == initial_model
+    assert call["database_path"] == tmp_path / "database.db"
+    assert logs == ["recovery-log"]
+
+
+def test_vggt_ba_colmap_fallback_rechecks_recovered_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = {
+        "profile": "video_keyframes_standard_v2",
+        "selected": [
+            {
+                "path": f"frames/selected/frame_{index:03d}.jpg",
+                "time_seconds": float(index),
+                "pts": index,
+            }
+            for index in range(12)
+        ],
+    }
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"video")
+    recovered_model = tmp_path / "fallback-recovered"
+    inspected = {}
+
+    monkeypatch.setattr(
+        run_vggt_ba_sparse,
+        "recover_video_registration",
+        lambda **_kwargs: (
+            recovered_model,
+            {"status": "recovered", "rounds": [{}]},
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        run_vggt_ba_sparse,
+        "read_colmap_database_image_ids",
+        lambda _path: {f"frame_{index:03d}.jpg": index + 100 for index in range(12)},
+    )
+
+    def fake_inspect(_colmap, model, _text, indices, count, _logs):
+        inspected.update(model=model, indices=indices, count=count)
+        return {"usable": True, "supported_camera_count": 12}
+
+    monkeypatch.setattr(
+        run_vggt_ba_sparse, "inspect_model_registration", fake_inspect
+    )
+    model, diagnostics, fallback_registration = (
+        run_vggt_ba_sparse.apply_video_registration_recovery(
+            colmap="colmap",
+            database_path=tmp_path / "database.db",
+            image_dir=tmp_path / "images",
+            final_model=tmp_path / "fallback-initial",
+            video_selection=selection,
+            video_source=source,
+            selection_path=selection_path,
+            diagnostics_dir=tmp_path / "diagnostics",
+            work_dir=tmp_path / "work",
+            num_threads=8,
+            progress_file=None,
+            fallback_applied=True,
+            command_logs=[],
+        )
+    )
+
+    assert model == recovered_model
+    assert diagnostics["status"] == "recovered"
+    assert fallback_registration["usable"] is True
+    assert inspected["model"] == recovered_model
+    assert inspected["count"] == 12
+    assert inspected["indices"] == {index + 100: index for index in range(12)}

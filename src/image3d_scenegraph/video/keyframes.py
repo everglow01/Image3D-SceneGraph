@@ -15,10 +15,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
-PROFILE_ID = "video_keyframes_standard_v1"
+STANDARD_V1 = "standard_v1"
+STANDARD_V2 = "standard_v2"
+V1_PROFILE_ID = "video_keyframes_standard_v1"
+V2_PROFILE_ID = "video_keyframes_standard_v2"
+PROFILE_ID = V1_PROFILE_ID
+VIDEO_PROFILES = {STANDARD_V1, STANDARD_V2}
 MIN_DURATION_SECONDS = 10.0
 MAX_DURATION_SECONDS = 606.0
 MAX_VIDEO_BYTES = 2 * 1024**3
@@ -26,6 +32,8 @@ CANDIDATE_FPS = 6
 MAX_CANDIDATES = 3_636
 MAX_KEYFRAMES = 1_000
 MIN_KEYFRAMES = 24
+V2_BASE_FPS = 4
+V2_ADAPTIVE_MAX_FPS = 5
 ANALYSIS_SIZE = 320
 EXTRACTION_DEADLINE_SECONDS = 30 * 60
 VALID_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
@@ -36,10 +44,32 @@ class VideoKeyframeError(ValueError):
     """Raised when video input or selected keyframes violate the profile."""
 
 
-def target_keyframe_count(duration_seconds: float) -> int:
+def target_keyframe_count(duration_seconds: float, profile: str = STANDARD_V1) -> int:
     if not math.isfinite(duration_seconds):
         raise VideoKeyframeError("video duration must be finite")
-    return min(MAX_KEYFRAMES, max(MIN_KEYFRAMES, round(duration_seconds * 6)))
+    if profile == STANDARD_V1:
+        return min(MAX_KEYFRAMES, max(MIN_KEYFRAMES, round(duration_seconds * 6)))
+    if profile == STANDARD_V2:
+        return max(MIN_KEYFRAMES, round(duration_seconds * V2_ADAPTIVE_MAX_FPS))
+    raise VideoKeyframeError(f"unsupported video keyframe profile: {profile}")
+
+
+def base_keyframe_count(duration_seconds: float, profile: str = STANDARD_V1) -> int:
+    if not math.isfinite(duration_seconds):
+        raise VideoKeyframeError("video duration must be finite")
+    if profile == STANDARD_V1:
+        return target_keyframe_count(duration_seconds, profile)
+    if profile == STANDARD_V2:
+        return max(MIN_KEYFRAMES, round(duration_seconds * V2_BASE_FPS))
+    raise VideoKeyframeError(f"unsupported video keyframe profile: {profile}")
+
+
+def _profile_id(profile: str) -> str:
+    if profile == STANDARD_V1:
+        return V1_PROFILE_ID
+    if profile == STANDARD_V2:
+        return V2_PROFILE_ID
+    raise VideoKeyframeError(f"unsupported video keyframe profile: {profile}")
 
 
 def resolve_video_tools() -> tuple[str, str]:
@@ -57,7 +87,9 @@ def probe_video(
     *,
     rotation_override: str = "auto",
     ffprobe: str | None = None,
+    profile: str = STANDARD_V1,
 ) -> dict[str, Any]:
+    profile_id = _profile_id(profile)
     if rotation_override not in VALID_ROTATIONS:
         raise VideoKeyframeError(f"unsupported video rotation: {rotation_override}")
     if not source.is_file():
@@ -134,7 +166,7 @@ def probe_video(
     location_hidden = len(safe_tags) != len(tags)
     return {
         "schema_version": 1,
-        "profile": PROFILE_ID,
+        "profile": profile_id,
         "source": {
             "filename": source.name,
             "size_bytes": size_bytes,
@@ -172,12 +204,19 @@ def extract_video_keyframes(
     *,
     longest_edge: int,
     rotation_override: str = "auto",
+    profile: str = STANDARD_V1,
     progress: Callable[[str, float], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    profile_id = _profile_id(profile)
     ffmpeg, ffprobe = resolve_video_tools()
     _progress(progress, "video_probing", 0.06)
-    probe = probe_video(source, rotation_override=rotation_override, ffprobe=ffprobe)
+    probe = probe_video(
+        source,
+        rotation_override=rotation_override,
+        ffprobe=ffprobe,
+        profile=profile,
+    )
     diagnostics_dir = output_root / "diagnostics"
     frames_dir = output_root / "frames"
     selected_dir = frames_dir / "selected"
@@ -223,12 +262,17 @@ def extract_video_keyframes(
         height=ANALYSIS_SIZE,
         deadline=deadline,
         cancel_requested=cancel_requested,
+        estimate_motion=profile == STANDARD_V2,
     )
     if len(candidates) > MAX_CANDIDATES:
         raise VideoKeyframeError(
             f"candidate frame limit exceeded ({len(candidates)} > {MAX_CANDIDATES})"
         )
-    selected = select_keyframes(candidates, float(probe["duration_seconds"]))
+    selected = select_keyframes(
+        candidates,
+        float(probe["duration_seconds"]),
+        profile=profile,
+    )
 
     _progress(progress, "video_frame_extraction", 0.12)
     output_width, output_height = _scaled_dimensions(
@@ -244,6 +288,7 @@ def extract_video_keyframes(
         height=output_height,
         deadline=deadline,
         cancel_requested=cancel_requested,
+        profile_id=profile_id,
     )
     contact_sheet = diagnostics_dir / "video_keyframes.jpg"
     _write_contact_sheet(selected_dir, contact_sheet)
@@ -260,21 +305,22 @@ def extract_video_keyframes(
         pts = int(path.stem.split("_pts")[-1])
         source_record = selected_by_pts[pts]
         with Image.open(path) as image:
-            selected_records.append(
-                {
-                    "candidate_index": source_record["candidate_index"],
-                    "pts": pts,
-                    "time_seconds": source_record["time_seconds"],
-                    "path": path.relative_to(output_root).as_posix(),
-                    "width": image.width,
-                    "height": image.height,
-                    "sha256": _sha256_file(path),
-                    "exif": {
-                        "orientation": image.getexif().get(274),
-                        "software": image.getexif().get(305),
-                    },
-                }
-            )
+            selected_record = {
+                "candidate_index": source_record["candidate_index"],
+                "pts": pts,
+                "time_seconds": source_record["time_seconds"],
+                "path": path.relative_to(output_root).as_posix(),
+                "width": image.width,
+                "height": image.height,
+                "sha256": _sha256_file(path),
+                "exif": {
+                    "orientation": image.getexif().get(274),
+                    "software": image.getexif().get(305),
+                },
+            }
+            if profile == STANDARD_V2:
+                selected_record["selection_reason"] = source_record["selection_reason"]
+            selected_records.append(selected_record)
     rejection_counts: dict[str, int] = {}
     for item in records:
         reason = item.get("rejection_reason")
@@ -282,20 +328,80 @@ def extract_video_keyframes(
             rejection_counts[str(reason)] = rejection_counts.get(str(reason), 0) + 1
     selection = {
         "schema_version": 1,
-        "profile": PROFILE_ID,
+        "profile": profile_id,
         "source_sha256": probe["source"]["sha256"],
         "duration_seconds": probe["duration_seconds"],
         "candidate_fps": CANDIDATE_FPS,
         "candidate_count": len(candidates),
-        "target_count": target_keyframe_count(float(probe["duration_seconds"])),
+        "target_count": target_keyframe_count(
+            float(probe["duration_seconds"]), profile
+        ),
         "selected_count": len(selected_records),
         "rejection_counts": rejection_counts,
         "rotation": probe["rotation"],
         "candidates": records,
         "selected": selected_records,
     }
+    if profile == STANDARD_V2:
+        base_selected_count = sum(
+            item.get("selection_reason") == "base" for item in selected_records
+        )
+        adaptive_selected_count = sum(
+            item.get("selection_reason") == "adaptive_motion"
+            for item in selected_records
+        )
+        selection.update(
+            {
+                "schema_version": 2,
+                "profile_parameters": {
+                    "candidate_fps": CANDIDATE_FPS,
+                    "base_fps": V2_BASE_FPS,
+                    "adaptive_max_fps": V2_ADAPTIVE_MAX_FPS,
+                },
+                "motion_estimator": {
+                    "name": "sparse_lucas_kanade",
+                    "version": 1,
+                    "analysis_size": ANALYSIS_SIZE,
+                    "opencv_version": cv2.__version__,
+                    "robust_baseline_score": float(
+                        np.median(
+                            [
+                                float(item["motion_score"])
+                                for item in candidates
+                                if "motion_score" in item
+                            ]
+                        )
+                    ),
+                },
+                "base_target_count": base_keyframe_count(
+                    float(probe["duration_seconds"]), profile
+                ),
+                "base_selected_count": base_selected_count,
+                "adaptive_selected_count": adaptive_selected_count,
+            }
+        )
     selection_path = frames_dir / "selection.json"
     _write_json(selection_path, selection)
+    metrics: dict[str, Any] = {
+        "video_profile": profile_id,
+        "video_duration_seconds": float(probe["duration_seconds"]),
+        "video_orientation": str(probe["orientation"]),
+        "video_rotation_degrees": int(probe["rotation"]["applied_degrees"]),
+        "video_source_width": int(probe["source_width"]),
+        "video_source_height": int(probe["source_height"]),
+        "video_display_width": int(probe["display_width"]),
+        "video_display_height": int(probe["display_height"]),
+        "video_candidate_count": len(candidates),
+        "video_selected_count": len(selected_records),
+        "video_rejection_counts": json.dumps(rejection_counts, sort_keys=True),
+    }
+    if profile == STANDARD_V2:
+        metrics.update(
+            {
+                "video_base_selected_count": base_selected_count,
+                "video_adaptive_selected_count": adaptive_selected_count,
+            }
+        )
     _progress(progress, "video_frame_extraction", 0.14)
     return {
         "probe": probe,
@@ -305,20 +411,51 @@ def extract_video_keyframes(
             "video_frame_selection": selection_path.relative_to(output_root).as_posix(),
             "video_keyframe_contact_sheet": contact_sheet.relative_to(output_root).as_posix(),
         },
-        "metrics": {
-            "video_profile": PROFILE_ID,
-            "video_duration_seconds": float(probe["duration_seconds"]),
-            "video_orientation": str(probe["orientation"]),
-            "video_rotation_degrees": int(probe["rotation"]["applied_degrees"]),
-            "video_source_width": int(probe["source_width"]),
-            "video_source_height": int(probe["source_height"]),
-            "video_display_width": int(probe["display_width"]),
-            "video_display_height": int(probe["display_height"]),
-            "video_candidate_count": len(candidates),
-            "video_selected_count": len(selected_records),
-            "video_rejection_counts": json.dumps(rejection_counts, sort_keys=True),
-        },
+        "metrics": metrics,
     }
+
+
+def materialize_video_candidates(
+    source: Path,
+    output_dir: Path,
+    candidates: list[dict[str, Any]],
+    selection: dict[str, Any],
+) -> list[Path]:
+    if selection.get("profile") != V2_PROFILE_ID:
+        raise VideoKeyframeError("incremental materialization requires standard_v2")
+    selected = selection.get("selected")
+    if not isinstance(selected, list) or not selected:
+        raise VideoKeyframeError("video selection metadata has no selected frames")
+    try:
+        width = int(selected[0]["width"])
+        height = int(selected[0]["height"])
+        rotation_degrees = int(selection["rotation"]["applied_degrees"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise VideoKeyframeError("video selection materialization metadata is invalid") from exc
+    if not candidates:
+        return []
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg, _ = resolve_video_tools()
+    _materialize_selected(
+        ffmpeg,
+        source,
+        candidates,
+        output_dir,
+        rotation_filter=_rotation_filter(rotation_degrees),
+        width=width,
+        height=height,
+        deadline=time.monotonic() + EXTRACTION_DEADLINE_SECONDS,
+        cancel_requested=None,
+        profile_id=V2_PROFILE_ID,
+    )
+    paths = [output_dir / candidate_frame_filename(item) for item in candidates]
+    if any(not path.is_file() for path in paths):
+        raise VideoKeyframeError("incremental keyframe materialization is incomplete")
+    return paths
+
+
+def candidate_frame_filename(candidate: dict[str, Any]) -> str:
+    return f"frame_c{int(candidate['candidate_index']):06d}_pts{int(candidate['pts'])}.jpg"
 
 
 def score_frame(gray: np.ndarray) -> dict[str, float]:
@@ -356,8 +493,12 @@ def score_frame(gray: np.ndarray) -> dict[str, float]:
 
 
 def select_keyframes(
-    candidates: list[dict[str, Any]], duration_seconds: float
+    candidates: list[dict[str, Any]],
+    duration_seconds: float,
+    *,
+    profile: str = STANDARD_V1,
 ) -> list[dict[str, Any]]:
+    _profile_id(profile)
     if not candidates:
         raise VideoKeyframeError("video decoding produced no candidate frames")
     sharp_values = np.asarray([item["sharpness"] for item in candidates], dtype=np.float64)
@@ -398,10 +539,61 @@ def select_keyframes(
             f"insufficient_video_keyframes: {len(viable)} accepted, {MIN_KEYFRAMES} required"
         )
     _assign_quality_scores(viable)
-    target = min(target_keyframe_count(duration_seconds), len(viable))
+    if profile == STANDARD_V1:
+        selected = _select_uniform_keyframes(
+            viable,
+            min(target_keyframe_count(duration_seconds), len(viable)),
+            duration_seconds,
+        )
+    else:
+        _assign_motion_scores(viable)
+        base_target = min(
+            base_keyframe_count(duration_seconds, profile),
+            len(viable),
+        )
+        selected = _select_uniform_keyframes(
+            viable,
+            base_target,
+            duration_seconds,
+        )
+        for item in selected:
+            item["selection_reason"] = "base"
+        selected_pts = {int(item["pts"]) for item in selected}
+        adaptive_budget = min(
+            target_keyframe_count(duration_seconds, profile),
+            len(viable),
+        ) - len(selected)
+        if adaptive_budget > 0:
+            adaptive = _select_adaptive_keyframes(
+                [item for item in viable if int(item["pts"]) not in selected_pts],
+                duration_seconds,
+                adaptive_budget,
+            )
+            for item in adaptive:
+                item["selection_reason"] = "adaptive_motion"
+            selected.extend(adaptive)
+            selected.sort(
+                key=lambda item: (float(item["time_seconds"]), int(item["pts"]))
+            )
+    coverage = (float(selected[-1]["time_seconds"]) - float(selected[0]["time_seconds"])) / duration_seconds
+    if coverage < 0.80:
+        raise VideoKeyframeError(
+            f"insufficient_video_temporal_coverage: {coverage:.3f} < 0.800"
+        )
+    return selected
+
+
+def _select_uniform_keyframes(
+    viable: list[dict[str, Any]],
+    target: int,
+    duration_seconds: float,
+) -> list[dict[str, Any]]:
     buckets: list[list[dict[str, Any]]] = [[] for _ in range(target)]
     for item in viable:
-        index = min(target - 1, int(float(item["time_seconds"]) / duration_seconds * target))
+        index = min(
+            target - 1,
+            int(float(item["time_seconds"]) / duration_seconds * target),
+        )
         buckets[index].append(item)
     selected = [max(bucket, key=_selection_key) for bucket in buckets if bucket]
     selected_pts = {int(item["pts"]) for item in selected}
@@ -410,12 +602,143 @@ def select_keyframes(
         remaining.sort(key=_selection_key, reverse=True)
         selected.extend(remaining[: target - len(selected)])
     selected.sort(key=lambda item: (float(item["time_seconds"]), int(item["pts"])))
-    coverage = (float(selected[-1]["time_seconds"]) - float(selected[0]["time_seconds"])) / duration_seconds
-    if coverage < 0.80:
-        raise VideoKeyframeError(
-            f"insufficient_video_temporal_coverage: {coverage:.3f} < 0.800"
-        )
     return selected
+
+
+def _assign_motion_scores(candidates: list[dict[str, Any]]) -> None:
+    reliable = np.asarray(
+        [
+            float(item["motion_displacement_median_normalized"])
+            for item in candidates
+            if item.get("motion_status") == "ok"
+        ],
+        dtype=np.float64,
+    )
+    if reliable.size:
+        low, high = np.percentile(reliable, [10, 90])
+        denominator = max(float(high - low), 1e-9)
+    else:
+        low, denominator = 0.0, 1.0
+    for item in candidates:
+        if item.get("motion_status") == "ok":
+            score = (float(item["motion_displacement_median_normalized"]) - float(low)) / denominator
+            item["motion_score_source"] = "optical_flow"
+        else:
+            score = float(item["novelty"])
+            item["motion_score_source"] = "descriptor_novelty"
+        item["motion_score"] = min(1.0, max(0.0, score))
+    baseline = float(np.median([float(item["motion_score"]) for item in candidates]))
+    for item in candidates:
+        item["motion_above_baseline"] = float(item["motion_score"]) > baseline
+
+
+def _select_adaptive_keyframes(
+    candidates: list[dict[str, Any]],
+    duration_seconds: float,
+    budget: int,
+) -> list[dict[str, Any]]:
+    by_second: dict[int, list[dict[str, Any]]] = {}
+    for item in candidates:
+        if not item["motion_above_baseline"]:
+            continue
+        second = min(
+            max(0, math.floor(float(item["time_seconds"]))),
+            max(0, math.ceil(duration_seconds) - 1),
+        )
+        by_second.setdefault(second, []).append(item)
+    group_winners = [
+        max(group, key=_adaptive_selection_key)
+        for _, group in sorted(by_second.items())
+    ]
+    target = min(budget, len(group_winners))
+    if target == 0:
+        return []
+    buckets: list[list[dict[str, Any]]] = [[] for _ in range(target)]
+    for item in group_winners:
+        index = min(
+            target - 1,
+            int(float(item["time_seconds"]) / duration_seconds * target),
+        )
+        buckets[index].append(item)
+    selected = [max(bucket, key=_adaptive_selection_key) for bucket in buckets if bucket]
+    if len(selected) < target:
+        selected_pts = {int(item["pts"]) for item in selected}
+        remaining = [
+            item for item in group_winners if int(item["pts"]) not in selected_pts
+        ]
+        remaining.sort(key=_adaptive_selection_key, reverse=True)
+        selected.extend(remaining[: target - len(selected)])
+    return selected
+
+
+def _estimate_sparse_motion(previous: np.ndarray, current: np.ndarray) -> dict[str, Any]:
+    corners = cv2.goodFeaturesToTrack(
+        previous,
+        maxCorners=256,
+        qualityLevel=0.01,
+        minDistance=7,
+        blockSize=7,
+        useHarrisDetector=False,
+    )
+    detected_count = 0 if corners is None else len(corners)
+    if corners is None or detected_count < 12:
+        return _empty_motion("insufficient_tracks", detected_count)
+    tracked, forward_status, _ = cv2.calcOpticalFlowPyrLK(
+        previous,
+        current,
+        corners,
+        None,
+        winSize=(21, 21),
+        maxLevel=3,
+        criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
+    )
+    if tracked is None or forward_status is None:
+        return _empty_motion("insufficient_tracks", detected_count)
+    backward, backward_status, _ = cv2.calcOpticalFlowPyrLK(
+        current,
+        previous,
+        tracked,
+        None,
+        winSize=(21, 21),
+        maxLevel=3,
+        criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
+    )
+    if backward is None or backward_status is None:
+        return _empty_motion("insufficient_tracks", detected_count)
+    forward = tracked.reshape(-1, 2)
+    original = corners.reshape(-1, 2)
+    reverse = backward.reshape(-1, 2)
+    valid = (
+        forward_status.reshape(-1).astype(bool)
+        & backward_status.reshape(-1).astype(bool)
+        & np.isfinite(forward).all(axis=1)
+        & np.isfinite(reverse).all(axis=1)
+        & (np.linalg.norm(reverse - original, axis=1) <= 1.5)
+    )
+    displacement = np.linalg.norm(forward[valid] - original[valid], axis=1)
+    tracked_count = int(displacement.size)
+    if tracked_count < 12:
+        return _empty_motion("insufficient_tracks", detected_count, tracked_count)
+    diagonal = math.hypot(*previous.shape)
+    return {
+        "motion_status": "ok",
+        "motion_detected_count": detected_count,
+        "motion_tracked_count": tracked_count,
+        "motion_tracked_fraction": tracked_count / detected_count,
+        "motion_displacement_median_normalized": float(np.median(displacement) / diagonal),
+        "motion_displacement_p90_normalized": float(np.percentile(displacement, 90) / diagonal),
+    }
+
+
+def _empty_motion(status: str, detected_count: int, tracked_count: int = 0) -> dict[str, Any]:
+    return {
+        "motion_status": status,
+        "motion_detected_count": detected_count,
+        "motion_tracked_count": tracked_count,
+        "motion_tracked_fraction": tracked_count / detected_count if detected_count else 0.0,
+        "motion_displacement_median_normalized": 0.0,
+        "motion_displacement_p90_normalized": 0.0,
+    }
 
 
 def _score_stream(
@@ -425,10 +748,16 @@ def _score_stream(
     height: int,
     deadline: float,
     cancel_requested: Callable[[], bool] | None,
+    estimate_motion: bool,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
+    previous_gray: np.ndarray | None = None
+    if estimate_motion:
+        cv2.setNumThreads(1)
+        cv2.setRNGSeed(0)
 
     def consume(index: int, pts: int, pts_time: float, frame: bytes) -> None:
+        nonlocal previous_gray
         rgb = np.frombuffer(frame, dtype=np.uint8).reshape(height, width, 3)
         gray = np.clip(
             rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114,
@@ -437,6 +766,13 @@ def _score_stream(
         ).astype(np.uint8)
         metrics = score_frame(gray)
         descriptor = gray.reshape(32, 10, 32, 10).mean(axis=(1, 3)).astype(np.float32)
+        if estimate_motion:
+            metrics.update(
+                _empty_motion("no_previous_frame", 0)
+                if previous_gray is None
+                else _estimate_sparse_motion(previous_gray, gray)
+            )
+            previous_gray = gray
         candidates.append(
             {
                 "candidate_index": index,
@@ -470,6 +806,7 @@ def _materialize_selected(
     height: int,
     deadline: float,
     cancel_requested: Callable[[], bool] | None,
+    profile_id: str,
 ) -> None:
     expression = "+".join(f"eq(pts\\,{int(item['pts'])})" for item in selected)
     filters = [f"select='{expression}'", "showinfo", *rotation_filter, f"scale={width}:{height}:flags=lanczos"]
@@ -502,12 +839,16 @@ def _materialize_selected(
         if pts not in expected or pts in written:
             raise VideoKeyframeError(f"unexpected selected video timestamp: {pts}")
         item = expected[pts]
-        timestamp_ms = round(float(item["time_seconds"]) * 1000)
-        path = output_dir / f"frame_{index + 1:06d}_t{timestamp_ms:010d}_pts{pts}.jpg"
+        if profile_id == V1_PROFILE_ID:
+            timestamp_ms = round(float(item["time_seconds"]) * 1000)
+            filename = f"frame_{index + 1:06d}_t{timestamp_ms:010d}_pts{pts}.jpg"
+        else:
+            filename = candidate_frame_filename(item)
+        path = output_dir / filename
         image = Image.fromarray(np.frombuffer(frame, dtype=np.uint8).reshape(height, width, 3), "RGB")
         exif = Image.Exif()
         exif[274] = 1
-        exif[305] = f"Image3D-SceneGraph {PROFILE_ID}"
+        exif[305] = f"Image3D-SceneGraph {profile_id}"
         image.save(path, format="JPEG", quality=95, subsampling=0, optimize=False, exif=exif)
         with Image.open(path) as check:
             if check.size != (width, height) or check.mode != "RGB":
@@ -660,6 +1001,14 @@ def _difference_hash(descriptor: np.ndarray) -> int:
 
 def _selection_key(item: dict[str, Any]) -> tuple[float, float, int]:
     return (float(item["quality_score"]), float(item["sharpness"]), -int(item["candidate_index"]))
+
+
+def _adaptive_selection_key(item: dict[str, Any]) -> tuple[float, float, int]:
+    return (
+        float(item["motion_score"]),
+        float(item["quality_score"]),
+        -int(item["pts"]),
+    )
 
 
 def _resolve_rotation(stream: dict[str, Any], override: str) -> dict[str, Any]:

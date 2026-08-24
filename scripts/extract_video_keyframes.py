@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 
 from image3d_scenegraph.video.keyframes import (
-    PROFILE_ID,
+    STANDARD_V1,
+    VIDEO_PROFILES,
     VideoKeyframeError,
     extract_video_keyframes,
 )
@@ -17,6 +18,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--longest-edge", type=int, required=True)
+    parser.add_argument(
+        "--profile",
+        choices=tuple(sorted(VIDEO_PROFILES)),
+        default=STANDARD_V1,
+    )
     parser.add_argument(
         "--rotation",
         choices=("auto", "clockwise_90", "counterclockwise_90", "180"),
@@ -46,6 +52,7 @@ def main() -> None:
             args.output_dir,
             longest_edge=args.longest_edge,
             rotation_override=args.rotation,
+            profile=args.profile,
             progress=progress,
         )
     except VideoKeyframeError as exc:
@@ -53,7 +60,7 @@ def main() -> None:
     print(
         json.dumps(
             {
-                "profile": PROFILE_ID,
+                "profile": result["selection"]["profile"],
                 "selected_count": result["selection"]["selected_count"],
                 "candidate_count": result["selection"]["candidate_count"],
             },

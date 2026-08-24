@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from image3d_scenegraph.video.registration import (
+    MIN_VIDEO_REGISTERED_COUNT,
+    MIN_VIDEO_REGISTRATION_RATE,
+    MIN_VIDEO_TEMPORAL_COVERAGE,
+    analyze_registration_timeline,
+)
+
 
 VALID_GEOMETRY_BACKENDS = {
     "mock",
@@ -19,7 +26,6 @@ VALID_GEOMETRY_BACKENDS = {
     "project_3dgs",
 }
 VALID_OUTPUT_TYPES = {"point_cloud", "mesh", "gaussian_splat"}
-MAX_REGISTERED_GAP_SECONDS = 2.0
 
 
 class ReconstructionError(ValueError):
@@ -1116,36 +1122,39 @@ def _write_video_registration_diagnostics(
         for image in cameras_payload.get("images", [])
         if isinstance(image, dict)
     }
-    registered_names = sorted(set(selected_by_name) & set(registered_by_name))
-    selected_count = len(selected_by_name)
-    registered_count = len(registered_names)
-    registration_rate = registered_count / selected_count
+    try:
+        selected_timestamps = {
+            name: float(item["time_seconds"])
+            for name, item in selected_by_name.items()
+        }
+        timeline = analyze_registration_timeline(
+            selected_timestamps,
+            registered_by_name,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ReconstructionError("video selection metadata is invalid") from exc
+    registered_names = timeline["registered_names"]
+    selected_count = int(timeline["selected_count"])
+    registered_count = int(timeline["registered_count"])
+    registration_rate = float(timeline["registration_rate"])
+    temporal_coverage = float(timeline["temporal_coverage"])
+    gap_violations = timeline["gap_violations"]
     gate_failures: list[str] = []
-    if registered_count < 12:
+    if registered_count < MIN_VIDEO_REGISTERED_COUNT:
         gate_failures.append(
-            f"registered_count {registered_count} is below the 12-frame minimum"
+            f"registered_count {registered_count} is below the "
+            f"{MIN_VIDEO_REGISTERED_COUNT}-frame minimum"
         )
-    if registration_rate < 0.70:
+    if registration_rate < MIN_VIDEO_REGISTRATION_RATE:
         gate_failures.append(
-            f"registration_rate {registration_rate:.3f} is below 0.700"
+            f"registration_rate {registration_rate:.3f} is below "
+            f"{MIN_VIDEO_REGISTRATION_RATE:.3f}"
         )
-    selected_times = sorted(float(item["time_seconds"]) for item in selected_by_name.values())
-    registered_times = sorted(
-        float(selected_by_name[name]["time_seconds"]) for name in registered_names
-    )
-    selected_span = selected_times[-1] - selected_times[0]
-    registered_span = registered_times[-1] - registered_times[0]
-    temporal_coverage = registered_span / selected_span if selected_span > 0 else 0.0
-    if temporal_coverage < 0.80:
+    if temporal_coverage < MIN_VIDEO_TEMPORAL_COVERAGE:
         gate_failures.append(
-            f"temporal_coverage {temporal_coverage:.3f} is below 0.800"
+            f"temporal_coverage {temporal_coverage:.3f} is below "
+            f"{MIN_VIDEO_TEMPORAL_COVERAGE:.3f}"
         )
-    gaps = [right - left for left, right in zip(registered_times, registered_times[1:])]
-    gap_violations = [
-        {"start_seconds": left, "end_seconds": right, "seconds": right - left}
-        for left, right in zip(registered_times, registered_times[1:])
-        if right - left > MAX_REGISTERED_GAP_SECONDS
-    ]
     records = []
     for name, selected in sorted(
         selected_by_name.items(), key=lambda item: float(item[1]["time_seconds"])
@@ -1169,15 +1178,22 @@ def _write_video_registration_diagnostics(
         "registered_count": registered_count,
         "registration_rate": registration_rate,
         "temporal_coverage": temporal_coverage,
-        "maximum_registered_gap_seconds": max(gaps, default=0.0),
-        "maximum_registered_gap_threshold_seconds": MAX_REGISTERED_GAP_SECONDS,
+        "maximum_registered_gap_seconds": timeline[
+            "maximum_registered_gap_seconds"
+        ],
+        "maximum_registered_gap_threshold_seconds": timeline[
+            "maximum_registered_gap_threshold_seconds"
+        ],
+        "gap_violation_count": timeline["gap_violation_count"],
+        "gap_violation_total_seconds": timeline["gap_violation_total_seconds"],
+        "gap_violation_excess_seconds": timeline["gap_violation_excess_seconds"],
         "gap_violations": gap_violations,
         "gate": {
             "passed": not gate_failures,
             "failures": gate_failures,
-            "minimum_registered_count": 12,
-            "minimum_registration_rate": 0.70,
-            "minimum_temporal_coverage": 0.80,
+            "minimum_registered_count": MIN_VIDEO_REGISTERED_COUNT,
+            "minimum_registration_rate": MIN_VIDEO_REGISTRATION_RATE,
+            "minimum_temporal_coverage": MIN_VIDEO_TEMPORAL_COVERAGE,
         },
         "frames": records,
     }
@@ -1190,14 +1206,14 @@ def _write_video_registration_diagnostics(
         raise ReconstructionError(
             "video_registration_quality_gate_failed: " + "; ".join(gate_failures)
         )
-    timestamps = {
-        name: float(selected_by_name[name]["time_seconds"]) for name in registered_names
-    }
+    timestamps = {name: selected_timestamps[name] for name in registered_names}
     metrics: dict[str, int | float | str | bool] = {
         "video_registered_count": registered_count,
         "video_registration_rate": registration_rate,
         "video_registration_temporal_coverage": temporal_coverage,
-        "video_registration_max_gap_seconds": max(gaps, default=0.0),
+        "video_registration_max_gap_seconds": float(
+            timeline["maximum_registered_gap_seconds"]
+        ),
     }
     if gap_violations:
         metrics["video_registration_gap_violation_count"] = len(gap_violations)

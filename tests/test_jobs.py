@@ -16,6 +16,7 @@ from image3d_scenegraph.geometry.adapters import (
     _write_video_registration_diagnostics,
 )
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
+from image3d_scenegraph.video.registration import analyze_registration_timeline
 
 
 def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_path):
@@ -232,6 +233,28 @@ def test_frontend_gaussian_jobs_do_not_automatically_consume_test():
     assert _automatic_test_evaluation_enabled("graphdeco") is False
 
 
+def test_registration_timeline_uses_strict_boundary_and_merges_names():
+    selected = {
+        "frame_000.jpg": 0.0,
+        "frame_001.jpg": 2.0,
+        "frame_002.jpg": 4.1,
+        "frame_003.jpg": 6.1,
+        "frame_004.jpg": 10.5,
+    }
+    registered = [*selected, "frame_002.jpg", "not-selected.jpg"]
+
+    timeline = analyze_registration_timeline(selected, registered)
+
+    assert timeline["registered_count"] == 5
+    assert timeline["maximum_registered_gap_seconds"] == pytest.approx(4.4)
+    assert timeline["gap_violations"] == [
+        {"start_seconds": 2.0, "end_seconds": 4.1, "seconds": pytest.approx(2.1)},
+        {"start_seconds": 6.1, "end_seconds": 10.5, "seconds": pytest.approx(4.4)},
+    ]
+    assert timeline["gap_violation_total_seconds"] == pytest.approx(6.5)
+    assert timeline["gap_violation_excess_seconds"] == pytest.approx(2.5)
+
+
 def test_video_registration_gate_writes_temporal_diagnostics(tmp_path):
     selected = [
         {
@@ -311,6 +334,9 @@ def test_video_registration_gap_violation_is_soft_warning(tmp_path):
 
     payload = json.loads(output_path.read_text())
     assert payload["maximum_registered_gap_threshold_seconds"] == 2.0
+    assert payload["gap_violation_count"] == 1
+    assert payload["gap_violation_total_seconds"] == 5.0
+    assert payload["gap_violation_excess_seconds"] == 3.0
     assert payload["gap_violations"] == [
         {"start_seconds": 8.0, "end_seconds": 13.0, "seconds": 5.0}
     ]

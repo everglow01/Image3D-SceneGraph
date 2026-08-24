@@ -14,6 +14,10 @@ import numpy as np
 from PIL import Image
 
 from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
+from image3d_scenegraph.geometry.video_recovery import (
+    recover_video_registration,
+    sequential_overlap,
+)
 from image3d_scenegraph.geometry.vggt_ba import (
     MIN_RELIABLE_CAMERAS,
     MIN_RELIABLE_CAMERA_RATE,
@@ -35,6 +39,7 @@ from image3d_scenegraph.geometry.vggt_ba import (
     write_initial_colmap_model,
     write_json,
 )
+from image3d_scenegraph.video.keyframes import V2_PROFILE_ID
 from scripts.run_colmap_sparse import (
     build_camera_payload,
     colmap_version,
@@ -91,6 +96,8 @@ def main() -> None:
         "--matcher", choices=["exhaustive", "sequential"], default="exhaustive"
     )
     parser.add_argument("--vocab-tree-path", type=Path)
+    parser.add_argument("--video-source", type=Path)
+    parser.add_argument("--video-selection", type=Path)
     parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--seed", type=int, default=20260729)
     args = parser.parse_args()
@@ -100,6 +107,18 @@ def main() -> None:
         args.vocab_tree_path is None or not args.vocab_tree_path.is_file()
     ):
         parser.error("--vocab-tree-path must be an existing file for sequential matching")
+    if (args.video_source is None) != (args.video_selection is None):
+        parser.error("--video-source and --video-selection must be provided together")
+    video_selection: dict[str, Any] | None = None
+    if args.video_source is not None and args.video_selection is not None:
+        if not args.video_source.is_file():
+            raise SystemExit(f"Video source is missing: {args.video_source}")
+        try:
+            video_selection = json.loads(
+                args.video_selection.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit("Cannot read video selection metadata") from exc
 
     started_at = time.perf_counter()
     image_paths = discover_images(args.image_dir)
@@ -379,6 +398,16 @@ def main() -> None:
                 str(args.vocab_tree_path),
             ]
         )
+    sequential_overlap_value: int | None = None
+    if (
+        args.matcher == "sequential"
+        and video_selection is not None
+        and video_selection.get("profile") == V2_PROFILE_ID
+    ):
+        sequential_overlap_value = sequential_overlap(video_selection)
+        matcher_command.extend(
+            ["--SequentialMatching.overlap", str(sequential_overlap_value)]
+        )
     command_logs.append(run_command(matcher_command))
     image_ids_by_name = read_colmap_database_image_ids(database_path)
     image_index_by_name = {
@@ -393,6 +422,12 @@ def main() -> None:
         for name, image_id in image_ids_by_name.items()
     }
     final_model: Path | None = None
+    recovery_requested = (
+        video_selection is not None
+        and video_selection.get("profile") == V2_PROFILE_ID
+        and args.video_source is not None
+        and args.video_selection is not None
+    )
     seeded_registration = None
     if fallback_reason is None:
         initial_record = write_initial_colmap_model(
@@ -531,7 +566,7 @@ def main() -> None:
             len(image_paths),
             command_logs,
         )
-        if not fallback_registration["usable"]:
+        if not fallback_registration["usable"] and not recovery_requested:
             raise RuntimeError(
                 "ordinary COLMAP fallback failed the final registration gates: "
                 f"{fallback_registration}"
@@ -540,6 +575,26 @@ def main() -> None:
 
     if final_model is None:
         raise RuntimeError("geometry state machine did not produce a final COLMAP model")
+
+    final_model, recovery_diagnostics, recovered_fallback_registration = (
+        apply_video_registration_recovery(
+            colmap=colmap,
+            database_path=database_path,
+            image_dir=args.image_dir,
+            final_model=final_model,
+            video_selection=video_selection,
+            video_source=args.video_source,
+            selection_path=args.video_selection,
+            diagnostics_dir=diagnostics_dir,
+            work_dir=work_dir,
+            num_threads=args.num_threads,
+            progress_file=args.progress_file,
+            fallback_applied=fallback_applied,
+            command_logs=command_logs,
+        )
+    )
+    if recovered_fallback_registration is not None:
+        fallback_registration = recovered_fallback_registration
 
     write_progress(args.progress_file, "colmap_undistortion")
     undistorted_dir = colmap_dir / "undistorted"
@@ -610,8 +665,20 @@ def main() -> None:
     graph_payload["effective_geometry_source"] = effective_source
     graph_payload["fallback_applied"] = fallback_applied
     graph_payload["fallback_reason"] = fallback_reason
+    graph_payload["video_registration_recovery_method"] = (
+        "incremental_colmap" if recovery_requested else None
+    )
+    graph_payload["video_registration_recovery_status"] = (
+        recovery_diagnostics["status"]
+        if recovery_diagnostics is not None
+        else "not_requested"
+    )
     write_json(work_dir / "window_graph.json", graph_payload)
     elapsed = time.perf_counter() - started_at
+    final_input_count = len(image_paths)
+    if recovery_requested:
+        final_selection = json.loads(args.video_selection.read_text(encoding="utf-8"))
+        final_input_count = len(final_selection["selected"])
     diagnostics = {
         "schema_version": 2,
         "profile": PROFILE_ID,
@@ -620,9 +687,15 @@ def main() -> None:
         "fallback_applied": fallback_applied,
         "fallback_reason": fallback_reason,
         "colmap_matcher": args.matcher,
-        "input_count": len(image_paths),
+        "sequential_overlap": sequential_overlap_value,
+        "input_count": final_input_count,
+        "initial_input_count": len(image_paths),
         "supported_camera_count": len(camera_payload["images"]),
-        "supported_camera_rate": len(camera_payload["images"]) / len(image_paths),
+        "supported_camera_rate": len(camera_payload["images"]) / final_input_count,
+        "video_registration_recovery_method": (
+            "incremental_colmap" if recovery_requested else None
+        ),
+        "video_registration_recovery": recovery_diagnostics,
         "point_count": read_ply_vertex_count(points_ply),
         "initial_camera": initial_record,
         "seeded_registration": seeded_registration,
@@ -643,8 +716,13 @@ def main() -> None:
                 f"fallback_applied={str(fallback_applied).lower()}",
                 f"fallback_reason={fallback_reason or 'none'}",
                 f"colmap_matcher={args.matcher}",
+                f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
+                f"video_registration_recovery_method={'incremental_colmap' if recovery_requested else 'none'}",
+                f"video_registration_recovery_status={recovery_diagnostics['status'] if recovery_diagnostics is not None else 'not_requested'}",
+                f"video_registration_recovery_rounds={len(recovery_diagnostics['rounds']) if recovery_diagnostics is not None else 0}",
                 f"profile={PROFILE_ID}",
-                f"input_count={len(image_paths)}",
+                f"input_count={final_input_count}",
+                f"initial_input_count={len(image_paths)}",
                 f"supported_camera_count={len(camera_payload['images'])}",
                 f"point_count={diagnostics['point_count']}",
                 f"trajectory_status={graph_payload['trajectory_status']}",
@@ -660,6 +738,75 @@ def main() -> None:
     print(f"effective_geometry_source={effective_source}")
     print(f"fallback_reason={fallback_reason or 'none'}")
     print(f"trajectory_status={graph_payload['trajectory_status']}")
+
+
+def apply_video_registration_recovery(
+    *,
+    colmap: str,
+    database_path: Path,
+    image_dir: Path,
+    final_model: Path,
+    video_selection: dict[str, Any] | None,
+    video_source: Path | None,
+    selection_path: Path | None,
+    diagnostics_dir: Path,
+    work_dir: Path,
+    num_threads: int,
+    progress_file: Path | None,
+    fallback_applied: bool,
+    command_logs: list[str],
+) -> tuple[Path, dict[str, Any] | None, dict[str, Any] | None]:
+    if (
+        video_selection is None
+        or video_selection.get("profile") != V2_PROFILE_ID
+        or video_source is None
+        or selection_path is None
+    ):
+        return final_model, None, None
+    recovered_model, diagnostics, recovery_logs = recover_video_registration(
+        colmap=colmap,
+        database_path=database_path,
+        image_dir=image_dir,
+        initial_model=final_model,
+        selection_path=selection_path,
+        video_source=video_source,
+        diagnostics_path=diagnostics_dir / "video_registration_recovery.json",
+        use_gpu=True,
+        gpu_index=None,
+        num_threads=num_threads,
+        progress=lambda stage: write_progress(progress_file, stage),
+    )
+    command_logs.extend(recovery_logs)
+    if not fallback_applied:
+        return recovered_model, diagnostics, None
+
+    final_selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    ordered_names = [
+        Path(str(item["path"])).name
+        for item in sorted(
+            final_selection["selected"],
+            key=lambda item: (float(item["time_seconds"]), int(item["pts"])),
+        )
+    ]
+    final_ids_by_name = read_colmap_database_image_ids(database_path)
+    final_index_by_id = {
+        final_ids_by_name[name]: index for index, name in enumerate(ordered_names)
+    }
+    registration = inspect_model_registration(
+        colmap,
+        recovered_model,
+        work_dir / "fallback_final_model_txt",
+        final_index_by_id,
+        len(ordered_names),
+        command_logs,
+    )
+    if not registration["usable"]:
+        raise RuntimeError(
+            "ordinary COLMAP fallback failed the final registration gates "
+            "after incremental recovery: "
+            f"{registration}"
+        )
+    return recovered_model, diagnostics, registration
 
 
 def discover_images(image_dir: Path) -> list[Path]:

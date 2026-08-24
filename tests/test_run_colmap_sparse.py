@@ -275,6 +275,99 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
     assert f"vocab_tree={vocab_tree}\n" in log
 
 
+def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
+    tmp_path, monkeypatch
+):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    vocab_tree = tmp_path / "vocab_tree.bin"
+    video_source = tmp_path / "video.mp4"
+    selection_path = tmp_path / "selection.json"
+    image_dir.mkdir()
+    (image_dir / "frame.jpg").write_bytes(b"image")
+    video_source.write_bytes(b"video")
+    selection_path.write_text(
+        json.dumps(
+            {
+                "profile": "video_keyframes_standard_v2",
+                "selected": [
+                    {"path": f"frames/frame_{index}.jpg", "time_seconds": index / 5}
+                    for index in range(21)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    commands = []
+    events = []
+    recovery_call = {}
+
+    def fake_run(command):
+        commands.append(command)
+        events.append(command[1])
+        if command[1] == "mapper":
+            model = output_dir / "colmap" / "sparse" / "0"
+            model.mkdir(parents=True)
+            _write_binary_count(model / "images.bin", 12)
+            _write_binary_count(model / "points3D.bin", 100)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            (output_dir / "geometry" / "points.ply").write_text(
+                "ply\nelement vertex 1\nend_header\n", encoding="utf-8"
+            )
+        return "ok"
+
+    def fake_recovery(**kwargs):
+        recovery_call.update(kwargs)
+        events.append("video_registration_recovery")
+        return kwargs["initial_model"], {"status": "recovered", "rounds": [{}]}, ["recovery"]
+
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(run_colmap_sparse, "recover_video_registration", fake_recovery)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "build_camera_payload",
+        lambda _: {
+            "cameras": [{"model": "PINHOLE"}],
+            "images": [{"image_id": index} for index in range(12)],
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--matcher",
+            "sequential",
+            "--gaussian-baseline",
+            "--vocab-tree-path",
+            str(vocab_tree),
+            "--video-source",
+            str(video_source),
+            "--video-selection",
+            str(selection_path),
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    matcher = commands[1]
+    assert matcher[matcher.index("--SequentialMatching.overlap") + 1] == "21"
+    assert events.index("video_registration_recovery") < events.index("image_undistorter")
+    assert recovery_call["database_path"] == output_dir / "colmap" / "database.db"
+    assert recovery_call["selection_path"] == selection_path
+    log = (output_dir / "logs" / "run.log").read_text()
+    assert "sequential_overlap=21\n" in log
+    assert "video_registration_recovery_status=recovered\n" in log
+
+
 def test_gaussian_baseline_sequential_requires_vocab_tree(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sys,

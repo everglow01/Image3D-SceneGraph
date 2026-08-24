@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
+from image3d_scenegraph.geometry.video_recovery import (
+    recover_video_registration,
+    sequential_overlap,
+)
+from image3d_scenegraph.video.keyframes import V2_PROFILE_ID
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
@@ -28,6 +33,8 @@ def main() -> None:
     parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--gaussian-baseline", action="store_true")
     parser.add_argument("--vocab-tree-path", type=Path)
+    parser.add_argument("--video-source", type=Path)
+    parser.add_argument("--video-selection", type=Path)
     args = parser.parse_args()
     if args.num_threads is not None and args.num_threads < 1:
         parser.error("--num-threads must be at least 1")
@@ -37,6 +44,18 @@ def main() -> None:
         raise SystemExit(
             "Gaussian baseline sequential matching requires --vocab-tree-path for loop closure"
         )
+    if (args.video_source is None) != (args.video_selection is None):
+        parser.error("--video-source and --video-selection must be provided together")
+    video_selection: dict[str, Any] | None = None
+    if args.video_source is not None and args.video_selection is not None:
+        if not args.video_source.is_file():
+            raise SystemExit(f"Video source is missing: {args.video_source}")
+        try:
+            video_selection = json.loads(
+                args.video_selection.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit("Cannot read video selection metadata") from exc
 
     started_at = time.perf_counter()
     colmap_path = resolve_colmap_executable()
@@ -110,6 +129,13 @@ def main() -> None:
                 str(args.vocab_tree_path),
             )
         )
+    sequential_overlap_value: int | None = None
+    if args.matcher == "sequential" and video_selection is not None:
+        if video_selection.get("profile") == V2_PROFILE_ID:
+            sequential_overlap_value = sequential_overlap(video_selection)
+            matcher_command.extend(
+                ("--SequentialMatching.overlap", str(sequential_overlap_value))
+            )
     if args.gpu_index is not None:
         matcher_command.extend(("--FeatureMatching.gpu_index", args.gpu_index))
     if args.num_threads is not None:
@@ -125,6 +151,32 @@ def main() -> None:
         command_logs.append(run_command(command))
 
     model_dir, registered_images, sparse_points = find_largest_sparse_model(sparse_dir)
+    initial_registered_images = registered_images
+    initial_sparse_points = sparse_points
+    recovery_diagnostics: dict[str, Any] | None = None
+    if (
+        video_selection is not None
+        and video_selection.get("profile") == V2_PROFILE_ID
+        and args.video_source is not None
+        and args.video_selection is not None
+    ):
+        model_dir, recovery_diagnostics, recovery_logs = recover_video_registration(
+            colmap=colmap,
+            database_path=work_dir / "database.db",
+            image_dir=args.image_dir,
+            initial_model=model_dir,
+            selection_path=args.video_selection,
+            video_source=args.video_source,
+            diagnostics_path=output_dir
+            / "diagnostics"
+            / "video_registration_recovery.json",
+            use_gpu=args.use_gpu,
+            gpu_index=args.gpu_index,
+            num_threads=args.num_threads,
+            progress=lambda stage: write_progress(args.progress_file, stage),
+        )
+        command_logs.extend(recovery_logs)
+        registered_images, sparse_points = read_sparse_model_counts(model_dir)
     model_source = model_dir
     text_dir = work_dir / "sparse_txt"
     training_image_dir = args.image_dir
@@ -203,9 +255,14 @@ def main() -> None:
         f"selected_sparse_model={model_dir.name}",
         f"selected_sparse_registered_images={registered_images}",
         f"selected_sparse_points={sparse_points}",
+        f"initial_sparse_registered_images={initial_registered_images}",
+        f"initial_sparse_points={initial_sparse_points}",
+        f"video_registration_recovery_status={recovery_diagnostics['status'] if recovery_diagnostics is not None else 'not_requested'}",
+        f"video_registration_recovery_rounds={len(recovery_diagnostics['rounds']) if recovery_diagnostics is not None else 0}",
         f"training_image_dir={training_image_dir}",
         f"camera_models={','.join(sorted(camera['model'] for camera in camera_payload['cameras']))}",
         f"matcher={args.matcher}",
+        f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
         f"vocab_tree={args.vocab_tree_path if args.vocab_tree_path is not None else 'none'}",
         f"single_camera={args.single_camera}",
         f"colmap_executable={colmap}",
