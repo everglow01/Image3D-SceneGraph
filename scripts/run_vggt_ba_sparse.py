@@ -87,11 +87,19 @@ def main() -> None:
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument("--max-image-size", type=int, default=1280)
     parser.add_argument("--num-threads", type=int, default=8)
+    parser.add_argument(
+        "--matcher", choices=["exhaustive", "sequential"], default="exhaustive"
+    )
+    parser.add_argument("--vocab-tree-path", type=Path)
     parser.add_argument("--progress-file", type=Path)
     parser.add_argument("--seed", type=int, default=20260729)
     args = parser.parse_args()
     if args.max_image_size < 1 or args.num_threads < 1:
         parser.error("--max-image-size and --num-threads must be positive")
+    if args.matcher == "sequential" and (
+        args.vocab_tree_path is None or not args.vocab_tree_path.is_file()
+    ):
+        parser.error("--vocab-tree-path must be an existing file for sequential matching")
 
     started_at = time.perf_counter()
     image_paths = discover_images(args.image_dir)
@@ -141,6 +149,7 @@ def main() -> None:
             "query_frame_num": QUERY_FRAME_COUNT,
             "max_query_points": MAX_QUERY_POINTS,
             "keypoint_extractor": "aliked",
+            "colmap_matcher": args.matcher,
             "seed": args.seed,
             "base_window_count": len(bases),
             "bridge_candidate_count": len(bridges),
@@ -351,20 +360,26 @@ def main() -> None:
     ]
     command_logs.append(run_command(feature_command))
     write_progress(args.progress_file, "vggt_ba_feature_matching")
-    command_logs.append(
-        run_command(
+    matcher_command = [
+        colmap,
+        f"{args.matcher}_matcher",
+        "--database_path",
+        str(database_path),
+        "--FeatureMatching.use_gpu",
+        "1",
+        "--FeatureMatching.num_threads",
+        str(args.num_threads),
+    ]
+    if args.matcher == "sequential":
+        matcher_command.extend(
             [
-                colmap,
-                "exhaustive_matcher",
-                "--database_path",
-                str(database_path),
-                "--FeatureMatching.use_gpu",
+                "--SequentialMatching.loop_detection",
                 "1",
-                "--FeatureMatching.num_threads",
-                str(args.num_threads),
+                "--SequentialMatching.vocab_tree_path",
+                str(args.vocab_tree_path),
             ]
         )
-    )
+    command_logs.append(run_command(matcher_command))
     image_ids_by_name = read_colmap_database_image_ids(database_path)
     image_index_by_name = {
         name: index for index, name in enumerate(image_names)
@@ -604,6 +619,7 @@ def main() -> None:
         "effective_geometry_source": effective_source,
         "fallback_applied": fallback_applied,
         "fallback_reason": fallback_reason,
+        "colmap_matcher": args.matcher,
         "input_count": len(image_paths),
         "supported_camera_count": len(camera_payload["images"]),
         "supported_camera_rate": len(camera_payload["images"]) / len(image_paths),
@@ -626,6 +642,7 @@ def main() -> None:
                 f"effective_geometry_source={effective_source}",
                 f"fallback_applied={str(fallback_applied).lower()}",
                 f"fallback_reason={fallback_reason or 'none'}",
+                f"colmap_matcher={args.matcher}",
                 f"profile={PROFILE_ID}",
                 f"input_count={len(image_paths)}",
                 f"supported_camera_count={len(camera_payload['images'])}",

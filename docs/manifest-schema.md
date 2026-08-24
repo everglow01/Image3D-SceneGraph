@@ -106,6 +106,8 @@ Only roles present in `assets` are available. Generic postprocessing can add exi
 
 `mode=video` is implemented only with `project_3dgs + gaussian_splat`. The public `standard_v1` keyframe profile accepts one MP4/MOV/M4V/WebM, 10–600 seconds (606 seconds is the technical container-tolerance limit), at most 2 GiB, and at most 1,000 selected keyframes from no more than 3,636 candidates. Upload staging uses bounded chunks; the original video remains under `input/` and retry regenerates keyframes from it.
 
+`colmap_matcher` defaults to `exhaustive`. The experimental video-only `sequential` option applies to both ordinary COLMAP and `vggt_ba` geometry, uses COLMAP sequential matching with vocab-tree loop detection, requires the pinned local vocab tree, and fails before geometry when the tree is unavailable. VGGT-BA diagnostics and completed metrics record the effective matcher; its seeded registration and classified ordinary-COLMAP fallback reuse the same feature database and matching policy.
+
 `video_probe` records the normalized ffprobe result, source hash, source/display dimensions, and applied quarter-turn without exposing location values. `video_frame_selection` is the authoritative source-PTS, quality, rejection, output hash, dimensions, and minimal generated-EXIF record. `video_keyframe_contact_sheet` is display-only. `video_registration_diagnostics` maps selected source timestamps to COLMAP registrations and records registration rate, temporal coverage, largest gap, and `gap_violations` — adjacent registered-frame intervals exceeding `maximum_registered_gap_threshold_seconds` (2 seconds). Gap violations are a soft warning: the job continues, and when present `video_registration_gap_violation_count` is published and a `video_registration_gap_warning` log line is written. Complete jobs expose corresponding `video_*` metrics for profile, duration, orientation, source/display dimensions, candidate/selected/rejection counts, registration count/rate, and registration temporal coverage.
 
 Generated keyframe JPEGs are physically upright and use EXIF Orientation `1` plus a Software tag. Container creation time/device tags are not fabricated as per-frame photographic EXIF; focal length, ISO, shutter, GPS, and original-photo timestamps are not invented. Estimated camera parameters remain in `geometry/cameras.json`. COLMAP must register at least 12 selected frames, at least 70% of selected frames, and at least 80% of their selected temporal span before Gaussian training starts.
@@ -135,7 +137,7 @@ partial VGGT camera model
 -> final registration gates
 ```
 
-SIFT extraction and exhaustive matching run once for all selected keyframes. Ordinary COLMAP Mapper may reuse that database and those matches only for these three classified quality states:
+SIFT extraction and the selected exhaustive/sequential matching policy run once for all selected keyframes. Ordinary COLMAP Mapper may reuse that database and those matches only for these three classified quality states:
 
 ```text
 vggt_graph_unusable_after_recovery

@@ -144,6 +144,73 @@ def test_project_gaussian_sequential_matcher_threads_vocab_tree(
     assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
 
 
+def test_project_gaussian_vggt_ba_threads_sequential_matcher(
+    tmp_path, monkeypatch
+):
+    vocab_tree = tmp_path / "vocab_tree.bin"
+    vocab_tree.write_bytes(b"tree")
+    captured = []
+
+    def fake_run(command, context, *args, **kwargs):
+        if any("extract_video_keyframes.py" in item for item in command):
+            frames = context.job_dir / "frames"
+            diagnostics = context.job_dir / "diagnostics"
+            frames.mkdir(parents=True)
+            diagnostics.mkdir(parents=True)
+            (frames / "selection.json").write_text(
+                json.dumps(
+                    {
+                        "profile": "video_keyframes_standard_v1",
+                        "duration_seconds": 60.0,
+                        "candidate_count": 24,
+                        "selected_count": 24,
+                        "selected": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (diagnostics / "video_probe.json").write_text(
+                json.dumps(
+                    {
+                        "orientation": "landscape",
+                        "rotation": {"applied_degrees": 0},
+                        "source_width": 1280,
+                        "source_height": 720,
+                        "display_width": 1280,
+                        "display_height": 720,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (diagnostics / "video_keyframes.jpg").write_bytes(b"sheet")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        captured.append(command)
+        raise ReconstructionError("stop after VGGT-BA command capture")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
+    )
+    monkeypatch.setenv("IMAGE3D_COLMAP_VOCAB_TREE", str(vocab_tree))
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="video",
+        input_assets=[{"path": "input/video.mp4"}],
+        options={
+            "gaussian_geometry_source": "vggt_ba",
+            "colmap_matcher": "sequential",
+        },
+    )
+
+    with pytest.raises(ReconstructionError, match="stop after VGGT-BA"):
+        ProjectGaussianAdapter().run(context)
+
+    command = captured[0]
+    assert command[1].endswith("run_vggt_ba_sparse.py")
+    assert command[command.index("--matcher") + 1] == "sequential"
+    assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
+
+
 def test_project_gaussian_sequential_matcher_without_vocab_tree_fails(
     tmp_path, monkeypatch
 ):
