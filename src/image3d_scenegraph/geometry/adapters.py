@@ -71,6 +71,8 @@ class ProjectGaussianAdapter:
             "colmap_feature_extraction": 0.16,
             "colmap_feature_matching": 0.20,
             "colmap_mapping": 0.26,
+            "video_registration_recovery_round_1": 0.28,
+            "video_registration_recovery_round_2": 0.30,
             "colmap_undistortion": 0.31,
         }
         last_stage: str | None = None
@@ -117,7 +119,7 @@ class ProjectGaussianAdapter:
         context: ReconstructionContext, path: Path
     ) -> Callable[[], None]:
         progress_by_stage = {
-            "vggt_ba_descriptors": 0.14,
+            "vggt_ba_descriptors": 0.16,
             "vggt_ba_windows": 0.18,
             "vggt_ba_recovery": 0.20,
             "vggt_ba_pose_graph": 0.22,
@@ -127,6 +129,8 @@ class ProjectGaussianAdapter:
             "vggt_ba_image_registration": 0.295,
             "vggt_ba_global_bundle_adjustment": 0.30,
             "colmap_fallback_mapping": 0.30,
+            "video_registration_recovery_round_1": 0.303,
+            "video_registration_recovery_round_2": 0.307,
             "colmap_undistortion": 0.31,
         }
         last_stage: str | None = None
@@ -199,18 +203,30 @@ class ProjectGaussianAdapter:
         video_assets: dict[str, str] = {}
         video_metrics: dict[str, int | float | str | bool] = {}
         video_selection: dict[str, Any] | None = None
+        video_selection_path: Path | None = None
+        video_source_path: Path | None = None
+        video_recovery_log_lines: list[str] = []
+        video_profile = str(
+            context.options.get("video_keyframe_profile", "standard_v1")
+        )
+        if video_profile not in {"standard_v1", "standard_v2"}:
+            raise ReconstructionError(
+                f"unsupported video keyframe profile: {video_profile}"
+            )
         if context.mode == "video":
             if len(context.input_assets) != 1:
                 raise ReconstructionError("video mode requires exactly one persisted input")
-            source = context.job_dir / str(context.input_assets[0]["path"])
+            video_source_path = context.job_dir / str(context.input_assets[0]["path"])
             video_progress_path = context.job_dir / "frames" / "progress.json"
             command_video = [
                 os.environ.get("IMAGE3D_PYTHON", sys.executable),
                 str(video_script),
                 "--input",
-                str(source),
+                str(video_source_path),
                 "--output-dir",
                 str(context.job_dir),
+                "--profile",
+                video_profile,
                 "--longest-edge",
                 str(gaussian_longest_edge),
                 "--rotation",
@@ -226,17 +242,29 @@ class ProjectGaussianAdapter:
                 env=None,
                 poll_callback=self._video_progress_callback(context, video_progress_path),
             )
-            selection_path = context.job_dir / "frames" / "selection.json"
+            video_selection_path = context.job_dir / "frames" / "selection.json"
             probe_path = context.job_dir / "diagnostics" / "video_probe.json"
             contact_sheet_path = context.job_dir / "diagnostics" / "video_keyframes.jpg"
-            if not all(path.is_file() for path in (selection_path, probe_path, contact_sheet_path)):
+            if not all(
+                path.is_file()
+                for path in (video_selection_path, probe_path, contact_sheet_path)
+            ):
                 raise ReconstructionError("video keyframe extraction did not produce complete diagnostics")
-            video_selection = json.loads(selection_path.read_text(encoding="utf-8"))
+            video_selection = json.loads(
+                video_selection_path.read_text(encoding="utf-8")
+            )
+            expected_profile = f"video_keyframes_{video_profile}"
+            if video_selection.get("profile") != expected_profile:
+                raise ReconstructionError(
+                    "video keyframe extraction returned a different profile than requested"
+                )
             probe = json.loads(probe_path.read_text(encoding="utf-8"))
             image_dir = context.job_dir / "frames" / "selected"
             video_assets = {
                 "video_probe": probe_path.relative_to(context.job_dir).as_posix(),
-                "video_frame_selection": selection_path.relative_to(context.job_dir).as_posix(),
+                "video_frame_selection": video_selection_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
                 "video_keyframe_contact_sheet": contact_sheet_path.relative_to(context.job_dir).as_posix(),
             }
             video_metrics = {
@@ -253,7 +281,20 @@ class ProjectGaussianAdapter:
                 "video_rejection_counts": json.dumps(
                     video_selection.get("rejection_counts", {}), sort_keys=True
                 ),
+                "video_initial_selected_count": int(
+                    video_selection["selected_count"]
+                ),
             }
+            if video_profile == "standard_v2":
+                video_metrics.update(
+                    video_base_selected_count=int(
+                        video_selection["base_selected_count"]
+                    ),
+                    video_adaptive_selected_count=int(
+                        video_selection["adaptive_selected_count"]
+                    ),
+                    video_recovery_selected_count=0,
+                )
         sparse_dir = context.job_dir / "colmap" / "undistorted" / "sparse_txt"
         points_path = sparse_dir / "points3D.txt"
         default_colmap_threads = min(8, max(1, (os.cpu_count() or 1) // 2))
@@ -293,6 +334,16 @@ class ProjectGaussianAdapter:
                     "or set IMAGE3D_COLMAP_VOCAB_TREE"
                 )
             matcher_args.extend(("--vocab-tree-path", str(vocab_tree)))
+        video_geometry_args: list[str] = []
+        if context.mode == "video" and video_profile == "standard_v2":
+            if video_source_path is None or video_selection_path is None:
+                raise ReconstructionError("standard_v2 video metadata is unavailable")
+            video_geometry_args = [
+                "--video-source",
+                str(video_source_path),
+                "--video-selection",
+                str(video_selection_path),
+            ]
         if geometry_source == "colmap":
             progress_path = context.job_dir / "colmap" / "progress.json"
             command_geometry = [
@@ -302,6 +353,7 @@ class ProjectGaussianAdapter:
                 str(image_dir),
                 "--output-dir",
                 str(context.job_dir),
+                *video_geometry_args,
                 *matcher_args,
                 "--gaussian-baseline",
                 "--use-gpu",
@@ -328,6 +380,7 @@ class ProjectGaussianAdapter:
                 str(image_dir),
                 "--output-dir",
                 str(context.job_dir),
+                *video_geometry_args,
                 *matcher_args,
                 "--repo-dir",
                 str(external_root / "vggt"),
@@ -379,6 +432,42 @@ class ProjectGaussianAdapter:
             raise ReconstructionError(
                 f"{geometry_source} did not produce project 3DGS camera/sparse inputs"
             )
+        if video_selection_path is not None:
+            try:
+                final_video_selection = json.loads(
+                    video_selection_path.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ReconstructionError(
+                    "cannot read final video keyframe selection"
+                ) from exc
+            if final_video_selection.get("profile") != f"video_keyframes_{video_profile}":
+                raise ReconstructionError(
+                    "final video keyframe selection profile changed during geometry"
+                )
+            video_selection = final_video_selection
+            video_metrics["video_selected_count"] = int(
+                final_video_selection["selected_count"]
+            )
+            if video_profile == "standard_v2":
+                video_metrics["video_recovery_selected_count"] = int(
+                    final_video_selection.get("recovery_selected_count", 0)
+                )
+                recovery_path = (
+                    context.job_dir
+                    / "diagnostics"
+                    / "video_registration_recovery.json"
+                )
+                recovery_metrics, video_recovery_log_lines = (
+                    _read_video_registration_recovery(
+                        final_video_selection,
+                        recovery_path,
+                    )
+                )
+                video_assets["video_registration_recovery"] = (
+                    recovery_path.relative_to(context.job_dir).as_posix()
+                )
+                video_metrics.update(recovery_metrics)
         if geometry_source == "vggt_ba":
             diagnostics_path = context.job_dir / "diagnostics" / "vggt_ba.json"
             graph_path = context.job_dir / "vggt_ba" / "window_graph.json"
@@ -775,6 +864,7 @@ class ProjectGaussianAdapter:
                 if sor_reason
                 else []
             ),
+            *video_recovery_log_lines,
             *registration_log_lines,
             f"trainer={' '.join(command_train)}",
             *sor_log_lines,
@@ -1090,6 +1180,139 @@ def _try_apply_sor_filter(
         )
 
 
+def _read_video_registration_recovery(
+    selection: dict[str, Any], diagnostics_path: Path
+) -> tuple[dict[str, int | float | str | bool], list[str]]:
+    try:
+        diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReconstructionError(
+            "video registration recovery diagnostics are missing or invalid"
+        ) from exc
+    status = diagnostics.get("status")
+    rounds = diagnostics.get("rounds")
+    if (
+        diagnostics.get("schema_version") != 1
+        or diagnostics.get("method") != "incremental_colmap"
+        or status not in {"not_needed", "recovered", "partial", "unavailable"}
+        or not isinstance(rounds, list)
+        or any(not isinstance(round_record, dict) for round_record in rounds)
+    ):
+        raise ReconstructionError("video registration recovery diagnostics are invalid")
+    try:
+        final_selected_count = int(selection["selected_count"])
+        recovery_selected_count = int(selection.get("recovery_selected_count", 0))
+        initial_selected_count = int(
+            diagnostics.get(
+                "initial_selected_count",
+                final_selected_count - recovery_selected_count,
+            )
+        )
+        base_selected_count = int(selection["base_selected_count"])
+        adaptive_selected_count = int(selection["adaptive_selected_count"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ReconstructionError("standard_v2 selection counts are invalid") from exc
+    if (
+        initial_selected_count + recovery_selected_count != final_selected_count
+        or base_selected_count + adaptive_selected_count != initial_selected_count
+    ):
+        raise ReconstructionError("standard_v2 selection counts are inconsistent")
+
+    accepted_rounds = sum(bool(round_record.get("accepted")) for round_record in rounds)
+    pair_count = sum(int(round_record.get("pair_count", 0)) for round_record in rounds)
+    elapsed_seconds = float(
+        diagnostics.get(
+            "elapsed_seconds",
+            sum(float(round_record.get("elapsed_seconds", 0.0)) for round_record in rounds),
+        )
+    )
+    metrics: dict[str, int | float | str | bool] = {
+        "video_initial_selected_count": initial_selected_count,
+        "video_base_selected_count": base_selected_count,
+        "video_adaptive_selected_count": adaptive_selected_count,
+        "video_recovery_selected_count": recovery_selected_count,
+        "video_registration_recovery_status": str(status),
+        "video_registration_recovery_rounds": len(rounds),
+        "video_registration_recovery_accepted_rounds": accepted_rounds,
+        "video_registration_recovery_pair_count": pair_count,
+        "video_registration_recovery_elapsed_seconds": elapsed_seconds,
+    }
+    reason = diagnostics.get("reason")
+    if reason is not None:
+        metrics["video_registration_recovery_reason"] = str(reason)
+
+    timeline_fields = {
+        "selected_count": "selected_count",
+        "registered_count": "registered_count",
+        "registration_rate": "registration_rate",
+        "temporal_coverage": "temporal_coverage",
+        "maximum_registered_gap_seconds": "max_gap_seconds",
+        "gap_violation_count": "gap_violation_count",
+        "gap_violation_total_seconds": "gap_violation_total_seconds",
+        "gap_violation_excess_seconds": "gap_violation_excess_seconds",
+        "sparse_point_count": "sparse_point_count",
+    }
+    for source_name, metric_prefix in (("initial", "pre"), ("final", "post")):
+        timeline = diagnostics.get(source_name)
+        if not isinstance(timeline, dict):
+            continue
+        for source_key, metric_suffix in timeline_fields.items():
+            value = timeline.get(source_key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            metric_key = f"video_registration_recovery_{metric_prefix}_{metric_suffix}"
+            metrics[metric_key] = (
+                int(value)
+                if source_key
+                in {
+                    "selected_count",
+                    "registered_count",
+                    "gap_violation_count",
+                    "sparse_point_count",
+                }
+                else float(value)
+            )
+    initial = diagnostics.get("initial")
+    final = diagnostics.get("final")
+    if isinstance(initial, dict) and isinstance(final, dict):
+        metrics["video_registration_recovery_registered_gain"] = int(
+            final["registered_count"]
+        ) - int(initial["registered_count"])
+
+    log_lines = [
+        "video_registration_recovery_method=incremental_colmap",
+        f"video_registration_recovery_status={status}",
+        f"video_registration_recovery_rounds={len(rounds)}",
+        f"video_registration_recovery_selected={recovery_selected_count}",
+    ]
+    if reason is not None:
+        log_lines.append(f"video_registration_recovery_reason={reason}")
+    for round_record in rounds:
+        before = round_record.get("before")
+        after = round_record.get("after")
+        before_gap = (
+            before.get("maximum_registered_gap_seconds")
+            if isinstance(before, dict)
+            else None
+        )
+        after_gap = (
+            after.get("maximum_registered_gap_seconds")
+            if isinstance(after, dict)
+            else None
+        )
+        log_lines.append(
+            "video_registration_recovery_round="
+            f"{round_record.get('round')} "
+            f"candidates={round_record.get('candidate_count', 0)} "
+            f"materialized={round_record.get('materialized_count', 0)} "
+            f"pairs={round_record.get('pair_count', 0)} "
+            f"accepted={str(bool(round_record.get('accepted'))).lower()} "
+            f"reason={round_record.get('reason', 'none')} "
+            f"before_max_gap={before_gap} after_max_gap={after_gap}"
+        )
+    return metrics, log_lines
+
+
 def _write_video_registration_diagnostics(
     selection: dict[str, Any], cameras_path: Path, output_path: Path
 ) -> tuple[
@@ -1216,7 +1439,15 @@ def _write_video_registration_diagnostics(
         ),
     }
     if gap_violations:
-        metrics["video_registration_gap_violation_count"] = len(gap_violations)
+        metrics.update(
+            video_registration_gap_violation_count=len(gap_violations),
+            video_registration_gap_violation_total_seconds=float(
+                timeline["gap_violation_total_seconds"]
+            ),
+            video_registration_gap_violation_excess_seconds=float(
+                timeline["gap_violation_excess_seconds"]
+            ),
+        )
     return timestamps, metrics, gap_violations
 
 

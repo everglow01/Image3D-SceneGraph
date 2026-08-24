@@ -43,7 +43,7 @@ MAX_ATTEMPTS = 3
 MAX_VIDEO_BYTES = 2 * 1024**3
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
-VIDEO_PROFILES = {"standard_v1"}
+VIDEO_PROFILES = {"standard_v1", "standard_v2"}
 GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
@@ -1377,7 +1377,12 @@ class JobStore:
             manifest = self._read_json(manifest_path)
             if manifest.get("status") != "running":
                 return
-            manifest.update(stage=stage, progress=progress, updated_at=self._timestamp())
+            current_progress = float(manifest.get("progress", 0.0))
+            manifest.update(
+                stage=stage,
+                progress=max(current_progress, progress),
+                updated_at=self._timestamp(),
+            )
             self._write_json(manifest_path, manifest)
 
     def _write_attempt_log(self, job_dir: Path, attempt_id: str, text: str) -> None:

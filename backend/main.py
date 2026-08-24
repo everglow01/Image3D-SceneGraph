@@ -109,7 +109,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         colmap_matcher: Annotated[
             Literal["exhaustive", "sequential"] | None, Form()
         ] = None,
-        video_keyframe_profile: Annotated[Literal["standard_v1"], Form()] = "standard_v1",
+        video_keyframe_profile: Annotated[
+            Literal["standard_v1", "standard_v2"], Form()
+        ] = "standard_v1",
         video_rotation: Annotated[
             Literal["auto", "clockwise_90", "counterclockwise_90", "180"], Form()
         ] = "auto",

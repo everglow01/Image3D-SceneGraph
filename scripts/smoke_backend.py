@@ -49,6 +49,7 @@ def main() -> None:
             created.raise_for_status()
             manifest = created.json()
             job_id = manifest["job_id"]
+            _wait_for_job(client, job_id)
 
             panorama = client.post(
                 "/api/jobs",
@@ -79,6 +80,20 @@ def main() -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
+
+
+def _wait_for_job(client: httpx.Client, job_id: str) -> None:
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/jobs/{job_id}")
+        response.raise_for_status()
+        status = response.json()["status"]
+        if status == "done":
+            return
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"smoke job ended with status={status}")
+        time.sleep(0.05)
+    raise TimeoutError("smoke job did not finish")
 
 
 def _free_port() -> int:

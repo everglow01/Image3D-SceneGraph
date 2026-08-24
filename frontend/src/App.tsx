@@ -130,6 +130,7 @@ type Manifest = {
     video_probe?: string;
     video_frame_selection?: string;
     video_registration_diagnostics?: string;
+    video_registration_recovery?: string;
     video_keyframe_contact_sheet?: string;
     scene_graph?: string;
     log?: string;
@@ -190,10 +191,17 @@ type Manifest = {
     video_duration_seconds?: number;
     video_orientation?: string;
     video_candidate_count?: number;
+    video_initial_selected_count?: number;
+    video_base_selected_count?: number;
+    video_adaptive_selected_count?: number;
+    video_recovery_selected_count?: number;
     video_selected_count?: number;
     video_registered_count?: number;
     video_registration_rate?: number;
     video_registration_temporal_coverage?: number;
+    video_registration_recovery_status?: string;
+    video_registration_recovery_rounds?: number;
+    video_registration_recovery_registered_gain?: number;
     gaussian_geometry_source?: GaussianGeometrySource;
     gaussian_geometry_effective_source?: GaussianGeometrySource;
     gaussian_geometry_fallback_applied?: boolean;
@@ -1951,6 +1959,7 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="video_probe" label="视频探测信息" />
               <AssetLink manifest={manifest} assetKey="video_frame_selection" label="视频关键帧选择" />
               <AssetLink manifest={manifest} assetKey="video_registration_diagnostics" label="视频注册诊断" />
+              <AssetLink manifest={manifest} assetKey="video_registration_recovery" label="视频注册空洞恢复诊断" />
               <AssetLink manifest={manifest} assetKey="video_keyframe_contact_sheet" label="视频关键帧预览" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="空间对齐诊断" />
               <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="融合诊断" />

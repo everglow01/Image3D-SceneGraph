@@ -84,6 +84,11 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     assert properties["gaussian_postprocess"]["default"] == "none"
     assert properties["gaussian_sor_filter"].get("default") is None
     assert properties["gaussian_recovery_prune"].get("default") is None
+    assert properties["video_keyframe_profile"]["enum"] == [
+        "standard_v1",
+        "standard_v2",
+    ]
+    assert properties["video_keyframe_profile"]["default"] == "standard_v1"
     gaussian_names = {name for name in properties if "gaussian" in name}
     assert gaussian_names == {
         "gaussian_trainer",
@@ -235,6 +240,43 @@ def test_create_video_job_streams_to_persisted_input(tmp_path):
     assert request["options"]["video_keyframe_profile"] == "standard_v1"
     assert request["options"]["video_rotation"] == "counterclockwise_90"
     assert not list((root / ".uploads").glob("*.upload"))
+
+
+def test_create_video_job_accepts_explicit_standard_v2(tmp_path):
+    root = tmp_path / "jobs"
+    app = create_app(root, start_worker=False)
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "video",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "video_keyframe_profile": "standard_v2",
+        },
+        files=[("files", ("room.mp4", b"video", "video/mp4"))],
+    )
+
+    assert response.status_code == 202
+    request = json.loads(
+        (root / response.json()["job_id"] / "request.json").read_text()
+    )
+    assert request["options"]["video_keyframe_profile"] == "standard_v2"
+
+
+def test_create_video_job_rejects_unknown_keyframe_profile(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "video",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "video_keyframe_profile": "standard_v3",
+        },
+        files=[("files", ("room.mp4", b"video", "video/mp4"))],
+    )
+
+    assert response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_trainer(tmp_path):

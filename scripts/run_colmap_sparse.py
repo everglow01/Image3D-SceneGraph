@@ -245,12 +245,17 @@ def main() -> None:
     write_json(geometry_dir / "cameras.json", camera_payload)
 
     num_points = read_ply_vertex_count(point_cloud_path)
+    final_input_count = len(image_paths)
+    if args.video_selection is not None:
+        final_selection = json.loads(args.video_selection.read_text(encoding="utf-8"))
+        final_input_count = len(final_selection["selected"])
     elapsed_seconds = time.perf_counter() - started_at
     log_lines = [
         "backend=colmap",
-        f"num_images={len(image_paths)}",
+        f"num_images={final_input_count}",
+        f"initial_input_count={len(image_paths)}",
         f"registered_images={len(camera_payload['images'])}",
-        f"registration_ratio={len(camera_payload['images']) / len(image_paths):.6f}",
+        f"registration_ratio={len(camera_payload['images']) / final_input_count:.6f}",
         f"num_points={num_points}",
         f"selected_sparse_model={model_dir.name}",
         f"selected_sparse_registered_images={registered_images}",

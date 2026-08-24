@@ -253,7 +253,20 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
 
     assert diagnostics["status"] == "recovered"
     assert diagnostics["recovery_selected_count"] == 3
+    assert diagnostics["attempted_round_count"] == 1
+    assert diagnostics["accepted_round_count"] == 1
+    assert diagnostics["pair_count"] == diagnostics["rounds"][0]["pair_count"]
+    assert diagnostics["elapsed_seconds"] >= 0
     assert diagnostics["rounds"][0]["accepted"] is True
+    assert diagnostics["rounds"][0]["elapsed_seconds"] >= 0
+    assert set(diagnostics["rounds"][0]["stage_elapsed_seconds"]) == {
+        "materialization",
+        "feature_extraction",
+        "matching",
+        "image_registration",
+        "triangulation",
+        "bundle_adjustment",
+    }
     assert model.name == "adjusted"
     assert [command[1] for command in commands] == [
         "feature_extractor",

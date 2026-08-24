@@ -365,6 +365,9 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert recovery_call["selection_path"] == selection_path
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sequential_overlap=21\n" in log
+    assert "num_images=21\n" in log
+    assert "initial_input_count=1\n" in log
+    assert "registration_ratio=0.571429\n" in log
     assert "video_registration_recovery_status=recovered\n" in log
 
 

@@ -13,6 +13,7 @@ from image3d_scenegraph.geometry.adapters import (
     ReconstructionContext,
     ReconstructionError,
     _automatic_test_evaluation_enabled,
+    _read_video_registration_recovery,
     _write_video_registration_diagnostics,
 )
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
@@ -38,10 +39,20 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
     poll()
     progress_path.write_text('{"stage":"colmap_mapping"}\n', encoding="utf-8")
     poll()
+    progress_path.write_text(
+        '{"stage":"video_registration_recovery_round_1"}\n', encoding="utf-8"
+    )
+    poll()
+    progress_path.write_text(
+        '{"stage":"video_registration_recovery_round_2"}\n', encoding="utf-8"
+    )
+    poll()
 
     assert updates == [
         ("colmap_feature_matching", 0.20),
         ("colmap_mapping", 0.26),
+        ("video_registration_recovery_round_1", 0.28),
+        ("video_registration_recovery_round_2", 0.30),
     ]
 
 
@@ -61,17 +72,23 @@ def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallbac
     poll = ProjectGaussianAdapter._vggt_ba_progress_callback(context, progress_path)
 
     for stage in (
+        "vggt_ba_descriptors",
         "vggt_ba_recovery",
         "vggt_ba_image_registration",
         "colmap_fallback_mapping",
+        "video_registration_recovery_round_1",
+        "video_registration_recovery_round_2",
     ):
         progress_path.write_text(json.dumps({"stage": stage}), encoding="utf-8")
         poll()
 
     assert updates == [
+        ("vggt_ba_descriptors", 0.16),
         ("vggt_ba_recovery", 0.20),
         ("vggt_ba_image_registration", 0.295),
         ("colmap_fallback_mapping", 0.30),
+        ("video_registration_recovery_round_1", 0.303),
+        ("video_registration_recovery_round_2", 0.307),
     ]
 
 
@@ -210,6 +227,84 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
     assert command[1].endswith("run_vggt_ba_sparse.py")
     assert command[command.index("--matcher") + 1] == "sequential"
     assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
+    assert "--video-source" not in command
+    assert "--video-selection" not in command
+
+
+@pytest.mark.parametrize(
+    ("geometry_source", "runner_name"),
+    (("colmap", "run_colmap_sparse.py"), ("vggt_ba", "run_vggt_ba_sparse.py")),
+)
+def test_project_gaussian_standard_v2_threads_source_and_selection(
+    tmp_path, monkeypatch, geometry_source, runner_name
+):
+    commands = []
+
+    def fake_run(command, context, *args, **kwargs):
+        commands.append(command)
+        if any("extract_video_keyframes.py" in item for item in command):
+            frames = context.job_dir / "frames"
+            diagnostics = context.job_dir / "diagnostics"
+            frames.mkdir(parents=True)
+            diagnostics.mkdir(parents=True)
+            (frames / "selection.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "profile": "video_keyframes_standard_v2",
+                        "duration_seconds": 60.0,
+                        "candidate_count": 360,
+                        "selected_count": 240,
+                        "base_selected_count": 200,
+                        "adaptive_selected_count": 40,
+                        "selected": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (diagnostics / "video_probe.json").write_text(
+                json.dumps(
+                    {
+                        "orientation": "landscape",
+                        "rotation": {"applied_degrees": 0},
+                        "source_width": 1280,
+                        "source_height": 720,
+                        "display_width": 1280,
+                        "display_height": 720,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (diagnostics / "video_keyframes.jpg").write_bytes(b"sheet")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise ReconstructionError("stop after geometry command capture")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
+    )
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="video",
+        input_assets=[{"path": "input/video.mp4"}],
+        options={
+            "gaussian_geometry_source": geometry_source,
+            "video_keyframe_profile": "standard_v2",
+        },
+    )
+
+    with pytest.raises(ReconstructionError, match="stop after geometry"):
+        ProjectGaussianAdapter().run(context)
+
+    extraction_command, geometry_command = commands
+    assert extraction_command[extraction_command.index("--profile") + 1] == "standard_v2"
+    assert geometry_command[1].endswith(runner_name)
+    assert geometry_command[geometry_command.index("--video-source") + 1] == str(
+        tmp_path / "input" / "video.mp4"
+    )
+    assert geometry_command[
+        geometry_command.index("--video-selection") + 1
+    ] == str(tmp_path / "frames" / "selection.json")
 
 
 def test_project_gaussian_sequential_matcher_without_vocab_tree_fails(
@@ -231,6 +326,77 @@ def test_project_gaussian_sequential_matcher_without_vocab_tree_fails(
 def test_frontend_gaussian_jobs_do_not_automatically_consume_test():
     assert _automatic_test_evaluation_enabled("project") is False
     assert _automatic_test_evaluation_enabled("graphdeco") is False
+
+
+def test_video_recovery_diagnostics_publish_stable_metrics(tmp_path):
+    diagnostics_path = tmp_path / "video_registration_recovery.json"
+    diagnostics_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "method": "incremental_colmap",
+                "status": "partial",
+                "reason": "rejected_no_strict_improvement",
+                "initial_selected_count": 12,
+                "rounds": [
+                    {
+                        "round": 1,
+                        "candidate_count": 1,
+                        "materialized_count": 1,
+                        "pair_count": 7,
+                        "accepted": True,
+                        "reason": "accepted",
+                        "elapsed_seconds": 2.5,
+                        "before": {"maximum_registered_gap_seconds": 5.0},
+                        "after": {"maximum_registered_gap_seconds": 3.0},
+                    }
+                ],
+                "initial": {
+                    "selected_count": 12,
+                    "registered_count": 10,
+                    "registration_rate": 10 / 12,
+                    "temporal_coverage": 1.0,
+                    "maximum_registered_gap_seconds": 5.0,
+                    "gap_violation_count": 1,
+                    "gap_violation_total_seconds": 5.0,
+                    "gap_violation_excess_seconds": 3.0,
+                    "sparse_point_count": 100,
+                },
+                "final": {
+                    "selected_count": 13,
+                    "registered_count": 13,
+                    "registration_rate": 1.0,
+                    "temporal_coverage": 1.0,
+                    "maximum_registered_gap_seconds": 3.0,
+                    "gap_violation_count": 1,
+                    "gap_violation_total_seconds": 3.0,
+                    "gap_violation_excess_seconds": 1.0,
+                    "sparse_point_count": 110,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    selection = {
+        "selected_count": 13,
+        "base_selected_count": 10,
+        "adaptive_selected_count": 2,
+        "recovery_selected_count": 1,
+    }
+
+    metrics, log_lines = _read_video_registration_recovery(
+        selection, diagnostics_path
+    )
+
+    assert metrics["video_initial_selected_count"] == 12
+    assert metrics["video_recovery_selected_count"] == 1
+    assert metrics["video_registration_recovery_status"] == "partial"
+    assert metrics["video_registration_recovery_rounds"] == 1
+    assert metrics["video_registration_recovery_pair_count"] == 7
+    assert metrics["video_registration_recovery_registered_gain"] == 3
+    assert metrics["video_registration_recovery_pre_max_gap_seconds"] == 5.0
+    assert metrics["video_registration_recovery_post_max_gap_seconds"] == 3.0
+    assert any(line.startswith("video_registration_recovery_round=1") for line in log_lines)
 
 
 def test_registration_timeline_uses_strict_boundary_and_merges_names():
@@ -342,6 +508,8 @@ def test_video_registration_gap_violation_is_soft_warning(tmp_path):
     ]
     assert gap_violations == payload["gap_violations"]
     assert metrics["video_registration_gap_violation_count"] == 1
+    assert metrics["video_registration_gap_violation_total_seconds"] == 5.0
+    assert metrics["video_registration_gap_violation_excess_seconds"] == 3.0
     assert len(timestamps) == 18
 
 
@@ -548,6 +716,52 @@ def test_project_video_job_stages_source_and_persists_profile(tmp_path):
     assert request["video_source"] == manifest["inputs"][0]
     assert request["options"]["video_keyframe_profile"] == "standard_v1"
     assert request["options"]["video_rotation"] == "clockwise_90"
+
+
+def test_project_video_job_accepts_explicit_standard_v2(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.enqueue_job(
+        "video",
+        [UploadedInput(filename="room.mp4", content=b"video")],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"video_keyframe_profile": "standard_v2"},
+    )
+    request = json.loads(
+        (store.job_dir(manifest["job_id"]) / "request.json").read_text()
+    )
+
+    assert request["options"]["video_keyframe_profile"] == "standard_v2"
+
+
+def test_project_video_job_rejects_unknown_keyframe_profile(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="unsupported video keyframe profile"):
+        store.enqueue_job(
+            "video",
+            [UploadedInput(filename="room.mp4", content=b"video")],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"video_keyframe_profile": "standard_v3"},
+        )
+
+
+def test_running_progress_never_decreases(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    job_dir = store.job_dir("job")
+    job_dir.mkdir(parents=True)
+    (job_dir / "manifest.json").write_text(
+        json.dumps({"status": "running", "stage": "first", "progress": 0.30}),
+        encoding="utf-8",
+    )
+
+    store._set_running_stage("job", "later", 0.28)
+
+    manifest = json.loads((job_dir / "manifest.json").read_text())
+    assert manifest["stage"] == "later"
+    assert manifest["progress"] == 0.30
 
 
 def test_video_job_rejects_non_project_pipeline(tmp_path):

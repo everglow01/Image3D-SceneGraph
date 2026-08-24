@@ -57,6 +57,7 @@ def recover_video_registration(
 ) -> tuple[Path, dict[str, Any], list[str]]:
     command_logs: list[str] = []
     current_model = initial_model
+    recovery_started_at = time.perf_counter()
     diagnostics: dict[str, Any] = {
         "schema_version": 1,
         "profile": "video_registration_recovery_v1",
@@ -71,12 +72,20 @@ def recover_video_registration(
         },
         "status": "unavailable",
         "reason": None,
+        "attempted_round_count": 0,
+        "accepted_round_count": 0,
+        "pair_count": 0,
+        "elapsed_seconds": 0.0,
         "rounds": [],
     }
     try:
         selection = json.loads(selection_path.read_text(encoding="utf-8"))
         if selection.get("profile") != V2_PROFILE_ID:
-            diagnostics.update(status="not_applicable", reason="profile_is_not_standard_v2")
+            diagnostics.update(
+                status="not_applicable",
+                reason="profile_is_not_standard_v2",
+                elapsed_seconds=time.perf_counter() - recovery_started_at,
+            )
             _write_json(diagnostics_path, diagnostics)
             return current_model, diagnostics, command_logs
         selected = selection.get("selected")
@@ -86,6 +95,8 @@ def recover_video_registration(
         round_limit = math.ceil(initial_selected_count * ROUND_BUDGET_FRACTION)
         total_limit = math.ceil(initial_selected_count * TOTAL_BUDGET_FRACTION)
         diagnostics["initial_selected_count"] = initial_selected_count
+        diagnostics["final_selected_count"] = initial_selected_count
+        diagnostics["recovery_selected_count"] = 0
         diagnostics["round_frame_limit"] = round_limit
         diagnostics["total_frame_limit"] = total_limit
 
@@ -100,7 +111,11 @@ def recover_video_registration(
         initial_timeline = _timeline(selection, current_state["registered_names"])
         diagnostics["initial"] = _timeline_payload(initial_timeline, current_state)
         if not initial_timeline["gap_violations"]:
-            diagnostics.update(status="not_needed", reason="no_registration_gaps")
+            diagnostics.update(
+                status="not_needed",
+                reason="no_registration_gaps",
+                elapsed_seconds=time.perf_counter() - recovery_started_at,
+            )
             diagnostics["final"] = diagnostics["initial"]
             diagnostics["final_selected_count"] = initial_selected_count
             _write_json(diagnostics_path, diagnostics)
@@ -109,6 +124,7 @@ def recover_video_registration(
         camera_id = read_unique_camera_id(database_path)
         cumulative_added = 0
         for round_index in range(1, MAX_RECOVERY_ROUNDS + 1):
+            round_started_at = time.perf_counter()
             budget = min(round_limit, total_limit - cumulative_added)
             if budget <= 0:
                 diagnostics["reason"] = "recovery_budget_exhausted"
@@ -125,20 +141,26 @@ def recover_video_registration(
                 "before": _timeline_payload(before_timeline, current_state),
                 "candidate_count": len(candidates),
                 "accepted": False,
+                "stage_elapsed_seconds": {},
             }
             diagnostics["rounds"].append(round_record)
             if not candidates:
                 round_record["reason"] = "no_viable_recovery_candidates"
+                round_record["elapsed_seconds"] = time.perf_counter() - round_started_at
                 diagnostics["reason"] = round_record["reason"]
                 break
 
             if progress is not None:
                 progress(f"video_registration_recovery_round_{round_index}")
+            materialize_started_at = time.perf_counter()
             paths = materialize_video_candidates(
                 video_source,
                 image_dir,
                 candidates,
                 selection,
+            )
+            round_record["stage_elapsed_seconds"]["materialization"] = (
+                time.perf_counter() - materialize_started_at
             )
             proposed_selection = copy.deepcopy(selection)
             _append_materialized_selection(
@@ -170,6 +192,7 @@ def recover_video_registration(
             round_record["pair_count"] = len(pair_list)
             if not pair_list:
                 round_record["reason"] = "no_local_match_pairs"
+                round_record["elapsed_seconds"] = time.perf_counter() - round_started_at
                 diagnostics["reason"] = round_record["reason"]
                 break
 
@@ -191,7 +214,9 @@ def recover_video_registration(
                 feature_command.extend(("--FeatureExtraction.gpu_index", gpu_index))
             if num_threads is not None:
                 feature_command.extend(("--FeatureExtraction.num_threads", str(num_threads)))
-            command_logs.append(run_command(feature_command))
+            round_record["stage_elapsed_seconds"]["feature_extraction"] = (
+                _run_timed_command(feature_command, command_logs)
+            )
 
             match_command = [
                 colmap,
@@ -209,15 +234,17 @@ def recover_video_registration(
                 match_command.extend(("--FeatureMatching.gpu_index", gpu_index))
             if num_threads is not None:
                 match_command.extend(("--FeatureMatching.num_threads", str(num_threads)))
-            command_logs.append(run_command(match_command))
+            round_record["stage_elapsed_seconds"]["matching"] = _run_timed_command(
+                match_command, command_logs
+            )
 
             registered_dir = round_dir / "registered"
             triangulated_dir = round_dir / "triangulated"
             adjusted_dir = round_dir / "adjusted"
             for directory in (registered_dir, triangulated_dir, adjusted_dir):
                 directory.mkdir()
-            command_logs.append(
-                run_command(
+            round_record["stage_elapsed_seconds"]["image_registration"] = (
+                _run_timed_command(
                     [
                         colmap,
                         "image_registrator",
@@ -227,7 +254,8 @@ def recover_video_registration(
                         str(current_model),
                         "--output_path",
                         str(registered_dir),
-                    ]
+                    ],
+                    command_logs,
                 )
             )
             triangulation_command = [
@@ -246,9 +274,11 @@ def recover_video_registration(
             ]
             if num_threads is not None:
                 triangulation_command.extend(("--Mapper.num_threads", str(num_threads)))
-            command_logs.append(run_command(triangulation_command))
-            command_logs.append(
-                run_command(
+            round_record["stage_elapsed_seconds"]["triangulation"] = (
+                _run_timed_command(triangulation_command, command_logs)
+            )
+            round_record["stage_elapsed_seconds"]["bundle_adjustment"] = (
+                _run_timed_command(
                     [
                         colmap,
                         "bundle_adjuster",
@@ -264,7 +294,8 @@ def recover_video_registration(
                         "1",
                         "--BundleAdjustmentCeres.function_tolerance",
                         "0.000001",
-                    ]
+                    ],
+                    command_logs,
                 )
             )
             after_state = inspect_sparse_model(
@@ -284,8 +315,15 @@ def recover_video_registration(
                 after_timeline,
             )
             round_record["after"] = _timeline_payload(after_timeline, after_state)
+            round_record["registered_gain"] = int(
+                after_timeline["registered_count"]
+            ) - int(before_timeline["registered_count"])
+            round_record["sparse_point_delta"] = int(after_state["point_count"]) - int(
+                current_state["point_count"]
+            )
             round_record["accepted"] = accepted
             round_record["reason"] = reason
+            round_record["elapsed_seconds"] = time.perf_counter() - round_started_at
             if not accepted:
                 diagnostics["reason"] = reason
                 break
@@ -302,11 +340,34 @@ def recover_video_registration(
         diagnostics["final"] = _timeline_payload(final_timeline, current_state)
         diagnostics["final_selected_count"] = len(selection["selected"])
         diagnostics["recovery_selected_count"] = cumulative_added
+        diagnostics["attempted_round_count"] = len(diagnostics["rounds"])
+        diagnostics["accepted_round_count"] = sum(
+            bool(round_record.get("accepted"))
+            for round_record in diagnostics["rounds"]
+        )
+        diagnostics["pair_count"] = sum(
+            int(round_record.get("pair_count", 0))
+            for round_record in diagnostics["rounds"]
+        )
+        diagnostics["elapsed_seconds"] = time.perf_counter() - recovery_started_at
         diagnostics["status"] = (
             "recovered" if not final_timeline["gap_violations"] else "partial"
         )
     except Exception as exc:
-        diagnostics.update(status="unavailable", reason=str(exc))
+        diagnostics.update(
+            status="unavailable",
+            reason=str(exc),
+            attempted_round_count=len(diagnostics["rounds"]),
+            accepted_round_count=sum(
+                bool(round_record.get("accepted"))
+                for round_record in diagnostics["rounds"]
+            ),
+            pair_count=sum(
+                int(round_record.get("pair_count", 0))
+                for round_record in diagnostics["rounds"]
+            ),
+            elapsed_seconds=time.perf_counter() - recovery_started_at,
+        )
     _write_json(diagnostics_path, diagnostics)
     return current_model, diagnostics, command_logs
 
@@ -549,6 +610,12 @@ def _candidate_key(item: dict[str, Any]) -> tuple[float, float, int]:
         float(item.get("quality_score", 0.0)),
         -int(item["pts"]),
     )
+
+
+def _run_timed_command(command: list[str], command_logs: list[str]) -> float:
+    started_at = time.perf_counter()
+    command_logs.append(run_command(command))
+    return time.perf_counter() - started_at
 
 
 def run_command(command: list[str]) -> str:
