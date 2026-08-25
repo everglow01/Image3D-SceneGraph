@@ -253,6 +253,33 @@ def test_train_supported_points_are_recolored_only_from_train(tmp_path):
     assert diagnostics["counts"]["mixed_track_points"] == 1
 
 
+def test_vggt_fallback_uses_v2_mapper_policy(tmp_path: Path) -> None:
+    command = run_vggt_ba_sparse.build_colmap_fallback_mapper_command(
+        colmap="colmap",
+        database_path=tmp_path / "database.db",
+        image_dir=tmp_path / "images",
+        output_path=tmp_path / "sparse",
+        num_threads=8,
+        video_selection={"profile": "video_keyframes_standard_v2"},
+    )
+
+    assert command[command.index("--Mapper.ba_global_frames_ratio") + 1] == "1.5"
+    assert command[command.index("--Mapper.ba_global_points_ratio") + 1] == "1.5"
+    assert command[command.index("--Mapper.ba_global_frames_freq") + 1] == "1000"
+    assert command[command.index("--Mapper.ba_global_points_freq") + 1] == "1000000"
+    assert command[command.index("--Mapper.ba_global_max_refinements") + 1] == "1"
+
+    v1_command = run_vggt_ba_sparse.build_colmap_fallback_mapper_command(
+        colmap="colmap",
+        database_path=tmp_path / "database.db",
+        image_dir=tmp_path / "images",
+        output_path=tmp_path / "sparse-v1",
+        num_threads=8,
+        video_selection={"profile": "video_keyframes_standard_v1"},
+    )
+    assert "--Mapper.ba_global_frames_ratio" not in v1_command
+
+
 def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

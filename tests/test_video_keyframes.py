@@ -241,6 +241,15 @@ def test_extracts_upright_video_with_truthful_exif(tmp_path: Path) -> None:
     )
     result = extract_video_keyframes(source, tmp_path / "out", longest_edge=1280)
     assert result["selection"]["selected_count"] == target_keyframe_count(10.2)
+    timing = json.loads(
+        (tmp_path / "out" / "diagnostics" / "video_keyframe_timing.json").read_text()
+    )
+    assert timing["profile"] == "video_keyframe_timing_v1"
+    assert timing["video_profile"] == "video_keyframes_standard_v1"
+    assert timing["elapsed_seconds"] > 0
+    assert result["metrics"]["video_keyframe_elapsed_seconds"] == timing[
+        "elapsed_seconds"
+    ]
     selected = sorted((tmp_path / "out" / "frames" / "selected").glob("*.jpg"))
     assert len(selected) == target_keyframe_count(10.2)
     with Image.open(selected[0]) as image:

@@ -138,6 +138,7 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
     assert matcher[matcher.index("--FeatureMatching.num_threads") + 1] == "4"
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
+    assert "--Mapper.ba_global_frames_ratio" not in mapper
     assert json.loads(progress_path.read_text()) == {"stage": "colmap_mapping"}
     log = (output_dir / "logs" / "run.log").read_text()
     assert "colmap_executable=" in log
@@ -359,7 +360,13 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     run_colmap_sparse.main()
 
     matcher = commands[1]
+    mapper = commands[2]
     assert matcher[matcher.index("--SequentialMatching.overlap") + 1] == "21"
+    assert mapper[mapper.index("--Mapper.ba_global_frames_ratio") + 1] == "1.5"
+    assert mapper[mapper.index("--Mapper.ba_global_points_ratio") + 1] == "1.5"
+    assert mapper[mapper.index("--Mapper.ba_global_frames_freq") + 1] == "1000"
+    assert mapper[mapper.index("--Mapper.ba_global_points_freq") + 1] == "1000000"
+    assert mapper[mapper.index("--Mapper.ba_global_max_refinements") + 1] == "1"
     assert events.index("video_registration_recovery") < events.index("image_undistorter")
     assert recovery_call["database_path"] == output_dir / "colmap" / "database.db"
     assert recovery_call["selection_path"] == selection_path
@@ -369,6 +376,25 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert "initial_input_count=1\n" in log
     assert "registration_ratio=0.571429\n" in log
     assert "video_registration_recovery_status=recovered\n" in log
+    timing = json.loads(
+        (output_dir / "diagnostics" / "colmap_timing.json").read_text()
+    )
+    assert timing["video_profile"] == "video_keyframes_standard_v2"
+    assert set(timing["stage_elapsed_seconds"]) == {
+        "feature_extraction",
+        "feature_matching",
+        "mapping",
+        "registration_recovery",
+        "undistortion",
+        "point_cloud_conversion",
+        "text_conversion",
+    }
+    assert timing["v2_mapper_options"] == run_colmap_sparse.v2_mapper_options(
+        json.loads(selection_path.read_text())
+    )
+    assert timing["total_elapsed_seconds"] >= sum(
+        timing["stage_elapsed_seconds"].values()
+    )
 
 
 def test_gaussian_baseline_sequential_requires_vocab_tree(tmp_path, monkeypatch):

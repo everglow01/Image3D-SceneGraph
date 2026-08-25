@@ -201,6 +201,19 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
                 encoding="utf-8",
             )
             (diagnostics / "video_keyframes.jpg").write_bytes(b"sheet")
+            (diagnostics / "video_keyframe_timing.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "profile": "video_keyframe_timing_v1",
+                        "video_profile": json.loads(
+                            (frames / "selection.json").read_text()
+                        )["profile"],
+                        "elapsed_seconds": 1.25,
+                    }
+                ),
+                encoding="utf-8",
+            )
             return subprocess.CompletedProcess(command, 0, "", "")
         captured.append(command)
         raise ReconstructionError("stop after VGGT-BA command capture")
@@ -276,6 +289,19 @@ def test_project_gaussian_standard_v2_threads_source_and_selection(
                 encoding="utf-8",
             )
             (diagnostics / "video_keyframes.jpg").write_bytes(b"sheet")
+            (diagnostics / "video_keyframe_timing.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "profile": "video_keyframe_timing_v1",
+                        "video_profile": json.loads(
+                            (frames / "selection.json").read_text()
+                        )["profile"],
+                        "elapsed_seconds": 1.25,
+                    }
+                ),
+                encoding="utf-8",
+            )
             return subprocess.CompletedProcess(command, 0, "", "")
         raise ReconstructionError("stop after geometry command capture")
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -265,9 +266,10 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
         "matching",
         "image_registration",
         "triangulation",
-        "bundle_adjustment",
     }
-    assert model.name == "adjusted"
+    assert diagnostics["final_bundle_adjustment"]["accepted"] is True
+    assert diagnostics["final_bundle_adjustment"]["attempts"][0]["backend"] == "cuda"
+    assert model.name == "final-adjusted-cuda"
     assert [command[1] for command in commands] == [
         "feature_extractor",
         "matches_importer",
@@ -345,3 +347,243 @@ def test_incremental_recovery_command_failure_keeps_initial_model(
     assert diagnostics["reason"] == "matching failed"
     assert json.loads(selection_path.read_text())["selected_count"] == 12
     assert json.loads((tmp_path / "diagnostics" / "recovery.json").read_text())["status"] == "unavailable"
+
+
+def _propagation_selection() -> dict:
+    selection = _selection()
+    by_time = {float(item["time_seconds"]): item for item in selection["candidates"]}
+    for timestamp in (6.0, 9.0):
+        by_time[timestamp]["rejection_reason"] = "severe_blur"
+    recovered_later = by_time[8.0]
+    recovered_later["selected"] = True
+    recovered_later["selection_reason"] = "base"
+    selection["selected"].append(
+        {
+            "candidate_index": recovered_later["candidate_index"],
+            "pts": recovered_later["pts"],
+            "time_seconds": recovered_later["time_seconds"],
+            "path": f"frames/selected/{candidate_frame_filename(recovered_later)}",
+            "width": 1280,
+            "height": 720,
+            "sha256": "0" * 64,
+            "exif": {"orientation": 1, "software": V2_PROFILE_ID},
+            "selection_reason": "base",
+        }
+    )
+    selection["selected"].sort(key=lambda item: float(item["time_seconds"]))
+    selection["selected_count"] = len(selection["selected"])
+    return selection
+
+
+def test_second_round_propagates_without_new_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = _propagation_selection()
+    selection_path = tmp_path / "frames" / "selection.json"
+    selection_path.parent.mkdir(parents=True)
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    image_dir = tmp_path / "frames" / "selected"
+    image_dir.mkdir()
+    database_path = tmp_path / "colmap" / "database.db"
+    database_path.parent.mkdir()
+    _database(database_path)
+    initial_model = tmp_path / "colmap" / "sparse" / "0"
+    initial_model.mkdir(parents=True)
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"video")
+    initial_names = [
+        name
+        for name in _registered_names(selection)
+        if "pts80.jpg" not in name
+    ]
+    candidate_name = candidate_frame_filename(selection["candidates"][7])
+    commands: list[list[str]] = []
+
+    def fake_materialize(_source, output_dir, candidates, _selection_payload):
+        paths = []
+        for candidate in candidates:
+            path = output_dir / candidate_frame_filename(candidate)
+            path.write_bytes(b"frame")
+            paths.append(path)
+        return paths
+
+    def fake_inspect(_colmap, model_dir, _text_dir, _logs):
+        model = str(model_dir)
+        if model_dir == initial_model:
+            names, points = initial_names, 100
+        elif "round-01" in model:
+            names, points = sorted([*initial_names, candidate_name]), 110
+        else:
+            names = sorted({*_registered_names(selection), candidate_name})
+            points = 120
+        return {
+            "registered_names": names,
+            "registered_count": len(names),
+            "point_count": points,
+        }
+
+    def fake_run(command):
+        commands.append(command)
+        return "command=" + " ".join(command)
+
+    monkeypatch.setattr(video_recovery, "materialize_video_candidates", fake_materialize)
+    monkeypatch.setattr(video_recovery, "inspect_sparse_model", fake_inspect)
+    monkeypatch.setattr(video_recovery, "run_command", fake_run)
+
+    model, diagnostics, _logs = recover_video_registration(
+        colmap="colmap",
+        database_path=database_path,
+        image_dir=image_dir,
+        initial_model=initial_model,
+        selection_path=selection_path,
+        video_source=source,
+        diagnostics_path=tmp_path / "diagnostics" / "recovery.json",
+        use_gpu=False,
+        gpu_index=None,
+        num_threads=4,
+    )
+
+    assert diagnostics["status"] == "recovered"
+    assert diagnostics["accepted_round_count"] == 2
+    assert diagnostics["rounds"][1]["mode"] == "propagation"
+    assert diagnostics["rounds"][1]["candidate_count"] == 0
+    assert diagnostics["rounds"][1]["pair_count"] == 0
+    assert model.name == "final-adjusted-cpu"
+    command_names = [command[1] for command in commands]
+    assert command_names.count("feature_extractor") == 1
+    assert command_names.count("matches_importer") == 1
+    assert command_names.count("image_registrator") == 2
+    assert command_names.count("point_triangulator") == 2
+    assert command_names.count("bundle_adjuster") == 1
+
+
+def test_registration_without_gap_improvement_skips_expensive_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = _propagation_selection()
+    selection_path = tmp_path / "frames" / "selection.json"
+    selection_path.parent.mkdir(parents=True)
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    image_dir = tmp_path / "frames" / "selected"
+    image_dir.mkdir()
+    database_path = tmp_path / "colmap" / "database.db"
+    database_path.parent.mkdir()
+    _database(database_path)
+    initial_model = tmp_path / "colmap" / "sparse" / "0"
+    initial_model.mkdir(parents=True)
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"video")
+    initial_names = [
+        name
+        for name in _registered_names(selection)
+        if "pts80.jpg" not in name
+    ]
+    commands: list[list[str]] = []
+
+    def fake_materialize(_source, output_dir, candidates, _selection_payload):
+        paths = []
+        for candidate in candidates:
+            path = output_dir / candidate_frame_filename(candidate)
+            path.write_bytes(b"frame")
+            paths.append(path)
+        return paths
+
+    monkeypatch.setattr(video_recovery, "materialize_video_candidates", fake_materialize)
+    monkeypatch.setattr(
+        video_recovery,
+        "inspect_sparse_model",
+        lambda *_args: {
+            "registered_names": initial_names,
+            "registered_count": len(initial_names),
+            "point_count": 100,
+        },
+    )
+    monkeypatch.setattr(
+        video_recovery,
+        "run_command",
+        lambda command: commands.append(command) or "ok",
+    )
+
+    model, diagnostics, _logs = recover_video_registration(
+        colmap="colmap",
+        database_path=database_path,
+        image_dir=image_dir,
+        initial_model=initial_model,
+        selection_path=selection_path,
+        video_source=source,
+        diagnostics_path=tmp_path / "diagnostics" / "recovery.json",
+        use_gpu=False,
+        gpu_index=None,
+        num_threads=None,
+    )
+
+    assert model == initial_model
+    assert diagnostics["status"] == "partial"
+    assert diagnostics["reason"] == "rejected_no_registration_gap_improvement"
+    assert diagnostics["accepted_round_count"] == 0
+    assert diagnostics["final_bundle_adjustment"] is None
+    assert [command[1] for command in commands] == [
+        "feature_extractor",
+        "matches_importer",
+        "image_registrator",
+    ]
+    assert json.loads(selection_path.read_text())["selected_count"] == 13
+
+
+def test_final_bundle_adjustment_falls_back_from_cuda_to_cpu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = _selection()
+    names = _registered_names(selection)
+    state = {
+        "registered_names": names,
+        "registered_count": len(names),
+        "point_count": 100,
+    }
+    model = tmp_path / "model"
+    model.mkdir()
+    commands: list[list[str]] = []
+
+    def fake_run(command):
+        commands.append(command)
+        if "--BundleAdjustmentCeres.use_gpu" in command:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                output="",
+                stderr="CUDA sparse solver unavailable",
+            )
+        return "ok"
+
+    monkeypatch.setattr(video_recovery, "run_command", fake_run)
+    monkeypatch.setattr(
+        video_recovery,
+        "inspect_sparse_model",
+        lambda *_args: state,
+    )
+
+    adjusted, adjusted_state, record = video_recovery._run_final_bundle_adjustment(
+        colmap="colmap",
+        current_model=model,
+        current_state=state,
+        selection=selection,
+        recovery_root=tmp_path / "recovery",
+        command_logs=[],
+        use_gpu=True,
+        gpu_index="1,0",
+    )
+
+    assert adjusted.name == "final-adjusted-cpu"
+    assert adjusted_state == state
+    assert record["accepted"] is True
+    assert record["fallback_to_cpu"] is True
+    assert [attempt["status"] for attempt in record["attempts"]] == [
+        "failed",
+        "complete",
+    ]
+    assert [command[1] for command in commands] == [
+        "bundle_adjuster",
+        "bundle_adjuster",
+    ]
+    assert commands[0][commands[0].index("--BundleAdjustmentCeres.gpu_index") + 1] == "1"
+    assert "--BundleAdjustmentCeres.use_gpu" not in commands[1]
