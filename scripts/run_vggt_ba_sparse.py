@@ -17,6 +17,7 @@ from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 from image3d_scenegraph.geometry.video_recovery import (
     recover_video_registration,
     sequential_overlap,
+    v2_mapper_options,
 )
 from image3d_scenegraph.geometry.vggt_ba import (
     MIN_RELIABLE_CAMERAS,
@@ -537,24 +538,15 @@ def main() -> None:
         write_progress(args.progress_file, "colmap_fallback_mapping")
         fallback_sparse = work_dir / "fallback_sparse"
         fallback_sparse.mkdir()
-        command_logs.append(
-            run_command(
-                [
-                    colmap,
-                    "mapper",
-                    "--database_path",
-                    str(database_path),
-                    "--image_path",
-                    str(args.image_dir),
-                    "--output_path",
-                    str(fallback_sparse),
-                    "--Mapper.num_threads",
-                    str(args.num_threads),
-                    "--Mapper.ba_global_function_tolerance",
-                    "0.000001",
-                ]
-            )
+        fallback_mapper_command = build_colmap_fallback_mapper_command(
+            colmap=colmap,
+            database_path=database_path,
+            image_dir=args.image_dir,
+            output_path=fallback_sparse,
+            num_threads=args.num_threads,
+            video_selection=video_selection,
         )
+        command_logs.append(run_command(fallback_mapper_command))
         final_model, _registered_images, _sparse_points = find_largest_sparse_model(
             fallback_sparse
         )
@@ -738,6 +730,32 @@ def main() -> None:
     print(f"effective_geometry_source={effective_source}")
     print(f"fallback_reason={fallback_reason or 'none'}")
     print(f"trajectory_status={graph_payload['trajectory_status']}")
+
+
+def build_colmap_fallback_mapper_command(
+    *,
+    colmap: str,
+    database_path: Path,
+    image_dir: Path,
+    output_path: Path,
+    num_threads: int,
+    video_selection: dict[str, Any] | None,
+) -> list[str]:
+    return [
+        colmap,
+        "mapper",
+        "--database_path",
+        str(database_path),
+        "--image_path",
+        str(image_dir),
+        "--output_path",
+        str(output_path),
+        "--Mapper.num_threads",
+        str(num_threads),
+        "--Mapper.ba_global_function_tolerance",
+        "0.000001",
+        *v2_mapper_options(video_selection),
+    ]
 
 
 def apply_video_registration_recovery(

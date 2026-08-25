@@ -13,6 +13,7 @@ from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 from image3d_scenegraph.geometry.video_recovery import (
     recover_video_registration,
     sequential_overlap,
+    v2_mapper_options,
 )
 from image3d_scenegraph.video.keyframes import V2_PROFILE_ID
 
@@ -110,6 +111,7 @@ def main() -> None:
     ]
     if args.gaussian_baseline:
         mapper_command.extend(("--Mapper.ba_global_function_tolerance", "0.000001"))
+    mapper_command.extend(v2_mapper_options(video_selection))
     if args.num_threads is not None:
         mapper_command.extend(("--Mapper.num_threads", str(args.num_threads)))
     matcher_command = [
@@ -141,14 +143,17 @@ def main() -> None:
     if args.num_threads is not None:
         matcher_command.extend(("--FeatureMatching.num_threads", str(args.num_threads)))
     commands = [
-        ("colmap_feature_extraction", feature_command),
-        ("colmap_feature_matching", matcher_command),
-        ("colmap_mapping", mapper_command),
+        ("feature_extraction", "colmap_feature_extraction", feature_command),
+        ("feature_matching", "colmap_feature_matching", matcher_command),
+        ("mapping", "colmap_mapping", mapper_command),
     ]
     command_logs = []
-    for stage, command in commands:
-        write_progress(args.progress_file, stage)
+    stage_elapsed_seconds: dict[str, float] = {}
+    for timing_stage, progress_stage, command in commands:
+        write_progress(args.progress_file, progress_stage)
+        command_started_at = time.perf_counter()
         command_logs.append(run_command(command))
+        stage_elapsed_seconds[timing_stage] = time.perf_counter() - command_started_at
 
     model_dir, registered_images, sparse_points = find_largest_sparse_model(sparse_dir)
     initial_registered_images = registered_images
@@ -160,6 +165,7 @@ def main() -> None:
         and args.video_source is not None
         and args.video_selection is not None
     ):
+        recovery_started_at = time.perf_counter()
         model_dir, recovery_diagnostics, recovery_logs = recover_video_registration(
             colmap=colmap,
             database_path=work_dir / "database.db",
@@ -174,6 +180,9 @@ def main() -> None:
             gpu_index=args.gpu_index,
             num_threads=args.num_threads,
             progress=lambda stage: write_progress(args.progress_file, stage),
+        )
+        stage_elapsed_seconds["registration_recovery"] = (
+            time.perf_counter() - recovery_started_at
         )
         command_logs.extend(recovery_logs)
         registered_images, sparse_points = read_sparse_model_counts(model_dir)
@@ -197,13 +206,18 @@ def main() -> None:
         ]
         if args.max_image_size is not None:
             undistort_command.extend(("--max_image_size", str(args.max_image_size)))
+        undistortion_started_at = time.perf_counter()
         command_logs.append(run_command(undistort_command))
+        stage_elapsed_seconds["undistortion"] = (
+            time.perf_counter() - undistortion_started_at
+        )
         model_source = undistorted_dir / "sparse"
         text_dir = undistorted_dir / "sparse_txt"
         training_image_dir = undistorted_dir / "images"
     text_dir.mkdir(parents=True, exist_ok=True)
 
     point_cloud_path = geometry_dir / "points.ply"
+    point_conversion_started_at = time.perf_counter()
     command_logs.append(
         run_command(
             [
@@ -218,6 +232,10 @@ def main() -> None:
             ]
         )
     )
+    stage_elapsed_seconds["point_cloud_conversion"] = (
+        time.perf_counter() - point_conversion_started_at
+    )
+    text_conversion_started_at = time.perf_counter()
     command_logs.append(
         run_command(
             [
@@ -231,6 +249,9 @@ def main() -> None:
                 "TXT",
             ]
         )
+    )
+    stage_elapsed_seconds["text_conversion"] = (
+        time.perf_counter() - text_conversion_started_at
     )
 
     camera_payload = build_camera_payload(text_dir)
@@ -250,6 +271,21 @@ def main() -> None:
         final_selection = json.loads(args.video_selection.read_text(encoding="utf-8"))
         final_input_count = len(final_selection["selected"])
     elapsed_seconds = time.perf_counter() - started_at
+    timing_path = output_dir / "diagnostics" / "colmap_timing.json"
+    timing_path.parent.mkdir(parents=True, exist_ok=True)
+    timing_payload = {
+        "schema_version": 1,
+        "profile": "colmap_timing_v1",
+        "video_profile": (
+            str(video_selection.get("profile"))
+            if video_selection is not None
+            else None
+        ),
+        "stage_elapsed_seconds": stage_elapsed_seconds,
+        "total_elapsed_seconds": elapsed_seconds,
+        "v2_mapper_options": v2_mapper_options(video_selection),
+    }
+    write_json(timing_path, timing_payload)
     log_lines = [
         "backend=colmap",
         f"num_images={final_input_count}",
@@ -277,6 +313,8 @@ def main() -> None:
         f"num_threads={args.num_threads if args.num_threads is not None else 'auto'}",
         f"max_image_size={args.max_image_size if args.max_image_size is not None else 'original'}",
         f"gaussian_baseline={args.gaussian_baseline}",
+        f"stage_elapsed_seconds={json.dumps(stage_elapsed_seconds, sort_keys=True)}",
+        f"timing_diagnostics={timing_path}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
         *command_logs,
     ]

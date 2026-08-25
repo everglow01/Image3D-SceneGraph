@@ -63,6 +63,9 @@ def main() -> None:
                 "profile": result["selection"]["profile"],
                 "selected_count": result["selection"]["selected_count"],
                 "candidate_count": result["selection"]["candidate_count"],
+                "elapsed_seconds": result["metrics"][
+                    "video_keyframe_elapsed_seconds"
+                ],
             },
             sort_keys=True,
         )
