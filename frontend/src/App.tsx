@@ -129,8 +129,10 @@ type Manifest = {
     navigation_diagnostics?: string;
     video_probe?: string;
     video_frame_selection?: string;
+    video_keyframe_timing?: string;
     video_registration_diagnostics?: string;
     video_registration_recovery?: string;
+    colmap_timing?: string;
     video_keyframe_contact_sheet?: string;
     scene_graph?: string;
     log?: string;
@@ -1958,8 +1960,10 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="navigation_diagnostics" label="导航诊断" />
               <AssetLink manifest={manifest} assetKey="video_probe" label="视频探测信息" />
               <AssetLink manifest={manifest} assetKey="video_frame_selection" label="视频关键帧选择" />
+              <AssetLink manifest={manifest} assetKey="video_keyframe_timing" label="视频关键帧耗时" />
               <AssetLink manifest={manifest} assetKey="video_registration_diagnostics" label="视频注册诊断" />
               <AssetLink manifest={manifest} assetKey="video_registration_recovery" label="视频注册空洞恢复诊断" />
+              <AssetLink manifest={manifest} assetKey="colmap_timing" label="COLMAP 几何耗时" />
               <AssetLink manifest={manifest} assetKey="video_keyframe_contact_sheet" label="视频关键帧预览" />
               <AssetLink manifest={manifest} assetKey="alignment_diagnostics" label="空间对齐诊断" />
               <AssetLink manifest={manifest} assetKey="fusion_diagnostics" label="融合诊断" />
