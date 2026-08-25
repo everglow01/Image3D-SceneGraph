@@ -208,6 +208,7 @@ def extract_video_keyframes(
     progress: Callable[[str, float], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    started_at = time.perf_counter()
     profile_id = _profile_id(profile)
     ffmpeg, ffprobe = resolve_video_tools()
     _progress(progress, "video_probing", 0.06)
@@ -402,6 +403,18 @@ def extract_video_keyframes(
                 "video_adaptive_selected_count": adaptive_selected_count,
             }
         )
+    timing_path = diagnostics_dir / "video_keyframe_timing.json"
+    elapsed_seconds = time.perf_counter() - started_at
+    _write_json(
+        timing_path,
+        {
+            "schema_version": 1,
+            "profile": "video_keyframe_timing_v1",
+            "video_profile": profile_id,
+            "elapsed_seconds": elapsed_seconds,
+        },
+    )
+    metrics["video_keyframe_elapsed_seconds"] = elapsed_seconds
     _progress(progress, "video_frame_extraction", 0.14)
     return {
         "probe": probe,
@@ -410,6 +423,7 @@ def extract_video_keyframes(
             "video_probe": probe_path.relative_to(output_root).as_posix(),
             "video_frame_selection": selection_path.relative_to(output_root).as_posix(),
             "video_keyframe_contact_sheet": contact_sheet.relative_to(output_root).as_posix(),
+            "video_keyframe_timing": timing_path.relative_to(output_root).as_posix(),
         },
         "metrics": metrics,
     }

@@ -28,6 +28,19 @@ TOTAL_BUDGET_FRACTION = 0.50
 PAIR_WINDOW_SECONDS = 4.0
 GAP_BRIDGE_SECONDS = 2.0
 MIN_POINT_RETENTION = 0.90
+V2_MAPPER_OPTIONS = (
+    ("--Mapper.ba_global_frames_ratio", "1.5"),
+    ("--Mapper.ba_global_points_ratio", "1.5"),
+    ("--Mapper.ba_global_frames_freq", "1000"),
+    ("--Mapper.ba_global_points_freq", "1000000"),
+    ("--Mapper.ba_global_max_refinements", "1"),
+)
+
+
+def v2_mapper_options(selection: dict[str, Any] | None) -> list[str]:
+    if selection is None or selection.get("profile") != V2_PROFILE_ID:
+        return []
+    return [value for option in V2_MAPPER_OPTIONS for value in option]
 
 
 def sequential_overlap(selection: dict[str, Any]) -> int:
@@ -69,6 +82,7 @@ def recover_video_registration(
             "pair_window_seconds": PAIR_WINDOW_SECONDS,
             "gap_bridge_seconds": GAP_BRIDGE_SECONDS,
             "minimum_point_retention": MIN_POINT_RETENTION,
+            "registration_rounds_before_final_bundle_adjustment": MAX_RECOVERY_ROUNDS,
         },
         "status": "unavailable",
         "reason": None,
@@ -77,6 +91,7 @@ def recover_video_registration(
         "pair_count": 0,
         "elapsed_seconds": 0.0,
         "rounds": [],
+        "final_bundle_adjustment": None,
     }
     try:
         selection = json.loads(selection_path.read_text(encoding="utf-8"))
@@ -117,132 +132,156 @@ def recover_video_registration(
                 elapsed_seconds=time.perf_counter() - recovery_started_at,
             )
             diagnostics["final"] = diagnostics["initial"]
+            diagnostics["registered_camera_retention"] = {
+                "initial_count": len(initial_state["registered_names"]),
+                "retained_count": len(initial_state["registered_names"]),
+                "lost_count": 0,
+                "passed": True,
+            }
             diagnostics["final_selected_count"] = initial_selected_count
             _write_json(diagnostics_path, diagnostics)
             return current_model, diagnostics, command_logs
 
         camera_id = read_unique_camera_id(database_path)
         cumulative_added = 0
+        previous_round_accepted = False
         for round_index in range(1, MAX_RECOVERY_ROUNDS + 1):
             round_started_at = time.perf_counter()
             budget = min(round_limit, total_limit - cumulative_added)
-            if budget <= 0:
-                diagnostics["reason"] = "recovery_budget_exhausted"
-                break
             before_timeline = _timeline(selection, current_state["registered_names"])
-            candidates = plan_recovery_candidates(
-                selection,
-                before_timeline["gap_violations"],
-                budget,
+            candidates = (
+                plan_recovery_candidates(
+                    selection,
+                    before_timeline["gap_violations"],
+                    budget,
+                )
+                if budget > 0
+                else []
+            )
+            propagation_only = (
+                not candidates and round_index > 1 and previous_round_accepted
             )
             round_record: dict[str, Any] = {
                 "round": round_index,
+                "mode": "propagation" if propagation_only else "augmentation",
                 "budget": budget,
                 "before": _timeline_payload(before_timeline, current_state),
                 "candidate_count": len(candidates),
+                "materialized_count": 0,
+                "pair_count": 0,
                 "accepted": False,
                 "stage_elapsed_seconds": {},
             }
             diagnostics["rounds"].append(round_record)
-            if not candidates:
-                round_record["reason"] = "no_viable_recovery_candidates"
+            if not candidates and not propagation_only:
+                round_record["reason"] = (
+                    "recovery_budget_exhausted"
+                    if budget <= 0
+                    else "no_viable_recovery_candidates"
+                )
                 round_record["elapsed_seconds"] = time.perf_counter() - round_started_at
                 diagnostics["reason"] = round_record["reason"]
                 break
 
             if progress is not None:
                 progress(f"video_registration_recovery_round_{round_index}")
-            materialize_started_at = time.perf_counter()
-            paths = materialize_video_candidates(
-                video_source,
-                image_dir,
-                candidates,
-                selection,
-            )
-            round_record["stage_elapsed_seconds"]["materialization"] = (
-                time.perf_counter() - materialize_started_at
-            )
             proposed_selection = copy.deepcopy(selection)
-            _append_materialized_selection(
-                proposed_selection,
-                candidates,
-                paths,
-                round_index,
-            )
-            round_record["materialized_count"] = len(paths)
-
             round_dir = recovery_root / f"round-{round_index:02d}"
             round_dir.mkdir(parents=True, exist_ok=True)
-            image_list_path = round_dir / "new-images.txt"
-            image_list_path.write_text(
-                "\n".join(path.name for path in paths) + "\n",
-                encoding="utf-8",
-            )
-            selected_timestamps = _selected_timestamps(proposed_selection)
-            pair_list = build_local_pairs(
-                [path.name for path in paths],
-                current_state["registered_names"],
-                selected_timestamps,
-            )
-            pair_list_path = round_dir / "pairs.txt"
-            pair_list_path.write_text(
-                "\n".join(f"{left} {right}" for left, right in pair_list) + "\n",
-                encoding="utf-8",
-            )
-            round_record["pair_count"] = len(pair_list)
-            if not pair_list:
-                round_record["reason"] = "no_local_match_pairs"
-                round_record["elapsed_seconds"] = time.perf_counter() - round_started_at
-                diagnostics["reason"] = round_record["reason"]
-                break
+            if candidates:
+                materialize_started_at = time.perf_counter()
+                paths = materialize_video_candidates(
+                    video_source,
+                    image_dir,
+                    candidates,
+                    selection,
+                )
+                round_record["stage_elapsed_seconds"]["materialization"] = (
+                    time.perf_counter() - materialize_started_at
+                )
+                _append_materialized_selection(
+                    proposed_selection,
+                    candidates,
+                    paths,
+                    round_index,
+                )
+                round_record["materialized_count"] = len(paths)
 
-            feature_command = [
-                colmap,
-                "feature_extractor",
-                "--database_path",
-                str(database_path),
-                "--image_path",
-                str(image_dir),
-                "--image_list_path",
-                str(image_list_path),
-                "--ImageReader.existing_camera_id",
-                str(camera_id),
-                "--FeatureExtraction.use_gpu",
-                "1" if use_gpu else "0",
-            ]
-            if gpu_index is not None:
-                feature_command.extend(("--FeatureExtraction.gpu_index", gpu_index))
-            if num_threads is not None:
-                feature_command.extend(("--FeatureExtraction.num_threads", str(num_threads)))
-            round_record["stage_elapsed_seconds"]["feature_extraction"] = (
-                _run_timed_command(feature_command, command_logs)
-            )
+                image_list_path = round_dir / "new-images.txt"
+                image_list_path.write_text(
+                    "\n".join(path.name for path in paths) + "\n",
+                    encoding="utf-8",
+                )
+                selected_timestamps = _selected_timestamps(proposed_selection)
+                pair_list = build_local_pairs(
+                    [path.name for path in paths],
+                    current_state["registered_names"],
+                    selected_timestamps,
+                )
+                pair_list_path = round_dir / "pairs.txt"
+                pair_list_path.write_text(
+                    "\n".join(f"{left} {right}" for left, right in pair_list) + "\n",
+                    encoding="utf-8",
+                )
+                round_record["pair_count"] = len(pair_list)
+                if not pair_list:
+                    round_record["reason"] = "no_local_match_pairs"
+                    round_record["elapsed_seconds"] = (
+                        time.perf_counter() - round_started_at
+                    )
+                    diagnostics["reason"] = round_record["reason"]
+                    break
 
-            match_command = [
-                colmap,
-                "matches_importer",
-                "--database_path",
-                str(database_path),
-                "--match_list_path",
-                str(pair_list_path),
-                "--match_type",
-                "pairs",
-                "--FeatureMatching.use_gpu",
-                "1" if use_gpu else "0",
-            ]
-            if gpu_index is not None:
-                match_command.extend(("--FeatureMatching.gpu_index", gpu_index))
-            if num_threads is not None:
-                match_command.extend(("--FeatureMatching.num_threads", str(num_threads)))
-            round_record["stage_elapsed_seconds"]["matching"] = _run_timed_command(
-                match_command, command_logs
-            )
+                feature_command = [
+                    colmap,
+                    "feature_extractor",
+                    "--database_path",
+                    str(database_path),
+                    "--image_path",
+                    str(image_dir),
+                    "--image_list_path",
+                    str(image_list_path),
+                    "--ImageReader.existing_camera_id",
+                    str(camera_id),
+                    "--FeatureExtraction.use_gpu",
+                    "1" if use_gpu else "0",
+                ]
+                if gpu_index is not None:
+                    feature_command.extend(
+                        ("--FeatureExtraction.gpu_index", gpu_index)
+                    )
+                if num_threads is not None:
+                    feature_command.extend(
+                        ("--FeatureExtraction.num_threads", str(num_threads))
+                    )
+                round_record["stage_elapsed_seconds"]["feature_extraction"] = (
+                    _run_timed_command(feature_command, command_logs)
+                )
+
+                match_command = [
+                    colmap,
+                    "matches_importer",
+                    "--database_path",
+                    str(database_path),
+                    "--match_list_path",
+                    str(pair_list_path),
+                    "--match_type",
+                    "pairs",
+                    "--FeatureMatching.use_gpu",
+                    "1" if use_gpu else "0",
+                ]
+                if gpu_index is not None:
+                    match_command.extend(("--FeatureMatching.gpu_index", gpu_index))
+                if num_threads is not None:
+                    match_command.extend(
+                        ("--FeatureMatching.num_threads", str(num_threads))
+                    )
+                round_record["stage_elapsed_seconds"]["matching"] = (
+                    _run_timed_command(match_command, command_logs)
+                )
 
             registered_dir = round_dir / "registered"
-            triangulated_dir = round_dir / "triangulated"
-            adjusted_dir = round_dir / "adjusted"
-            for directory in (registered_dir, triangulated_dir, adjusted_dir):
-                directory.mkdir()
+            registered_dir.mkdir()
             round_record["stage_elapsed_seconds"]["image_registration"] = (
                 _run_timed_command(
                     [
@@ -258,6 +297,40 @@ def recover_video_registration(
                     command_logs,
                 )
             )
+            registered_state = inspect_sparse_model(
+                colmap,
+                registered_dir,
+                round_dir / "registered_txt",
+                command_logs,
+            )
+            registered_timeline = _timeline(
+                proposed_selection,
+                registered_state["registered_names"],
+            )
+            round_record["post_registration"] = _timeline_payload(
+                registered_timeline,
+                registered_state,
+            )
+            round_record["registered_gain"] = int(
+                registered_timeline["registered_count"]
+            ) - int(before_timeline["registered_count"])
+            registration_accepted, registration_reason = accept_recovered_model(
+                current_state,
+                before_timeline,
+                registered_state,
+                registered_timeline,
+            )
+            if not registration_accepted:
+                round_record["reason"] = registration_reason
+                round_record["elapsed_seconds"] = (
+                    time.perf_counter() - round_started_at
+                )
+                diagnostics["reason"] = registration_reason
+                previous_round_accepted = False
+                break
+
+            triangulated_dir = round_dir / "triangulated"
+            triangulated_dir.mkdir()
             triangulation_command = [
                 colmap,
                 "point_triangulator",
@@ -277,31 +350,10 @@ def recover_video_registration(
             round_record["stage_elapsed_seconds"]["triangulation"] = (
                 _run_timed_command(triangulation_command, command_logs)
             )
-            round_record["stage_elapsed_seconds"]["bundle_adjustment"] = (
-                _run_timed_command(
-                    [
-                        colmap,
-                        "bundle_adjuster",
-                        "--input_path",
-                        str(triangulated_dir),
-                        "--output_path",
-                        str(adjusted_dir),
-                        "--BundleAdjustment.refine_focal_length",
-                        "1",
-                        "--BundleAdjustment.refine_principal_point",
-                        "0",
-                        "--BundleAdjustment.refine_extra_params",
-                        "1",
-                        "--BundleAdjustmentCeres.function_tolerance",
-                        "0.000001",
-                    ],
-                    command_logs,
-                )
-            )
             after_state = inspect_sparse_model(
                 colmap,
-                adjusted_dir,
-                round_dir / "adjusted_txt",
+                triangulated_dir,
+                round_dir / "triangulated_txt",
                 command_logs,
             )
             after_timeline = _timeline(
@@ -315,9 +367,6 @@ def recover_video_registration(
                 after_timeline,
             )
             round_record["after"] = _timeline_payload(after_timeline, after_state)
-            round_record["registered_gain"] = int(
-                after_timeline["registered_count"]
-            ) - int(before_timeline["registered_count"])
             round_record["sparse_point_delta"] = int(after_state["point_count"]) - int(
                 current_state["point_count"]
             )
@@ -326,17 +375,42 @@ def recover_video_registration(
             round_record["elapsed_seconds"] = time.perf_counter() - round_started_at
             if not accepted:
                 diagnostics["reason"] = reason
+                previous_round_accepted = False
                 break
-            _write_json(selection_path, proposed_selection)
-            selection = proposed_selection
-            cumulative_added += len(candidates)
-            current_model = adjusted_dir
+            if candidates:
+                _write_json(selection_path, proposed_selection)
+                selection = proposed_selection
+                cumulative_added += len(candidates)
+            current_model = triangulated_dir
             current_state = after_state
+            previous_round_accepted = True
             if not after_timeline["gap_violations"]:
                 diagnostics["reason"] = "registration_gaps_closed"
                 break
 
+        if any(bool(record.get("accepted")) for record in diagnostics["rounds"]):
+            current_model, current_state, adjustment = _run_final_bundle_adjustment(
+                colmap=colmap,
+                current_model=current_model,
+                current_state=current_state,
+                selection=selection,
+                recovery_root=recovery_root,
+                command_logs=command_logs,
+                use_gpu=use_gpu,
+                gpu_index=gpu_index,
+            )
+            diagnostics["final_bundle_adjustment"] = adjustment
+
         final_timeline = _timeline(selection, current_state["registered_names"])
+        initial_registered_names = set(initial_state["registered_names"])
+        final_registered_names = set(current_state["registered_names"])
+        retained_count = len(initial_registered_names & final_registered_names)
+        diagnostics["registered_camera_retention"] = {
+            "initial_count": len(initial_registered_names),
+            "retained_count": retained_count,
+            "lost_count": len(initial_registered_names) - retained_count,
+            "passed": initial_registered_names <= final_registered_names,
+        }
         diagnostics["final"] = _timeline_payload(final_timeline, current_state)
         diagnostics["final_selected_count"] = len(selection["selected"])
         diagnostics["recovery_selected_count"] = cumulative_added
@@ -445,6 +519,33 @@ def accept_recovered_model(
     after_state: dict[str, Any],
     after_timeline: dict[str, Any],
 ) -> tuple[bool, str]:
+    safe, reason = _validate_model_safety(
+        before_state,
+        after_state,
+        after_timeline,
+    )
+    if not safe:
+        return False, reason
+    improved = (
+        int(after_timeline["gap_violation_count"])
+        < int(before_timeline["gap_violation_count"])
+        or float(after_timeline["maximum_registered_gap_seconds"])
+        < float(before_timeline["maximum_registered_gap_seconds"])
+        or float(after_timeline["gap_violation_excess_seconds"])
+        < float(before_timeline["gap_violation_excess_seconds"])
+    )
+    return (
+        (True, "accepted")
+        if improved
+        else (False, "rejected_no_registration_gap_improvement")
+    )
+
+
+def _validate_model_safety(
+    before_state: dict[str, Any],
+    after_state: dict[str, Any],
+    after_timeline: dict[str, Any],
+) -> tuple[bool, str]:
     before_names = set(before_state["registered_names"])
     after_names = set(after_state["registered_names"])
     if not before_names <= after_names:
@@ -461,15 +562,141 @@ def accept_recovered_model(
         < MIN_VIDEO_TEMPORAL_COVERAGE
     ):
         return False, "rejected_registration_quality_gate"
-    improved = (
-        float(after_timeline["maximum_registered_gap_seconds"])
-        < float(before_timeline["maximum_registered_gap_seconds"])
-        or float(after_timeline["gap_violation_excess_seconds"])
-        < float(before_timeline["gap_violation_excess_seconds"])
-        or int(after_timeline["registered_count"])
-        > int(before_timeline["registered_count"])
+    return True, "accepted"
+
+
+def _run_final_bundle_adjustment(
+    *,
+    colmap: str,
+    current_model: Path,
+    current_state: dict[str, Any],
+    selection: dict[str, Any],
+    recovery_root: Path,
+    command_logs: list[str],
+    use_gpu: bool,
+    gpu_index: str | None,
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    record: dict[str, Any] = {
+        "attempted": True,
+        "accepted": False,
+        "fallback_to_cpu": False,
+        "attempts": [],
+    }
+    backends = ["cuda", "cpu"] if use_gpu else ["cpu"]
+    adjusted_dir: Path | None = None
+    for backend in backends:
+        candidate_dir = recovery_root / f"final-adjusted-{backend}"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        command = [
+            colmap,
+            "bundle_adjuster",
+            "--input_path",
+            str(current_model),
+            "--output_path",
+            str(candidate_dir),
+            "--BundleAdjustment.refine_focal_length",
+            "1",
+            "--BundleAdjustment.refine_principal_point",
+            "0",
+            "--BundleAdjustment.refine_extra_params",
+            "1",
+            "--BundleAdjustmentCeres.function_tolerance",
+            "0.000001",
+        ]
+        if backend == "cuda":
+            command.extend(("--BundleAdjustmentCeres.use_gpu", "1"))
+            if gpu_index is not None:
+                command.extend(
+                    ("--BundleAdjustmentCeres.gpu_index", gpu_index.split(",")[0])
+                )
+        attempt_started_at = time.perf_counter()
+        try:
+            elapsed = _run_timed_command(command, command_logs)
+        except subprocess.CalledProcessError as exc:
+            elapsed = time.perf_counter() - attempt_started_at
+            command_logs.append(_failed_command_log(command, exc, elapsed))
+            record["attempts"].append(
+                {
+                    "backend": backend,
+                    "status": "failed",
+                    "elapsed_seconds": elapsed,
+                    "reason": str(exc),
+                }
+            )
+            if backend == "cuda":
+                record["fallback_to_cpu"] = True
+                continue
+            record["reason"] = "bundle_adjustment_failed"
+            record["elapsed_seconds"] = sum(
+                float(item["elapsed_seconds"]) for item in record["attempts"]
+            )
+            return current_model, current_state, record
+        record["attempts"].append(
+            {
+                "backend": backend,
+                "status": "complete",
+                "elapsed_seconds": elapsed,
+            }
+        )
+        adjusted_dir = candidate_dir
+        break
+
+    if adjusted_dir is None:
+        record["reason"] = "bundle_adjustment_failed"
+        record["elapsed_seconds"] = sum(
+            float(item["elapsed_seconds"]) for item in record["attempts"]
+        )
+        return current_model, current_state, record
+    try:
+        adjusted_state = inspect_sparse_model(
+            colmap,
+            adjusted_dir,
+            recovery_root / f"{adjusted_dir.name}-txt",
+            command_logs,
+        )
+        adjusted_timeline = _timeline(
+            selection,
+            adjusted_state["registered_names"],
+        )
+        accepted, reason = _validate_model_safety(
+            current_state,
+            adjusted_state,
+            adjusted_timeline,
+        )
+    except Exception as exc:
+        record["reason"] = f"bundle_adjustment_model_invalid: {exc}"
+        record["elapsed_seconds"] = sum(
+            float(item["elapsed_seconds"]) for item in record["attempts"]
+        )
+        return current_model, current_state, record
+    record.update(
+        accepted=accepted,
+        reason=reason,
+        after=_timeline_payload(adjusted_timeline, adjusted_state),
+        elapsed_seconds=sum(
+            float(item["elapsed_seconds"]) for item in record["attempts"]
+        ),
     )
-    return (True, "accepted") if improved else (False, "rejected_no_strict_improvement")
+    if not accepted:
+        return current_model, current_state, record
+    return adjusted_dir, adjusted_state, record
+
+
+def _failed_command_log(
+    command: list[str],
+    error: subprocess.CalledProcessError,
+    elapsed_seconds: float,
+) -> str:
+    return (
+        "command="
+        + " ".join(command)
+        + "\nstatus=failed"
+        + "\nstdout="
+        + str(error.stdout or "").strip()
+        + "\nstderr="
+        + str(error.stderr or "").strip()
+        + f"\nelapsed_seconds={elapsed_seconds:.3f}"
+    )
 
 
 def inspect_sparse_model(

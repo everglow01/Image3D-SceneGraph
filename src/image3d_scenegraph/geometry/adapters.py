@@ -245,9 +245,17 @@ class ProjectGaussianAdapter:
             video_selection_path = context.job_dir / "frames" / "selection.json"
             probe_path = context.job_dir / "diagnostics" / "video_probe.json"
             contact_sheet_path = context.job_dir / "diagnostics" / "video_keyframes.jpg"
+            keyframe_timing_path = (
+                context.job_dir / "diagnostics" / "video_keyframe_timing.json"
+            )
             if not all(
                 path.is_file()
-                for path in (video_selection_path, probe_path, contact_sheet_path)
+                for path in (
+                    video_selection_path,
+                    probe_path,
+                    contact_sheet_path,
+                    keyframe_timing_path,
+                )
             ):
                 raise ReconstructionError("video keyframe extraction did not produce complete diagnostics")
             video_selection = json.loads(
@@ -259,6 +267,25 @@ class ProjectGaussianAdapter:
                     "video keyframe extraction returned a different profile than requested"
                 )
             probe = json.loads(probe_path.read_text(encoding="utf-8"))
+            try:
+                keyframe_timing = json.loads(
+                    keyframe_timing_path.read_text(encoding="utf-8")
+                )
+                if (
+                    keyframe_timing.get("schema_version") != 1
+                    or keyframe_timing.get("profile")
+                    != "video_keyframe_timing_v1"
+                    or keyframe_timing.get("video_profile")
+                    != video_selection.get("profile")
+                ):
+                    raise ValueError("unsupported video keyframe timing schema")
+                keyframe_elapsed_seconds = float(
+                    keyframe_timing["elapsed_seconds"]
+                )
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                raise ReconstructionError(
+                    "video keyframe timing diagnostics are invalid"
+                ) from exc
             image_dir = context.job_dir / "frames" / "selected"
             video_assets = {
                 "video_probe": probe_path.relative_to(context.job_dir).as_posix(),
@@ -266,9 +293,13 @@ class ProjectGaussianAdapter:
                     context.job_dir
                 ).as_posix(),
                 "video_keyframe_contact_sheet": contact_sheet_path.relative_to(context.job_dir).as_posix(),
+                "video_keyframe_timing": keyframe_timing_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
             }
             video_metrics = {
                 "video_profile": str(video_selection["profile"]),
+                "video_keyframe_elapsed_seconds": keyframe_elapsed_seconds,
                 "video_duration_seconds": float(video_selection["duration_seconds"]),
                 "video_orientation": str(probe["orientation"]),
                 "video_rotation_degrees": int(probe["rotation"]["applied_degrees"]),
@@ -431,6 +462,38 @@ class ProjectGaussianAdapter:
         if not cameras_path.is_file() or not points_path.is_file():
             raise ReconstructionError(
                 f"{geometry_source} did not produce project 3DGS camera/sparse inputs"
+            )
+        if geometry_source == "colmap" and video_profile == "standard_v2":
+            colmap_timing_path = (
+                context.job_dir / "diagnostics" / "colmap_timing.json"
+            )
+            try:
+                colmap_timing = json.loads(
+                    colmap_timing_path.read_text(encoding="utf-8")
+                )
+                if (
+                    colmap_timing.get("schema_version") != 1
+                    or colmap_timing.get("profile") != "colmap_timing_v1"
+                    or not isinstance(
+                        colmap_timing.get("stage_elapsed_seconds"), dict
+                    )
+                ):
+                    raise ValueError("unsupported COLMAP timing schema")
+                colmap_timing_total = float(
+                    colmap_timing["total_elapsed_seconds"]
+                )
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                raise ReconstructionError(
+                    "COLMAP geometry timing diagnostics are missing or invalid"
+                ) from exc
+            geometry_assets["colmap_timing"] = colmap_timing_path.relative_to(
+                context.job_dir
+            ).as_posix()
+            geometry_metrics.update(
+                colmap_geometry_elapsed_seconds=colmap_timing_total,
+                colmap_geometry_stage_elapsed_seconds=json.dumps(
+                    colmap_timing["stage_elapsed_seconds"], sort_keys=True
+                ),
             )
         if video_selection_path is not None:
             try:
@@ -1240,6 +1303,19 @@ def _read_video_registration_recovery(
     reason = diagnostics.get("reason")
     if reason is not None:
         metrics["video_registration_recovery_reason"] = str(reason)
+    final_adjustment = diagnostics.get("final_bundle_adjustment")
+    if isinstance(final_adjustment, dict):
+        elapsed = final_adjustment.get("elapsed_seconds")
+        if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
+            metrics["video_registration_recovery_final_ba_seconds"] = float(
+                elapsed
+            )
+        metrics["video_registration_recovery_final_ba_accepted"] = bool(
+            final_adjustment.get("accepted")
+        )
+        metrics["video_registration_recovery_final_ba_cpu_fallback"] = bool(
+            final_adjustment.get("fallback_to_cpu")
+        )
 
     timeline_fields = {
         "selected_count": "selected_count",
@@ -1287,6 +1363,13 @@ def _read_video_registration_recovery(
     ]
     if reason is not None:
         log_lines.append(f"video_registration_recovery_reason={reason}")
+    if isinstance(final_adjustment, dict):
+        log_lines.append(
+            "video_registration_recovery_final_ba="
+            f"accepted={str(bool(final_adjustment.get('accepted'))).lower()} "
+            f"cpu_fallback={str(bool(final_adjustment.get('fallback_to_cpu'))).lower()} "
+            f"elapsed_seconds={final_adjustment.get('elapsed_seconds', 0)}"
+        )
     for round_record in rounds:
         before = round_record.get("before")
         after = round_record.get("after")
@@ -1303,6 +1386,7 @@ def _read_video_registration_recovery(
         log_lines.append(
             "video_registration_recovery_round="
             f"{round_record.get('round')} "
+            f"mode={round_record.get('mode', 'augmentation')} "
             f"candidates={round_record.get('candidate_count', 0)} "
             f"materialized={round_record.get('materialized_count', 0)} "
             f"pairs={round_record.get('pair_count', 0)} "
