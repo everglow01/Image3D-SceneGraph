@@ -69,6 +69,44 @@ def test_colmap_version_includes_cuda_build_line(monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    ("help_output", "expected"),
+    [
+        ("  --Mapper.image_list_path arg\n", "--Mapper.image_list_path"),
+        ("  --image_list_path arg\n", "--image_list_path"),
+    ],
+)
+def test_mapper_image_list_option_supports_both_colmap_clis(
+    monkeypatch, help_output, expected
+):
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_, **__: subprocess.CompletedProcess([], 0, help_output, ""),
+    )
+
+    assert run_colmap_sparse.mapper_image_list_option("colmap") == expected
+
+
+def test_run_command_preserves_colmap_stderr(monkeypatch):
+    command = ["colmap", "mapper"]
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_, **__: (_ for _ in ()).throw(
+            subprocess.CalledProcessError(
+                1,
+                command,
+                output="mapper stdout",
+                stderr="unrecognised option",
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="unrecognised option"):
+        run_colmap_sparse.run_command(command)
+
+
 def test_gpu_indices_accept_multiple_visible_devices():
     assert run_colmap_sparse.parse_gpu_indices("0,1") == "0,1"
     with pytest.raises(argparse.ArgumentTypeError, match="comma-separated"):
@@ -140,6 +178,7 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert matcher[matcher.index("--FeatureMatching.num_threads") + 1] == "4"
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
     assert "--Mapper.ba_global_frames_ratio" not in mapper
+    assert "--Mapper.image_list_path" not in mapper
     assert "--image_list_path" not in mapper
     assert json.loads(progress_path.read_text()) == {"stage": "colmap_mapping"}
     log = (output_dir / "logs" / "run.log").read_text()
@@ -344,6 +383,11 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
         run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
     )
     monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "mapper_image_list_option",
+        lambda _: "--Mapper.image_list_path",
+    )
     monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
     monkeypatch.setattr(
         run_colmap_sparse,
@@ -390,7 +434,7 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert mapper[mapper.index("--Mapper.ba_global_frames_freq") + 1] == "1000"
     assert mapper[mapper.index("--Mapper.ba_global_points_freq") + 1] == "1000000"
     assert mapper[mapper.index("--Mapper.ba_global_max_refinements") + 1] == "1"
-    seed_path = Path(mapper[mapper.index("--image_list_path") + 1])
+    seed_path = Path(mapper[mapper.index("--Mapper.image_list_path") + 1])
     assert seed_path.read_text().splitlines() == [
         f"frame_{index}.jpg" for index in range(21)
     ]

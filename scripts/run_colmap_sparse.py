@@ -84,6 +84,7 @@ def main() -> None:
     sparse_dir.mkdir(parents=True, exist_ok=True)
     mapper_seed_names: list[str] = []
     mapper_seed_path: Path | None = None
+    mapper_seed_option: str | None = None
     if video_selection is not None and video_selection.get("profile") == V2_PROFILE_ID:
         mapper_seed_names = v2_mapper_seed_image_names(video_selection)
         discovered_names = {path.name for path in image_paths}
@@ -94,6 +95,7 @@ def main() -> None:
             "\n".join(mapper_seed_names) + "\n",
             encoding="utf-8",
         )
+        mapper_seed_option = mapper_image_list_option(colmap)
 
     feature_command = [
         colmap,
@@ -126,8 +128,8 @@ def main() -> None:
     if args.gaussian_baseline:
         mapper_command.extend(("--Mapper.ba_global_function_tolerance", "0.000001"))
     mapper_command.extend(v2_mapper_options(video_selection))
-    if mapper_seed_path is not None:
-        mapper_command.extend(("--image_list_path", str(mapper_seed_path)))
+    if mapper_seed_path is not None and mapper_seed_option is not None:
+        mapper_command.extend((mapper_seed_option, str(mapper_seed_path)))
     if args.num_threads is not None:
         mapper_command.extend(("--Mapper.num_threads", str(args.num_threads)))
     matcher_command = [
@@ -411,8 +413,32 @@ def colmap_version(colmap: str) -> str:
     return " ".join(lines[:2]) or "unknown"
 
 
+def mapper_image_list_option(colmap: str) -> str:
+    completed = subprocess.run(
+        [colmap, "mapper", "-h"], check=True, capture_output=True, text=True
+    )
+    output = completed.stdout + completed.stderr
+    for option in ("--Mapper.image_list_path", "--image_list_path"):
+        if option in output:
+            return option
+    raise RuntimeError("COLMAP mapper does not support an image list option")
+
+
 def run_command(command: list[str]) -> str:
-    completed = subprocess.run(command, check=True, capture_output=True, text=True)
+    try:
+        completed = subprocess.run(
+            command, check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            "command="
+            + " ".join(command)
+            + f"\nreturncode={exc.returncode}"
+            + "\nstdout="
+            + str(exc.stdout or "").strip()
+            + "\nstderr="
+            + str(exc.stderr or "").strip()
+        ) from exc
     return "command=" + " ".join(command) + "\nstdout=" + completed.stdout.strip() + "\nstderr=" + completed.stderr.strip()
 
 
