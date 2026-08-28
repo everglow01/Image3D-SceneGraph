@@ -11,9 +11,11 @@ from typing import Any
 
 from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
 from image3d_scenegraph.geometry.video_recovery import (
+    expand_v2_initial_registration,
     recover_video_registration,
     sequential_overlap,
     v2_mapper_options,
+    v2_mapper_seed_image_names,
 )
 from image3d_scenegraph.video.keyframes import V2_PROFILE_ID
 
@@ -80,6 +82,18 @@ def main() -> None:
     geometry_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
+    mapper_seed_names: list[str] = []
+    mapper_seed_path: Path | None = None
+    if video_selection is not None and video_selection.get("profile") == V2_PROFILE_ID:
+        mapper_seed_names = v2_mapper_seed_image_names(video_selection)
+        discovered_names = {path.name for path in image_paths}
+        if not set(mapper_seed_names) <= discovered_names:
+            raise SystemExit("v2 Mapper seed images are missing from the image directory")
+        mapper_seed_path = work_dir / "v2-mapper-seed.txt"
+        mapper_seed_path.write_text(
+            "\n".join(mapper_seed_names) + "\n",
+            encoding="utf-8",
+        )
 
     feature_command = [
         colmap,
@@ -112,6 +126,8 @@ def main() -> None:
     if args.gaussian_baseline:
         mapper_command.extend(("--Mapper.ba_global_function_tolerance", "0.000001"))
     mapper_command.extend(v2_mapper_options(video_selection))
+    if mapper_seed_path is not None:
+        mapper_command.extend(("--image_list_path", str(mapper_seed_path)))
     if args.num_threads is not None:
         mapper_command.extend(("--Mapper.num_threads", str(args.num_threads)))
     matcher_command = [
@@ -158,6 +174,29 @@ def main() -> None:
     model_dir, registered_images, sparse_points = find_largest_sparse_model(sparse_dir)
     initial_registered_images = registered_images
     initial_sparse_points = sparse_points
+    expansion_diagnostics: dict[str, Any] | None = None
+    if video_selection is not None and video_selection.get("profile") == V2_PROFILE_ID:
+        expansion_started_at = time.perf_counter()
+        model_dir, expansion_diagnostics, expansion_logs = (
+            expand_v2_initial_registration(
+                colmap=colmap,
+                database_path=work_dir / "database.db",
+                image_dir=args.image_dir,
+                initial_model=model_dir,
+                selection=video_selection,
+                work_dir=work_dir / "v2_initial_expansion",
+                diagnostics_path=output_dir
+                / "diagnostics"
+                / "video_initial_registration_expansion.json",
+                num_threads=args.num_threads,
+                progress=lambda stage: write_progress(args.progress_file, stage),
+            )
+        )
+        stage_elapsed_seconds["initial_registration_expansion"] = (
+            time.perf_counter() - expansion_started_at
+        )
+        command_logs.extend(expansion_logs)
+        registered_images, sparse_points = read_sparse_model_counts(model_dir)
     recovery_diagnostics: dict[str, Any] | None = None
     if (
         video_selection is not None
@@ -180,6 +219,10 @@ def main() -> None:
             gpu_index=args.gpu_index,
             num_threads=args.num_threads,
             progress=lambda stage: write_progress(args.progress_file, stage),
+            force_final_bundle_adjustment=bool(
+                expansion_diagnostics
+                and expansion_diagnostics.get("accepted_pass_count", 0)
+            ),
         )
         stage_elapsed_seconds["registration_recovery"] = (
             time.perf_counter() - recovery_started_at
@@ -284,6 +327,12 @@ def main() -> None:
         "stage_elapsed_seconds": stage_elapsed_seconds,
         "total_elapsed_seconds": elapsed_seconds,
         "v2_mapper_options": v2_mapper_options(video_selection),
+        "v2_mapper_seed_count": len(mapper_seed_names),
+        "initial_registration_expansion_status": (
+            expansion_diagnostics.get("status")
+            if expansion_diagnostics is not None
+            else None
+        ),
     }
     write_json(timing_path, timing_payload)
     log_lines = [
@@ -298,6 +347,9 @@ def main() -> None:
         f"selected_sparse_points={sparse_points}",
         f"initial_sparse_registered_images={initial_registered_images}",
         f"initial_sparse_points={initial_sparse_points}",
+        f"v2_mapper_seed_count={len(mapper_seed_names)}",
+        f"video_initial_registration_expansion_status={expansion_diagnostics['status'] if expansion_diagnostics is not None else 'not_requested'}",
+        f"video_initial_registration_expansion_passes={expansion_diagnostics['accepted_pass_count'] if expansion_diagnostics is not None else 0}",
         f"video_registration_recovery_status={recovery_diagnostics['status'] if recovery_diagnostics is not None else 'not_requested'}",
         f"video_registration_recovery_rounds={len(recovery_diagnostics['rounds']) if recovery_diagnostics is not None else 0}",
         f"training_image_dir={training_image_dir}",

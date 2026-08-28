@@ -5,6 +5,7 @@ import json
 import struct
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -139,6 +140,7 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert matcher[matcher.index("--FeatureMatching.num_threads") + 1] == "4"
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
     assert "--Mapper.ba_global_frames_ratio" not in mapper
+    assert "--image_list_path" not in mapper
     assert json.loads(progress_path.read_text()) == {"stage": "colmap_mapping"}
     log = (output_dir / "logs" / "run.log").read_text()
     assert "colmap_executable=" in log
@@ -285,14 +287,19 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     video_source = tmp_path / "video.mp4"
     selection_path = tmp_path / "selection.json"
     image_dir.mkdir()
-    (image_dir / "frame.jpg").write_bytes(b"image")
+    for index in range(21):
+        (image_dir / f"frame_{index}.jpg").write_bytes(b"image")
     video_source.write_bytes(b"video")
     selection_path.write_text(
         json.dumps(
             {
                 "profile": "video_keyframes_standard_v2",
                 "selected": [
-                    {"path": f"frames/frame_{index}.jpg", "time_seconds": index / 5}
+                    {
+                        "path": f"frames/frame_{index}.jpg",
+                        "time_seconds": index / 5,
+                        "pts": index,
+                    }
                     for index in range(21)
                 ],
             }
@@ -317,6 +324,17 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
             )
         return "ok"
 
+    def fake_expansion(**kwargs):
+        events.append("video_initial_registration_expansion")
+        return (
+            kwargs["initial_model"],
+            {
+                "status": "no_progress",
+                "accepted_pass_count": 0,
+            },
+            ["expansion"],
+        )
+
     def fake_recovery(**kwargs):
         recovery_call.update(kwargs)
         events.append("video_registration_recovery")
@@ -327,6 +345,11 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     )
     monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
     monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "expand_v2_initial_registration",
+        fake_expansion,
+    )
     monkeypatch.setattr(run_colmap_sparse, "recover_video_registration", fake_recovery)
     monkeypatch.setattr(
         run_colmap_sparse,
@@ -367,13 +390,20 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert mapper[mapper.index("--Mapper.ba_global_frames_freq") + 1] == "1000"
     assert mapper[mapper.index("--Mapper.ba_global_points_freq") + 1] == "1000000"
     assert mapper[mapper.index("--Mapper.ba_global_max_refinements") + 1] == "1"
+    seed_path = Path(mapper[mapper.index("--image_list_path") + 1])
+    assert seed_path.read_text().splitlines() == [
+        f"frame_{index}.jpg" for index in range(21)
+    ]
+    assert events.index("video_initial_registration_expansion") < events.index(
+        "video_registration_recovery"
+    )
     assert events.index("video_registration_recovery") < events.index("image_undistorter")
     assert recovery_call["database_path"] == output_dir / "colmap" / "database.db"
     assert recovery_call["selection_path"] == selection_path
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sequential_overlap=21\n" in log
     assert "num_images=21\n" in log
-    assert "initial_input_count=1\n" in log
+    assert "initial_input_count=21\n" in log
     assert "registration_ratio=0.571429\n" in log
     assert "video_registration_recovery_status=recovered\n" in log
     timing = json.loads(
@@ -384,6 +414,7 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
         "feature_extraction",
         "feature_matching",
         "mapping",
+        "initial_registration_expansion",
         "registration_recovery",
         "undistortion",
         "point_cloud_conversion",

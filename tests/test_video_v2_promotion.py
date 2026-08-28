@@ -9,6 +9,7 @@ STAGES = {
     "feature_extraction": 10.0,
     "feature_matching": 10.0,
     "mapping": 100.0,
+    "initial_registration_expansion": 20.0,
     "registration_recovery": 20.0,
     "undistortion": 10.0,
     "point_cloud_conversion": 1.0,
@@ -75,6 +76,27 @@ def _colmap_timing(profile: str, seconds: float) -> dict:
     }
 
 
+def _expansion() -> dict:
+    return {
+        "schema_version": 1,
+        "profile": "video_initial_registration_expansion_v1",
+        "initial": {
+            "registered_count": 8,
+            "sparse_point_count": 100,
+        },
+        "final": {
+            "registered_count": 10,
+            "sparse_point_count": 105,
+        },
+        "registered_camera_retention": {
+            "initial_count": 8,
+            "retained_count": 8,
+            "lost_count": 0,
+            "passed": True,
+        },
+    }
+
+
 def _recovery() -> dict:
     return {
         "schema_version": 1,
@@ -115,6 +137,7 @@ def _inputs() -> dict:
         "repeat_selection": _selection(v2),
         "candidate_keyframe_timing": _keyframe_timing(v2, 15.0),
         "candidate_colmap_timing": _colmap_timing(v2, 180.0),
+        "candidate_expansion": _expansion(),
         "candidate_recovery": _recovery(),
     }
 
@@ -150,6 +173,21 @@ def test_promotion_gate_reports_quality_and_time_failures() -> None:
         "registration_rate",
         "geometry_time_multiplier",
     }
+
+
+def test_promotion_gate_measures_point_retention_from_mapper_input() -> None:
+    inputs = _inputs()
+    inputs["candidate_expansion"]["final"]["sparse_point_count"] = 91
+    inputs["candidate_recovery"]["initial"]["sparse_point_count"] = 91
+    inputs["candidate_recovery"]["final"]["sparse_point_count"] = 82
+
+    report = evaluate_promotion(**inputs)
+
+    check = next(
+        check for check in report["checks"] if check["name"] == "sparse_point_retention"
+    )
+    assert check["passed"] is False
+    assert check["actual"] == 0.82
 
 
 def test_promotion_gate_detects_selector_nondeterminism() -> None:

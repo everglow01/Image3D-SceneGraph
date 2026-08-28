@@ -71,7 +71,9 @@ class ProjectGaussianAdapter:
             "colmap_feature_extraction": 0.16,
             "colmap_feature_matching": 0.20,
             "colmap_mapping": 0.26,
-            "video_registration_recovery_round_1": 0.28,
+            "video_initial_registration_expansion_pass_1": 0.27,
+            "video_initial_registration_expansion_pass_2": 0.275,
+            "video_registration_recovery_round_1": 0.285,
             "video_registration_recovery_round_2": 0.30,
             "colmap_undistortion": 0.31,
         }
@@ -493,6 +495,43 @@ class ProjectGaussianAdapter:
                 colmap_geometry_elapsed_seconds=colmap_timing_total,
                 colmap_geometry_stage_elapsed_seconds=json.dumps(
                     colmap_timing["stage_elapsed_seconds"], sort_keys=True
+                ),
+            )
+            expansion_path = (
+                context.job_dir
+                / "diagnostics"
+                / "video_initial_registration_expansion.json"
+            )
+            try:
+                expansion = json.loads(expansion_path.read_text(encoding="utf-8"))
+                if (
+                    expansion.get("schema_version") != 1
+                    or expansion.get("profile")
+                    != "video_initial_registration_expansion_v1"
+                    or not isinstance(expansion.get("initial"), dict)
+                    or not isinstance(expansion.get("final"), dict)
+                    or not isinstance(
+                        expansion.get("registered_camera_retention"), dict
+                    )
+                ):
+                    raise ValueError("unsupported registration expansion schema")
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                raise ReconstructionError(
+                    "initial registration expansion diagnostics are missing or invalid"
+                ) from exc
+            geometry_assets["video_initial_registration_expansion"] = (
+                expansion_path.relative_to(context.job_dir).as_posix()
+            )
+            geometry_metrics.update(
+                video_initial_registration_expansion_status=str(
+                    expansion["status"]
+                ),
+                video_initial_registration_expansion_passes=int(
+                    expansion["accepted_pass_count"]
+                ),
+                video_initial_registration_expansion_registered_gain=(
+                    int(expansion["final"]["registered_count"])
+                    - int(expansion["initial"]["registered_count"])
                 ),
             )
         if video_selection_path is not None:

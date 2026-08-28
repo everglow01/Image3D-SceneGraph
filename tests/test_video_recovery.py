@@ -11,9 +11,11 @@ from image3d_scenegraph.geometry import video_recovery
 from image3d_scenegraph.geometry.video_recovery import (
     accept_recovered_model,
     build_local_pairs,
+    expand_v2_initial_registration,
     plan_recovery_candidates,
     recover_video_registration,
     sequential_overlap,
+    v2_mapper_seed_image_names,
 )
 from image3d_scenegraph.video.keyframes import V2_PROFILE_ID, candidate_frame_filename
 
@@ -75,6 +77,97 @@ def test_dynamic_sequential_overlap_covers_four_seconds() -> None:
     assert sequential_overlap(selection) == 16
     selection["selected"] = [{"time_seconds": index / 8} for index in range(21)]
     assert sequential_overlap(selection) == 24
+
+
+def test_v2_mapper_seed_is_uniform_bounded_and_base_only() -> None:
+    selected = [
+        {
+            "candidate_index": index,
+            "pts": index,
+            "time_seconds": index / 4,
+            "path": f"frames/selected/frame-{index:04d}.jpg",
+            "selection_reason": "base" if index < 1603 else "adaptive_motion",
+        }
+        for index in range(1824)
+    ]
+    names = v2_mapper_seed_image_names(
+        {"profile": V2_PROFILE_ID, "selected": selected}
+    )
+
+    assert len(names) == 1000
+    assert len(set(names)) == 1000
+    assert names[0] == "frame-0000.jpg"
+    assert names[-1] == "frame-1602.jpg"
+    assert all(int(name.removeprefix("frame-").removesuffix(".jpg")) < 1603 for name in names)
+
+
+def test_initial_registration_expansion_propagates_selected_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = {
+        "profile": V2_PROFILE_ID,
+        "selected": [
+            {
+                "candidate_index": index,
+                "pts": index,
+                "time_seconds": float(index),
+                "path": f"frames/selected/frame-{index:02d}.jpg",
+            }
+            for index in range(16)
+        ],
+    }
+    all_names = [Path(item["path"]).name for item in selection["selected"]]
+    initial_model = tmp_path / "initial"
+    initial_model.mkdir()
+    commands: list[list[str]] = []
+
+    def fake_inspect(_colmap, model_dir, _text_dir, _logs):
+        model = str(model_dir)
+        if model_dir == initial_model:
+            count, points = 12, 100
+        elif "pass-01" in model:
+            count, points = 14, 110
+        else:
+            count, points = 16, 120
+        return {
+            "registered_names": all_names[:count],
+            "registered_count": count,
+            "point_count": points,
+        }
+
+    monkeypatch.setattr(video_recovery, "inspect_sparse_model", fake_inspect)
+    monkeypatch.setattr(
+        video_recovery,
+        "run_command",
+        lambda command: commands.append(command) or "ok",
+    )
+
+    model, diagnostics, _logs = expand_v2_initial_registration(
+        colmap="colmap",
+        database_path=tmp_path / "database.db",
+        image_dir=tmp_path / "images",
+        initial_model=initial_model,
+        selection=selection,
+        work_dir=tmp_path / "expansion",
+        diagnostics_path=tmp_path / "diagnostics" / "expansion.json",
+        num_threads=8,
+    )
+
+    assert model.name == "triangulated"
+    assert diagnostics["status"] == "expanded"
+    assert diagnostics["accepted_pass_count"] == 2
+    assert diagnostics["initial"]["registered_count"] == 12
+    assert diagnostics["final"]["registered_count"] == 16
+    assert [record["registered_gain"] for record in diagnostics["passes"]] == [
+        2,
+        2,
+    ]
+    assert [command[1] for command in commands] == [
+        "image_registrator",
+        "point_triangulator",
+        "image_registrator",
+        "point_triangulator",
+    ]
 
 
 def test_recovery_candidate_budget_fills_across_separated_gaps() -> None:
@@ -528,6 +621,59 @@ def test_registration_without_gap_improvement_skips_expensive_stages(
         "image_registrator",
     ]
     assert json.loads(selection_path.read_text())["selected_count"] == 13
+
+
+def test_no_gap_expansion_still_runs_one_final_bundle_adjustment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = {
+        "profile": V2_PROFILE_ID,
+        "selected": [
+            {
+                "pts": index,
+                "time_seconds": float(index),
+                "path": f"frames/selected/frame-{index:02d}.jpg",
+            }
+            for index in range(16)
+        ],
+    }
+    selection_path = tmp_path / "frames" / "selection.json"
+    selection_path.parent.mkdir(parents=True)
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    initial_model = tmp_path / "colmap" / "sparse" / "0"
+    initial_model.mkdir(parents=True)
+    names = [Path(item["path"]).name for item in selection["selected"]]
+    state = {
+        "registered_names": names,
+        "registered_count": len(names),
+        "point_count": 100,
+    }
+    commands: list[list[str]] = []
+    monkeypatch.setattr(video_recovery, "inspect_sparse_model", lambda *_args: state)
+    monkeypatch.setattr(
+        video_recovery,
+        "run_command",
+        lambda command: commands.append(command) or "ok",
+    )
+
+    model, diagnostics, _logs = recover_video_registration(
+        colmap="colmap",
+        database_path=tmp_path / "database.db",
+        image_dir=tmp_path / "images",
+        initial_model=initial_model,
+        selection_path=selection_path,
+        video_source=tmp_path / "video.mp4",
+        diagnostics_path=tmp_path / "diagnostics" / "recovery.json",
+        use_gpu=False,
+        gpu_index=None,
+        num_threads=None,
+        force_final_bundle_adjustment=True,
+    )
+
+    assert model.name == "final-adjusted-cpu"
+    assert diagnostics["status"] == "not_needed"
+    assert diagnostics["final_bundle_adjustment"]["accepted"] is True
+    assert [command[1] for command in commands] == ["bundle_adjuster"]
 
 
 def test_final_bundle_adjustment_falls_back_from_cuda_to_cpu(

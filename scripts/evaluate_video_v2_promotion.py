@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("--repeat-selection", required=True, type=Path)
     parser.add_argument("--candidate-keyframe-timing", required=True, type=Path)
     parser.add_argument("--candidate-colmap-timing", required=True, type=Path)
+    parser.add_argument("--candidate-expansion", required=True, type=Path)
     parser.add_argument("--candidate-recovery", required=True, type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -43,6 +44,7 @@ def main() -> None:
             repeat_selection=_read_json(args.repeat_selection),
             candidate_keyframe_timing=_read_json(args.candidate_keyframe_timing),
             candidate_colmap_timing=_read_json(args.candidate_colmap_timing),
+            candidate_expansion=_read_json(args.candidate_expansion),
             candidate_recovery=_read_json(args.candidate_recovery),
         )
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
@@ -66,6 +68,7 @@ def evaluate_promotion(
     repeat_selection: dict[str, Any],
     candidate_keyframe_timing: dict[str, Any],
     candidate_colmap_timing: dict[str, Any],
+    candidate_expansion: dict[str, Any],
     candidate_recovery: dict[str, Any],
 ) -> dict[str, Any]:
     _validate_selection(baseline_selection, V1_PROFILE)
@@ -75,17 +78,30 @@ def evaluate_promotion(
     _validate_keyframe_timing(candidate_keyframe_timing, V2_PROFILE)
     _validate_colmap_timing(baseline_colmap_timing, V1_PROFILE)
     _validate_colmap_timing(candidate_colmap_timing, V2_PROFILE)
+    if (
+        candidate_expansion.get("schema_version") != 1
+        or candidate_expansion.get("profile")
+        != "video_initial_registration_expansion_v1"
+    ):
+        raise ValueError("candidate expansion diagnostics use an unsupported schema")
     if candidate_recovery.get("schema_version") != 1:
         raise ValueError("candidate recovery diagnostics use an unsupported schema")
 
     final = candidate_recovery.get("final")
     initial = candidate_recovery.get("initial")
     retention = candidate_recovery.get("registered_camera_retention")
+    expansion_initial = candidate_expansion.get("initial")
+    expansion_final = candidate_expansion.get("final")
+    expansion_retention = candidate_expansion.get("registered_camera_retention")
     rounds = candidate_recovery.get("rounds")
     if not isinstance(final, dict) or not isinstance(initial, dict):
         raise ValueError("candidate recovery diagnostics have no initial/final timelines")
     if not isinstance(retention, dict):
         raise ValueError("candidate recovery diagnostics have no camera-retention record")
+    if not isinstance(expansion_initial, dict) or not isinstance(expansion_final, dict):
+        raise ValueError("candidate expansion diagnostics have no initial/final timelines")
+    if not isinstance(expansion_retention, dict):
+        raise ValueError("candidate expansion diagnostics have no camera-retention record")
     if not isinstance(rounds, list):
         raise ValueError("candidate recovery diagnostics have no round records")
 
@@ -111,13 +127,14 @@ def evaluate_promotion(
     initial_selected_count = int(candidate_recovery["initial_selected_count"])
     recovery_selected_count = int(candidate_recovery["recovery_selected_count"])
     point_retention = int(final["sparse_point_count"]) / max(
-        int(initial["sparse_point_count"]), 1
+        int(expansion_initial["sparse_point_count"]), 1
     )
     time_multiplier = candidate_seconds / baseline_seconds
     required_timing_stages = {
         "feature_extraction",
         "feature_matching",
         "mapping",
+        "initial_registration_expansion",
         "registration_recovery",
         "undistortion",
         "point_cloud_conversion",
@@ -153,10 +170,15 @@ def evaluate_promotion(
         ),
         _check(
             "registered_camera_retention",
-            bool(retention.get("passed"))
+            bool(expansion_retention.get("passed"))
+            and int(expansion_retention.get("lost_count", -1)) == 0
+            and bool(retention.get("passed"))
             and int(retention.get("lost_count", -1)) == 0,
-            retention,
-            "no initial registered camera lost",
+            {
+                "initial_expansion": expansion_retention,
+                "gap_recovery": retention,
+            },
+            "no Mapper-registered or expansion-registered camera lost",
         ),
         _check(
             "sparse_point_retention",

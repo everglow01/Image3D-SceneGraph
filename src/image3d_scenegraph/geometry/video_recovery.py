@@ -28,6 +28,8 @@ TOTAL_BUDGET_FRACTION = 0.50
 PAIR_WINDOW_SECONDS = 4.0
 GAP_BRIDGE_SECONDS = 2.0
 MIN_POINT_RETENTION = 0.90
+V2_MAPPER_SEED_MAX_IMAGES = 1_000
+V2_INITIAL_EXPANSION_PASSES = 2
 V2_MAPPER_OPTIONS = (
     ("--Mapper.ba_global_frames_ratio", "1.5"),
     ("--Mapper.ba_global_points_ratio", "1.5"),
@@ -43,6 +45,35 @@ def v2_mapper_options(selection: dict[str, Any] | None) -> list[str]:
     return [value for option in V2_MAPPER_OPTIONS for value in option]
 
 
+def v2_mapper_seed_image_names(selection: dict[str, Any]) -> list[str]:
+    if selection.get("profile") != V2_PROFILE_ID:
+        raise ValueError("v2 Mapper seeding requires standard_v2 selection metadata")
+    selected = selection.get("selected")
+    if not isinstance(selected, list) or not selected:
+        raise ValueError("video selection metadata has no selected frames")
+    ordered = sorted(
+        selected,
+        key=lambda item: (float(item["time_seconds"]), int(item["pts"])),
+    )
+    base = [item for item in ordered if item.get("selection_reason") == "base"]
+    pool = base if len(base) >= V2_MAPPER_SEED_MAX_IMAGES else ordered
+    target = min(V2_MAPPER_SEED_MAX_IMAGES, len(pool))
+    if target == len(pool):
+        seed = pool
+    elif target == 1:
+        seed = [pool[0]]
+    else:
+        indices = [
+            round(index * (len(pool) - 1) / (target - 1))
+            for index in range(target)
+        ]
+        seed = [pool[index] for index in indices]
+    names = [Path(str(item["path"])).name for item in seed]
+    if len(names) != len(set(names)):
+        raise ValueError("v2 Mapper seed selection contains duplicate image names")
+    return names
+
+
 def sequential_overlap(selection: dict[str, Any]) -> int:
     selected = selection.get("selected")
     if selection.get("profile") != V2_PROFILE_ID or not isinstance(selected, list):
@@ -52,6 +83,179 @@ def sequential_overlap(selection: dict[str, Any]) -> int:
         raise ValueError("video selection does not define an effective frame rate")
     effective_fps = len(times) / (times[-1] - times[0])
     return min(24, max(16, math.ceil(effective_fps * 4.0)))
+
+
+def expand_v2_initial_registration(
+    *,
+    colmap: str,
+    database_path: Path,
+    image_dir: Path,
+    initial_model: Path,
+    selection: dict[str, Any],
+    work_dir: Path,
+    diagnostics_path: Path,
+    num_threads: int | None,
+    progress: Callable[[str], None] | None = None,
+) -> tuple[Path, dict[str, Any], list[str]]:
+    if selection.get("profile") != V2_PROFILE_ID:
+        raise ValueError("initial registration expansion requires standard_v2")
+    started_at = time.perf_counter()
+    command_logs: list[str] = []
+    current_model = initial_model
+    current_state = inspect_sparse_model(
+        colmap,
+        current_model,
+        work_dir / "initial_txt",
+        command_logs,
+    )
+    initial_state = current_state
+    initial_timeline = _timeline(selection, current_state["registered_names"])
+    diagnostics: dict[str, Any] = {
+        "schema_version": 1,
+        "profile": "video_initial_registration_expansion_v1",
+        "maximum_passes": V2_INITIAL_EXPANSION_PASSES,
+        "initial": _timeline_payload(initial_timeline, current_state),
+        "passes": [],
+    }
+    for pass_index in range(1, V2_INITIAL_EXPANSION_PASSES + 1):
+        if progress is not None:
+            progress(f"video_initial_registration_expansion_pass_{pass_index}")
+        pass_started_at = time.perf_counter()
+        pass_dir = work_dir / f"pass-{pass_index:02d}"
+        registered_dir = pass_dir / "registered"
+        triangulated_dir = pass_dir / "triangulated"
+        registered_dir.mkdir(parents=True)
+        triangulated_dir.mkdir()
+        record: dict[str, Any] = {
+            "pass": pass_index,
+            "before": _timeline_payload(
+                _timeline(selection, current_state["registered_names"]),
+                current_state,
+            ),
+            "accepted": False,
+            "stage_elapsed_seconds": {},
+        }
+        diagnostics["passes"].append(record)
+        record["stage_elapsed_seconds"]["image_registration"] = (
+            _run_timed_command(
+                [
+                    colmap,
+                    "image_registrator",
+                    "--database_path",
+                    str(database_path),
+                    "--input_path",
+                    str(current_model),
+                    "--output_path",
+                    str(registered_dir),
+                ],
+                command_logs,
+            )
+        )
+        registered_state = inspect_sparse_model(
+            colmap,
+            registered_dir,
+            pass_dir / "registered_txt",
+            command_logs,
+        )
+        registered_timeline = _timeline(
+            selection,
+            registered_state["registered_names"],
+        )
+        record["post_registration"] = _timeline_payload(
+            registered_timeline,
+            registered_state,
+        )
+        record["registered_gain"] = int(registered_state["registered_count"]) - int(
+            current_state["registered_count"]
+        )
+        if not set(current_state["registered_names"]) <= set(
+            registered_state["registered_names"]
+        ):
+            record["reason"] = "rejected_registered_camera_loss"
+            record["elapsed_seconds"] = time.perf_counter() - pass_started_at
+            diagnostics["reason"] = record["reason"]
+            break
+        if record["registered_gain"] <= 0:
+            record["reason"] = "no_registration_progress"
+            record["elapsed_seconds"] = time.perf_counter() - pass_started_at
+            diagnostics["reason"] = record["reason"]
+            break
+
+        triangulation_command = [
+            colmap,
+            "point_triangulator",
+            "--database_path",
+            str(database_path),
+            "--image_path",
+            str(image_dir),
+            "--input_path",
+            str(registered_dir),
+            "--output_path",
+            str(triangulated_dir),
+            "--clear_points",
+            "0",
+        ]
+        if num_threads is not None:
+            triangulation_command.extend(("--Mapper.num_threads", str(num_threads)))
+        record["stage_elapsed_seconds"]["triangulation"] = _run_timed_command(
+            triangulation_command,
+            command_logs,
+        )
+        after_state = inspect_sparse_model(
+            colmap,
+            triangulated_dir,
+            pass_dir / "triangulated_txt",
+            command_logs,
+        )
+        after_timeline = _timeline(selection, after_state["registered_names"])
+        record["after"] = _timeline_payload(after_timeline, after_state)
+        record["sparse_point_delta"] = int(after_state["point_count"]) - int(
+            current_state["point_count"]
+        )
+        if not set(current_state["registered_names"]) <= set(
+            after_state["registered_names"]
+        ):
+            record["reason"] = "rejected_registered_camera_loss"
+        elif int(after_state["point_count"]) < math.ceil(
+            int(current_state["point_count"]) * MIN_POINT_RETENTION
+        ):
+            record["reason"] = "rejected_sparse_point_regression"
+        else:
+            record["accepted"] = True
+            record["reason"] = "accepted"
+            current_model = triangulated_dir
+            current_state = after_state
+        record["elapsed_seconds"] = time.perf_counter() - pass_started_at
+        if not record["accepted"]:
+            diagnostics["reason"] = record["reason"]
+            break
+    else:
+        diagnostics["reason"] = "maximum_passes_reached"
+
+    final_timeline = _timeline(selection, current_state["registered_names"])
+    initial_registered_names = set(initial_state["registered_names"])
+    final_registered_names = set(current_state["registered_names"])
+    retained_count = len(initial_registered_names & final_registered_names)
+    diagnostics.update(
+        status=(
+            "expanded"
+            if any(bool(record.get("accepted")) for record in diagnostics["passes"])
+            else "no_progress"
+        ),
+        accepted_pass_count=sum(
+            bool(record.get("accepted")) for record in diagnostics["passes"]
+        ),
+        final=_timeline_payload(final_timeline, current_state),
+        registered_camera_retention={
+            "initial_count": len(initial_registered_names),
+            "retained_count": retained_count,
+            "lost_count": len(initial_registered_names) - retained_count,
+            "passed": initial_registered_names <= final_registered_names,
+        },
+        elapsed_seconds=time.perf_counter() - started_at,
+    )
+    _write_json(diagnostics_path, diagnostics)
+    return current_model, diagnostics, command_logs
 
 
 def recover_video_registration(
@@ -67,6 +271,7 @@ def recover_video_registration(
     gpu_index: str | None,
     num_threads: int | None,
     progress: Callable[[str], None] | None = None,
+    force_final_bundle_adjustment: bool = False,
 ) -> tuple[Path, dict[str, Any], list[str]]:
     command_logs: list[str] = []
     current_model = initial_model
@@ -126,12 +331,30 @@ def recover_video_registration(
         initial_timeline = _timeline(selection, current_state["registered_names"])
         diagnostics["initial"] = _timeline_payload(initial_timeline, current_state)
         if not initial_timeline["gap_violations"]:
+            if force_final_bundle_adjustment:
+                current_model, current_state, adjustment = (
+                    _run_final_bundle_adjustment(
+                        colmap=colmap,
+                        current_model=current_model,
+                        current_state=current_state,
+                        selection=selection,
+                        recovery_root=recovery_root,
+                        command_logs=command_logs,
+                        use_gpu=use_gpu,
+                        gpu_index=gpu_index,
+                    )
+                )
+                diagnostics["final_bundle_adjustment"] = adjustment
+            final_timeline = _timeline(
+                selection,
+                current_state["registered_names"],
+            )
             diagnostics.update(
                 status="not_needed",
                 reason="no_registration_gaps",
                 elapsed_seconds=time.perf_counter() - recovery_started_at,
             )
-            diagnostics["final"] = diagnostics["initial"]
+            diagnostics["final"] = _timeline_payload(final_timeline, current_state)
             diagnostics["registered_camera_retention"] = {
                 "initial_count": len(initial_state["registered_names"]),
                 "retained_count": len(initial_state["registered_names"]),
@@ -388,7 +611,10 @@ def recover_video_registration(
                 diagnostics["reason"] = "registration_gaps_closed"
                 break
 
-        if any(bool(record.get("accepted")) for record in diagnostics["rounds"]):
+        if (
+            any(bool(record.get("accepted")) for record in diagnostics["rounds"])
+            or force_final_bundle_adjustment
+        ):
             current_model, current_state, adjustment = _run_final_bundle_adjustment(
                 colmap=colmap,
                 current_model=current_model,

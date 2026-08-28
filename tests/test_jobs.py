@@ -40,6 +40,16 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
     progress_path.write_text('{"stage":"colmap_mapping"}\n', encoding="utf-8")
     poll()
     progress_path.write_text(
+        '{"stage":"video_initial_registration_expansion_pass_1"}\n',
+        encoding="utf-8",
+    )
+    poll()
+    progress_path.write_text(
+        '{"stage":"video_initial_registration_expansion_pass_2"}\n',
+        encoding="utf-8",
+    )
+    poll()
+    progress_path.write_text(
         '{"stage":"video_registration_recovery_round_1"}\n', encoding="utf-8"
     )
     poll()
@@ -51,7 +61,9 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
     assert updates == [
         ("colmap_feature_matching", 0.20),
         ("colmap_mapping", 0.26),
-        ("video_registration_recovery_round_1", 0.28),
+        ("video_initial_registration_expansion_pass_1", 0.27),
+        ("video_initial_registration_expansion_pass_2", 0.275),
+        ("video_registration_recovery_round_1", 0.285),
         ("video_registration_recovery_round_2", 0.30),
     ]
 

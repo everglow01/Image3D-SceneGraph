@@ -131,6 +131,7 @@ type Manifest = {
     video_frame_selection?: string;
     video_keyframe_timing?: string;
     video_registration_diagnostics?: string;
+    video_initial_registration_expansion?: string;
     video_registration_recovery?: string;
     colmap_timing?: string;
     video_keyframe_contact_sheet?: string;
@@ -1962,6 +1963,7 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="video_frame_selection" label="视频关键帧选择" />
               <AssetLink manifest={manifest} assetKey="video_keyframe_timing" label="视频关键帧耗时" />
               <AssetLink manifest={manifest} assetKey="video_registration_diagnostics" label="视频注册诊断" />
+              <AssetLink manifest={manifest} assetKey="video_initial_registration_expansion" label="视频初始注册扩展诊断" />
               <AssetLink manifest={manifest} assetKey="video_registration_recovery" label="视频注册空洞恢复诊断" />
               <AssetLink manifest={manifest} assetKey="colmap_timing" label="COLMAP 几何耗时" />
               <AssetLink manifest={manifest} assetKey="video_keyframe_contact_sheet" label="视频关键帧预览" />
