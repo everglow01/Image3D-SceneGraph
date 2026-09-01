@@ -42,8 +42,8 @@ LPIPS remains `not_run: pretrained_weight_license_and_hash_not_audited`. `lpips`
 
 A successful `project_3dgs` attempt progresses through geometry, Gaussian training, validation, export, and atomic workspace publication. Stable roles are:
 
-- `gaussian_model`, `gaussian_training_result`, `gaussian_progress`;
-- `gaussian_dataset` at the real per-attempt preparation path;
+- `gaussian_raw_model`, `gaussian_model`, `gaussian_training_result`, `gaussian_progress`;
+- `gaussian_dataset` at the real per-attempt preparation path plus `gaussian_replay_dataset` and `gaussian_replay_record` for frozen trainer input;
 - `gaussian_evaluation`, `gaussian_test_evaluation`, and `gaussian_test_decision`;
 - `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, `gaussian_bundle`;
 - `scene_splat` for browser loading.
@@ -64,7 +64,7 @@ Public `standard_v1` and internal `rtx4060_8gb_development_v1` now resolve to th
 
 Graphdeco Gaussian Splatting commit `54c035f7834b564019656c3e3fcc3646292f727d` remains the algorithm/COLMAP reference and can be selected as an isolated research/evaluation trainer. Its custom license still prohibits unrestricted commercial runtime use: the checkout, submodules, patch hook, environment, and outputs remain ignored under `external/`/`outputs/`, and setup requires explicit research-license acceptance. The external environment never enters the project uv environment; the Project arm continues to use pinned Apache-2.0 gsplat 1.5.3.
 
-Trainer selection is one product option under `project_3dgs + gaussian_splat`: `graphdeco` (current default) or `project`, available through `run_gaussian_training.py --trainer`, `gaussian_trainer` on `POST /api/jobs`, and the frontend Trainer selector. The choice/revision/license/command hash are persisted rather than inferred. Both arms derive native inputs from the same frozen contract: identical image hashes and Train/Validation/Test IDs, matching pinhole intrinsics/poses, and identical accepted sparse seeds. Graphdeco uses a minimal runtime wrapper to honor `sparse/0/test.txt` as the exact Validation list. Its INRIA PLY is validated and converted to the project normalized snapshot, after which the existing common Validation evaluator/exporter/manifest/Viewer path is reused. Test remains outside trainer runtime and is not consumed during integration or smoke.
+Trainer selection is one product option under `project_3dgs + gaussian_splat`: `graphdeco` (current default), `project`, or experimental native `mcmc`, available through `run_gaussian_training.py --trainer`, `gaussian_trainer` on `POST /api/jobs`, and the frontend Trainer selector. The choice/revision/license/strategy/cap are persisted rather than inferred. Every arm derives inputs from the same hashed dataset and accepted sparse seed. Native Project/MCMC preparation additionally publishes a self-contained replay root so `--initialization frozen` can rerun either native method without repeating geometry, point filtering, or 3NN scale estimation. MCMC uses schema-v10 `mcmc_v1`, gsplat `MCMCStrategy`, and a global 3,000,000-Gaussian cap; it cannot be combined with recovery-prune. Graphdeco uses a minimal runtime wrapper to honor `sparse/0/test.txt` as the exact Validation list. Its INRIA PLY is validated and converted to the project normalized snapshot, after which all three trainers reuse the common SOR, Validation evaluator, exporter, manifest, and Viewer path. Test remains outside trainer runtime and is not consumed during integration or smoke. MCMC availability is not a promotion decision; remote quality/resource evidence is still required.
 
 The prior measured schema-v4 and schema-v5 evidence remains historical. Existing Validation and consumed held-out Test artifacts remain immutable and are not rerun or used to tune schema v6.
 

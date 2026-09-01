@@ -21,6 +21,7 @@ Newly completed jobs contain:
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
 | `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
+| `gaussian_trainer` | object | Optional selected trainer identity, label, pinned revision, and license. Current IDs are `graphdeco`, `project`, and experimental native `mcmc`; historical manifests may omit it. |
 | `gaussian_geometry_source` | string | Optional requested Gaussian geometry source: stable `colmap` or experimental video-only `vggt_ba`. Historical Gaussian jobs may omit it. |
 | `gaussian_geometry_effective_source` | string or null | Geometry actually used by a completed Gaussian job: `colmap` or `vggt_ba`; queued jobs use `null`. Historical jobs may omit it rather than receiving a synthetic value. |
 | `gaussian_geometry_fallback_applied` | boolean | Whether a requested `vggt_ba` job completed using the explicit ordinary-COLMAP fallback. |
@@ -64,14 +65,14 @@ Legacy terminal-only manifests remain valid and readable. They do not gain synth
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | integer | Gaussian configuration schema version; new Project jobs use version `9`, while historical versions remain immutable evidence. |
-| `requested_profile` | string | Versioned profile selected before resolution; the only public profile is currently `standard_v1`. |
+| `schema_version` | integer | Gaussian configuration schema version; new Project/MCMC jobs use version `10`, while historical versions remain immutable evidence. |
+| `requested_profile` | string | Versioned profile selected before resolution; `standard_v1` is public and `mcmc_v1` is selected only through the trusted `gaussian_trainer=mcmc` method identity. |
 | `effective_config` | object | Complete validated training configuration after trusted internal overrides. It is authoritative over request fields or environment variables. |
 | `effective_config_hash` | string | SHA-256 of `effective_config` serialized as sorted, compact JSON. The requested profile is provenance and is not part of this hash. |
 
 The same schema version, requested profile, effective configuration, and hash are written to `logs/run.log`. Public job submission does not expose raw Gaussian hyperparameters; a future Gaussian-specific public route may select only an allow-listed quality profile. Internal research callers may supply validated overrides, and a recorded ablation must differ from its baseline in exactly one effective leaf field.
 
-Training configuration contains Validation cadence but no Test cadence. Schema v7 retains the 30k/1280px Project baseline and explicitly disables destructive training-time screen-radius pruning while preserving screen-health diagnostics, opacity pruning, and world-scale pruning. New Project v7 frontend jobs export the Validation-selected model without loading Test; `gaussian_test_evaluation` and `gaussian_test_decision` are therefore absent unless a separately authorized frozen-candidate evaluation produces them. `standard_v1` remains the only public profile. The measured `rtx4060_8gb_development_v1` is internal-only and exists for reproducible Stage 2D development/smoke runs; it is not a public quality promise.
+Training configuration contains Validation cadence but no Test cadence. Schema v10 adds an explicit strategy, method-specific initialization/loss/LR fields, and an optional global Gaussian cap while preserving all `standard_v1/default_v1` numerical behavior. `mcmc_v1` is a frozen experimental method package: gsplat `MCMCStrategy`, 30,000 iterations, initial opacity `0.5`, frozen 3NN scale multiplied by `0.1`, opacity/scale regularization `0.01`, position-LR delay `0.01`, opacity LR `0.05`, relocation/growth from iteration 500 through 25,000 every 100 iterations, and a 3,000,000-Gaussian cap across all ranks. It disables Default pruning, opacity reset, and recovery-prune; requesting `gaussian_recovery_prune=on` with `mcmc` is rejected. Raw MCMC tuning leaves are not public form controls. New Project and MCMC frontend jobs export the Validation-selected model without loading Test; `gaussian_test_evaluation` and `gaussian_test_decision` remain absent unless a separately authorized frozen-candidate evaluation produces them. MCMC is runnable but remains experimental pending remote quality/resource evidence; Graphdeco remains the default.
 
 Jobs without `gaussian_config`, including all historical geometry jobs and imported-splat fixtures, remain valid. Readers must not add a default profile or infer effective parameters for them.
 
@@ -84,7 +85,8 @@ Common asset roles include:
 - `alignment_diagnostics`, `fusion_diagnostics`, `visibility_graph`, `scale_disagreement_diagnostics`, and `consistency_diagnostics`
 - `mesh` and `mesh_diagnostics`
 - `scene_splat`, `scene_graph`, and `log`
-- `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs
+- `gaussian_raw_model`, `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs; the raw role is the immutable Validation-selected trainer output before SOR, while `gaussian_model` is the model passed to common evaluation/export
+- `gaussian_replay_dataset` and `gaussian_replay_record` for a self-contained frozen trainer input rooted at `gaussian/replay/`; it preserves dataset/image/camera/initialization hashes and includes the registered undistorted images without publishing the COLMAP database or matches
 - `gaussian_evaluation`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery; optional `gaussian_test_evaluation` and `gaussian_test_decision` appear only after an authorized frozen-candidate Test evaluation
 - `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
 - `video_probe`, `video_frame_selection`, `video_keyframe_timing`, `video_registration_diagnostics`, and `video_keyframe_contact_sheet` for a completed bounded video attempt; explicit ordinary-COLMAP `standard_v2` attempts additionally publish `video_initial_registration_expansion`, `video_registration_recovery`, and `colmap_timing`

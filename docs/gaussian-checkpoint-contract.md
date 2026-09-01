@@ -50,6 +50,8 @@ The loader validates exact schema fields, fixed relative component paths, sizes,
 
 R2.7 must serialize all RNG sources needed by its trainer, including Python, NumPy, Torch CPU, and CUDA state where used. It also owns the concrete Gaussian parameter and optimizer formats.
 
+R2.7 concrete trainer checkpoints place the active topology-strategy state in the opaque densification component. `default_v1` stores gsplat `DefaultStrategy` accumulators; `mcmc_v1` stores its binomial relocation state. Both also store rank-local optimizer topology, camera order/cursor, and RNG. The effective-config hash binds the strategy identity and complete method package, so a Default checkpoint cannot resume as MCMC. Distributed checkpoints remain sharded and reject a changed world size; MCMC's global 3,000,000 cap is revalidated after merged candidate publication.
+
 ## Atomic publication
 
 A checkpoint is built under a uniquely named hidden temporary directory in the final checkpoint parent. Each component and metadata file is flushed and `fsync`ed; metadata is written last. The temporary directory is `fsync`ed, renamed once to the final iteration directory on the same filesystem, and then its parent is `fsync`ed.

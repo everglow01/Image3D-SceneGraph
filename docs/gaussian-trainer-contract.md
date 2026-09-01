@@ -14,7 +14,9 @@ Stage 2C owns the 3D Gaussian model and optimization lifecycle. Runtime code mus
 
 Optimizer groups are position, feature, opacity, scaling, and rotation. Their effective rates, exponential schedules, SH schedule, loss weights, mutation cadence, and budgets come from the R2.4 resolved configuration. The renderer boundary is `gaussian.render.render_gaussians`; no project module imports an external trainer.
 
-Training samples one deterministic train view per iteration, uses project-owned L1 + differentiable SSIM, validates finite gradients/parameters, tracks projected gradients/radii, and applies configured densification, opacity pruning, screen-size pruning, opacity reset, SH schedule, and Gaussian budget. CUDA OOM, cancellation, non-finite loss/gradient/parameter, invisible initialization, and unsupported input are explicit failures rather than successful partial output.
+Training samples one deterministic train view per iteration, uses project-owned L1 + differentiable SSIM, validates finite gradients/parameters, and selects either the frozen `default_v1` or `mcmc_v1` strategy from the hashed effective configuration. CUDA OOM, cancellation, non-finite loss/gradient/parameter, invisible initialization, and unsupported input are explicit failures rather than successful partial output.
+
+`default_v1` retains the Project v7 behavior: gsplat `DefaultStrategy`, configured densification/pruning/reset, and no hard Gaussian cap. Experimental `mcmc_v1` uses the installed Apache-2.0 gsplat `MCMCStrategy` inside the same model/optimizer/checkpoint/Validation lifecycle. It adds activated opacity and scale mean regularization, method-specific initialization, per-step position noise, and relocation/growth refinement. Its 3,000,000 cap is global: each distributed rank receives an exact quotient/remainder share. Default pruning, opacity reset, and recovery-prune are disabled. Before each refinement, a synchronized live-opacity guard fails every rank with counts and opacity quantiles if any rank has no relocation source, avoiding gsplat 1.5.3's empty multinomial CUDA failure.
 
 COLMAP `SIMPLE_RADIAL`, `RADIAL`, and `OPENCV` distortion is explicitly inverted by differentiable image resampling before pinhole rendering. This is necessary because gsplat 1.5.3's distortion UT projection is documented as non-differentiable to all inputs. Distortion is never silently discarded.
 
@@ -39,24 +41,26 @@ Dense initialization reads an RGB PLY and a matching Stage 1 support sidecar whe
 
 It records every rejection count, source/sidecar hashes, settings, selected-row hash, and selection hash. Source PLY/sidecars are read-only. Selected points are transformed by the dataset contract's `normalized_from_world`; RGB initializes SH DC, higher bands are zero, rotations identity, and scales come from bounded nearest-neighbor spacing.
 
-`dataset.with_initialization` returns a new hashed dataset contract pointing at a verified initialization asset. It never mutates a frozen source contract.
+`dataset.with_initialization` returns a new hashed dataset contract pointing at a verified initialization asset. It never mutates a frozen source contract. Every complete native preparation also publishes `gaussian/replay/` with the same dataset JSON, camera source, initialization NPZ/diagnostics, and registered undistorted images under unchanged relative paths. Same-filesystem assets are hardlinked and otherwise copied. `replay.json` binds dataset, camera, image, and initialization hashes/counts/bytes; an existing replay directory is validated rather than overwritten. `--initialization frozen` accepts this replay root for `project` or `mcmc`, strictly checks NPZ fields/dtypes/shapes/finiteness/positive scales plus diagnostics hashes/counts, and never repeats point selection or 3NN scale estimation. COLMAP databases, descriptors, and matches are not replay assets.
 
 ## Checkpoint and resume
 
-The trainer serializes project-owned model tensors, optimizer, schedule iteration, densification accumulators, Python/NumPy/Torch CPU+CUDA RNG, and finite JSON metric history into the existing R2.5 `CheckpointState`. Attempts and checkpoints retain R2.5 atomic non-overwrite behavior and dataset/config/code/environment provenance checks.
+The trainer serializes project-owned model tensors, optimizer, schedule iteration, Default or MCMC strategy state, Python/NumPy/Torch CPU+CUDA RNG, camera order, and finite JSON metric history into the existing R2.5 `CheckpointState`. Attempts and checkpoints retain R2.5 atomic non-overwrite behavior and dataset/config/code/environment provenance checks. The effective-config hash prevents resuming a Default checkpoint as MCMC or vice versa; distributed resume still requires the original world size.
 
 Fresh/retry/resume remain distinct. Each attempt keeps its model/result/progress under immutable `attempts/{attempt_id}/artifacts`; a resume attempt cannot overwrite its parent. It loads only a provenance-compatible parent checkpoint. Iteration-indexed view sampling plus restored optimizer/model/RNG makes interrupted execution tolerance-reproducible without claiming cross-GPU bitwise identity.
 
 ## Worker and assets
 
-`project_3dgs + gaussian_splat` is the project trainer identity. The adapter runs project COLMAP sparse preparation and `scripts/run_gaussian_training.py` as cancellable subprocesses under the R2.6 serial worker. `standard_v1` is resolved internally; raw Gaussian hyperparameters are not exposed by the public job form.
+`project_3dgs + gaussian_splat` owns the common Gaussian job lifecycle. The adapter runs COLMAP preparation and `scripts/run_gaussian_training.py` as cancellable subprocesses under the R2.6 serial worker. Trainer dispatch accepts isolated `graphdeco`, native `project`, or native experimental `mcmc`; Graphdeco remains the default. Project and MCMC use the same Torch/CUDA/gsplat availability probe and distributed execution path. Raw Gaussian hyperparameters are not exposed by the public job form.
 
 Complete jobs may publish:
 
-- `gaussian_model`: project PyTorch model snapshot;
-- `gaussian_training_result`: final iteration, loss, validation, resource, and checkpoint record;
-- `gaussian_progress`: JSONL iteration/validation events;
-- `gaussian_dataset`: effective dataset/initialization contract.
+- `gaussian_raw_model`: immutable Validation-selected trainer output before common SOR;
+- `gaussian_model`: model passed to common Validation/export after optional SOR;
+- `gaussian_training_result`: final iteration, strategy/cap, loss, validation, resource, and checkpoint record;
+- `gaussian_progress`: JSONL iteration/validation/topology events;
+- `gaussian_dataset`: effective dataset/initialization contract;
+- `gaussian_replay_dataset` and `gaussian_replay_record`: frozen self-contained training-input contract and provenance.
 
 These are internal Stage 2C training assets, not the R2.12 canonical/browser Gaussian export. Failed/cancelled partial work stays under lifecycle attempt diagnostics and out of successful manifest assets.
 
