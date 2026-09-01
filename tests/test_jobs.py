@@ -832,11 +832,11 @@ def test_persist_internal_gaussian_config_in_manifest_and_log(tmp_path):
     )
 
     record = manifest["gaussian_config"]
-    assert record["schema_version"] == 9
+    assert record["schema_version"] == 10
     assert record["requested_profile"] == "standard_v1"
     assert record["effective_config_hash"] == effective_config_hash(record["effective_config"])
     log = store.get_asset_path(manifest["job_id"], "logs/run.log").read_text(encoding="utf-8")
-    assert "gaussian_config_schema_version=9\n" in log
+    assert "gaussian_config_schema_version=10\n" in log
     assert "gaussian_requested_profile=standard_v1\n" in log
     assert f"gaussian_effective_config_hash={record['effective_config_hash']}\n" in log
     assert 'gaussian_effective_config={"densification":' in log
@@ -862,8 +862,36 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["options"]["gaussian_trainer"] == "graphdeco"
     assert request["options"]["gaussian_longest_edge"] == 3072
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
-    assert manifest["gaussian_config"]["schema_version"] == 9
+    assert manifest["gaussian_config"]["schema_version"] == 10
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
+
+
+def test_project_gaussian_job_persists_mcmc_method_package(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    files = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    manifest = store.enqueue_job(
+        "multi_image",
+        files,
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"gaussian_trainer": "mcmc", "gaussian_longest_edge": 3072},
+    )
+    request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
+    config = manifest["gaussian_config"]["effective_config"]
+
+    assert manifest["gaussian_trainer"]["id"] == "mcmc"
+    assert request["options"]["gaussian_trainer"] == "mcmc"
+    assert manifest["gaussian_config"]["requested_profile"] == "mcmc_v1"
+    assert config["strategy"]["name"] == "mcmc_v1"
+    assert config["strategy"]["gaussian_cap"] == 3_000_000
+    assert config["resolution"]["longest_edge"] == 3072
+    assert config["opacity_reset"]["enabled"] is False
+    assert config["opacity_reset"]["recovery_prune"]["enabled"] is False
+    assert request["options"]["gaussian_sor_filter"] == "on"
 
 
 def test_project_video_job_stages_source_and_persists_profile(tmp_path):
@@ -1088,6 +1116,22 @@ def test_project_gaussian_job_rejects_unknown_recovery_prune_setting(tmp_path):
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_recovery_prune": "maybe"},
+        )
+
+
+def test_project_gaussian_job_rejects_mcmc_recovery_prune(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="cannot be combined"):
+        store.enqueue_job(
+            "multi_image",
+            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={
+                "gaussian_trainer": "mcmc",
+                "gaussian_recovery_prune": "on",
+            },
         )
 
 

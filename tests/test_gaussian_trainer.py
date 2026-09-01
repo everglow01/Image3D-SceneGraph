@@ -12,16 +12,23 @@ from image3d_scenegraph.gaussian.checkpoint import (
     create_attempt,
     load_checkpoint,
 )
-from image3d_scenegraph.gaussian.config import resolve_internal_config
+from image3d_scenegraph.gaussian.config import (
+    resolve_internal_config,
+    resolve_mcmc_config,
+)
 from image3d_scenegraph.gaussian.model import GaussianModel
 from image3d_scenegraph.gaussian.render import RenderCamera
 from image3d_scenegraph.gaussian.runtime import TrainingView, load_training_views
 from image3d_scenegraph.gaussian.trainer import (
     TrainingError,
+    _build_mcmc_strategy,
     _build_strategy,
     _checkpoint_rank_bytes,
     _checkpoint_state,
     _load_model,
+    _local_gaussian_cap,
+    _mcmc_refinement_due,
+    _mcmc_regularizers,
     _merge_model_shards,
     _model_bytes,
     _next_camera,
@@ -32,6 +39,7 @@ from image3d_scenegraph.gaussian.trainer import (
     _torch_load,
     _training_scene_scale,
     _update_position_learning_rate,
+    _validate_mcmc_alive_set,
     _write_latest_checkpoint,
     evaluate_views,
 )
@@ -105,6 +113,64 @@ def test_v7_strategy_disables_regressive_screen_pruning():
     assert strategy.grow_scale2d == pytest.approx(1e10)
     assert strategy.prune_scale2d == pytest.approx(1e10)
     assert strategy.absgrad is False
+
+
+def test_mcmc_strategy_uses_frozen_global_budget_method_settings():
+    from gsplat.strategy import MCMCStrategy
+
+    config = resolve_mcmc_config().effective_config
+    strategy = _build_mcmc_strategy(MCMCStrategy, config, 1_500_000)
+
+    assert strategy.cap_max == 1_500_000
+    assert strategy.noise_lr == pytest.approx(500_000.0)
+    assert strategy.refine_start_iter == 500
+    assert strategy.refine_stop_iter == 25_000
+    assert strategy.refine_every == 100
+    assert strategy.min_opacity == pytest.approx(0.005)
+
+
+def test_mcmc_global_cap_is_split_exactly_across_ranks():
+    assert [_local_gaussian_cap(3_000_001, rank, 2) for rank in range(2)] == [
+        1_500_001,
+        1_500_000,
+    ]
+    assert sum(_local_gaussian_cap(3_000_000, rank, 4) for rank in range(4)) == 3_000_000
+    with pytest.raises(TrainingError, match="smaller than distributed world size"):
+        _local_gaussian_cap(1, 0, 2)
+
+
+def test_mcmc_refinement_matches_gsplat_schedule():
+    config = resolve_mcmc_config().effective_config
+
+    assert not _mcmc_refinement_due(config, 500)
+    assert _mcmc_refinement_due(config, 600)
+    assert _mcmc_refinement_due(config, 24_900)
+    assert not _mcmc_refinement_due(config, 25_000)
+
+
+def test_mcmc_regularizers_use_activated_opacity_and_scale():
+    gaussian = model()
+    config = resolve_mcmc_config().effective_config
+
+    opacity, scale = _mcmc_regularizers(gaussian, config)
+
+    assert float(opacity.detach()) == pytest.approx(0.001)
+    assert float(scale.detach()) == pytest.approx(0.001)
+
+
+def test_mcmc_all_dead_guard_fails_before_upstream_multinomial():
+    gaussian = model()
+    with torch.no_grad():
+        gaussian.opacity_logits.fill_(-20.0)
+
+    with pytest.raises(TrainingError, match="no live Gaussian"):
+        _validate_mcmc_alive_set(
+            gaussian,
+            iteration=600,
+            min_opacity=0.005,
+            device=torch.device("cpu"),
+            world_size=1,
+        )
 
 
 def test_explicit_screen_pruning_uses_training_resolution():
@@ -204,6 +270,16 @@ def test_only_position_learning_rate_decays():
 
     assert optimizers["means"].param_groups[0]["lr"] == pytest.approx(0.0000016 * 1.1)
     assert optimizers["sh0"].param_groups[0]["lr"] == feature_before
+
+
+def test_mcmc_position_learning_rate_uses_frozen_delay_multiplier():
+    gaussian = model()
+    config = resolve_mcmc_config().effective_config
+    optimizers = gaussian.optimizers(config["learning_rate"])
+
+    _update_position_learning_rate(optimizers["means"], config, 0, 30_000, 1.0)
+
+    assert optimizers["means"].param_groups[0]["lr"] == pytest.approx(0.00016 * 0.01)
 
 
 def test_training_scene_scale_matches_graphdeco_train_camera_extent():
@@ -326,6 +402,32 @@ def test_checkpoint_state_round_trips_model_and_per_parameter_optimizers(tmp_pat
     assert dense_payload["camera_order"] == [2, 0, 1]
     assert dense_payload["camera_cursor"] == 1
     assert torch.equal(dense_payload["strategy_state"]["grad2d"], torch.ones(3))
+
+
+def test_checkpoint_state_round_trips_mcmc_strategy_state():
+    from gsplat.strategy import MCMCStrategy
+
+    gaussian = model()
+    config = resolve_mcmc_config().effective_config
+    optimizers = gaussian.optimizers(config["learning_rate"])
+    strategy_state = _build_mcmc_strategy(
+        MCMCStrategy, config, 3_000_000
+    ).initialize_state()
+
+    state = _checkpoint_state(
+        gaussian,
+        optimizers,
+        strategy_state,
+        [],
+        0,
+        [],
+        1,
+    )
+    restored = _torch_load(state.densification, torch.device("cpu"))
+
+    assert torch.equal(
+        restored["strategy_state"]["binoms"], strategy_state["binoms"]
+    )
 
 
 def test_latest_checkpoint_replaces_intermediate_checkpoint(tmp_path):

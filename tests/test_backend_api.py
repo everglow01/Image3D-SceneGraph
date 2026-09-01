@@ -91,7 +91,7 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     properties = body_schema["properties"]
     assert "quality_profile" not in properties
     assert "gaussian_trainer" in properties
-    assert properties["gaussian_trainer"]["enum"] == ["project", "graphdeco"]
+    assert properties["gaussian_trainer"]["enum"] == ["project", "graphdeco", "mcmc"]
     assert properties["gaussian_trainer"]["default"] == "graphdeco"
     assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
     assert properties["gaussian_geometry_source"]["default"] == "colmap"
@@ -151,6 +151,30 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
     }
 
 
+def test_create_job_forwards_mcmc_trainer(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "gaussian_trainer": "mcmc",
+        },
+        files=[
+            ("files", (f"{index}.jpg", b"image", "image/jpeg"))
+            for index in range(12)
+        ],
+    )
+
+    assert response.status_code == 202
+    assert store.options["gaussian_trainer"] == "mcmc"
+
+
 def test_create_job_forwards_gaussian_sor_filter(tmp_path):
     app = create_app(tmp_path / "jobs", start_worker=False)
     store = FakeJobStore()
@@ -193,6 +217,28 @@ def test_create_job_forwards_gaussian_recovery_prune(tmp_path):
 
     assert response.status_code == 202
     assert store.options["gaussian_recovery_prune"] == "on"
+
+
+def test_create_job_rejects_mcmc_recovery_prune_conflict(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "gaussian_trainer": "mcmc",
+            "gaussian_recovery_prune": "on",
+        },
+        files=[
+            ("files", (f"{index}.jpg", b"image", "image/jpeg"))
+            for index in range(12)
+        ],
+    )
+
+    assert response.status_code == 400
+    assert "cannot be combined" in response.json()["detail"]
 
 
 def test_create_video_job_forwards_colmap_matcher(tmp_path):

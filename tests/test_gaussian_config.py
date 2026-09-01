@@ -9,6 +9,7 @@ from image3d_scenegraph.gaussian.config import (
     assert_single_field_ablation,
     effective_config_hash,
     resolve_internal_config,
+    resolve_mcmc_config,
     resolve_public_config,
     resolved_config_record,
     validate_effective_config,
@@ -20,20 +21,36 @@ def test_public_profile_resolves_official_baseline_deterministically():
     second = resolve_public_config("standard_v1")
 
     assert first.requested_profile == "standard_v1"
-    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 9
+    assert first.effective_config["schema_version"] == CONFIG_SCHEMA_VERSION == 10
     assert first.effective_config["iterations"] == 30_000
+    assert first.effective_config["strategy"] == {
+        "name": "default_v1",
+        "gaussian_cap": None,
+        "mcmc_noise_lr": 500_000.0,
+        "mcmc_min_opacity": 0.005,
+    }
+    assert first.effective_config["initialization"] == {
+        "opacity": 0.1,
+        "scale_multiplier": 1.0,
+    }
     assert first.effective_config["resolution"] == {
         "policy": "explicit_only",
         "longest_edge": 1280,
     }
     assert first.effective_config["learning_rate"] == {
-        "position": {"initial": 0.00016, "final": 0.0000016},
+        "position": {
+            "initial": 0.00016,
+            "final": 0.0000016,
+            "delay_multiplier": 1.0,
+        },
         "feature": 0.0025,
         "opacity": 0.025,
         "scaling": 0.005,
         "rotation": 0.001,
     }
     assert first.effective_config["loss"]["clamp_render"] is True
+    assert first.effective_config["loss"]["opacity_regularization"] == 0.0
+    assert first.effective_config["loss"]["scale_regularization"] == 0.0
     assert first.effective_config["sh_schedule"]["increase_every_iterations"] == 1_000
     assert first.effective_config["densification"] == {
         "enabled": True,
@@ -82,6 +99,56 @@ def test_public_profile_resolves_official_baseline_deterministically():
     first.effective_config["iterations"] = 1
     assert resolve_public_config("standard_v1").effective_config["iterations"] == 30_000
     assert resolve_internal_config("rtx4060_8gb_development_v1").effective_config == second.effective_config
+
+
+def test_mcmc_profile_resolves_complete_frozen_method_package():
+    resolved = resolve_mcmc_config(longest_edge=3072)
+    config = resolved.effective_config
+
+    assert resolved.requested_profile == "mcmc_v1"
+    assert config["strategy"] == {
+        "name": "mcmc_v1",
+        "gaussian_cap": 3_000_000,
+        "mcmc_noise_lr": 500_000.0,
+        "mcmc_min_opacity": 0.005,
+    }
+    assert config["initialization"] == {
+        "opacity": 0.5,
+        "scale_multiplier": 0.1,
+    }
+    assert config["resolution"]["longest_edge"] == 3072
+    assert config["loss"]["opacity_regularization"] == 0.01
+    assert config["loss"]["scale_regularization"] == 0.01
+    assert config["learning_rate"]["opacity"] == 0.05
+    assert config["learning_rate"]["position"]["delay_multiplier"] == 0.01
+    assert config["densification"]["start_iteration"] == 500
+    assert config["densification"]["end_iteration"] == 25_000
+    assert config["densification"]["every_iterations"] == 100
+    assert config["pruning"]["enabled"] is False
+    assert config["opacity_reset"]["enabled"] is False
+    assert config["opacity_reset"]["recovery_prune"]["enabled"] is False
+    assert resolved.effective_config_hash == effective_config_hash(config)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"strategy": {"gaussian_cap": None}}, "requires a Gaussian cap"),
+        ({"pruning": {"enabled": True}}, "cannot enable Default pruning"),
+        ({"opacity_reset": {"enabled": True}}, "cannot enable opacity reset"),
+        (
+            {
+                "opacity_reset": {
+                    "recovery_prune": {"enabled": True},
+                }
+            },
+            "cannot enable recovery prune",
+        ),
+    ],
+)
+def test_mcmc_profile_rejects_incompatible_method_settings(overrides, message):
+    with pytest.raises(GaussianConfigError, match=message):
+        resolve_internal_config("mcmc_v1", overrides=overrides)
 
 
 def test_public_profile_hashes_selected_training_resolution():
