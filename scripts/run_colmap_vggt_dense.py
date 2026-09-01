@@ -17,7 +17,13 @@ import numpy as np
 import open3d as o3d
 import torch
 
-from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
+from image3d_scenegraph.geometry.colmap import (
+    COLMAP_FEATURE_PROFILE_IDS,
+    ColmapFeatureError,
+    ResolvedColmapFeatureProfile,
+    resolve_colmap_executable,
+    resolve_colmap_feature_profile,
+)
 from image3d_scenegraph.geometry.grouping import (
     GROUPING_MAX_NEIGHBORS,
     GROUPING_MIN_SHARED_POINTS,
@@ -207,6 +213,11 @@ def main() -> None:
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="exhaustive")
     parser.add_argument(
+        "--feature-profile",
+        choices=COLMAP_FEATURE_PROFILE_IDS,
+        default="sift_v1",
+    )
+    parser.add_argument(
         "--colmap-model-dir",
         type=Path,
         help="Reuse an existing COLMAP text model instead of rerunning sparse reconstruction.",
@@ -311,6 +322,10 @@ def main() -> None:
             "or install COLMAP on PATH."
         )
     colmap = str(colmap_path)
+    try:
+        feature_profile = resolve_colmap_feature_profile(args.feature_profile)
+    except ColmapFeatureError as exc:
+        raise SystemExit(str(exc)) from exc
 
     image_paths = discover_images(args.image_dir)
     if not image_paths:
@@ -348,6 +363,7 @@ def main() -> None:
                 sparse_dir=sparse_dir,
                 text_dir=text_dir,
                 matcher=args.matcher,
+                feature_profile=feature_profile,
                 single_camera=bool(args.colmap_single_camera),
                 mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
                 mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
@@ -1036,6 +1052,15 @@ def main() -> None:
             else []
         ),
         *consistency_log_lines,
+        f"sfm_feature_profile={feature_profile.profile_id}",
+        f"sfm_feature_extractor={feature_profile.extractor}",
+        f"sfm_feature_descriptor={feature_profile.descriptor}",
+        f"sfm_local_matcher={feature_profile.local_matcher}",
+        f"sfm_feature_max_features={feature_profile.max_features}",
+        f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
+        f"sfm_local_matcher_model_sha256={feature_profile.matcher_model_sha256 or 'none'}",
+        f"sfm_pairing={args.matcher}",
+        "sfm_mapper=incremental",
         f"matcher={args.matcher}",
         f"colmap_executable={colmap}",
         f"colmap_source={colmap_source}",
@@ -1107,6 +1132,7 @@ def run_colmap_pipeline(
     sparse_dir: Path,
     text_dir: Path,
     matcher: str,
+    feature_profile: ResolvedColmapFeatureProfile,
     single_camera: bool,
     mapper_abs_pose_min_num_inliers: int,
     mapper_abs_pose_min_inlier_ratio: float,
@@ -1125,6 +1151,7 @@ def run_colmap_pipeline(
             "1",
             "--FeatureExtraction.gpu_index",
             "0",
+            *feature_profile.extraction_options,
         ],
         [
             colmap,
@@ -1135,6 +1162,7 @@ def run_colmap_pipeline(
             "1",
             "--FeatureMatching.gpu_index",
             "0",
+            *feature_profile.matching_options,
         ],
         [
             colmap,

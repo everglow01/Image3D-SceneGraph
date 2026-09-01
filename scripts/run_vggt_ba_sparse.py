@@ -13,7 +13,12 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
+from image3d_scenegraph.geometry.colmap import (
+    COLMAP_FEATURE_PROFILE_IDS,
+    ColmapFeatureError,
+    resolve_colmap_executable,
+    resolve_colmap_feature_profile,
+)
 from image3d_scenegraph.geometry.video_recovery import (
     recover_video_registration,
     sequential_overlap,
@@ -96,6 +101,11 @@ def main() -> None:
     parser.add_argument(
         "--matcher", choices=["exhaustive", "sequential"], default="exhaustive"
     )
+    parser.add_argument(
+        "--feature-profile",
+        choices=COLMAP_FEATURE_PROFILE_IDS,
+        default="sift_v1",
+    )
     parser.add_argument("--vocab-tree-path", type=Path)
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
@@ -108,6 +118,11 @@ def main() -> None:
         args.vocab_tree_path is None or not args.vocab_tree_path.is_file()
     ):
         parser.error("--vocab-tree-path must be an existing file for sequential matching")
+    if args.vocab_tree_path is not None and args.feature_profile != "sift_v1":
+        parser.error(
+            "the installed COLMAP vocab tree is SIFT-only; "
+            "ALIKED sequential loop detection is not available"
+        )
     if (args.video_source is None) != (args.video_selection is None):
         parser.error("--video-source and --video-selection must be provided together")
     video_selection: dict[str, Any] | None = None
@@ -130,6 +145,10 @@ def main() -> None:
     if colmap_path is None:
         raise SystemExit("COLMAP executable not found")
     colmap = str(colmap_path)
+    try:
+        feature_profile = resolve_colmap_feature_profile(args.feature_profile)
+    except ColmapFeatureError as exc:
+        raise SystemExit(str(exc)) from exc
     output_dir = args.output_dir
     work_dir = output_dir / "vggt_ba"
     windows_dir = work_dir / "windows"
@@ -169,6 +188,8 @@ def main() -> None:
             "query_frame_num": QUERY_FRAME_COUNT,
             "max_query_points": MAX_QUERY_POINTS,
             "keypoint_extractor": "aliked",
+            "tracker_keypoint_extractor": "aliked",
+            "colmap_feature": feature_profile.provenance(),
             "colmap_matcher": args.matcher,
             "seed": args.seed,
             "base_window_count": len(bases),
@@ -377,6 +398,7 @@ def main() -> None:
         "1",
         "--FeatureExtraction.num_threads",
         str(args.num_threads),
+        *feature_profile.extraction_options,
     ]
     command_logs.append(run_command(feature_command))
     write_progress(args.progress_file, "vggt_ba_feature_matching")
@@ -389,6 +411,7 @@ def main() -> None:
         "1",
         "--FeatureMatching.num_threads",
         str(args.num_threads),
+        *feature_profile.matching_options,
     ]
     if args.matcher == "sequential":
         matcher_command.extend(
@@ -678,6 +701,9 @@ def main() -> None:
         "effective_geometry_source": effective_source,
         "fallback_applied": fallback_applied,
         "fallback_reason": fallback_reason,
+        "colmap_feature": feature_profile.provenance(),
+        "colmap_pairing": args.matcher,
+        "colmap_mapper": "incremental",
         "colmap_matcher": args.matcher,
         "sequential_overlap": sequential_overlap_value,
         "input_count": final_input_count,
@@ -707,6 +733,15 @@ def main() -> None:
                 f"effective_geometry_source={effective_source}",
                 f"fallback_applied={str(fallback_applied).lower()}",
                 f"fallback_reason={fallback_reason or 'none'}",
+                f"sfm_feature_profile={feature_profile.profile_id}",
+                f"sfm_feature_extractor={feature_profile.extractor}",
+                f"sfm_feature_descriptor={feature_profile.descriptor}",
+                f"sfm_local_matcher={feature_profile.local_matcher}",
+                f"sfm_feature_max_features={feature_profile.max_features}",
+                f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
+                f"sfm_local_matcher_model_sha256={feature_profile.matcher_model_sha256 or 'none'}",
+                f"sfm_pairing={args.matcher}",
+                "sfm_mapper=incremental",
                 f"colmap_matcher={args.matcher}",
                 f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
                 f"video_registration_recovery_method={'incremental_colmap' if recovery_requested else 'none'}",

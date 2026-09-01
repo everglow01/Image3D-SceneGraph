@@ -9,7 +9,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from image3d_scenegraph.geometry.colmap import resolve_colmap_executable
+from image3d_scenegraph.geometry.colmap import (
+    COLMAP_FEATURE_PROFILE_IDS,
+    ColmapFeatureError,
+    resolve_colmap_executable,
+    resolve_colmap_feature_profile,
+)
 from image3d_scenegraph.geometry.video_recovery import (
     expand_v2_initial_registration,
     recover_video_registration,
@@ -28,6 +33,11 @@ def main() -> None:
     parser.add_argument("--image-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
+    parser.add_argument(
+        "--feature-profile",
+        choices=COLMAP_FEATURE_PROFILE_IDS,
+        default="sift_v1",
+    )
     parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--gpu-index", type=parse_gpu_indices)
@@ -46,6 +56,11 @@ def main() -> None:
     if args.gaussian_baseline and args.matcher == "sequential" and args.vocab_tree_path is None:
         raise SystemExit(
             "Gaussian baseline sequential matching requires --vocab-tree-path for loop closure"
+        )
+    if args.vocab_tree_path is not None and args.feature_profile != "sift_v1":
+        raise SystemExit(
+            "the installed COLMAP vocab tree is SIFT-only; "
+            "ALIKED sequential loop detection is not available"
         )
     if (args.video_source is None) != (args.video_selection is None):
         parser.error("--video-source and --video-selection must be provided together")
@@ -69,6 +84,10 @@ def main() -> None:
         )
     colmap = str(colmap_path)
     colmap_build = colmap_version(colmap)
+    try:
+        feature_profile = resolve_colmap_feature_profile(args.feature_profile)
+    except ColmapFeatureError as exc:
+        raise SystemExit(str(exc)) from exc
 
     image_paths = discover_images(args.image_dir)
     if not image_paths:
@@ -108,6 +127,7 @@ def main() -> None:
         "1" if args.single_camera else "0",
         "--FeatureExtraction.use_gpu",
         "1" if args.use_gpu else "0",
+        *feature_profile.extraction_options,
     ]
     if args.gpu_index is not None:
         feature_command.extend(("--FeatureExtraction.gpu_index", args.gpu_index))
@@ -139,6 +159,7 @@ def main() -> None:
         str(work_dir / "database.db"),
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
+        *feature_profile.matching_options,
     ]
     if args.matcher == "sequential" and args.vocab_tree_path is not None:
         matcher_command.extend(
@@ -323,6 +344,9 @@ def main() -> None:
         "profile": "colmap_timing_v1",
         "colmap_executable": colmap,
         "colmap_build": colmap_build,
+        "feature": feature_profile.provenance(),
+        "pairing": args.matcher,
+        "mapper": "incremental",
         "matcher": args.matcher,
         "video_profile": (
             str(video_selection.get("profile"))
@@ -359,6 +383,15 @@ def main() -> None:
         f"video_registration_recovery_rounds={len(recovery_diagnostics['rounds']) if recovery_diagnostics is not None else 0}",
         f"training_image_dir={training_image_dir}",
         f"camera_models={','.join(sorted(camera['model'] for camera in camera_payload['cameras']))}",
+        f"sfm_feature_profile={feature_profile.profile_id}",
+        f"sfm_feature_extractor={feature_profile.extractor}",
+        f"sfm_feature_descriptor={feature_profile.descriptor}",
+        f"sfm_local_matcher={feature_profile.local_matcher}",
+        f"sfm_feature_max_features={feature_profile.max_features}",
+        f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
+        f"sfm_local_matcher_model_sha256={feature_profile.matcher_model_sha256 or 'none'}",
+        f"sfm_pairing={args.matcher}",
+        "sfm_mapper=incremental",
         f"matcher={args.matcher}",
         f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
         f"vocab_tree={args.vocab_tree_path if args.vocab_tree_path is not None else 'none'}",
