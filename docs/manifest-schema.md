@@ -20,6 +20,8 @@ Newly completed jobs contain:
 | `inputs` | array | Stored input filename, relative path, content type, byte count, and SHA-256. |
 | `assets` | object | Available output assets keyed by stable role. |
 | `metrics` | object | Backend and postprocess diagnostics suitable for display and audit. |
+| `sfm_feature_profile` | string | Optional requested COLMAP feature profile for `colmap`, `colmap_vggt`, and `project_3dgs`: stable `sift_v1` or experimental `aliked_n16rot_v1`. Historical manifests may omit it. |
+| `sfm_feature_effective_profile` | string or null | Feature profile actually used by a completed COLMAP feature stage; queued jobs use `null`. Missing learned assets never trigger a silent SIFT fallback. |
 | `gaussian_config` | object | Optional resolved 3DGS configuration provenance for jobs that have explicitly entered the project-owned Gaussian lifecycle. |
 | `gaussian_trainer` | object | Optional selected trainer identity, label, pinned revision, and license. Current IDs are `graphdeco`, `project`, and experimental native `mcmc`; historical manifests may omit it. |
 | `gaussian_geometry_source` | string | Optional requested Gaussian geometry source: stable `colmap` or experimental video-only `vggt_ba`. Historical Gaussian jobs may omit it. |
@@ -111,16 +113,18 @@ New `project_3dgs + gaussian_splat` jobs publish the final accepted sparse model
 
 After the final Mapper/registration/recovery/BA result and dataset split are frozen, the adapter attempts a fail-soft frontend export from that same workspace's COLMAP database. Success publishes `sfm_diagnostics=diagnostics/sfm/manifest.json` and `sfm_diagnostics_status=available`; failure omits the role, records `sfm_diagnostics_status=unavailable` plus `sfm_diagnostics_reason`, and does not fail Gaussian training. Data from failed/replaced `lifecycle/partial` attempts is never combined with the accepted model. Historical manifests may omit all these roles and metrics.
 
-`sfm_diagnostics` schema 1 (`profile=sfm_frontend_diagnostics_v1`) records:
+`sfm_diagnostics` schema 2 (`profile=sfm_frontend_diagnostics_v2`) records:
 
 - normalized OpenCV camera axes and arbitrary-unit semantics;
-- dataset hash, default run ID, one or more detector/matcher run records, and aggregate image/keypoint/pair/match/inlier counts;
+- dataset hash, default run ID, one or more run records, and aggregate image/keypoint/pair/match/inlier counts;
 - every feature-extracted source image's stable frame UID, job-relative path/hash/dimensions, COLMAP image ID, optional source video time, final registration/split state, and—only when registered—normalized center/forward/up and horizontal/vertical FOV;
-- per-run detector/matcher/geometric-verification provenance plus job-relative feature-index and pair-index paths.
+- per-run `feature` (profile/extractor/descriptor/keypoint budget/model hash), `local_matcher`, `pairing`, geometric-verification, Mapper and COLMAP-build provenance, plus job-relative feature-index and pair-index paths.
 
-Large run children are deterministic gzip-compressed JSON shards. Their filenames end in `.json.gz`; the asset endpoint returns them as `application/json` with `Content-Encoding: gzip`, so browser consumers use ordinary JSON decoding. Feature records contain only rounded `(x,y)` coordinates in original upright feature-input pixels. Pair records store each tentative correspondence exactly once, partitioned into geometrically verified `inliers` and rejected `outliers`; a pair missing from the index means it was not tested, while an indexed pair with zero counts was tested with no correspondences. COLMAP descriptors, the mutable database, and failed-attempt internals are not published. Pixel mosaic stitching and final SfM 3D-track observations are outside schema 1.
+Schema 1 remains readable. Its historical `detector=sift` plus `matcher=exhaustive|sequential` is interpreted as SIFT + `SIFT_BRUTEFORCE`, with the old matcher field representing pairing. Feature and pair shards remain schema 1 because their keypoint/pair data layout did not change.
 
-Metrics on success include `sfm_diagnostics_image_count`, `sfm_diagnostics_registered_image_count`, `sfm_diagnostics_keypoint_count`, `sfm_diagnostics_pair_count`, `sfm_diagnostics_match_count`, `sfm_diagnostics_inlier_count`, and `sfm_diagnostics_bytes`.
+Large run children are deterministic gzip-compressed JSON shards. Their filenames end in `.json.gz`; the asset endpoint returns them as `application/json` with `Content-Encoding: gzip`, so browser consumers use ordinary JSON decoding. Feature records contain only rounded `(x,y)` coordinates in original upright feature-input pixels. Pair records store each tentative correspondence exactly once, partitioned into geometrically verified `inliers` and rejected `outliers`; a pair missing from the index means it was not tested, while an indexed pair with zero counts was tested with no correspondences. COLMAP descriptors, the mutable database, and failed-attempt internals are not published. Pixel mosaic stitching and final SfM 3D-track observations are outside schema 2.
+
+Metrics on success include `sfm_diagnostics_image_count`, `sfm_diagnostics_registered_image_count`, `sfm_diagnostics_keypoint_count`, `sfm_diagnostics_pair_count`, `sfm_diagnostics_match_count`, `sfm_diagnostics_inlier_count`, `sfm_diagnostics_bytes`, `sfm_feature_profile`, `sfm_feature_extractor`, `sfm_local_matcher`, `sfm_pairing`, and `sfm_mapper`.
 
 ## Bounded video contract
 
