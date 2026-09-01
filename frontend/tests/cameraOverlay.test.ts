@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseCameraFrames } from "../src/cameraOverlay.ts";
+import {
+  cameraLinePositions,
+  cameraTrajectoryPositions,
+  parseCameraFrames,
+  sampleCameraFrames
+} from "../src/cameraOverlay.ts";
 
 const camera = {
   camera_id: 1,
@@ -55,4 +60,19 @@ test("COLMAP camera center is -R^T t", () => {
 
 test("unsupported camera coordinate system is rejected", () => {
   assert.throws(() => parseCameraFrames({ coordinate_system: "nope" }, 1), /Unsupported/);
+});
+
+test("trajectory keeps every center while frusta are uniformly sampled", () => {
+  const all = Array.from({ length: 1_742 }, (_, index) => ({
+    center: [index, 0, 0] as [number, number, number],
+    corners: [
+      [index, 0, 1], [index, 1, 1], [index, 1, 2], [index, 0, 2]
+    ] as [[number, number, number], [number, number, number], [number, number, number], [number, number, number]]
+  }));
+  const sampled = sampleCameraFrames(all, 120);
+  assert.equal(sampled.length, 120);
+  assert.equal(sampled[0], all[0]);
+  assert.equal(sampled.at(-1), all.at(-1));
+  assert.equal(cameraTrajectoryPositions(all).length, all.length * 3);
+  assert.equal(cameraLinePositions(sampled).length, sampled.length * 8 * 2 * 3);
 });

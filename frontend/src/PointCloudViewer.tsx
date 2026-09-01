@@ -5,14 +5,16 @@ import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import {
   applyAxisSigns as applyCameraAxisSigns,
   cameraLinePositions,
+  cameraTrajectoryPositions,
   parseAlignmentTransform,
   parseCameraFrames,
+  sampleCameraFrames,
   transformCameraFrames,
   type CameraFrame,
   type Mat4,
   type Vec3
 } from "./cameraOverlay";
-import { robustCloudBounds } from "./pointCloudBounds";
+import { robustCloudBounds, signedCameraUpZ } from "./pointCloudBounds";
 
 type PointCloudViewerProps = {
   sourceUrl: string | null;
@@ -56,7 +58,10 @@ export function PointCloudViewer({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointsRef = useRef<THREE.Points | null>(null);
-  const cameraOverlayRef = useRef<THREE.LineSegments | null>(null);
+  const cameraOverlayRef = useRef<THREE.Group | null>(null);
+  const gridRef = useRef<THREE.GridHelper | null>(null);
+  const axesRef = useRef<THREE.AxesHelper | null>(null);
+  const automaticAxisAppliedRef = useRef<string | null>(null);
   const cloudCenterRef = useRef<Vec3>([0, 0, 0]);
   const cloudRadiusRef = useRef(1);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,6 +71,9 @@ export function PointCloudViewer({
   const [axisSigns, setAxisSigns] = useState<AxisSigns>({ x: 1, y: 1, z: 1 });
   const [pointSize, setPointSize] = useState(0.035);
   const [showCameras, setShowCameras] = useState(true);
+  const [showTrajectory, setShowTrajectory] = useState(true);
+  const [showFrusta, setShowFrusta] = useState(true);
+  const [cameraCounts, setCameraCounts] = useState({ total: 0, frusta: 0 });
   const [camerasAvailable, setCamerasAvailable] = useState(false);
 
   useEffect(() => {
@@ -75,7 +83,7 @@ export function PointCloudViewer({
     }
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf6f7f8);
+    scene.background = new THREE.Color(0x131b1f);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 1000);
@@ -93,12 +101,14 @@ export function PointCloudViewer({
     controls.dampingFactor = 0.08;
     controlsRef.current = controls;
 
-    const grid = new THREE.GridHelper(2, 10, 0x9aa3a7, 0xd2d8dc);
+    const grid = new THREE.GridHelper(2, 10, 0x6b777b, 0x303b3f);
     grid.rotation.x = Math.PI / 2;
     scene.add(grid);
+    gridRef.current = grid;
 
     const axes = new THREE.AxesHelper(0.8);
     scene.add(axes);
+    axesRef.current = axes;
 
     const resize = () => {
       const width = container.clientWidth;
@@ -127,6 +137,10 @@ export function PointCloudViewer({
       renderer.dispose();
       renderer.domElement.remove();
       removeCameraOverlay(scene, cameraOverlayRef);
+      disposeLineHelper(gridRef.current);
+      disposeLineHelper(axesRef.current);
+      gridRef.current = null;
+      axesRef.current = null;
       scene.traverse((object) => {
         if (object instanceof THREE.Points || object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -192,15 +206,8 @@ export function PointCloudViewer({
         scene.add(points);
         pointsRef.current = points;
 
-        camera.position.set(radius * 1.8, -radius * 2.2, radius * 1.4);
-        camera.up.set(0, 0, 1);
-        camera.near = Math.max(radius / 100, 0.001);
-        camera.far = Math.max(radius * 100, 100);
-        camera.updateProjectionMatrix();
-        controls.target.set(0, 0, 0);
-        controls.minDistance = radius * 0.02;
-        controls.maxDistance = radius * 20;
-        controls.update();
+        fitPointCloudView(camera, controls, radius);
+        updateReferenceHelpers(scene, gridRef, axesRef, radius);
 
         setViewerState("ready");
       },
@@ -233,6 +240,7 @@ export function PointCloudViewer({
     }
     removeCameraOverlay(scene, cameraOverlayRef);
     setCamerasAvailable(false);
+    setCameraCounts({ total: 0, frusta: 0 });
     if (!camerasUrl || viewerState !== "ready") {
       return;
     }
@@ -261,9 +269,23 @@ export function PointCloudViewer({
         );
         const overlay = buildCameraOverlay(transformed);
         overlay.visible = showCameras;
+        const trajectory = overlay.getObjectByName("camera-trajectory");
+        const frusta = overlay.getObjectByName("camera-frusta");
+        if (trajectory) trajectory.visible = showTrajectory;
+        if (frusta) frusta.visible = showFrusta;
         applyAxisSigns(overlay, axisSigns);
         scene.add(overlay);
         cameraOverlayRef.current = overlay;
+        const sampledCount = sampleCameraFrames(transformed, 120).length;
+        setCameraCounts({ total: transformed.length, frusta: sampledCount });
+        if (
+          pointCloudVariant === "aligned" &&
+          automaticAxisAppliedRef.current !== sourceUrl
+        ) {
+          const z = signedCameraUpZ(transformed);
+          automaticAxisAppliedRef.current = sourceUrl;
+          setAxisSigns((current) => ({ ...current, z }));
+        }
         setCamerasAvailable(true);
       })
       .catch(() => {
@@ -279,10 +301,15 @@ export function PointCloudViewer({
   }, [camerasUrl, alignmentDiagnosticsUrl, pointCloudVariant, sourceUrl, viewerState]);
 
   useEffect(() => {
-    if (cameraOverlayRef.current) {
-      cameraOverlayRef.current.visible = showCameras;
+    const overlay = cameraOverlayRef.current;
+    if (overlay) {
+      overlay.visible = showCameras;
+      const trajectory = overlay.getObjectByName("camera-trajectory");
+      const frusta = overlay.getObjectByName("camera-frusta");
+      if (trajectory) trajectory.visible = showTrajectory;
+      if (frusta) frusta.visible = showFrusta;
     }
-  }, [showCameras]);
+  }, [showCameras, showTrajectory, showFrusta]);
 
   useEffect(() => {
     const material = pointsRef.current?.material;
@@ -291,6 +318,13 @@ export function PointCloudViewer({
       material.needsUpdate = true;
     }
   }, [pointSize]);
+
+  function fitView() {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls || viewerState !== "ready") return;
+    fitPointCloudView(camera, controls, cloudRadiusRef.current);
+  }
 
   function toggleAxis(axis: keyof AxisSigns) {
     setAxisSigns((current) => ({
@@ -402,6 +436,9 @@ export function PointCloudViewer({
   return (
     <div className="viewer-surface" ref={containerRef}>
       <div className="pointcloud-toolbar" aria-label="点云坐标与视图控制">
+        <button className="viewer-tool-button" disabled={viewerState !== "ready"} onClick={fitView} type="button">
+          适应视图
+        </button>
         <button
           className={axisSigns.x === -1 ? "viewer-tool-button active" : "viewer-tool-button"}
           onClick={() => toggleAxis("x")}
@@ -429,7 +466,23 @@ export function PointCloudViewer({
           onClick={() => setShowCameras((current) => !current)}
           type="button"
         >
-          相机位姿
+          相机覆盖
+        </button>
+        <button
+          className={showTrajectory && camerasAvailable ? "viewer-tool-button active" : "viewer-tool-button"}
+          disabled={!camerasAvailable || !showCameras}
+          onClick={() => setShowTrajectory((current) => !current)}
+          type="button"
+        >
+          轨迹
+        </button>
+        <button
+          className={showFrusta && camerasAvailable ? "viewer-tool-button active" : "viewer-tool-button"}
+          disabled={!camerasAvailable || !showCameras}
+          onClick={() => setShowFrusta((current) => !current)}
+          type="button"
+        >
+          视锥 {cameraCounts.frusta}/{cameraCounts.total}
         </button>
         <input
           aria-label="视图资产名称"
@@ -494,39 +547,97 @@ export function PointCloudViewer({
   );
 }
 
+function fitPointCloudView(
+  camera: THREE.PerspectiveCamera,
+  controls: OrbitControls,
+  radius: number
+) {
+  camera.position.set(radius * 1.8, -radius * 2.2, radius * 1.4);
+  camera.up.set(0, 0, 1);
+  camera.near = Math.max(radius / 100, 0.001);
+  camera.far = Math.max(radius * 100, 100);
+  camera.updateProjectionMatrix();
+  controls.target.set(0, 0, 0);
+  controls.minDistance = radius * 0.02;
+  controls.maxDistance = radius * 20;
+  controls.update();
+}
+
+function updateReferenceHelpers(
+  scene: THREE.Scene,
+  gridRef: { current: THREE.GridHelper | null },
+  axesRef: { current: THREE.AxesHelper | null },
+  radius: number
+) {
+  disposeLineHelper(gridRef.current);
+  disposeLineHelper(axesRef.current);
+  const size = Math.max(radius * 2, 1);
+  const grid = new THREE.GridHelper(size, 12, 0x6b777b, 0x303b3f);
+  grid.rotation.x = Math.PI / 2;
+  scene.add(grid);
+  gridRef.current = grid;
+  const axes = new THREE.AxesHelper(Math.max(radius * 0.25, 0.2));
+  scene.add(axes);
+  axesRef.current = axes;
+}
+
+function disposeLineHelper(object: THREE.LineSegments | null) {
+  if (!object) return;
+  object.removeFromParent();
+  object.geometry.dispose();
+  const material = object.material;
+  if (Array.isArray(material)) material.forEach((item) => item.dispose());
+  else material.dispose();
+}
+
 function applyAxisSigns(object: THREE.Object3D, axisSigns: AxisSigns) {
   object.scale.set(axisSigns.x, axisSigns.y, axisSigns.z);
 }
 
 function buildCameraOverlay(frames: CameraFrame[]) {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(cameraLinePositions(frames), 3));
-  const material = new THREE.LineBasicMaterial({
-    color: 0xe4572e,
-    transparent: true,
-    opacity: 0.82,
-    depthTest: false
-  });
-  const overlay = new THREE.LineSegments(geometry, material);
-  overlay.renderOrder = 2;
-  return overlay;
+  const root = new THREE.Group();
+  root.name = "camera-overlay";
+
+  const trajectoryGeometry = new THREE.BufferGeometry();
+  trajectoryGeometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(cameraTrajectoryPositions(frames), 3)
+  );
+  const trajectory = new THREE.Line(
+    trajectoryGeometry,
+    new THREE.LineBasicMaterial({ color: 0x2a78d6, transparent: true, opacity: 0.88, depthTest: false })
+  );
+  trajectory.name = "camera-trajectory";
+  trajectory.renderOrder = 2;
+  root.add(trajectory);
+
+  const sampled = sampleCameraFrames(frames, 120);
+  const frustaGeometry = new THREE.BufferGeometry();
+  frustaGeometry.setAttribute("position", new THREE.BufferAttribute(cameraLinePositions(sampled), 3));
+  const frusta = new THREE.LineSegments(
+    frustaGeometry,
+    new THREE.LineBasicMaterial({ color: 0xeb6834, transparent: true, opacity: 0.76, depthTest: false })
+  );
+  frusta.name = "camera-frusta";
+  frusta.renderOrder = 3;
+  root.add(frusta);
+  return root;
 }
 
 function removeCameraOverlay(
   scene: THREE.Scene,
-  ref: { current: THREE.LineSegments | null }
+  ref: { current: THREE.Group | null }
 ) {
-  if (!ref.current) {
-    return;
-  }
+  if (!ref.current) return;
   scene.remove(ref.current);
-  ref.current.geometry.dispose();
-  const material = ref.current.material;
-  if (Array.isArray(material)) {
-    material.forEach((item) => item.dispose());
-  } else {
-    material.dispose();
-  }
+  ref.current.traverse((object) => {
+    if (object instanceof THREE.Line || object instanceof THREE.LineSegments) {
+      object.geometry.dispose();
+      const material = object.material;
+      if (Array.isArray(material)) material.forEach((item) => item.dispose());
+      else material.dispose();
+    }
+  });
   ref.current = null;
 }
 

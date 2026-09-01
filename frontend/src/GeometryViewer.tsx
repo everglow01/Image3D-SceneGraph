@@ -1,6 +1,7 @@
 import { GaussianSplatViewer } from "./GaussianSplatViewer";
 import { MeshViewer } from "./MeshViewer";
 import { PointCloudViewer } from "./PointCloudViewer";
+import type { SfmInspectionTab } from "./sfmDiagnostics";
 
 type GeometryViewerProps = {
   pointCloudUrl: string | null;
@@ -13,6 +14,8 @@ type GeometryViewerProps = {
   splatCameraPathUrl: string | null;
   jobId: string | null;
   sfmDiagnosticsUrl: string | null;
+  inspectionRequest: { id: number; tab: SfmInspectionTab } | null;
+  onInspectionStateChange: (tab: SfmInspectionTab | null) => void;
   collisionMeshUrl: string | null;
   navigationUrl: string | null;
   navigationStatus: string | null;
@@ -30,6 +33,8 @@ export function GeometryViewer({
   splatCameraPathUrl,
   jobId,
   sfmDiagnosticsUrl,
+  inspectionRequest,
+  onInspectionStateChange,
   collisionMeshUrl,
   navigationUrl,
   navigationStatus,
@@ -44,6 +49,8 @@ export function GeometryViewer({
         alignmentUrl={alignmentDiagnosticsUrl}
         jobId={jobId}
         sfmDiagnosticsUrl={sfmDiagnosticsUrl}
+        inspectionRequest={inspectionRequest}
+        onInspectionStateChange={onInspectionStateChange}
         collisionMeshUrl={collisionMeshUrl}
         navigationUrl={navigationUrl}
         navigationStatus={navigationStatus}

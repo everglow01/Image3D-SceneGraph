@@ -15,7 +15,12 @@ import {
   type Mat3
 } from "./gaussianViewerMetadata";
 import { SfmInspectionPanel } from "./SfmInspectionPanel";
-import { parseSfmDiagnostics, type SfmDiagnostics, type Vec3 } from "./sfmDiagnostics";
+import {
+  parseSfmDiagnostics,
+  type SfmDiagnostics,
+  type SfmInspectionTab,
+  type Vec3
+} from "./sfmDiagnostics";
 import {
   clampPitchRadians,
   defaultWalkSettings,
@@ -35,6 +40,8 @@ type GaussianSplatViewerProps = {
   alignmentUrl: string | null;
   jobId: string | null;
   sfmDiagnosticsUrl: string | null;
+  inspectionRequest: { id: number; tab: SfmInspectionTab } | null;
+  onInspectionStateChange: (tab: SfmInspectionTab | null) => void;
   collisionMeshUrl: string | null;
   navigationUrl: string | null;
   navigationStatus: string | null;
@@ -221,6 +228,8 @@ export function GaussianSplatViewer({
   alignmentUrl,
   jobId,
   sfmDiagnosticsUrl,
+  inspectionRequest,
+  onInspectionStateChange,
   collisionMeshUrl,
   navigationUrl,
   navigationStatus,
@@ -245,11 +254,12 @@ export function GaussianSplatViewer({
   const [alphaControl, setAlphaControl] = useState<{ baseline: number; value: number } | null>(null);
   const [sfmDiagnostics, setSfmDiagnostics] = useState<SfmDiagnostics | null>(null);
   const [sfmQuery, setSfmQuery] = useState<{ center: Vec3; forward: Vec3 } | null>(null);
+  const [inspectionTab, setInspectionTab] = useState<SfmInspectionTab>("nearest");
   const [sfmLoading, setSfmLoading] = useState(false);
   const [sfmMessage, setSfmMessage] = useState("");
   const [uprightAvailable, setUprightAvailable] = useState(false);
 
-  const inspectInputViews = async () => {
+  const inspectInputViews = async (tab: SfmInspectionTab = "nearest") => {
     const viewer = viewerRef.current;
     if (
       !viewer ||
@@ -285,6 +295,8 @@ export function GaussianSplatViewer({
         center: position.toArray() as Vec3,
         forward: direction.toArray() as Vec3
       });
+      setInspectionTab(tab);
+      onInspectionStateChange(tab);
     } catch (error) {
       setSfmMessage(error instanceof Error ? error.message : "SfM 诊断加载失败");
     } finally {
@@ -374,6 +386,12 @@ export function GaussianSplatViewer({
     setAlphaControl((current) => (current ? { ...current, value } : current));
     applySplatAlphaThreshold(viewerRef.current, value);
   };
+
+  useEffect(() => {
+    if (inspectionRequest && viewerState === "ready") {
+      void inspectInputViews(inspectionRequest.tab);
+    }
+  }, [inspectionRequest?.id, viewerState]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -632,7 +650,7 @@ export function GaussianSplatViewer({
               !sfmDiagnosticsUrl ||
               sfmLoading
             }
-            onClick={() => void inspectInputViews()}
+            onClick={() => void inspectInputViews("nearest")}
             title={sfmDiagnosticsUrl ? "查找当前视角最相似的输入图片" : "该 job 未保存 SfM 诊断数据"}
             type="button"
           >
@@ -662,8 +680,13 @@ export function GaussianSplatViewer({
       {sfmDiagnostics && sfmQuery && jobId && (
         <SfmInspectionPanel
           diagnostics={sfmDiagnostics}
+          initialTab={inspectionTab}
           jobId={jobId}
-          onClose={() => setSfmQuery(null)}
+          onClose={() => {
+            setSfmQuery(null);
+            onInspectionStateChange(null);
+          }}
+          onTabChange={onInspectionStateChange}
           queryCenter={sfmQuery.center}
           queryForward={sfmQuery.forward}
         />

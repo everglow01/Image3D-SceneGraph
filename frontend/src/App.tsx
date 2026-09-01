@@ -4,6 +4,8 @@ import {
   FileArchive,
   Image,
   Images,
+  Maximize2,
+  Minimize2,
   Play,
   RefreshCw,
   RotateCcw,
@@ -14,6 +16,12 @@ import {
 import companyLogo from "./assets/yuetron-logo.png";
 import { isBackendAvailable, isOutputSupported } from "./backendOptions";
 import { GeometryViewer } from "./GeometryViewer";
+import { ReconstructionEvidenceRail } from "./ReconstructionEvidenceRail";
+import {
+  buildEvidenceStages,
+  type EvidenceStageId
+} from "./reconstructionEvidence";
+import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
   findGaussianTrainerStatus,
   formatGaussianTrainerOption
@@ -227,6 +235,16 @@ type Manifest = {
     gaussian_sor_filter_input_count?: number;
     gaussian_sor_filter_kept_count?: number;
     gaussian_sor_filter_removed_count?: number;
+    gaussian_count?: number;
+    sfm_diagnostics_status?: string;
+    sfm_diagnostics_reason?: string;
+    sfm_diagnostics_image_count?: number;
+    sfm_diagnostics_registered_image_count?: number;
+    sfm_diagnostics_keypoint_count?: number;
+    sfm_diagnostics_pair_count?: number;
+    sfm_diagnostics_match_count?: number;
+    sfm_diagnostics_inlier_count?: number;
+    sfm_diagnostics_bytes?: number;
   };
 };
 
@@ -386,6 +404,12 @@ export function App() {
   const [isBuildingNavigation, setIsBuildingNavigation] = useState(false);
   const [isChangingLifecycle, setIsChangingLifecycle] = useState(false);
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
+  const [viewerFocus, setViewerFocus] = useState(false);
+  const [inspectionRequest, setInspectionRequest] = useState<{
+    id: number;
+    tab: SfmInspectionTab;
+  } | null>(null);
+  const [activeInspectionTab, setActiveInspectionTab] = useState<SfmInspectionTab | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedMode = modeOptions.find((option) => option.id === mode) ?? modeOptions[0];
@@ -513,6 +537,29 @@ export function App() {
   const visiblePointCloudUrl = viewerMode === "point_cloud" ? pointCloudUrl : null;
   const visibleMeshUrl = viewerMode === "mesh" ? meshUrl : null;
   const visibleSplatUrl = viewerMode === "gaussian_splat" ? splatUrl : null;
+  const evidenceStages = useMemo(
+    () =>
+      buildEvidenceStages({
+        hasDiagnostics: Boolean(manifest?.assets.sfm_diagnostics),
+        hasSparseGeometry: Boolean(manifest?.assets.sfm_sparse_point_cloud),
+        hasGaussian: Boolean(manifest?.assets.scene_splat),
+        imageCount: manifest?.metrics.sfm_diagnostics_image_count,
+        registeredImageCount: manifest?.metrics.sfm_diagnostics_registered_image_count,
+        pairCount: manifest?.metrics.sfm_diagnostics_pair_count,
+        sparsePointCount: manifest?.metrics.num_points,
+        gaussianCount: manifest?.metrics.gaussian_count
+      }),
+    [manifest]
+  );
+  const activeEvidence: EvidenceStageId | null = activeInspectionTab
+    ? activeInspectionTab === "matches"
+      ? "matching"
+      : "input"
+    : viewerMode === "point_cloud"
+      ? "sparse"
+      : viewerMode === "gaussian_splat"
+        ? "gaussian"
+        : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -583,6 +630,42 @@ export function App() {
       window.clearInterval(interval);
     };
   }, [manifest?.job_id, manifest?.status, manifest?.navigation_status]);
+
+  useEffect(() => {
+    if (!viewerFocus) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setViewerFocus(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [viewerFocus]);
+
+  useEffect(() => {
+    setInspectionRequest(null);
+    setActiveInspectionTab(null);
+  }, [manifest?.job_id]);
+
+  function selectViewerMode(mode: ViewerMode) {
+    setInspectionRequest(null);
+    setActiveInspectionTab(null);
+    setViewerMode(mode);
+  }
+
+  function requestEvidence(stage: EvidenceStageId) {
+    if (stage === "input" || stage === "matching") {
+      setViewerMode("gaussian_splat");
+      const tab: SfmInspectionTab = stage === "matching" ? "matches" : "nearest";
+      setInspectionRequest((current) => ({ id: (current?.id ?? 0) + 1, tab }));
+      return;
+    }
+    setInspectionRequest(null);
+    setActiveInspectionTab(null);
+    setViewerMode(stage === "sparse" ? "point_cloud" : "gaussian_splat");
+  }
 
   function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
     setManifest(nextManifest);
@@ -909,7 +992,7 @@ export function App() {
   );
 
   return (
-    <main className="app-shell">
+    <main className={viewerFocus ? "app-shell viewer-focus" : "app-shell"}>
       <header className="topbar">
         <div className="brand-lockup">
           <img className="company-logo" src={companyLogo} alt="越创智数 YUETRON DIGTECH" />
@@ -1411,12 +1494,12 @@ export function App() {
               {(hasPointCloud || hasMesh || hasSplat) && (
                 <div className="variant-toggle" role="group" aria-label="几何预览类型">
                   {hasPointCloud && (
-                    <button className={viewerMode === "point_cloud" ? "active" : ""} type="button" onClick={() => setViewerMode("point_cloud")}>
+                    <button className={viewerMode === "point_cloud" ? "active" : ""} type="button" onClick={() => selectViewerMode("point_cloud")}>
                       {showingSfmSparsePointCloud ? "SfM 稀疏点云" : "点云（Point Cloud）"}
                     </button>
                   )}
                   {hasMesh && (
-                    <button className={viewerMode === "mesh" ? "active" : ""} type="button" onClick={() => setViewerMode("mesh")}>
+                    <button className={viewerMode === "mesh" ? "active" : ""} type="button" onClick={() => selectViewerMode("mesh")}>
                       网格（Mesh）
                     </button>
                   )}
@@ -1424,7 +1507,7 @@ export function App() {
                     <button
                       className={viewerMode === "gaussian_splat" ? "active" : ""}
                       type="button"
-                      onClick={() => setViewerMode("gaussian_splat")}
+                      onClick={() => selectViewerMode("gaussian_splat")}
                     >
                       高斯泼溅（Gaussian Splat）
                     </button>
@@ -1469,6 +1552,16 @@ export function App() {
                   </button>
                 </div>
               )}
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setViewerFocus((current) => !current)}
+                disabled={!manifest}
+                title={viewerFocus ? "退出专注查看（Esc）" : "隐藏两侧面板，扩大诊断工作区"}
+              >
+                {viewerFocus ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
+                <span>{viewerFocus ? "退出专注" : "专注查看"}</span>
+              </button>
               <button className="icon-button" type="button" onClick={refreshJob} disabled={!manifest}>
                 <RefreshCw size={17} aria-hidden="true" />
                 <span>刷新</span>
@@ -1487,6 +1580,13 @@ export function App() {
               )}
             </div>
           </div>
+          {manifest && (
+            <ReconstructionEvidenceRail
+              active={activeEvidence}
+              onSelect={requestEvidence}
+              stages={evidenceStages}
+            />
+          )}
           <GeometryViewer
             pointCloudUrl={visiblePointCloudUrl}
             camerasUrl={viewerMode === "point_cloud" ? camerasUrl : null}
@@ -1498,6 +1598,8 @@ export function App() {
             splatCameraPathUrl={viewerMode === "gaussian_splat" ? splatCameraPathUrl : null}
             jobId={manifest?.job_id ?? null}
             sfmDiagnosticsUrl={viewerMode === "gaussian_splat" ? sfmDiagnosticsUrl : null}
+            inspectionRequest={inspectionRequest}
+            onInspectionStateChange={setActiveInspectionTab}
             collisionMeshUrl={viewerMode === "gaussian_splat" ? collisionMeshUrl : null}
             navigationUrl={viewerMode === "gaussian_splat" ? navigationUrl : null}
             navigationStatus={manifest?.navigation_status ?? null}
@@ -1530,7 +1632,24 @@ export function App() {
             <span className="job-load-status">{isLoadingJob ? "加载中…" : `${jobs.length} 个任务`}</span>
           </div>
 
-          <dl className="metrics-grid">
+          <dl className="metrics-grid core-metrics-grid">
+            <div><dt>状态</dt><dd>{formatStatus(currentStatus?.status)}</dd></div>
+            <div><dt>处理阶段</dt><dd>{formatStage(currentStatus?.stage)}</dd></div>
+            <div><dt>注册率</dt><dd>{formatPercentMetric(currentStatus?.metrics.video_registration_rate)}</dd></div>
+            <div><dt>时间覆盖</dt><dd>{formatPercentMetric(currentStatus?.metrics.video_registration_temporal_coverage)}</dd></div>
+            <div><dt>候选 / 关键帧</dt><dd>{currentStatus?.metrics.video_candidate_count === undefined ? "-" : `${currentStatus.metrics.video_candidate_count} / ${currentStatus.metrics.video_selected_count ?? "-"}`}</dd></div>
+            <div><dt>稀疏点</dt><dd>{formatInteger(currentStatus?.metrics.num_points)}</dd></div>
+            <div><dt>SfM 诊断</dt><dd>{formatStatus(currentStatus?.metrics.sfm_diagnostics_status)}</dd></div>
+            <div><dt>已注册图片</dt><dd>{formatRatio(currentStatus?.metrics.sfm_diagnostics_registered_image_count, currentStatus?.metrics.sfm_diagnostics_image_count)}</dd></div>
+            <div><dt>匹配内点</dt><dd>{formatInteger(currentStatus?.metrics.sfm_diagnostics_inlier_count)}</dd></div>
+            <div><dt>高斯数量</dt><dd>{formatInteger(currentStatus?.metrics.gaussian_count)}</dd></div>
+            <div><dt>空间对齐</dt><dd>{formatPolicy(currentStatus?.metrics.alignment_status)}</dd></div>
+            <div><dt>Validation PSNR</dt><dd>{currentStatus?.metrics.gaussian_vggt_filtered_validation_psnr === undefined ? "-" : `${currentStatus.metrics.gaussian_vggt_filtered_validation_psnr.toFixed(3)} dB`}</dd></div>
+          </dl>
+
+          <details className="result-details">
+            <summary>完整运行指标</summary>
+            <dl className="metrics-grid">
             <div>
               <dt>状态</dt>
               <dd>{formatStatus(currentStatus?.status)}</dd>
@@ -1753,6 +1872,7 @@ export function App() {
               <dd>{currentStatus?.metrics.mesh_long_edge_removed_triangles ?? "-"}</dd>
             </div>
           </dl>
+          </details>
 
           {(manifest?.gaussian_geometry_fallback_applied ??
             currentStatus?.metrics.gaussian_geometry_fallback_applied) && (
@@ -1969,8 +2089,12 @@ export function App() {
           </section>
 
           <section className="result-section">
-            <h3>结果资产</h3>
-            <div className="asset-links">
+            <details className="result-details">
+              <summary>结果资产</summary>
+              <div className="asset-links">
+              <AssetLink manifest={manifest} assetKey="sfm_diagnostics" label="SfM 前端诊断" />
+              <AssetLink manifest={manifest} assetKey="sfm_sparse_point_cloud" label="SfM 稀疏点云" />
+              <AssetLink manifest={manifest} assetKey="cameras" label="SfM 相机位姿" />
               <AssetLink manifest={manifest} assetKey="point_cloud" label="点云（Point Cloud）" />
               <AssetLink manifest={manifest} assetKey="point_cloud_aligned" label="对齐点云" />
               <AssetLink manifest={manifest} assetKey="mesh" label="三维网格（Mesh）" />
@@ -2015,7 +2139,8 @@ export function App() {
                   <span>下载完整结果包</span>
                 </a>
               )}
-            </div>
+              </div>
+            </details>
           </section>
         </aside>
       </section>
@@ -2311,6 +2436,20 @@ function formatPointBudget(inputPoints: number | undefined, outputPoints: number
     return "-";
   }
   return `${inputPoints.toLocaleString()} → ${outputPoints.toLocaleString()}`;
+}
+
+function formatPercentMetric(value: number | undefined) {
+  return value === undefined ? "-" : `${(value * 100).toFixed(1)}%`;
+}
+
+function formatInteger(value: number | undefined) {
+  return value === undefined ? "-" : value.toLocaleString("zh-CN");
+}
+
+function formatRatio(left: number | undefined, right: number | undefined) {
+  return left === undefined || right === undefined
+    ? "-"
+    : `${left.toLocaleString("zh-CN")} / ${right.toLocaleString("zh-CN")}`;
 }
 
 function formatBytes(bytes: number) {

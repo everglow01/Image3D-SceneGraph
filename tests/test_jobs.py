@@ -17,7 +17,7 @@ from image3d_scenegraph.geometry.adapters import (
     _try_export_sfm_diagnostics,
     _write_video_registration_diagnostics,
 )
-from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
+from image3d_scenegraph.jobs import JobCancelled, JobError, JobStore, UploadedInput
 from image3d_scenegraph.video.registration import analyze_registration_timeline
 
 
@@ -179,6 +179,70 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
     assert metrics["sfm_diagnostics_status"] == "unavailable"
     assert "missing" in str(metrics["sfm_diagnostics_reason"])
     assert logs[0] == "sfm_diagnostics_status=unavailable"
+
+
+def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monkeypatch):
+    def cancelled_export(**_kwargs):
+        raise RuntimeError("cancelled during export")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.colmap_diagnostics.export_colmap_diagnostics",
+        cancelled_export,
+    )
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={},
+        cancel_requested=lambda: True,
+    )
+
+    with pytest.raises(JobCancelled, match="cancellation requested"):
+        _try_export_sfm_diagnostics(
+            context=context,
+            database_path=tmp_path / "colmap" / "database.db",
+            source_image_root=tmp_path / "input" / "images",
+            dataset_path=tmp_path / "dataset.json",
+            output_dir=tmp_path / "diagnostics" / "sfm",
+            matcher="exhaustive",
+            geometry_source="colmap",
+            video_selection_path=None,
+        )
+
+
+def test_alignment_falls_back_to_gaussian_sfm_sparse_point_cloud(tmp_path, monkeypatch):
+    store = JobStore(output_root=tmp_path / "jobs")
+    job_dir = tmp_path / "job"
+    source = job_dir / "geometry" / "points.ply"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"ply\n")
+
+    class FakeAlignment:
+        @staticmethod
+        def align_pointcloud(**kwargs):
+            kwargs["output_path"].write_bytes(b"aligned-ply\n")
+            kwargs["diagnostics_output"].parent.mkdir(parents=True, exist_ok=True)
+            kwargs["diagnostics_output"].write_text("{}", encoding="utf-8")
+            return {"source_plane": {"inlier_ratio": 0.75}}
+
+    monkeypatch.setattr(store, "_load_alignment_module", lambda: FakeAlignment)
+
+    assets, metrics, logs = store._try_align_point_cloud(
+        job_dir,
+        {"sfm_sparse_point_cloud": "geometry/points.ply"},
+    )
+
+    assert assets == {
+        "point_cloud_aligned": "geometry/points_aligned.ply",
+        "alignment_diagnostics": "diagnostics/alignment.json",
+    }
+    assert metrics == {
+        "alignment_status": "aligned",
+        "alignment_plane_inlier_ratio": 0.75,
+    }
+    assert (job_dir / assets["point_cloud_aligned"]).read_bytes() == b"aligned-ply\n"
+    assert logs[0] == "alignment_status=aligned"
 
 
 def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(

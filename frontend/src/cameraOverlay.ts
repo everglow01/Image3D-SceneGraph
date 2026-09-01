@@ -63,10 +63,21 @@ export function cameraLinePositions(frames: CameraFrame[]): Float32Array {
       addSegment(positions, frame.corners[index], frame.corners[(index + 1) % 4]);
     }
   }
-  for (let index = 1; index < frames.length; index += 1) {
-    addSegment(positions, frames[index - 1].center, frames[index].center);
-  }
   return new Float32Array(positions);
+}
+
+export function cameraTrajectoryPositions(frames: CameraFrame[]): Float32Array {
+  return new Float32Array(frames.flatMap((frame) => frame.center));
+}
+
+export function sampleCameraFrames(frames: CameraFrame[], maximum: number): CameraFrame[] {
+  const limit = Math.max(0, Math.floor(maximum));
+  if (frames.length <= limit) return frames;
+  if (limit === 0) return [];
+  if (limit === 1) return [frames[0]];
+  return Array.from({ length: limit }, (_, index) =>
+    frames[Math.round((index * (frames.length - 1)) / (limit - 1))]
+  );
 }
 
 function parseColmapFrames(payload: Record<string, unknown>, depth: number): CameraFrame[] {

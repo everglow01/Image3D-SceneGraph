@@ -3,10 +3,13 @@ import test from "node:test";
 
 import {
   assetUrl,
+  filterSfmImages,
   pairKey,
+  pairNeighbors,
   parsePairIndex,
   parseSfmDiagnostics,
   rankSfmImages,
+  sampleDeterministic,
   type SfmImage
 } from "../src/sfmDiagnostics.ts";
 
@@ -130,4 +133,37 @@ test("pair index distinguishes untested from tested zero-match pairs", () => {
     assetUrl("job-1", "frames/selected/a b.jpg"),
     "/api/jobs/job-1/assets/frames/selected/a%20b.jpg"
   );
+});
+
+test("frame filtering and pair adjacency expose every tested neighbor", () => {
+  const diagnostics = parseSfmDiagnostics(
+    payload([
+      { ...image(1, [0, 0, 0], [0, 0, 1]), source_time_seconds: 2 },
+      { ...image(2, [0, 0, 0], [0, 0, 1]), source_time_seconds: 1, split: "validation" },
+      { ...image(3, null, null), source_time_seconds: 1.5 }
+    ])
+  );
+  assert.deepEqual(
+    filterSfmImages(diagnostics.images, "", "all", "all").map((item) => item.colmap_image_id),
+    [2, 3, 1]
+  );
+  assert.deepEqual(
+    filterSfmImages(diagnostics.images, "frame-3", "unregistered", "unassigned").map(
+      (item) => item.colmap_image_id
+    ),
+    [3]
+  );
+
+  const index = parsePairIndex({
+    schema_version: 1,
+    pairs: [
+      { pair_key: "1-2", image_ids: [1, 2], candidate_match_count: 10, inlier_count: 5, geometric_config: 3, detail_shard: "a.json.gz" },
+      { pair_key: "1-3", image_ids: [1, 3], candidate_match_count: 20, inlier_count: 12, geometric_config: 3, detail_shard: "b.json.gz" },
+      { pair_key: "2-3", image_ids: [2, 3], candidate_match_count: 50, inlier_count: 1, geometric_config: 3, detail_shard: "c.json.gz" }
+    ]
+  });
+  const neighbors = pairNeighbors(index, 1);
+  assert.deepEqual(neighbors.map((item) => item.neighbor_image_id), [3, 2]);
+  assert.equal(neighbors[0].inlier_rate, 0.6);
+  assert.deepEqual(sampleDeterministic([0, 1, 2, 3, 4], 3), [0, 1, 3]);
 });

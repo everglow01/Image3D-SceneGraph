@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { robustCloudBounds } from "../src/pointCloudBounds.ts";
+import { robustCloudBounds, signedCameraUpZ } from "../src/pointCloudBounds.ts";
 
 test("robustCloudBounds ignores stray outliers", () => {
   const positions: number[] = [];
@@ -17,4 +17,16 @@ test("robustCloudBounds ignores stray outliers", () => {
 
 test("robustCloudBounds falls back for empty input", () => {
   assert.deepEqual(robustCloudBounds([], 0), { center: [0, 0, 0], radius: 1 });
+});
+
+test("signedCameraUpZ chooses the camera-up side of the aligned plane", () => {
+  const frame = (topZ: number, bottomZ: number) => ({
+    center: [0, 0, 0] as [number, number, number],
+    corners: [
+      [-1, 1, topZ], [1, 1, topZ], [1, -1, bottomZ], [-1, -1, bottomZ]
+    ] as [[number, number, number], [number, number, number], [number, number, number], [number, number, number]]
+  });
+  assert.equal(signedCameraUpZ([frame(1, -1)]), 1);
+  assert.equal(signedCameraUpZ([frame(-1, 1)]), -1);
+  assert.equal(signedCameraUpZ([]), 1);
 });
