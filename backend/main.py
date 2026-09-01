@@ -109,6 +109,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         colmap_matcher: Annotated[
             Literal["exhaustive", "sequential"] | None, Form()
         ] = None,
+        sfm_feature_profile: Annotated[
+            Literal["sift_v1", "aliked_n16rot_v1"], Form()
+        ] = "sift_v1",
         video_keyframe_profile: Annotated[
             Literal["standard_v1", "standard_v2"], Form()
         ] = "standard_v1",
@@ -195,6 +198,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "gaussian_longest_edge": (
                     gaussian_longest_edge if geometry_backend == "project_3dgs" else None
+                ),
+                "sfm_feature_profile": (
+                    sfm_feature_profile
+                    if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
+                    else None
                 ),
                 "colmap_matcher": (
                     colmap_matcher
