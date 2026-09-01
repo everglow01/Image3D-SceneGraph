@@ -81,7 +81,7 @@ Current mock API:
 - `mode`: `image`, `multi_image`, `video`, or `panorama`
 - `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, or `mast3r`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
-- `gaussian_trainer`: `graphdeco` (default) or `project`; used only with `project_3dgs + gaussian_splat`
+- `gaussian_trainer`: `graphdeco` (default), `project`, or experimental `mcmc`; used only with `project_3dgs + gaussian_splat`
 - `gaussian_geometry_source`: `colmap` (default) or video-only `vggt_ba` (experimental/research-only)
 - `gaussian_postprocess`: `none` (default) or `vggt_visibility_v1` (experimental/research-only)
 - `gaussian_longest_edge`: 1280–3072px; used only with `project_3dgs + gaussian_splat`
@@ -95,7 +95,7 @@ Implemented geometry paths:
 - `geometry_backend=vggt` with `output_type=point_cloud` or `mesh`, when the local VGGT repo and checkpoint are installed
 - `geometry_backend=colmap` with `output_type=point_cloud` or `mesh`, when the `colmap` executable is installed
 - `geometry_backend=colmap_vggt` with `output_type=point_cloud` or `mesh`, when both COLMAP and VGGT are installed
-- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses Project v7: the fixed `standard_v1` profile runs 30,000 iterations with a 1280px default and a frontend-selectable longest edge through 3072px, 3NN RMS initialization, training-time screen-radius pruning disabled, and Validation-selected export. `graphdeco` invokes its pinned isolated research environment, converts the native INRIA PLY into the project snapshot, then reuses the common evaluation/export/manifest/Viewer path. Graphdeco remains the default and is restricted to research/evaluation use.
+- `geometry_backend=project_3dgs` with `output_type=gaussian_splat`, when COLMAP and the selected CUDA trainer are available. `gaussian_trainer=project` uses Project v7: the fixed `standard_v1` profile runs 30,000 iterations with a 1280px default and a frontend-selectable longest edge through 3072px, 3NN RMS initialization, training-time screen-radius pruning disabled, and Validation-selected export. Experimental `gaussian_trainer=mcmc` uses the installed Apache-2.0 gsplat MCMC strategy in the same native/distributed lifecycle, with the frozen `mcmc_v1` method package and a 3,000,000-Gaussian global cap. `graphdeco` invokes its pinned isolated research environment and remains the default. Every trainer reuses the same geometry input and common SOR/Validation/export/manifest/Viewer path; MCMC is runnable but not promoted pending remote quality/resource evidence.
 - `mode=video` with `project_3dgs + gaussian_splat`, when FFmpeg/ffprobe, COLMAP, and the selected trainer are available. Both profiles analyze one 10-second–10-minute MP4/MOV/M4V/WebM (606-second technical tolerance, up to 2 GiB) at 6 fps. The default historical `video_keyframes_standard_v1` selects up to 1,000 upright frames. Explicit `video_keyframes_standard_v2` selects a 4 fps uniform base and motion-adaptive frames up to 5 fps. Ordinary-COLMAP v2 runs Mapper on at most 1,000 uniformly spaced base frames, then performs up to two `image_registrator` + non-clearing `point_triangulator` passes against the complete selected-frame feature database before gap recovery. This bounds Mapper cost without discarding the additional v2 views. Gap recovery runs at most two local COLMAP registration rounds with viable gap-bridging candidates from the remaining 6 fps pool. Each round is limited to 25% of the initial selection and recovery is limited to 50% cumulatively. The first accepted triangulation can feed a zero-new-candidate propagation round so new 3D points register deeper gap frames; rounds without strict gap improvement stop before expensive triangulation. Initial expansion and accepted recovery rounds share one final CUDA bundle adjustment with one CPU fallback. Explicit v2 also bounds intermediate Mapper global-BA frequency while leaving v1 replay unchanged. The upload is staged in 8 MiB chunks; selected frames retain source PTS and generated JPEGs use EXIF Orientation 1 while authoritative metadata stays in JSON sidecars. Final registration must pass 12-frame, 70% registration, and 80% temporal-coverage gates before 3DGS starts; surviving gaps above 2 seconds remain a soft warning.
 
 Video support is bounded offline reconstruction, not realtime SLAM or evidence of drift-free multi-room mapping. Coordinates remain normalized arbitrary units. FFmpeg and ffprobe are external executable dependencies; their absence disables only video ingestion, not image-based Project jobs.
@@ -107,7 +107,30 @@ Two orthogonal research options are available for Gaussian jobs:
 
 Both options are experimental and research-only pending dependency, real-scene, resource, and license validation. VGGT-BA requires the pinned VGGT, DINOv2, LightGlue/ALIKED, VGGSfM tracker, PyCOLMAP, SciPy, and COLMAP dependencies; postprocessing requires the base VGGT repo/checkpoint. `GET /api/backends` reports these capabilities separately so missing BA dependencies do not disable ordinary COLMAP Gaussian jobs or base VGGT cleanup.
 
-For a same-input visual comparison with retained Official job `20260806_060729_a5d1d377`, select `Multi-image` → `Project 3DGS` → `Gaussian splat` → `Project v7 (gsplat)` and upload the same 225 source images. The frontend shows `standard_v1 · v7` on the resulting job. New Project v7 jobs stop after Train/Validation model selection and export; they do not load Test or create a Test-consumption record. Coordinates remain normalized arbitrary units, not metres.
+For a same-input visual comparison with retained Official job `20260806_060729_a5d1d377`, select `Multi-image` → `Project 3DGS` → `Gaussian splat` → `Project v7 (gsplat)` and upload the same 225 source images. The frontend shows `standard_v1 · v10` on the resulting job. New Project v7 and MCMC jobs stop after Train/Validation model selection and export; they do not load Test or create a Test-consumption record. Coordinates remain normalized arbitrary units, not metres.
+
+Create a complete asynchronous MCMC video Job through the same public task lifecycle:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/jobs \
+  -F mode=video \
+  -F geometry_backend=project_3dgs \
+  -F output_type=gaussian_splat \
+  -F gaussian_trainer=mcmc \
+  -F files=@room.mp4
+```
+
+Every successful native Project/MCMC preparation publishes `gaussian/replay/` with hardlinked (or copied across filesystems) registered images, cameras, dataset contract, and frozen initialization. It excludes the COLMAP database and matches. Reuse it without rerunning geometry, sparse-point selection, or 3NN scale estimation:
+
+```bash
+uv run python scripts/run_gaussian_training.py \
+  --dataset-contract outputs/jobs/JOB/gaussian/replay/dataset.json \
+  --dataset-root outputs/jobs/JOB/gaussian/replay \
+  --run-dir outputs/replays/JOB-mcmc \
+  --trainer mcmc \
+  --initialization frozen \
+  --distributed
+```
 
 DUSt3R, MASt3R, and panorama-to-geometry are still API contract placeholders and return a clear not implemented error.
 
