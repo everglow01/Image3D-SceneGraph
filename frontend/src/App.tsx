@@ -37,6 +37,7 @@ type ConfidenceThresholdScope = "global" | "per_frame";
 type ConsistencySupportPolicy = "any_support" | "adaptive_two";
 type PointBudgetPolicy = "random" | "spatial_balanced";
 type ColmapVggtGrouping = "sequential" | "covisibility";
+type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
 type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
@@ -151,6 +152,8 @@ type Manifest = {
     scene_graph?: string;
     log?: string;
   };
+  sfm_feature_profile?: SfmFeatureProfile;
+  sfm_feature_effective_profile?: SfmFeatureProfile;
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -218,7 +221,9 @@ type Manifest = {
     video_registration_recovery_status?: string;
     video_registration_recovery_rounds?: number;
     video_registration_recovery_registered_gain?: number;
-    gaussian_geometry_source?: GaussianGeometrySource;
+    sfm_feature_profile?: SfmFeatureProfile;
+  sfm_feature_effective_profile?: SfmFeatureProfile;
+  gaussian_geometry_source?: GaussianGeometrySource;
     gaussian_geometry_effective_source?: GaussianGeometrySource;
     gaussian_geometry_fallback_applied?: boolean;
     gaussian_geometry_fallback_reason?: string;
@@ -304,6 +309,7 @@ type BackendStatus = {
   supported_outputs: OutputType[];
   setup_command: string | null;
   gaussian_trainers?: GaussianTrainerStatus[];
+  sfm_feature_profiles?: ExperimentalOptionStatus<SfmFeatureProfile>[];
   gaussian_geometry_sources?: ExperimentalOptionStatus<GaussianGeometrySource>[];
   gaussian_postprocessors?: ExperimentalOptionStatus<GaussianPostprocess>[];
   video_ingestion?: {
@@ -326,6 +332,11 @@ const modeOptions: Array<{
   { id: "multi_image", label: "多张图片", icon: Images, fileHint: "上传至少 2 张图片" },
   { id: "video", label: "视频", icon: Video, fileHint: "上传 1 个视频" },
   { id: "panorama", label: "全景图", icon: FileArchive, fileHint: "上传 1 张 360° 全景图" }
+];
+
+const sfmFeatureOptions: Array<{ id: SfmFeatureProfile; label: string }> = [
+  { id: "sift_v1", label: "SIFT v1（默认）" },
+  { id: "aliked_n16rot_v1", label: "ALIKED N16Rot v1（实验）" }
 ];
 
 const backendOptions: Array<{
@@ -367,6 +378,8 @@ export function App() {
   const [mode, setMode] = useState<Mode>("image");
   const [geometryBackend, setGeometryBackend] = useState<GeometryBackend>("mock");
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
+  const [sfmFeatureProfile, setSfmFeatureProfile] =
+    useState<SfmFeatureProfile>("sift_v1");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -417,6 +430,13 @@ export function App() {
 
   const selectedMode = modeOptions.find((option) => option.id === mode) ?? modeOptions[0];
   const selectedBackendStatus = backendStatuses?.[geometryBackend];
+  const sfmFeatureStatuses = selectedBackendStatus?.sfm_feature_profiles ?? [];
+  const selectedSfmFeatureStatus = sfmFeatureStatuses.find(
+    (option) => option.id === sfmFeatureProfile
+  );
+  const usesColmapFeatureStage = ["colmap", "colmap_vggt", "project_3dgs"].includes(
+    geometryBackend
+  );
   const gaussianTrainerStatuses = selectedBackendStatus?.gaussian_trainers ?? [];
   const selectedGaussianTrainerStatus = findGaussianTrainerStatus(
     gaussianTrainerStatuses,
@@ -748,6 +768,16 @@ export function App() {
       setError(selectedBackendStatus.video_ingestion.reason ?? "服务器缺少视频处理工具。");
       return;
     }
+    if (
+      usesColmapFeatureStage &&
+      sfmFeatureProfile !== "sift_v1" &&
+      selectedSfmFeatureStatus?.available !== true
+    ) {
+      setError(
+        selectedSfmFeatureStatus?.reason ?? "服务器缺少所选 COLMAP 特征模型。"
+      );
+      return;
+    }
     if (!selectedBackendAvailable) {
       setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
@@ -806,6 +836,9 @@ export function App() {
       form.append("mode", mode);
       form.append("geometry_backend", geometryBackend);
       form.append("output_type", outputType);
+      if (usesColmapFeatureStage) {
+        form.append("sfm_feature_profile", sfmFeatureProfile);
+      }
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
         form.append("gaussian_geometry_source", gaussianGeometrySource);
@@ -1076,6 +1109,46 @@ export function App() {
                 ))}
               </select>
             </label>
+
+            {usesColmapFeatureStage && (
+              <label>
+                <span>特征提取</span>
+                <select
+                  value={sfmFeatureProfile}
+                  onChange={(event) =>
+                    setSfmFeatureProfile(event.target.value as SfmFeatureProfile)
+                  }
+                >
+                  {sfmFeatureOptions.map((option) => {
+                    const status = sfmFeatureStatuses.find(
+                      (candidate) => candidate.id === option.id
+                    );
+                    const unavailable =
+                      option.id !== "sift_v1" && status?.available !== true;
+                    return (
+                      <option
+                        disabled={unavailable}
+                        key={option.id}
+                        value={option.id}
+                      >
+                        {unavailable
+                          ? `${option.label}（不可用）`
+                          : option.label}
+                      </option>
+                    );
+                  })}
+                </select>
+                <small>
+                  只改变 COLMAP 局部特征 profile；图像对策略、Mapper 和 BA 保持不变。
+                </small>
+                {selectedSfmFeatureStatus?.reason && (
+                  <small>{selectedSfmFeatureStatus.reason}</small>
+                )}
+                {selectedSfmFeatureStatus?.setup_command && (
+                  <small>{selectedSfmFeatureStatus.setup_command}</small>
+                )}
+              </label>
+            )}
 
             {geometryBackend === "project_3dgs" && (
               <>
@@ -1696,6 +1769,18 @@ export function App() {
               <dt>输出类型</dt>
               <dd>{formatOutput(currentStatus?.output_type)}</dd>
             </div>
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
+              <div>
+                <dt>SfM 特征</dt>
+                <dd>
+                  {formatSfmFeatureProfile(
+                    manifest.sfm_feature_effective_profile ??
+                      manifest.sfm_feature_profile ??
+                      currentStatus?.metrics.sfm_feature_profile
+                  )}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>训练器</dt>
               <dd>{formatTrainer(manifest?.gaussian_trainer)}</dd>
@@ -2403,6 +2488,14 @@ function formatBackend(value: GeometryBackend | undefined) {
 
 function formatOutput(value: OutputType | undefined) {
   return outputOptions.find((option) => option.id === value)?.label ?? "-";
+}
+
+function formatSfmFeatureProfile(value: string | undefined) {
+  const profile = (value ?? "sift_v1") as SfmFeatureProfile;
+  return (
+    sfmFeatureOptions.find((option) => option.id === profile)?.label ??
+    `未知特征（${profile}）`
+  );
 }
 
 function formatTrainer(trainer: Manifest["gaussian_trainer"] | undefined) {

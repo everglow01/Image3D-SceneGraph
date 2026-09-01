@@ -20,10 +20,28 @@ export type SfmImage = {
   vertical_fov_degrees: number | null;
 };
 
+export type SfmAlgorithm = {
+  name: string;
+  implementation: string;
+  version: string;
+};
+
+export type SfmFeature = {
+  profile: string;
+  extractor: string;
+  descriptor: string;
+  max_features: number;
+  extractor_model_sha256: string | null;
+  implementation: string;
+  version: string;
+};
+
 export type SfmRun = {
   run_id: string;
-  detector: { name: string; implementation: string; version: string };
-  matcher: { name: string; implementation: string; version: string };
+  feature: SfmFeature;
+  local_matcher: SfmAlgorithm & { model_sha256: string | null };
+  pairing: SfmAlgorithm;
+  mapper: SfmAlgorithm;
   feature_index_path: string;
   pair_index_path: string;
 };
@@ -75,16 +93,19 @@ export type PairNeighbor = {
 
 export function parseSfmDiagnostics(value: unknown): SfmDiagnostics {
   const record = object(value, "SfM diagnostics");
+  const schemaVersion = record.schema_version;
   if (
-    record.schema_version !== 1 ||
-    record.profile !== "sfm_frontend_diagnostics_v1" ||
+    (schemaVersion !== 1 && schemaVersion !== 2) ||
+    record.profile !== `sfm_frontend_diagnostics_v${schemaVersion}` ||
     record.coordinate_frame !== "normalized" ||
     record.camera_convention !== "opencv" ||
     record.world_units !== "arbitrary"
   ) {
     throw new Error("SfM diagnostics schema is unsupported");
   }
-  const runs = array(record.runs, "SfM runs").map(parseRun);
+  const runs = array(record.runs, "SfM runs").map((value) =>
+    parseRun(value, schemaVersion)
+  );
   const defaultRunId = text(record.default_run_id, "default run ID");
   if (!runs.some((run) => run.run_id === defaultRunId)) {
     throw new Error("SfM default run is missing");
@@ -288,14 +309,67 @@ export function assetUrl(jobId: string, path: string): string {
     .join("/")}`;
 }
 
-function parseRun(value: unknown): SfmRun {
+function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
   const run = object(value, "SfM run");
+  const featureIndexPath = assetPath(run.feature_index_path);
+  const pairIndexPath = assetPath(run.pair_index_path);
+  if (schemaVersion === 1) {
+    const detector = parseAlgorithm(run.detector, "detector");
+    const legacyMatcher = parseAlgorithm(run.matcher, "matcher");
+    return {
+      run_id: text(run.run_id, "run ID"),
+      feature: {
+        profile: "sift_v1",
+        extractor: "SIFT",
+        descriptor: "SIFT",
+        max_features: 8192,
+        extractor_model_sha256: null,
+        implementation: detector.implementation,
+        version: detector.version
+      },
+      local_matcher: {
+        name: "SIFT_BRUTEFORCE",
+        implementation: "colmap",
+        version: detector.version,
+        model_sha256: null
+      },
+      pairing: legacyMatcher,
+      mapper: {
+        name: "incremental",
+        implementation: "colmap",
+        version: detector.version
+      },
+      feature_index_path: featureIndexPath,
+      pair_index_path: pairIndexPath
+    };
+  }
+  const feature = object(run.feature, "feature");
+  const localMatcher = object(run.local_matcher, "local matcher");
   return {
     run_id: text(run.run_id, "run ID"),
-    detector: parseAlgorithm(run.detector, "detector"),
-    matcher: parseAlgorithm(run.matcher, "matcher"),
-    feature_index_path: assetPath(run.feature_index_path),
-    pair_index_path: assetPath(run.pair_index_path)
+    feature: {
+      profile: text(feature.profile, "feature profile"),
+      extractor: text(feature.extractor, "feature extractor"),
+      descriptor: text(feature.descriptor, "feature descriptor"),
+      max_features: positiveInteger(feature.max_features, "maximum features"),
+      extractor_model_sha256: optionalSha256(
+        feature.extractor_model_sha256,
+        "extractor model SHA-256"
+      ),
+      implementation: text(feature.implementation, "feature implementation"),
+      version: text(feature.version, "feature version")
+    },
+    local_matcher: {
+      ...parseAlgorithm(localMatcher, "local matcher"),
+      model_sha256: optionalSha256(
+        localMatcher.model_sha256,
+        "matcher model SHA-256"
+      )
+    },
+    pairing: parseAlgorithm(run.pairing, "pairing"),
+    mapper: parseAlgorithm(run.mapper, "mapper"),
+    feature_index_path: featureIndexPath,
+    pair_index_path: pairIndexPath
   };
 }
 
@@ -457,6 +531,13 @@ function finiteVec3(value: unknown, label: string): Vec3 {
     throw new Error(`${label} must be a 3-vector`);
   }
   return value.map((entry) => finite(entry, label)) as Vec3;
+}
+
+function optionalSha256(value: unknown, label: string): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return sha256(value, label);
 }
 
 function sha256(value: unknown, label: string): string {

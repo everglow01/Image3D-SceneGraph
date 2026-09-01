@@ -64,6 +64,60 @@ function payload(images: unknown[]) {
   };
 }
 
+function v2Payload(images: unknown[]) {
+  return {
+    ...payload(images),
+    schema_version: 2,
+    profile: "sfm_frontend_diagnostics_v2",
+    runs: [
+      {
+        run_id: "run-1",
+        feature: {
+          profile: "aliked_n16rot_v1",
+          extractor: "ALIKED_N16ROT",
+          descriptor: "ALIKED",
+          max_features: 8192,
+          extractor_model_sha256: hash,
+          implementation: "colmap",
+          version: "4.0"
+        },
+        local_matcher: {
+          name: "ALIKED_BRUTEFORCE",
+          implementation: "colmap",
+          version: "4.0",
+          model_sha256: hash
+        },
+        pairing: { name: "exhaustive", implementation: "colmap", version: "4.0" },
+        mapper: { name: "incremental", implementation: "colmap", version: "4.0" },
+        feature_index_path: "diagnostics/sfm/features.json.gz",
+        pair_index_path: "diagnostics/sfm/pairs.json.gz"
+      }
+    ]
+  };
+}
+
+
+test("schema 1 provenance maps to explicit SIFT stages", () => {
+  const run = parseSfmDiagnostics(payload([image(1, [0, 0, 0], [0, 0, 1])])).runs[0];
+
+  assert.equal(run.feature.profile, "sift_v1");
+  assert.equal(run.feature.extractor, "SIFT");
+  assert.equal(run.local_matcher.name, "SIFT_BRUTEFORCE");
+  assert.equal(run.pairing.name, "sequential");
+  assert.equal(run.mapper.name, "incremental");
+});
+
+
+test("schema 2 preserves learned feature provenance", () => {
+  const run = parseSfmDiagnostics(v2Payload([image(1, [0, 0, 0], [0, 0, 1])])).runs[0];
+
+  assert.equal(run.feature.profile, "aliked_n16rot_v1");
+  assert.equal(run.feature.extractor_model_sha256, hash);
+  assert.equal(run.local_matcher.name, "ALIKED_BRUTEFORCE");
+  assert.equal(run.pairing.name, "exhaustive");
+});
+
+
 test("exact input camera pose ranks itself first", () => {
   const diagnostics = parseSfmDiagnostics(
     payload([

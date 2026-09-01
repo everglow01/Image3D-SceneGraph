@@ -254,7 +254,7 @@ export function SfmInspectionPanel({
               <select value={run.run_id} onChange={(event) => setSelectedRunId(event.target.value)}>
                 {diagnostics.runs.map((item) => (
                   <option key={item.run_id} value={item.run_id}>
-                    {item.detector.name} + {item.matcher.name}
+                    {item.feature.extractor} + {item.local_matcher.name}
                   </option>
                 ))}
               </select>
@@ -265,8 +265,14 @@ export function SfmInspectionPanel({
       </header>
 
       <div className="sfm-run-provenance">
-        <span>Detector: {run.detector.implementation}/{run.detector.name} {run.detector.version}</span>
-        <span>Matcher: {run.matcher.implementation}/{run.matcher.name} {run.matcher.version}</span>
+        <span>
+          特征: {run.feature.implementation}/{run.feature.extractor}（{run.feature.profile}）
+        </span>
+        <span>
+          局部匹配: {run.local_matcher.implementation}/{run.local_matcher.name}
+        </span>
+        <span>图像对: {run.pairing.name}</span>
+        <span>求解器: {run.mapper.name}</span>
       </div>
 
       <div className="sfm-inspector-controls">
