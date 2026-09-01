@@ -82,6 +82,7 @@ Current mock API:
 - `geometry_backend`: `mock`, `vggt`, `colmap`, `colmap_vggt`, `project_3dgs`, `dust3r`, or `mast3r`
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `gaussian_trainer`: `graphdeco` (default), `project`, or experimental `mcmc`; used only with `project_3dgs + gaussian_splat`
+- `sfm_feature_profile`: `sift_v1` (default) or experimental `aliked_n16rot_v1`; used by `colmap`, `colmap_vggt`, and the final COLMAP feature stage of `project_3dgs`
 - `gaussian_geometry_source`: `colmap` (default) or video-only `vggt_ba` (experimental/research-only)
 - `gaussian_postprocess`: `none` (default) or `vggt_visibility_v1` (experimental/research-only)
 - `gaussian_longest_edge`: 1280–3072px; used only with `project_3dgs + gaussian_splat`
@@ -179,13 +180,41 @@ uv run python scripts/setup_colmap_cuda.py --install
 
 The pinned production build is installed under ignored `external/colmap-4-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`. The RTX 4060 development build uses CUDA 12.2, SM 89, ONNX Runtime, and cuDNN 9.
 
+The experimental `aliked_n16rot_v1` profile additionally needs two pinned COLMAP ONNX assets. Setup is dry-run by default; jobs verify local size/SHA-256 and never download models or silently fall back to SIFT:
+
+```bash
+uv run python scripts/setup_colmap_learned_features.py
+uv run python scripts/setup_colmap_learned_features.py --install
+```
+
+A geometry runner can then select it explicitly:
+
+```bash
+uv run python scripts/run_colmap_sparse.py \
+  --image-dir INPUT \
+  --output-dir OUTPUT \
+  --feature-profile aliked_n16rot_v1
+```
+
+The same profile is available through the asynchronous API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/jobs \
+  -F mode=multi_image \
+  -F geometry_backend=colmap \
+  -F output_type=point_cloud \
+  -F sfm_feature_profile=aliked_n16rot_v1 \
+  -F files=@view-01.jpg \
+  -F files=@view-02.jpg
+```
+
 Sequential matching with vocab-tree loop detection (experimental `colmap_matcher=sequential` for video Gaussian jobs, and `run_colmap_sparse.py --vocab-tree-path`) needs the Flickr100K vocab tree under ignored `external/colmap-vocab/`. The setup script is a dry run unless `--install` is supplied:
 
 ```bash
 uv run python scripts/setup_colmap_vocab_tree.py --install
 ```
 
-The production pipeline retains SIFT extraction, brute-force matching, and incremental Mapper. COLMAP 4's ALIKED, LightGlue, and Global Mapper remain experimental and require controlled Validation ablations before any promotion; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+The production default retains `sift_v1`, brute-force matching, and incremental Mapper. `aliked_n16rot_v1` is an explicit experimental feature profile with the same 8,192-keypoint cap and descriptor-compatible brute-force matcher. LightGlue and Global Mapper remain unexposed pending later single-factor phases and controlled Validation ablations; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Run COLMAP sparse SfM directly for a local image folder:
 
