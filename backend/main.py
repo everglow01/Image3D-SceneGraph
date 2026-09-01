@@ -338,6 +338,12 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="asset not found") from exc
+        if path.name.endswith(".json.gz"):
+            return FileResponse(
+                path,
+                media_type="application/json",
+                headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+            )
         return FileResponse(path)
 
     @app.get("/api/jobs/{job_id}/download")
