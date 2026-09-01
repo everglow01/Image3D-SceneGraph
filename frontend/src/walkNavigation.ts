@@ -1,3 +1,5 @@
+import { applyMat3, type Mat3 } from "./gaussianViewerMetadata.ts";
+
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 
@@ -406,4 +408,28 @@ function objectRecord(value: unknown, label: string): Record<string, unknown> {
     throw new Error(`${label} must be an object`);
   }
   return value as Record<string, unknown>;
+}
+
+// Rotate every world-space vector of the contract by the viewer's display-only
+// upright rotation so walk physics stays registered with the rotated splats.
+// Boundary coordinates live in the floor uv plane and are untouched.
+export function transformNavigationContract(
+  contract: NavigationContract,
+  rotation: Mat3
+): NavigationContract {
+  return {
+    ...contract,
+    up: applyMat3(rotation, contract.up),
+    floor: {
+      origin: applyMat3(rotation, contract.floor.origin),
+      basis_u: applyMat3(rotation, contract.floor.basis_u),
+      basis_v: applyMat3(rotation, contract.floor.basis_v)
+    },
+    spawn: {
+      ...contract.spawn,
+      floor_position: applyMat3(rotation, contract.spawn.floor_position),
+      eye_position: applyMat3(rotation, contract.spawn.eye_position),
+      look_direction: applyMat3(rotation, contract.spawn.look_direction)
+    }
+  };
 }

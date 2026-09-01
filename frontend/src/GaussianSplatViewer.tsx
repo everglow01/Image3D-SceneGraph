@@ -6,11 +6,16 @@ import { Capsule } from "three/examples/jsm/math/Capsule.js";
 import { Octree } from "three/examples/jsm/math/Octree.js";
 import {
   deriveGaussianViewerFrame,
+  deriveUprightRotation,
   parseContentLength,
   parseGaussianCameraPath,
   parseGaussianExportMetadata,
-  viewerAlphaThreshold
+  signedUprightAxis,
+  viewerAlphaThreshold,
+  type Mat3
 } from "./gaussianViewerMetadata";
+import { SfmInspectionPanel } from "./SfmInspectionPanel";
+import { parseSfmDiagnostics, type SfmDiagnostics, type Vec3 } from "./sfmDiagnostics";
 import {
   clampPitchRadians,
   defaultWalkSettings,
@@ -18,6 +23,7 @@ import {
   parseWalkSettings,
   planarWalkVelocity,
   pointInNavigationBoundary,
+  transformNavigationContract,
   type NavigationContract,
   type WalkSettings
 } from "./walkNavigation";
@@ -26,6 +32,9 @@ type GaussianSplatViewerProps = {
   sourceUrl: string | null;
   metadataUrl: string | null;
   cameraPathUrl: string | null;
+  alignmentUrl: string | null;
+  jobId: string | null;
+  sfmDiagnosticsUrl: string | null;
   collisionMeshUrl: string | null;
   navigationUrl: string | null;
   navigationStatus: string | null;
@@ -209,6 +218,9 @@ export function GaussianSplatViewer({
   sourceUrl,
   metadataUrl,
   cameraPathUrl,
+  alignmentUrl,
+  jobId,
+  sfmDiagnosticsUrl,
   collisionMeshUrl,
   navigationUrl,
   navigationStatus,
@@ -217,6 +229,7 @@ export function GaussianSplatViewer({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
+  const uprightRotationRef = useRef<THREE.Matrix3 | null>(null);
   const walkRuntimeRef = useRef<WalkRuntime | null>(null);
   const settingsRef = useRef<WalkSettings | null>(null);
   const viewerModeRef = useRef<ViewerMode>("orbit");
@@ -230,6 +243,54 @@ export function GaussianSplatViewer({
   const [walkMessage, setWalkMessage] = useState("环绕查看模式");
   const [boundaryHint, setBoundaryHint] = useState(false);
   const [alphaControl, setAlphaControl] = useState<{ baseline: number; value: number } | null>(null);
+  const [sfmDiagnostics, setSfmDiagnostics] = useState<SfmDiagnostics | null>(null);
+  const [sfmQuery, setSfmQuery] = useState<{ center: Vec3; forward: Vec3 } | null>(null);
+  const [sfmLoading, setSfmLoading] = useState(false);
+  const [sfmMessage, setSfmMessage] = useState("");
+  const [uprightAvailable, setUprightAvailable] = useState(false);
+
+  const inspectInputViews = async () => {
+    const viewer = viewerRef.current;
+    if (
+      !viewer ||
+      viewerState !== "ready" ||
+      viewerModeRef.current !== "orbit" ||
+      !jobId ||
+      !sfmDiagnosticsUrl
+    ) {
+      return;
+    }
+    setSfmLoading(true);
+    setSfmMessage("");
+    try {
+      const diagnostics =
+        sfmDiagnostics ??
+        parseSfmDiagnostics(
+          await fetch(sfmDiagnosticsUrl).then((response) => {
+            if (!response.ok) {
+              throw new Error(`SfM 诊断加载失败：${response.status}`);
+            }
+            return response.json();
+          })
+        );
+      setSfmDiagnostics(diagnostics);
+      const direction = viewer.camera.getWorldDirection(new THREE.Vector3());
+      const position = viewer.camera.position.clone();
+      const inverse = uprightRotationRef.current?.clone().transpose() ?? null;
+      if (inverse) {
+        position.applyMatrix3(inverse);
+        direction.applyMatrix3(inverse);
+      }
+      setSfmQuery({
+        center: position.toArray() as Vec3,
+        forward: direction.toArray() as Vec3
+      });
+    } catch (error) {
+      setSfmMessage(error instanceof Error ? error.message : "SfM 诊断加载失败");
+    } finally {
+      setSfmLoading(false);
+    }
+  };
 
   const setView = (preset: ViewPreset) => {
     const viewer = viewerRef.current;
@@ -237,6 +298,14 @@ export function GaussianSplatViewer({
       return;
     }
     applyViewPreset(viewer, sceneFrameRef.current, preset);
+  };
+
+  const resetUprightView = () => {
+    const viewer = viewerRef.current;
+    if (!viewer || !uprightAvailable || viewerModeRef.current !== "orbit") {
+      return;
+    }
+    applyViewPreset(viewer, sceneFrameRef.current, "fit");
   };
 
   const enterWalk = () => {
@@ -324,6 +393,7 @@ export function GaussianSplatViewer({
     if (!mount || !sourceUrl || !metadataUrl) {
       setViewerState("idle");
       setNavigationState("idle");
+      uprightRotationRef.current = null;
       return;
     }
 
@@ -337,6 +407,10 @@ export function GaussianSplatViewer({
     setSettings(null);
     setWalkMessage("环绕查看模式");
     setAlphaControl(null);
+    setSfmDiagnostics(null);
+    setSfmQuery(null);
+    setSfmMessage("");
+    setUprightAvailable(false);
     mount.replaceChildren();
     void fetch(sourceUrl, { method: "HEAD", signal: controller.signal })
       .then((response) => {
@@ -358,22 +432,43 @@ export function GaussianSplatViewer({
           throw new Error(`Gaussian export metadata request failed: ${response.status}`);
         }
         const metadata = parseGaussianExportMetadata(await response.json());
-        const cameraFrame = cameraPathUrl
-          ? await fetch(cameraPathUrl, { signal: controller.signal })
-              .then(async (cameraResponse) => {
-                if (!cameraResponse.ok) {
-                  throw new Error(`Gaussian camera path request failed: ${cameraResponse.status}`);
-                }
-                return deriveGaussianViewerFrame(metadata, parseGaussianCameraPath(await cameraResponse.json()));
-              })
-              .catch(() => null)
-          : null;
+        const [cameraFrame, uprightRotation] = await Promise.all([
+          cameraPathUrl
+            ? fetch(cameraPathUrl, { signal: controller.signal })
+                .then(async (cameraResponse) => {
+                  if (!cameraResponse.ok) {
+                    throw new Error(`Gaussian camera path request failed: ${cameraResponse.status}`);
+                  }
+                  return deriveGaussianViewerFrame(metadata, parseGaussianCameraPath(await cameraResponse.json()));
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
+          alignmentUrl
+            ? fetch(alignmentUrl, { signal: controller.signal })
+                .then(async (alignmentResponse) =>
+                  alignmentResponse.ok
+                    ? deriveUprightRotation(metadata, await alignmentResponse.json())
+                    : null
+                )
+                .catch(() => null)
+            : Promise.resolve(null)
+        ]);
         if (cancelled) {
           return;
         }
+        const rotation = uprightRotation ? matrix3FromMat3(uprightRotation) : null;
+        uprightRotationRef.current = rotation;
+        setUprightAvailable(rotation !== null);
+        const rotateVec3 = (value: [number, number, number]): [number, number, number] =>
+          rotation
+            ? (new THREE.Vector3(...value).applyMatrix3(rotation).toArray() as [number, number, number])
+            : value;
         auxiliaryScene = new THREE.Scene();
-        const cameraUp = cameraFrame?.up ?? [0, 0, 1];
-        const cameraCenter = cameraFrame?.center ?? metadata.scene_center ?? [0, 0, 0];
+        const uprightAxis = rotation
+          ? signedUprightAxis(rotateVec3(cameraFrame?.up ?? [0, 0, 1]))
+          : null;
+        const cameraUp: [number, number, number] = uprightAxis ?? cameraFrame?.up ?? [0, 0, 1];
+        const cameraCenter = rotateVec3(cameraFrame?.center ?? metadata.scene_center ?? [0, 0, 0]);
         viewer = new GaussianSplats3D.Viewer({
           rootElement: mount,
           cameraUp,
@@ -390,12 +485,29 @@ export function GaussianSplatViewer({
         await viewer.addSplatScene(sourceUrl, {
           showLoadingUI: true,
           progressiveLoad: true,
-          splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity)
+          splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity),
+          ...(rotation
+            ? {
+                rotation: new THREE.Quaternion()
+                  .setFromRotationMatrix(new THREE.Matrix4().setFromMatrix3(rotation))
+                  .toArray()
+              }
+            : {})
         });
         if (cancelled) {
           return;
         }
-        sceneFrameRef.current = getSceneFrame(viewer, metadata.scene_center, metadata.scene_radius_p95, cameraFrame);
+        sceneFrameRef.current = getSceneFrame(
+          viewer,
+          metadata.scene_center ? rotateVec3(metadata.scene_center) : null,
+          metadata.scene_radius_p95,
+          cameraFrame
+            ? {
+                center: rotateVec3(cameraFrame.center),
+                up: uprightAxis ?? cameraFrame.up
+              }
+            : null
+        );
         configureControls(viewer, sceneFrameRef.current);
         applyViewPreset(viewer, sceneFrameRef.current, "fit");
         if (patchSplatAlphaThreshold(viewer, metadata.viewer_minimum_opacity)) {
@@ -410,7 +522,8 @@ export function GaussianSplatViewer({
               navigationUrl,
               collisionMeshUrl,
               auxiliaryScene,
-              controller.signal
+              controller.signal,
+              uprightRotation
             );
             if (cancelled) {
               disposeWalkRuntime(runtime);
@@ -470,7 +583,7 @@ export function GaussianSplatViewer({
       auxiliaryScene?.clear();
       mount.replaceChildren();
     };
-  }, [sourceUrl, metadataUrl, cameraPathUrl, collisionMeshUrl, navigationUrl, navigationStatus]);
+  }, [sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, navigationStatus]);
 
   const walkReady = viewerState === "ready" && navigationState === "ready";
   const unavailableMessage =
@@ -487,6 +600,17 @@ export function GaussianSplatViewer({
       <div className="splat-root" ref={mountRef} />
       {sourceUrl && (
         <div className="splat-toolbar" aria-label="高斯泼溅控制">
+          {viewerMode === "orbit" && (
+            <button
+              className={uprightAvailable ? "viewer-tool-button active" : "viewer-tool-button"}
+              disabled={viewerState !== "ready" || !uprightAvailable}
+              onClick={resetUprightView}
+              title={uprightAvailable ? "使用 SfM 主平面对齐并恢复水平相机" : "该 job 没有可用的 SfM 对齐数据"}
+              type="button"
+            >
+              摆正视图
+            </button>
+          )}
           {viewerMode === "orbit" &&
             (Object.keys(VIEW_PRESETS) as ViewPreset[]).map((preset) => (
               <button
@@ -499,6 +623,21 @@ export function GaussianSplatViewer({
                 {VIEW_PRESETS[preset].label}
               </button>
             ))}
+          <button
+            className={sfmQuery ? "viewer-tool-button active" : "viewer-tool-button"}
+            disabled={
+              viewerState !== "ready" ||
+              viewerMode !== "orbit" ||
+              !jobId ||
+              !sfmDiagnosticsUrl ||
+              sfmLoading
+            }
+            onClick={() => void inspectInputViews()}
+            title={sfmDiagnosticsUrl ? "查找当前视角最相似的输入图片" : "该 job 未保存 SfM 诊断数据"}
+            type="button"
+          >
+            {sfmLoading ? "正在查询…" : "检查输入视图"}
+          </button>
           <button
             className={viewerMode === "walk" ? "viewer-tool-button active" : "viewer-tool-button"}
             disabled={!walkReady}
@@ -520,6 +659,16 @@ export function GaussianSplatViewer({
           </button>
         </div>
       )}
+      {sfmDiagnostics && sfmQuery && jobId && (
+        <SfmInspectionPanel
+          diagnostics={sfmDiagnostics}
+          jobId={jobId}
+          onClose={() => setSfmQuery(null)}
+          queryCenter={sfmQuery.center}
+          queryForward={sfmQuery.forward}
+        />
+      )}
+      {sfmMessage && <div className="boundary-hint">{sfmMessage}</div>}
       {settings && walkReady && (
         <div className="walk-settings" aria-label="漫游设置">
           <label>
@@ -597,7 +746,7 @@ export function GaussianSplatViewer({
         <div className="viewer-hint">
           {viewerMode === "walk"
             ? "第一人称漫游 · WASD/方向键移动 · 鼠标观察 · Esc 退出"
-            : "标准归一化坐标 · 任意单位（非米制）"}
+            : `${uprightAvailable ? "SfM 主平面已摆正 · " : ""}标准归一化坐标 · 任意单位（非米制）`}
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
           {viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
           {navigationState !== "ready" ? ` · ${unavailableMessage}` : ""}
@@ -618,7 +767,8 @@ async function loadWalkRuntime(
   navigationUrl: string,
   collisionMeshUrl: string,
   scene: THREE.Scene,
-  signal: AbortSignal
+  signal: AbortSignal,
+  uprightRotation: Mat3 | null
 ): Promise<WalkRuntime> {
   const [navigationResponse, collisionResponse] = await Promise.all([
     fetch(navigationUrl, { signal }),
@@ -631,7 +781,9 @@ async function loadWalkRuntime(
     throw new Error(`Collision mesh request failed: ${collisionResponse.status}`);
   }
 
-  const contract = parseNavigationContract(await navigationResponse.json());
+  const contract = uprightRotation
+    ? transformNavigationContract(parseNavigationContract(await navigationResponse.json()), uprightRotation)
+    : parseNavigationContract(await navigationResponse.json());
   const collisionBuffer = await collisionResponse.arrayBuffer();
   if (collisionBuffer.byteLength !== contract.collision.bytes) {
     throw new Error("Collision mesh size does not match the navigation contract");
@@ -643,6 +795,12 @@ async function loadWalkRuntime(
 
   const gltf = await new GLTFLoader().parseAsync(collisionBuffer, collisionMeshUrl.slice(0, collisionMeshUrl.lastIndexOf("/") + 1));
   const collisionRoot = gltf.scene;
+  if (uprightRotation) {
+    collisionRoot.quaternion.setFromRotationMatrix(
+      new THREE.Matrix4().setFromMatrix3(matrix3FromMat3(uprightRotation))
+    );
+    collisionRoot.updateMatrixWorld(true);
+  }
   let triangles = 0;
   collisionRoot.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) {
@@ -1022,6 +1180,14 @@ function isMovementKey(code: string) {
 
 function hexDigest(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function matrix3FromMat3(matrix: Mat3): THREE.Matrix3 {
+  return new THREE.Matrix3().set(
+    matrix[0][0], matrix[0][1], matrix[0][2],
+    matrix[1][0], matrix[1][1], matrix[1][2],
+    matrix[2][0], matrix[2][1], matrix[2][2]
+  );
 }
 
 function disposeWalkRuntime(runtime: WalkRuntime) {

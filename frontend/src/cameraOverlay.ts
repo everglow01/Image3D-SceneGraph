@@ -85,13 +85,13 @@ function parseColmapFrames(payload: Record<string, unknown>, depth: number): Cam
     }
     const qvec = finiteVector(image.qvec, 4, "COLMAP qvec");
     const tvec = finiteVector(image.tvec, 3, "COLMAP tvec") as Vec3;
-    const worldFromCamera = transpose3(qvecToRotation(qvec));
-    const center = scale3(multiply3(worldFromCamera, tvec), -1);
+    const rotation = qvecToRotation(qvec);
+    const center = scale3(multiply3(transpose3(rotation), tvec), -1);
     const cameraCorners = imagePlaneCorners(colmapIntrinsics(camera), depth);
     return {
       center,
       corners: cameraCorners.map((corner) =>
-        add3(center, multiply3(worldFromCamera, corner))
+        add3(center, multiply3(rotation, corner))
       ) as CameraFrame["corners"]
     };
   });

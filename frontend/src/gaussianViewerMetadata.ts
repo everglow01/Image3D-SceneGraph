@@ -1,3 +1,5 @@
+import { parseAlignmentTransform, type Mat4 as AlignmentMat4 } from "./cameraOverlay.ts";
+
 export type Vec3 = [number, number, number];
 export type Mat4 = [
   [number, number, number, number],
@@ -198,4 +200,100 @@ function dot(left: number[], right: number[]): number {
 
 export function viewerAlphaThreshold(minimumOpacity: number): number {
   return Math.floor(minimumOpacity * 255);
+}
+
+export type Mat3 = [Vec3, Vec3, Vec3];
+
+// Display-only upright rotation for the Gaussian viewer: the alignment transform
+// (raw COLMAP world -> Z-up) composed with the export's world_from_normalized,
+// rotation part only. Null means "no alignment, keep trained orientation".
+export function deriveUprightRotation(
+  metadata: GaussianExportMetadata,
+  alignmentPayload: unknown
+): Mat3 | null {
+  if (!metadata.world_from_normalized) {
+    return null;
+  }
+  let alignment: AlignmentMat4;
+  try {
+    alignment = parseAlignmentTransform(alignmentPayload);
+  } catch {
+    return null;
+  }
+  const world = unitRotation(metadata.world_from_normalized);
+  if (!world) {
+    return null;
+  }
+  const rotation = multiplyMat3(
+    [
+      [alignment[0][0], alignment[0][1], alignment[0][2]],
+      [alignment[1][0], alignment[1][1], alignment[1][2]],
+      [alignment[2][0], alignment[2][1], alignment[2][2]]
+    ],
+    world
+  );
+  return isRotation(rotation) ? rotation : null;
+}
+
+export function applyMat3(matrix: Mat3, vector: Vec3): Vec3 {
+  return [
+    matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
+    matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
+    matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2]
+  ];
+}
+
+export function signedUprightAxis(rotatedCameraUp: Vec3): Vec3 {
+  return [0, 0, rotatedCameraUp[2] < 0 ? -1 : 1];
+}
+
+function unitRotation(matrix: Mat4): Mat3 | null {
+  const columns: Vec3[] = [];
+  for (let column = 0; column < 3; column += 1) {
+    const vector: Vec3 = [matrix[0][column], matrix[1][column], matrix[2][column]];
+    const length = Math.hypot(...vector);
+    if (!Number.isFinite(length) || length <= 1e-12) {
+      return null;
+    }
+    columns.push([vector[0] / length, vector[1] / length, vector[2] / length]);
+  }
+  const rotation: Mat3 = [
+    [columns[0][0], columns[1][0], columns[2][0]],
+    [columns[0][1], columns[1][1], columns[2][1]],
+    [columns[0][2], columns[1][2], columns[2][2]]
+  ];
+  return isRotation(rotation) ? rotation : null;
+}
+
+function isRotation(matrix: Mat3): boolean {
+  const determinant =
+    matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]) -
+    matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]) +
+    matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+  if (Math.abs(determinant - 1) > 1e-6) {
+    return false;
+  }
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      const dot =
+        matrix[row][0] * matrix[column][0] +
+        matrix[row][1] * matrix[column][1] +
+        matrix[row][2] * matrix[column][2];
+      if (Math.abs(dot - (row === column ? 1 : 0)) > 1e-6) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function multiplyMat3(left: Mat3, right: Mat3): Mat3 {
+  return [0, 1, 2].map((row) =>
+    [0, 1, 2].map(
+      (column) =>
+        left[row][0] * right[0][column] +
+        left[row][1] * right[1][column] +
+        left[row][2] * right[2][column]
+    )
+  ) as Mat3;
 }

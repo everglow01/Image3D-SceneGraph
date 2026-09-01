@@ -12,6 +12,7 @@ import {
   type Mat4,
   type Vec3
 } from "./cameraOverlay";
+import { robustCloudBounds } from "./pointCloudBounds";
 
 type PointCloudViewerProps = {
   sourceUrl: string | null;
@@ -172,12 +173,12 @@ export function PointCloudViewer({
         }
 
         geometry.computeVertexNormals();
-        geometry.computeBoundingSphere();
-        const cloudCenter = geometry.boundingSphere?.center.clone() ?? new THREE.Vector3();
-        const radius = geometry.boundingSphere?.radius ?? 1;
-        cloudCenterRef.current = cloudCenter.toArray() as Vec3;
+        const attribute = geometry.getAttribute("position");
+        const bounds = robustCloudBounds(attribute.array as ArrayLike<number>, attribute.count);
+        const radius = bounds.radius;
+        cloudCenterRef.current = bounds.center;
         cloudRadiusRef.current = radius;
-        geometry.center();
+        geometry.translate(-bounds.center[0], -bounds.center[1], -bounds.center[2]);
 
         const hasVertexColors = geometry.hasAttribute("color");
         const material = new THREE.PointsMaterial({
@@ -197,6 +198,8 @@ export function PointCloudViewer({
         camera.far = Math.max(radius * 100, 100);
         camera.updateProjectionMatrix();
         controls.target.set(0, 0, 0);
+        controls.minDistance = radius * 0.02;
+        controls.maxDistance = radius * 20;
         controls.update();
 
         setViewerState("ready");
@@ -247,7 +250,7 @@ export function PointCloudViewer({
         if (cancelled) {
           return;
         }
-        const frames = parseCameraFrames(cameraPayload, cloudRadiusRef.current * 0.025);
+        const frames = parseCameraFrames(cameraPayload, cloudRadiusRef.current * 0.02);
         const alignment: Mat4 | null = alignmentPayload
           ? parseAlignmentTransform(alignmentPayload)
           : null;

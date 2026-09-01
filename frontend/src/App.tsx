@@ -94,6 +94,8 @@ type Manifest = {
   assets: {
     point_cloud?: string;
     point_cloud_aligned?: string;
+    sfm_sparse_point_cloud?: string;
+    sfm_diagnostics?: string;
     cameras?: string;
     alignment_diagnostics?: string;
     fusion_diagnostics?: string;
@@ -406,10 +408,22 @@ export function App() {
     mode !== "video" || (selectedBackendStatus?.video_ingestion?.available ?? true);
   const selectedOutputSupported =
     selectedBackendStatus?.supported_outputs.includes(outputType) ?? true;
-  const selectedPointCloudAsset =
-    pointCloudVariant === "aligned" && manifest?.assets.point_cloud_aligned
+  const hasProductPointCloud = Boolean(manifest?.assets.point_cloud);
+  const selectedProductPointCloudAsset = hasProductPointCloud
+    ? pointCloudVariant === "aligned" && manifest?.assets.point_cloud_aligned
       ? manifest.assets.point_cloud_aligned
-      : manifest?.assets.point_cloud;
+      : manifest?.assets.point_cloud
+    : null;
+  const selectedPointCloudAsset =
+    selectedProductPointCloudAsset ??
+    (manifest?.assets.sfm_sparse_point_cloud
+      ? pointCloudVariant === "aligned" && manifest?.assets.point_cloud_aligned
+        ? manifest.assets.point_cloud_aligned
+        : manifest.assets.sfm_sparse_point_cloud
+      : null);
+  const showingSfmSparsePointCloud = Boolean(
+    manifest?.assets.sfm_sparse_point_cloud && !hasProductPointCloud
+  );
   const pointCloudUrl = useMemo(() => {
     if (!manifest || !selectedPointCloudAsset) {
       return null;
@@ -421,6 +435,12 @@ export function App() {
       return null;
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.cameras}`;
+  }, [manifest]);
+  const sfmDiagnosticsUrl = useMemo(() => {
+    if (!manifest?.assets.sfm_diagnostics) {
+      return null;
+    }
+    return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.sfm_diagnostics}`;
   }, [manifest]);
   const alignmentDiagnosticsUrl = useMemo(() => {
     if (!manifest?.assets.alignment_diagnostics) {
@@ -477,7 +497,11 @@ export function App() {
     const cacheKey = selectedMeshVariant?.id ?? "primary";
     return `/api/jobs/${manifest.job_id}/assets/${selectedMeshAsset}?mesh_variant=${encodeURIComponent(cacheKey)}`;
   }, [manifest, selectedMeshAsset, selectedMeshVariant]);
-  const hasPointCloud = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
+  const hasPointCloud = Boolean(
+    manifest?.assets.point_cloud ||
+      manifest?.assets.point_cloud_aligned ||
+      manifest?.assets.sfm_sparse_point_cloud
+  );
   const hasMesh = Boolean(selectedMeshAsset);
   const hasSplat = Boolean(manifest?.assets.scene_splat);
   const viewerAsset =
@@ -567,10 +591,22 @@ export function App() {
       nextManifest.assets.scene_splat_vggt_filtered ? "vggt_filtered" : "original"
     );
     setViewerMode((current) => {
-      const hasPointCloud = Boolean(nextManifest.assets.point_cloud || nextManifest.assets.point_cloud_aligned);
+      const hasProductPointCloud = Boolean(
+        nextManifest.assets.point_cloud || nextManifest.assets.point_cloud_aligned
+      );
+      const hasPointCloud = Boolean(
+        hasProductPointCloud || nextManifest.assets.sfm_sparse_point_cloud
+      );
       const hasMesh = Boolean(nextManifest.assets.mesh);
       const hasSplat = Boolean(nextManifest.assets.scene_splat);
-      if (preferPointCloud && hasPointCloud) {
+      if (
+        nextManifest.output_type === "gaussian_splat" &&
+        hasSplat &&
+        (preferPointCloud || !manifest?.assets.scene_splat)
+      ) {
+        return "gaussian_splat";
+      }
+      if (preferPointCloud && hasProductPointCloud) {
         return "point_cloud";
       }
       if (
@@ -1376,7 +1412,7 @@ export function App() {
                 <div className="variant-toggle" role="group" aria-label="几何预览类型">
                   {hasPointCloud && (
                     <button className={viewerMode === "point_cloud" ? "active" : ""} type="button" onClick={() => setViewerMode("point_cloud")}>
-                      点云（Point Cloud）
+                      {showingSfmSparsePointCloud ? "SfM 稀疏点云" : "点云（Point Cloud）"}
                     </button>
                   )}
                   {hasMesh && (
@@ -1395,7 +1431,7 @@ export function App() {
                   )}
                 </div>
               )}
-              {hasPointCloud && viewerMode === "point_cloud" && (
+              {hasPointCloud && viewerMode === "point_cloud" && (!showingSfmSparsePointCloud || hasAlignedPointCloud) && (
                 <div className="variant-toggle" role="group" aria-label="点云视图">
                   <button
                     className={pointCloudVariant === "raw" || !hasAlignedPointCloud ? "active" : ""}
@@ -1454,14 +1490,14 @@ export function App() {
           <GeometryViewer
             pointCloudUrl={visiblePointCloudUrl}
             camerasUrl={viewerMode === "point_cloud" ? camerasUrl : null}
-            alignmentDiagnosticsUrl={
-              viewerMode === "point_cloud" ? alignmentDiagnosticsUrl : null
-            }
+            alignmentDiagnosticsUrl={alignmentDiagnosticsUrl}
             pointCloudVariant={pointCloudVariant}
             meshUrl={visibleMeshUrl}
             splatUrl={visibleSplatUrl}
             splatMetadataUrl={viewerMode === "gaussian_splat" ? splatMetadataUrl : null}
             splatCameraPathUrl={viewerMode === "gaussian_splat" ? splatCameraPathUrl : null}
+            jobId={manifest?.job_id ?? null}
+            sfmDiagnosticsUrl={viewerMode === "gaussian_splat" ? sfmDiagnosticsUrl : null}
             collisionMeshUrl={viewerMode === "gaussian_splat" ? collisionMeshUrl : null}
             navigationUrl={viewerMode === "gaussian_splat" ? navigationUrl : null}
             navigationStatus={manifest?.navigation_status ?? null}

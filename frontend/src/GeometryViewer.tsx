@@ -11,6 +11,8 @@ type GeometryViewerProps = {
   splatUrl: string | null;
   splatMetadataUrl: string | null;
   splatCameraPathUrl: string | null;
+  jobId: string | null;
+  sfmDiagnosticsUrl: string | null;
   collisionMeshUrl: string | null;
   navigationUrl: string | null;
   navigationStatus: string | null;
@@ -26,6 +28,8 @@ export function GeometryViewer({
   splatUrl,
   splatMetadataUrl,
   splatCameraPathUrl,
+  jobId,
+  sfmDiagnosticsUrl,
   collisionMeshUrl,
   navigationUrl,
   navigationStatus,
@@ -37,6 +41,9 @@ export function GeometryViewer({
         sourceUrl={splatUrl}
         metadataUrl={splatMetadataUrl}
         cameraPathUrl={splatCameraPathUrl}
+        alignmentUrl={alignmentDiagnosticsUrl}
+        jobId={jobId}
+        sfmDiagnosticsUrl={sfmDiagnosticsUrl}
         collisionMeshUrl={collisionMeshUrl}
         navigationUrl={navigationUrl}
         navigationStatus={navigationStatus}

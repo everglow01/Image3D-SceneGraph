@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   deriveGaussianViewerFrame,
+  deriveUprightRotation,
   parseContentLength,
   parseGaussianCameraPath,
   parseGaussianExportMetadata,
+  signedUprightAxis,
   viewerAlphaThreshold,
   type Mat4
 } from "../src/gaussianViewerMetadata.ts";
@@ -132,4 +134,42 @@ test("unusable camera orientation falls back without failing the asset", () => {
     () => parseGaussianCameraPath({ schema_version: 1, coordinate_frame: "normalized", keyframes: [] }),
     /at least two/
   );
+});
+
+test("deriveUprightRotation composes alignment over the export transform", () => {
+  const identity: Mat4 = [
+    [1, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1]
+  ];
+  const meta = (world: Mat4 | null) => ({
+    sh_degree: 0,
+    viewer_minimum_opacity: 0.005,
+    scene_center: null,
+    scene_radius_p95: null,
+    world_from_normalized: world
+  });
+  const alignment = {
+    transform: [
+      [0, 0, 1, 0],
+      [0, 1, 0, 0],
+      [-1, 0, 0, 0],
+      [0, 0, 0, 1]
+    ]
+  };
+  const expected = [
+    [0, 0, 1],
+    [0, 1, 0],
+    [-1, 0, 0]
+  ];
+  assert.deepEqual(deriveUprightRotation(meta(identity), alignment), expected);
+  const scaled = identity.map((row, rowIndex) =>
+    row.map((value, columnIndex) => (rowIndex < 3 && columnIndex < 3 ? value * 7 : value))
+  ) as Mat4;
+  assert.deepEqual(deriveUprightRotation(meta(scaled), alignment), expected);
+  assert.equal(deriveUprightRotation(meta(identity), {}), null);
+  assert.equal(deriveUprightRotation(meta(null), alignment), null);
+  assert.deepEqual(signedUprightAxis([0.19, 0.03, -0.98]), [0, 0, -1]);
+  assert.deepEqual(signedUprightAxis([0.01, -0.02, 0.99]), [0, 0, 1]);
 });

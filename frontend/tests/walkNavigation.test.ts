@@ -9,8 +9,10 @@ import {
   parseWalkSettings,
   planarWalkVelocity,
   pointInNavigationBoundary,
-  removeVelocityIntoNormal
+  removeVelocityIntoNormal,
+  transformNavigationContract
 } from "../src/walkNavigation.ts";
+import type { Mat3 } from "../src/gaussianViewerMetadata.ts";
 
 function contractValue() {
   return {
@@ -110,4 +112,21 @@ test("fixed-step velocity is normalized, planar, and slides along walls", () => 
   assert.equal(velocity[2], 0);
   assert.deepEqual(removeVelocityIntoNormal([-2, 1, 0], [1, 0, 0]), [0, 1, 0]);
   assert.equal(clampPitchRadians(Math.PI, -85, 85), (85 * Math.PI) / 180);
+});
+
+test("transformNavigationContract rotates world vectors and preserves the boundary", () => {
+  const contract = parseNavigationContract(contractValue());
+  const rotation: Mat3 = [
+    [0, 0, 1],
+    [0, 1, 0],
+    [-1, 0, 0]
+  ];
+  const transformed = transformNavigationContract(contract, rotation);
+  assert.deepEqual(transformed.up, [1, 0, 0]);
+  assert.deepEqual(transformed.floor.basis_u, [0, 0, -1]);
+  assert.deepEqual(transformed.spawn.floor_position, [0, 0.5, -0.5]);
+  assert.deepEqual(transformed.spawn.look_direction, [0, 0, -1]);
+  assert.deepEqual(transformed.boundary, contract.boundary);
+  assert.deepEqual(transformed.player, contract.player);
+  assert.deepEqual(transformed.collision, contract.collision);
 });
