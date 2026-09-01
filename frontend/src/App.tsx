@@ -112,10 +112,13 @@ type Manifest = {
     mesh?: string;
     mesh_diagnostics?: string;
     scene_splat?: string;
+    gaussian_raw_model?: string;
     gaussian_model?: string;
     gaussian_training_result?: string;
     gaussian_progress?: string;
     gaussian_dataset?: string;
+    gaussian_replay_dataset?: string;
+    gaussian_replay_record?: string;
     gaussian_evaluation?: string;
     gaussian_test_evaluation?: string;
     gaussian_test_decision?: string;
@@ -1102,6 +1105,15 @@ export function App() {
                             setup_command: null,
                             revision: "unknown",
                             license: "Apache-2.0"
+                          },
+                          {
+                            id: "mcmc" as const,
+                            label: "MCMC v1（实验，gsplat）",
+                            available: true,
+                            reason: null,
+                            setup_command: null,
+                            revision: "gsplat-1.5.3-mcmc-v1",
+                            license: "Apache-2.0"
                           }
                         ]
                     ).map((trainer) => (
@@ -1120,6 +1132,12 @@ export function App() {
                     <small>
                       v7 配置：30,000 次迭代上限 · 自动使用全部可见 GPU · 3NN（三近邻）初始化 ·
                       关闭屏幕半径剪枝 · 由验证集选择模型 · 归一化任意单位。
+                    </small>
+                  )}
+                  {gaussianTrainer === "mcmc" && (
+                    <small>
+                      实验性 MCMC v1：30,000 次迭代 · 全局最多 3,000,000 个高斯 ·
+                      自动使用全部可见 GPU · 冻结 3NN 初始化 · 由验证集选择模型 · 归一化任意单位。
                     </small>
                   )}
                 </label>
@@ -2100,6 +2118,9 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="mesh" label="三维网格（Mesh）" />
               <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="网格诊断" />
               <AssetLink manifest={manifest} assetKey="scene_splat" label="高斯浏览资产" />
+              <AssetLink manifest={manifest} assetKey="gaussian_raw_model" label="训练器原始高斯模型" />
+              <AssetLink manifest={manifest} assetKey="gaussian_replay_dataset" label="高斯重放数据约定" />
+              <AssetLink manifest={manifest} assetKey="gaussian_replay_record" label="高斯重放记录" />
               <AssetLink manifest={manifest} assetKey="gaussian_canonical" label="标准高斯 PLY" />
               <AssetLink manifest={manifest} assetKey="gaussian_export_metadata" label="高斯导出元数据" />
               <AssetLink manifest={manifest} assetKey="gaussian_evaluation" label="高斯验证集评估" />
@@ -2390,7 +2411,9 @@ function formatTrainer(trainer: Manifest["gaussian_trainer"] | undefined) {
   }
   return trainer.id === "project"
     ? "Project v7（gsplat 高斯栅格化）"
-    : "Graphdeco 官方训练器（研究与评估）";
+    : trainer.id === "mcmc"
+      ? "MCMC v1（实验，gsplat）"
+      : "Graphdeco 官方训练器（研究与评估）";
 }
 
 function formatPolicy(value: string | undefined) {

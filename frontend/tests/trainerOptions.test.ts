@@ -24,6 +24,15 @@ const trainers: GaussianTrainerStatus[] = [
     setup_command: "setup graphdeco",
     revision: "pinned",
     license: "research"
+  },
+  {
+    id: "mcmc",
+    label: "MCMC v1",
+    available: true,
+    reason: null,
+    setup_command: null,
+    revision: "gsplat-1.5.3-mcmc-v1",
+    license: "Apache-2.0"
   }
 ];
 
@@ -32,4 +41,5 @@ test("trainer options expose availability and preserve ids", () => {
   assert.equal(formatGaussianTrainerOption(trainers[1]), "Graphdeco 官方训练器（研究与评估）（不可用）");
   assert.equal(findGaussianTrainerStatus(trainers, "graphdeco")?.reason, "environment missing");
   assert.equal(findGaussianTrainerStatus(trainers, "project")?.available, true);
+  assert.equal(formatGaussianTrainerOption(trainers[2]), "MCMC v1（实验，gsplat）");
 });
