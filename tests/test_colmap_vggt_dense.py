@@ -11,6 +11,7 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from image3d_scenegraph.geometry.colmap import resolve_colmap_feature_profile  # noqa: E402
 from image3d_scenegraph.geometry.grouping import (  # noqa: E402
     ColmapImage,
     CovisibilityEdge,
@@ -72,6 +73,7 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         sparse_dir=tmp_path / "sparse",
         text_dir=tmp_path / "sparse_txt",
         matcher="exhaustive",
+        feature_profile=resolve_colmap_feature_profile("sift_v1", tmp_path),
         single_camera=True,
         mapper_abs_pose_min_num_inliers=30,
         mapper_abs_pose_min_inlier_ratio=0.25,
@@ -80,8 +82,10 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
     feature, matcher, _ = commands
     assert feature[feature.index("--FeatureExtraction.use_gpu") + 1] == "1"
     assert feature[feature.index("--FeatureExtraction.gpu_index") + 1] == "0"
+    assert feature[feature.index("--FeatureExtraction.type") + 1] == "SIFT"
     assert matcher[matcher.index("--FeatureMatching.use_gpu") + 1] == "1"
     assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
+    assert matcher[matcher.index("--FeatureMatching.type") + 1] == "SIFT_BRUTEFORCE"
 
 
 def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):

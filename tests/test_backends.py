@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.main import create_app
+from image3d_scenegraph.geometry import backends
 from image3d_scenegraph.geometry.backends import get_backend_specs
 
 
@@ -35,6 +36,42 @@ def test_backend_specs_prefer_project_local_colmap(tmp_path, monkeypatch):
 
     assert specs["colmap"].available is True
     assert "setup_colmap_cuda.py" in (specs["colmap"].setup_command or "")
+    profiles = {
+        profile["id"]: profile
+        for profile in specs["colmap"].options["sfm_feature_profiles"]
+    }
+    assert profiles["sift_v1"]["available"] is True
+    assert profiles["aliked_n16rot_v1"]["available"] is False
+
+
+def test_backend_specs_report_aliked_without_disabling_sift(
+    tmp_path, monkeypatch
+):
+    external_root = tmp_path / "external"
+    colmap = external_root / "colmap-4-cuda" / "install" / "bin" / "colmap"
+    colmap.parent.mkdir(parents=True)
+    colmap.write_text("#!/bin/sh\n", encoding="utf-8")
+    colmap.chmod(0o755)
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(external_root))
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(
+        backends, "colmap_learned_feature_support_reason", lambda _path: None
+    )
+    monkeypatch.setattr(
+        backends,
+        "resolve_colmap_feature_profile",
+        lambda _profile, _root: object(),
+    )
+
+    specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
+    profiles = {
+        profile["id"]: profile
+        for profile in specs["colmap"].options["sfm_feature_profiles"]
+    }
+
+    assert profiles["sift_v1"]["available"] is True
+    assert profiles["aliked_n16rot_v1"]["available"] is True
+    assert specs["colmap"].available is True
 
 
 def test_backend_specs_keep_vggt_disabled_until_checkpoint_exists(tmp_path, monkeypatch):

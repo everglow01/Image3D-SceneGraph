@@ -93,6 +93,11 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     assert "gaussian_trainer" in properties
     assert properties["gaussian_trainer"]["enum"] == ["project", "graphdeco", "mcmc"]
     assert properties["gaussian_trainer"]["default"] == "graphdeco"
+    assert properties["sfm_feature_profile"]["enum"] == [
+        "sift_v1",
+        "aliked_n16rot_v1",
+    ]
+    assert properties["sfm_feature_profile"]["default"] == "sift_v1"
     assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
     assert properties["gaussian_geometry_source"]["default"] == "colmap"
     assert properties["gaussian_postprocess"]["enum"] == [
@@ -148,6 +153,7 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
         "gaussian_geometry_source": "vggt_ba",
         "gaussian_postprocess": "vggt_visibility_v1",
         "gaussian_longest_edge": 3072,
+        "sfm_feature_profile": "sift_v1",
     }
 
 
@@ -173,6 +179,50 @@ def test_create_job_forwards_mcmc_trainer(tmp_path):
 
     assert response.status_code == 202
     assert store.options["gaussian_trainer"] == "mcmc"
+
+
+def test_create_job_forwards_sfm_feature_profile(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "colmap",
+            "output_type": "point_cloud",
+            "sfm_feature_profile": "aliked_n16rot_v1",
+        },
+        files=[
+            ("files", (f"{index}.jpg", b"image", "image/jpeg"))
+            for index in range(2)
+        ],
+    )
+
+    assert response.status_code == 202
+    assert store.options == {"sfm_feature_profile": "aliked_n16rot_v1"}
+
+
+def test_create_job_omits_sfm_feature_profile_for_non_colmap_backend(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "geometry_backend": "mock",
+            "output_type": "point_cloud",
+            "sfm_feature_profile": "aliked_n16rot_v1",
+        },
+        files=[("files", ("room.jpg", b"image", "image/jpeg"))],
+    )
+
+    assert response.status_code == 202
+    assert store.options == {}
 
 
 def test_create_job_forwards_gaussian_sor_filter(tmp_path):
@@ -259,6 +309,9 @@ def test_create_video_job_forwards_colmap_matcher(tmp_path):
     job_id = response.json()["job_id"]
     request = json.loads((root / job_id / "request.json").read_text())
     assert request["options"]["colmap_matcher"] == "sequential"
+    assert request["options"]["sfm_feature_profile"] == "sift_v1"
+    assert response.json()["sfm_feature_profile"] == "sift_v1"
+    assert response.json()["sfm_feature_effective_profile"] is None
 
 
 def test_create_job_omits_colmap_matcher_for_non_video_jobs(tmp_path):
@@ -384,12 +437,18 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
         data={"gaussian_recovery_prune": "unknown"},
         files=files,
     )
+    sfm_feature_response = client.post(
+        "/api/jobs",
+        data={"sfm_feature_profile": "unknown"},
+        files=files,
+    )
 
     assert geometry_response.status_code == 422
     assert postprocess_response.status_code == 422
     assert matcher_response.status_code == 422
     assert sor_response.status_code == 422
     assert recovery_prune_response.status_code == 422
+    assert sfm_feature_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):
@@ -423,7 +482,7 @@ def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
     )
 
     assert response.status_code == 202
-    assert store.options == {}
+    assert store.options == {"sfm_feature_profile": "sift_v1"}
 
 
 def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
@@ -453,6 +512,7 @@ def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
 
     assert response.status_code == 202
     assert store.options == {
+        "sfm_feature_profile": "sift_v1",
         "colmap_vggt_grouping": "covisibility",
         "colmap_vggt_overlap_size": 1,
         "colmap_vggt_confidence_threshold_scope": "per_frame",

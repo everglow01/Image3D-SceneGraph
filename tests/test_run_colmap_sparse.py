@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from image3d_scenegraph.geometry.colmap import ResolvedColmapFeatureProfile
 from scripts import run_colmap_sparse
 from scripts.run_colmap_sparse import colmap_version, find_largest_sparse_model, read_sparse_model_counts
 
@@ -173,9 +174,12 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert feature[feature.index("--FeatureExtraction.use_gpu") + 1] == "0"
     assert feature[feature.index("--FeatureExtraction.gpu_index") + 1] == "0"
     assert feature[feature.index("--FeatureExtraction.num_threads") + 1] == "4"
+    assert feature[feature.index("--FeatureExtraction.type") + 1] == "SIFT"
+    assert feature[feature.index("--SiftExtraction.max_num_features") + 1] == "8192"
     assert matcher[matcher.index("--FeatureMatching.use_gpu") + 1] == "0"
     assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
     assert matcher[matcher.index("--FeatureMatching.num_threads") + 1] == "4"
+    assert matcher[matcher.index("--FeatureMatching.type") + 1] == "SIFT_BRUTEFORCE"
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
     assert "--Mapper.ba_global_frames_ratio" not in mapper
     assert "--Mapper.image_list_path" not in mapper
@@ -250,6 +254,118 @@ def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
     log = (output_dir / "logs" / "run.log").read_text()
     assert "gpu_index=all_visible\n" in log
     assert "max_image_size=3072\n" in log
+
+
+def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    image_dir.mkdir()
+    (image_dir / "frame.jpg").write_bytes(b"image")
+    commands = []
+    profile = ResolvedColmapFeatureProfile(
+        profile_id="aliked_n16rot_v1",
+        extractor="ALIKED_N16ROT",
+        descriptor="ALIKED",
+        local_matcher="ALIKED_BRUTEFORCE",
+        max_features=8_192,
+        extraction_options=(
+            "--FeatureExtraction.type",
+            "ALIKED_N16ROT",
+            "--AlikedExtraction.max_num_features",
+            "8192",
+            "--AlikedExtraction.min_score",
+            "0.2",
+            "--AlikedExtraction.n16rot_model_path",
+            "/models/aliked.onnx",
+        ),
+        matching_options=(
+            "--FeatureMatching.type",
+            "ALIKED_BRUTEFORCE",
+            "--AlikedMatching.bruteforce_model_path",
+            "/models/matcher.onnx",
+        ),
+        extractor_model_sha256="a" * 64,
+        matcher_model_sha256="b" * 64,
+    )
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "mapper":
+            model = output_dir / "colmap" / "sparse" / "0"
+            model.mkdir(parents=True)
+            _write_binary_count(model / "images.bin", 1)
+            _write_binary_count(model / "points3D.bin", 1)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            (output_dir / "geometry" / "points.ply").write_text(
+                "ply\nelement vertex 1\nend_header\n", encoding="utf-8"
+            )
+        elif command[1] == "model_converter" and command[-1] == "TXT":
+            text = output_dir / "colmap" / "sparse_txt"
+            (text / "cameras.txt").write_text(
+                "1 PINHOLE 64 64 50 50 32 32\n", encoding="utf-8"
+            )
+            (text / "images.txt").write_text(
+                "1 1 0 0 0 0 0 0 1 frame.jpg\n\n", encoding="utf-8"
+            )
+        return "ok"
+
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_feature_profile", lambda _: profile
+    )
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--feature-profile",
+            "aliked_n16rot_v1",
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    feature, matcher = commands[:2]
+    assert feature[feature.index("--FeatureExtraction.type") + 1] == "ALIKED_N16ROT"
+    assert feature[feature.index("--AlikedExtraction.n16rot_model_path") + 1] == (
+        "/models/aliked.onnx"
+    )
+    assert matcher[matcher.index("--FeatureMatching.type") + 1] == "ALIKED_BRUTEFORCE"
+    assert matcher[matcher.index("--AlikedMatching.bruteforce_model_path") + 1] == (
+        "/models/matcher.onnx"
+    )
+    log = (output_dir / "logs" / "run.log").read_text()
+    assert "sfm_feature_profile=aliked_n16rot_v1\n" in log
+    assert "sfm_local_matcher=ALIKED_BRUTEFORCE\n" in log
+
+
+def test_aliked_profile_rejects_sift_vocab_tree(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path),
+            "--feature-profile",
+            "aliked_n16rot_v1",
+            "--vocab-tree-path",
+            str(tmp_path / "sift-tree.bin"),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="SIFT-only"):
+        run_colmap_sparse.main()
 
 
 def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(

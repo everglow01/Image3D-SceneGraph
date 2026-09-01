@@ -17,6 +17,17 @@ from image3d_scenegraph.geometry.colmap_diagnostics import (
 )
 
 
+SIFT_FEATURE = {
+    "profile": "sift_v1",
+    "extractor": "SIFT",
+    "descriptor": "SIFT",
+    "local_matcher": "SIFT_BRUTEFORCE",
+    "max_features": 8_192,
+    "extractor_model_sha256": None,
+    "matcher_model_sha256": None,
+}
+
+
 def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: Path) -> None:
     job = _fixture_job(tmp_path)
     output = job / "diagnostics" / "sfm"
@@ -27,13 +38,14 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         source_image_root=job / "frames" / "selected",
         dataset_contract_path=job / "dataset.json",
         output_dir=output,
-        matcher="sequential",
+        feature=SIFT_FEATURE,
+        pairing="sequential",
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["profile"] == "sfm_frontend_diagnostics_v1"
+    assert manifest["profile"] == "sfm_frontend_diagnostics_v2"
     assert manifest["counts"] == {
         "images": 3,
         "registered_images": 2,
@@ -45,6 +57,9 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     }
     assert metrics["sfm_diagnostics_status"] == "available"
     assert metrics["sfm_diagnostics_keypoint_count"] == 5
+    assert metrics["sfm_feature_profile"] == "sift_v1"
+    assert metrics["sfm_local_matcher"] == "SIFT_BRUTEFORCE"
+    assert metrics["sfm_pairing"] == "sequential"
 
     images = {image["colmap_image_id"]: image for image in manifest["images"]}
     assert images[1]["registered"] is True
@@ -59,8 +74,11 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert "center_normalized" not in images[3]
 
     run = manifest["runs"][0]
-    assert run["matcher"]["name"] == "sequential"
-    assert run["detector"]["keypoint_fields"] == ["x", "y"]
+    assert run["feature"]["profile"] == "sift_v1"
+    assert run["feature"]["keypoint_fields"] == ["x", "y"]
+    assert run["local_matcher"]["name"] == "SIFT_BRUTEFORCE"
+    assert run["pairing"]["name"] == "sequential"
+    assert run["mapper"]["name"] == "incremental"
     feature_index = _read_gzip_json(job / run["feature_index_path"])
     feature_entry = next(item for item in feature_index["images"] if item["image_id"] == 1)
     feature_shard = _read_gzip_json(job / feature_entry["detail_shard"])
@@ -90,11 +108,37 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         source_image_root=job / "frames" / "selected",
         dataset_contract_path=job / "dataset.json",
         output_dir=output,
-        matcher="sequential",
+        feature=SIFT_FEATURE,
+        pairing="sequential",
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
     assert _tree_hashes(output) == first_hashes
+
+    shutil.rmtree(output)
+    learned_manifest, learned_metrics = export_colmap_diagnostics(
+        job_dir=job,
+        database_path=job / "colmap" / "database.db",
+        source_image_root=job / "frames" / "selected",
+        dataset_contract_path=job / "dataset.json",
+        output_dir=output,
+        feature={
+            "profile": "aliked_n16rot_v1",
+            "extractor": "ALIKED_N16ROT",
+            "descriptor": "ALIKED",
+            "local_matcher": "ALIKED_BRUTEFORCE",
+            "max_features": 8_192,
+            "extractor_model_sha256": "a" * 64,
+            "matcher_model_sha256": "b" * 64,
+        },
+        pairing="sequential",
+        colmap_build="COLMAP 4.0.0",
+        video_selection_path=job / "frames" / "selection.json",
+    )
+    learned = json.loads(learned_manifest.read_text(encoding="utf-8"))
+    assert learned["default_run_id"] != run["run_id"]
+    assert learned["runs"][0]["feature"]["profile"] == "aliked_n16rot_v1"
+    assert learned_metrics["sfm_feature_profile"] == "aliked_n16rot_v1"
 
 
 def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(
@@ -119,7 +163,8 @@ def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(
             source_image_root=job / "frames" / "selected",
             dataset_contract_path=job / "dataset.json",
             output_dir=output,
-            matcher="sequential",
+            feature=SIFT_FEATURE,
+        pairing="sequential",
             colmap_build="COLMAP 4.0.0",
             video_selection_path=job / "frames" / "selection.json",
         )

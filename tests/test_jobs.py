@@ -17,6 +17,7 @@ from image3d_scenegraph.geometry.adapters import (
     _try_export_sfm_diagnostics,
     _write_video_registration_diagnostics,
 )
+from image3d_scenegraph.geometry.colmap import ColmapFeatureError
 from image3d_scenegraph.jobs import JobCancelled, JobError, JobStore, UploadedInput
 from image3d_scenegraph.video.registration import analyze_registration_timeline
 
@@ -143,6 +144,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
         source_image_root=tmp_path / "input" / "images",
         dataset_path=tmp_path / "dataset.json",
         output_dir=tmp_path / "diagnostics" / "sfm",
+        feature_profile="sift_v1",
         matcher="exhaustive",
         geometry_source="colmap",
         video_selection_path=None,
@@ -170,6 +172,7 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
         source_image_root=tmp_path / "missing-images",
         dataset_path=tmp_path / "missing-dataset.json",
         output_dir=tmp_path / "diagnostics" / "sfm",
+        feature_profile="sift_v1",
         matcher="exhaustive",
         geometry_source="colmap",
         video_selection_path=None,
@@ -205,6 +208,7 @@ def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monke
             source_image_root=tmp_path / "input" / "images",
             dataset_path=tmp_path / "dataset.json",
             output_dir=tmp_path / "diagnostics" / "sfm",
+            feature_profile="sift_v1",
             matcher="exhaustive",
             geometry_source="colmap",
             video_selection_path=None,
@@ -391,6 +395,7 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
 
     command = captured[0]
     assert command[1].endswith("run_vggt_ba_sparse.py")
+    assert command[command.index("--feature-profile") + 1] == "sift_v1"
     assert command[command.index("--matcher") + 1] == "sequential"
     assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
     assert "--video-source" not in command
@@ -478,6 +483,7 @@ def test_project_gaussian_standard_v2_threads_source_and_selection(
     extraction_command, geometry_command = commands
     assert extraction_command[extraction_command.index("--profile") + 1] == "standard_v2"
     assert geometry_command[1].endswith(runner_name)
+    assert geometry_command[geometry_command.index("--feature-profile") + 1] == "sift_v1"
     assert geometry_command[geometry_command.index("--video-source") + 1] == str(
         tmp_path / "input" / "video.mp4"
     )
@@ -1145,6 +1151,37 @@ def test_vggt_ba_gaussian_geometry_rejects_non_video_input(tmp_path):
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_geometry_source": "vggt_ba"},
+        )
+
+
+def test_job_store_rejects_unavailable_aliked_profile(tmp_path, monkeypatch):
+    store = JobStore(output_root=tmp_path / "jobs")
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_executable",
+        lambda _root: tmp_path / "colmap",
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_learned_feature_support_reason",
+        lambda _colmap: None,
+    )
+
+    def missing_profile(_profile, _root):
+        raise ColmapFeatureError("COLMAP learned feature model missing")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_feature_profile", missing_profile
+    )
+
+    with pytest.raises(JobError, match="model missing"):
+        store.enqueue_job(
+            "multi_image",
+            [
+                UploadedInput(filename=f"{index}.jpg", content=b"image")
+                for index in range(2)
+            ],
+            geometry_backend="colmap",
+            output_type="point_cloud",
+            options={"sfm_feature_profile": "aliked_n16rot_v1"},
         )
 
 
