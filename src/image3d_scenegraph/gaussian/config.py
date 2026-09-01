@@ -10,23 +10,39 @@ from dataclasses import dataclass
 from typing import Any
 
 
-CONFIG_SCHEMA_VERSION = 9
+CONFIG_SCHEMA_VERSION = 10
 PUBLIC_PROFILES = ("standard_v1",)
-INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1")
+INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1", "mcmc_v1")
 
 _STANDARD_V1: dict[str, Any] = {
     "schema_version": CONFIG_SCHEMA_VERSION,
     "seed": 20260729,
     "iterations": 30_000,
+    "strategy": {
+        "name": "default_v1",
+        "gaussian_cap": None,
+        "mcmc_noise_lr": 500_000.0,
+        "mcmc_min_opacity": 0.005,
+    },
+    "initialization": {
+        "opacity": 0.1,
+        "scale_multiplier": 1.0,
+    },
     "resolution": {"policy": "explicit_only", "longest_edge": 1280},
     "loss": {
         "name": "l1_ssim",
         "l1_weight": 0.8,
         "ssim_weight": 0.2,
         "clamp_render": True,
+        "opacity_regularization": 0.0,
+        "scale_regularization": 0.0,
     },
     "learning_rate": {
-        "position": {"initial": 0.00016, "final": 0.0000016},
+        "position": {
+            "initial": 0.00016,
+            "final": 0.0000016,
+            "delay_multiplier": 1.0,
+        },
         "feature": 0.0025,
         "opacity": 0.025,
         "scaling": 0.005,
@@ -76,6 +92,37 @@ _STANDARD_V1: dict[str, Any] = {
     },
 }
 
+_MCMC_V1_OVERRIDES: dict[str, Any] = {
+    "strategy": {
+        "name": "mcmc_v1",
+        "gaussian_cap": 3_000_000,
+        "mcmc_noise_lr": 500_000.0,
+        "mcmc_min_opacity": 0.005,
+    },
+    "initialization": {
+        "opacity": 0.5,
+        "scale_multiplier": 0.1,
+    },
+    "loss": {
+        "opacity_regularization": 0.01,
+        "scale_regularization": 0.01,
+    },
+    "learning_rate": {
+        "position": {"delay_multiplier": 0.01},
+        "opacity": 0.05,
+    },
+    "densification": {
+        "end_iteration": 25_000,
+    },
+    "pruning": {
+        "enabled": False,
+    },
+    "opacity_reset": {
+        "enabled": False,
+        "recovery_prune": {"enabled": False},
+    },
+}
+
 
 class GaussianConfigError(ValueError):
     """Raised when a 3DGS configuration violates the versioned contract."""
@@ -103,6 +150,10 @@ def resolve_public_config(
     if profile not in PUBLIC_PROFILES:
         raise GaussianConfigError(f"unsupported public Gaussian quality profile: {profile}")
     return _resolve(profile, {"resolution": {"longest_edge": longest_edge}})
+
+
+def resolve_mcmc_config(*, longest_edge: int = 1280) -> ResolvedGaussianConfig:
+    return _resolve("mcmc_v1", {"resolution": {"longest_edge": longest_edge}})
 
 
 def resolve_internal_config(
@@ -141,6 +192,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "schema_version",
             "seed",
             "iterations",
+            "strategy",
+            "initialization",
             "resolution",
             "loss",
             "learning_rate",
@@ -156,17 +209,82 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     _integer(root["seed"], "seed", minimum=0, maximum=2**63 - 1)
     iterations = _integer(root["iterations"], "iterations", minimum=1, maximum=1_000_000)
 
+    strategy = _mapping(
+        root["strategy"],
+        "strategy",
+        {"name", "gaussian_cap", "mcmc_noise_lr", "mcmc_min_opacity"},
+    )
+    strategy_name = _choice(
+        strategy["name"], "strategy.name", {"default_v1", "mcmc_v1"}
+    )
+    gaussian_cap = strategy["gaussian_cap"]
+    if gaussian_cap is not None:
+        gaussian_cap = _integer(
+            gaussian_cap, "strategy.gaussian_cap", minimum=1, maximum=10_000_000
+        )
+    _positive(strategy["mcmc_noise_lr"], "strategy.mcmc_noise_lr")
+    mcmc_min_opacity = _number(
+        strategy["mcmc_min_opacity"],
+        "strategy.mcmc_min_opacity",
+        minimum=0.0,
+        maximum=1.0,
+        minimum_exclusive=True,
+    )
+    if mcmc_min_opacity >= 1.0:
+        raise GaussianConfigError("strategy.mcmc_min_opacity must stay below 1.0")
+
+    initialization = _mapping(
+        root["initialization"],
+        "initialization",
+        {"opacity", "scale_multiplier"},
+    )
+    opacity = _number(
+        initialization["opacity"],
+        "initialization.opacity",
+        minimum=0.0,
+        maximum=1.0,
+        minimum_exclusive=True,
+    )
+    if opacity >= 1.0:
+        raise GaussianConfigError("initialization.opacity must stay below 1.0")
+    _positive(
+        initialization["scale_multiplier"],
+        "initialization.scale_multiplier",
+        maximum=10.0,
+    )
+
     resolution = _mapping(root["resolution"], "resolution", {"policy", "longest_edge"})
     _choice(resolution["policy"], "resolution.policy", {"explicit_only"})
     _integer(resolution["longest_edge"], "resolution.longest_edge", minimum=64, maximum=3072)
 
     loss = _mapping(
-        root["loss"], "loss", {"name", "l1_weight", "ssim_weight", "clamp_render"}
+        root["loss"],
+        "loss",
+        {
+            "name",
+            "l1_weight",
+            "ssim_weight",
+            "clamp_render",
+            "opacity_regularization",
+            "scale_regularization",
+        },
     )
     _choice(loss["name"], "loss.name", {"l1_ssim"})
     _boolean(loss["clamp_render"], "loss.clamp_render")
     l1_weight = _number(loss["l1_weight"], "loss.l1_weight", minimum=0.0, maximum=1.0)
     ssim_weight = _number(loss["ssim_weight"], "loss.ssim_weight", minimum=0.0, maximum=1.0)
+    _number(
+        loss["opacity_regularization"],
+        "loss.opacity_regularization",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    _number(
+        loss["scale_regularization"],
+        "loss.scale_regularization",
+        minimum=0.0,
+        maximum=1.0,
+    )
     if not math.isclose(l1_weight + ssim_weight, 1.0, abs_tol=1e-12):
         raise GaussianConfigError("loss weights must sum to 1.0")
 
@@ -178,10 +296,15 @@ def validate_effective_config(config: dict[str, Any]) -> None:
     position = _mapping(
         learning_rate["position"],
         "learning_rate.position",
-        {"initial", "final"},
+        {"initial", "final", "delay_multiplier"},
     )
     initial = _positive(position["initial"], "learning_rate.position.initial")
     final = _positive(position["final"], "learning_rate.position.final")
+    _positive(
+        position["delay_multiplier"],
+        "learning_rate.position.delay_multiplier",
+        maximum=1.0,
+    )
     if final > initial:
         raise GaussianConfigError("learning_rate.position.final cannot exceed initial")
     for name in ("feature", "opacity", "scaling", "rotation"):
@@ -287,6 +410,18 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "opacity_threshold * opacity_reset.floor_multiplier"
         )
 
+    if strategy_name == "default_v1" and gaussian_cap is not None:
+        raise GaussianConfigError("default_v1 strategy cannot set a Gaussian cap")
+    if strategy_name == "mcmc_v1":
+        if gaussian_cap is None:
+            raise GaussianConfigError("mcmc_v1 strategy requires a Gaussian cap")
+        if bool(pruning["enabled"]):
+            raise GaussianConfigError("mcmc_v1 strategy cannot enable Default pruning")
+        if bool(opacity_reset["enabled"]):
+            raise GaussianConfigError("mcmc_v1 strategy cannot enable opacity reset")
+        if bool(recovery_prune["enabled"]):
+            raise GaussianConfigError("mcmc_v1 strategy cannot enable recovery prune")
+
     evaluation = _mapping(root["evaluation"], "evaluation", {"validation_iterations"})
     validation_iterations = evaluation["validation_iterations"]
     if not isinstance(validation_iterations, list) or not validation_iterations:
@@ -316,6 +451,8 @@ def assert_single_field_ablation(baseline: dict[str, Any], candidate: dict[str, 
 
 def _resolve(profile: str, overrides: dict[str, Any] | None) -> ResolvedGaussianConfig:
     effective = copy.deepcopy(_STANDARD_V1)
+    if profile == "mcmc_v1":
+        _apply_overrides(effective, _MCMC_V1_OVERRIDES, "")
     if overrides:
         _apply_overrides(effective, overrides, "")
     validate_effective_config(effective)

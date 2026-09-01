@@ -65,6 +65,8 @@ class TrainingResult:
     world_size: int = 1
     per_rank_peak_allocated_bytes: tuple[int, ...] = ()
     per_rank_peak_reserved_bytes: tuple[int, ...] = ()
+    strategy_name: str = "default_v1"
+    gaussian_cap: int | None = None
 
 
 def seed_training(seed: int) -> None:
@@ -126,13 +128,20 @@ def train_gaussians(
     world_size: int = 1,
 ) -> TrainingResult:
     try:
-        from gsplat.strategy import DefaultStrategy
+        from gsplat.strategy import DefaultStrategy, MCMCStrategy
         from gsplat.strategy.ops import remove, reset_opa
     except ImportError as exc:
         raise TrainingError("project Gaussian training requires pinned gsplat") from exc
 
     config = resolved_config.effective_config
     validate_effective_config(config)
+    strategy_name = str(config["strategy"]["name"])
+    is_mcmc = strategy_name == "mcmc_v1"
+    global_cap = (
+        int(config["strategy"]["gaussian_cap"])
+        if config["strategy"]["gaussian_cap"] is not None
+        else None
+    )
     if not torch.cuda.is_available():
         raise TrainingError("project Gaussian training requires CUDA")
     if world_size < 1 or not 0 <= world_rank < world_size or local_rank < 0:
@@ -186,18 +195,32 @@ def train_gaussians(
     if len(initialization.points) < world_size:
         raise TrainingError("initial Gaussian count is smaller than distributed world size")
     shard = slice(world_rank, None, world_size)
+    local_cap = (
+        _local_gaussian_cap(global_cap, world_rank, world_size)
+        if global_cap is not None
+        else None
+    )
     model = GaussianModel.from_points(
         torch.from_numpy(initialization.points[shard]).to(device=device, dtype=torch.float32),
         torch.from_numpy(initialization.colors[shard]).to(device=device, dtype=torch.float32)
         / 255.0,
-        torch.from_numpy(initialization.scales[shard]).to(device=device, dtype=torch.float32),
+        torch.from_numpy(initialization.scales[shard]).to(device=device, dtype=torch.float32)
+        * float(config["initialization"]["scale_multiplier"]),
+        initial_opacity=float(config["initialization"]["opacity"]),
         max_sh_degree=int(config["sh_schedule"]["max_degree"]),
     )
+    _validate_local_gaussian_cap(model, local_cap, device, world_size)
     scene_scale = _training_scene_scale(contract)
     optimizers = model.optimizers(config["learning_rate"], position_scale=scene_scale)
-    strategy = _build_strategy(DefaultStrategy, config, train_views)
+    if is_mcmc:
+        if local_cap is None:
+            raise TrainingError("mcmc_v1 requires a local Gaussian cap")
+        strategy = _build_mcmc_strategy(MCMCStrategy, config, local_cap)
+        strategy_state = strategy.initialize_state()
+    else:
+        strategy = _build_strategy(DefaultStrategy, config, train_views)
+        strategy_state = strategy.initialize_state(scene_scale=scene_scale)
     strategy.check_sanity(model.params, optimizers)
-    strategy_state = strategy.initialize_state(scene_scale=scene_scale)
     history: list[dict[str, Any]] = []
     start_iteration = 1
     camera_order: list[int] = []
@@ -215,6 +238,7 @@ def train_gaussians(
         model = _load_model(
             _checkpoint_rank_bytes(loaded.state.model, world_rank, world_size), device
         )
+        _validate_local_gaussian_cap(model, local_cap, device, world_size)
         optimizers = model.optimizers(
             config["learning_rate"], position_scale=scene_scale
         )
@@ -290,12 +314,19 @@ def train_gaussians(
             strategy.step_pre_backward(
                 model.params, optimizers, strategy_state, iteration, rendered.metadata
             )
-            loss, terms = l1_ssim_loss(
+            reconstruction_loss, terms = l1_ssim_loss(
                 rendered.image.clamp(0, 1) if config["loss"]["clamp_render"] else rendered.image,
                 view.image,
                 l1_weight=float(config["loss"]["l1_weight"]),
                 ssim_weight=float(config["loss"]["ssim_weight"]),
             )
+            opacity_regularization = torch.zeros((), device=device)
+            scale_regularization = torch.zeros((), device=device)
+            if is_mcmc:
+                opacity_regularization, scale_regularization = _mcmc_regularizers(
+                    model, config
+                )
+            loss = reconstruction_loss + opacity_regularization + scale_regularization
             if not torch.isfinite(loss):
                 raise TrainingError(f"non-finite training loss at iteration {iteration}")
             (loss / world_size).backward()
@@ -303,16 +334,37 @@ def train_gaussians(
             for optimizer in optimizers.values():
                 optimizer.step()
 
+            mcmc_refinement = is_mcmc and _mcmc_refinement_due(config, iteration)
+            mcmc_dead_local = 0
+            mcmc_dead_global = 0
+            if mcmc_refinement:
+                mcmc_dead_local, mcmc_dead_global = _validate_mcmc_alive_set(
+                    model,
+                    iteration=iteration,
+                    min_opacity=float(config["strategy"]["mcmc_min_opacity"]),
+                    device=device,
+                    world_size=world_size,
+                )
             before_count = model.count
-            strategy.step_post_backward(
-                model.params,
-                optimizers,
-                strategy_state,
-                iteration,
-                rendered.metadata,
-                packed=world_size == 1,
-            )
-            if _opacity_reset_due(config, iteration):
+            if is_mcmc:
+                strategy.step_post_backward(
+                    params=model.params,
+                    optimizers=optimizers,
+                    state=strategy_state,
+                    step=iteration,
+                    info=rendered.metadata,
+                    lr=float(optimizers["means"].param_groups[0]["lr"]),
+                )
+            else:
+                strategy.step_post_backward(
+                    model.params,
+                    optimizers,
+                    strategy_state,
+                    iteration,
+                    rendered.metadata,
+                    packed=world_size == 1,
+                )
+            if not is_mcmc and _opacity_reset_due(config, iteration):
                 reset_opa(
                     params=model.params,
                     optimizers=optimizers,
@@ -320,7 +372,9 @@ def train_gaussians(
                     value=float(config["pruning"]["opacity_threshold"])
                     * float(config["opacity_reset"]["floor_multiplier"]),
                 )
-            recovery_prune_threshold = _recovery_prune_due(config, iteration)
+            recovery_prune_threshold = (
+                None if is_mcmc else _recovery_prune_due(config, iteration)
+            )
             if recovery_prune_threshold is not None:
                 recovery_prune_before = model.count
                 remove(
@@ -330,17 +384,33 @@ def train_gaussians(
                     mask=model.opacity_logits.detach().sigmoid()
                     < recovery_prune_threshold,
                 )
-            model.validate()
+            model.validate(max_count=local_cap)
             after_count = model.count
             summary = torch.tensor(
-                [float(loss.detach()), terms["l1"], terms["ssim"], before_count, after_count],
+                [
+                    float(loss.detach()),
+                    float(reconstruction_loss.detach()),
+                    terms["l1"],
+                    terms["ssim"],
+                    float(opacity_regularization.detach()),
+                    float(scale_regularization.detach()),
+                    before_count,
+                    after_count,
+                ],
                 dtype=torch.float64,
                 device=device,
             )
             if world_size > 1:
                 torch.distributed.all_reduce(summary)
-            value, mean_l1, mean_ssim = (float(item / world_size) for item in summary[:3])
-            global_before, global_after = (int(item) for item in summary[3:])
+            (
+                value,
+                mean_reconstruction_loss,
+                mean_l1,
+                mean_ssim,
+                mean_opacity_regularization,
+                mean_scale_regularization,
+            ) = (float(item / world_size) for item in summary[:6])
+            global_before, global_after = (int(item) for item in summary[6:])
             if not history:
                 initial_loss = value
             batch_view_ids = [train_views[index].camera.image_id for index in view_indices]
@@ -355,6 +425,15 @@ def train_gaussians(
                 "gaussian_count": global_after,
                 "world_size": world_size,
             }
+            if is_mcmc:
+                event.update(
+                    {
+                        "reconstruction_loss": mean_reconstruction_loss,
+                        "opacity_regularization": mean_opacity_regularization,
+                        "scale_regularization": mean_scale_regularization,
+                        "mcmc_noise_applied": True,
+                    }
+                )
             if global_after != global_before:
                 event.update(
                     {
@@ -363,7 +442,19 @@ def train_gaussians(
                         "topology_net_growth": global_after - global_before,
                     }
                 )
-            if _opacity_reset_due(config, iteration):
+            if mcmc_refinement:
+                event.update(
+                    {
+                        "mcmc_refinement": True,
+                        "mcmc_dead_local": mcmc_dead_local,
+                        "mcmc_dead_global": mcmc_dead_global,
+                        "mcmc_relocated_count": mcmc_dead_global,
+                        "mcmc_added_count": global_after - global_before,
+                        "mcmc_local_cap": local_cap,
+                        "mcmc_global_cap": global_cap,
+                    }
+                )
+            if not is_mcmc and _opacity_reset_due(config, iteration):
                 event["opacity_reset"] = True
             if recovery_prune_threshold is not None:
                 event.update(
@@ -487,6 +578,7 @@ def train_gaussians(
                 ],
                 model_path,
             )
+        candidate_model.validate(max_count=global_cap)
         _validate_model_health(
             candidate_model, len(initialization.points), best_validation_payload
         )
@@ -514,6 +606,8 @@ def train_gaussians(
             world_size=world_size,
             per_rank_peak_allocated_bytes=tuple(item[0] for item in per_rank_memory),
             per_rank_peak_reserved_bytes=tuple(item[1] for item in per_rank_memory),
+            strategy_name=strategy_name,
+            gaussian_cap=global_cap,
         )
         result_path.write_text(
             json.dumps(result.__dict__, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -613,6 +707,108 @@ def _build_strategy(
         revised_opacity=False,
         verbose=False,
     )
+
+
+def _mcmc_regularizers(
+    model: GaussianModel, config: dict[str, Any]
+) -> tuple[torch.Tensor, torch.Tensor]:
+    return (
+        float(config["loss"]["opacity_regularization"])
+        * model.opacity_logits.sigmoid().abs().mean(),
+        float(config["loss"]["scale_regularization"])
+        * model.log_scales.exp().abs().mean(),
+    )
+
+
+def _build_mcmc_strategy(strategy_type, config: dict[str, Any], local_cap: int):
+    densify = config["densification"]
+    strategy = config["strategy"]
+    return strategy_type(
+        cap_max=local_cap,
+        noise_lr=float(strategy["mcmc_noise_lr"]),
+        refine_start_iter=int(densify["start_iteration"]),
+        refine_stop_iter=int(densify["end_iteration"]),
+        refine_every=int(densify["every_iterations"]),
+        min_opacity=float(strategy["mcmc_min_opacity"]),
+        verbose=False,
+    )
+
+
+def _local_gaussian_cap(global_cap: int, world_rank: int, world_size: int) -> int:
+    if global_cap < 1 or world_size < 1 or not 0 <= world_rank < world_size:
+        raise TrainingError("invalid global Gaussian cap or distributed rank")
+    if global_cap < world_size:
+        raise TrainingError("global Gaussian cap is smaller than distributed world size")
+    base, remainder = divmod(global_cap, world_size)
+    local_cap = base + int(world_rank < remainder)
+    if local_cap < 1:
+        raise TrainingError("global Gaussian cap is smaller than distributed world size")
+    return local_cap
+
+
+def _validate_local_gaussian_cap(
+    model: GaussianModel,
+    local_cap: int | None,
+    device: torch.device,
+    world_size: int,
+) -> None:
+    if local_cap is None:
+        return
+    overflow = torch.tensor(
+        int(model.count > local_cap), dtype=torch.int64, device=device
+    )
+    if world_size > 1:
+        torch.distributed.all_reduce(overflow, op=torch.distributed.ReduceOp.MAX)
+    if int(overflow):
+        raise TrainingError(
+            "initial or resumed Gaussian shard exceeds its local cap: "
+            f"local_count={model.count} local_cap={local_cap}"
+        )
+
+
+def _mcmc_refinement_due(config: dict[str, Any], iteration: int) -> bool:
+    densify = config["densification"]
+    return (
+        bool(densify["enabled"])
+        and iteration > int(densify["start_iteration"])
+        and iteration < int(densify["end_iteration"])
+        and iteration % int(densify["every_iterations"]) == 0
+    )
+
+
+@torch.no_grad()
+def _validate_mcmc_alive_set(
+    model: GaussianModel,
+    *,
+    iteration: int,
+    min_opacity: float,
+    device: torch.device,
+    world_size: int,
+) -> tuple[int, int]:
+    opacities = model.opacity_logits.detach().sigmoid()
+    local_alive = int((opacities > min_opacity).sum())
+    local_dead = model.count - local_alive
+    counts = torch.tensor(
+        [local_alive, local_dead, int(local_alive == 0)],
+        dtype=torch.int64,
+        device=device,
+    )
+    if world_size > 1:
+        torch.distributed.all_reduce(counts)
+    global_alive, global_dead, empty_ranks = (int(value) for value in counts)
+    if empty_ranks:
+        quantiles = torch.quantile(
+            opacities.to(torch.float32),
+            torch.tensor([0.0, 0.5, 0.9, 1.0], device=opacities.device),
+        ).tolist()
+        raise TrainingError(
+            "MCMC refinement has no live Gaussian on at least one rank: "
+            f"iteration={iteration} min_opacity={min_opacity} "
+            f"local_alive={local_alive} local_dead={local_dead} "
+            f"global_alive={global_alive} global_dead={global_dead} "
+            f"empty_ranks={empty_ranks} opacity_q0_q50_q90_q100={quantiles}"
+        )
+    return local_dead, global_dead
 
 
 def _next_camera(
@@ -737,7 +933,7 @@ def _update_position_learning_rate(
         float(settings["final"]),
         iteration,
         total_iterations,
-        delay_multiplier=1.0,
+        delay_multiplier=float(settings["delay_multiplier"]),
     )
 
 

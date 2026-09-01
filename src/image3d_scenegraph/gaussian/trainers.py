@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-TRAINER_IDS = ("project", "graphdeco")
+TRAINER_IDS = ("project", "graphdeco", "mcmc")
 GRAPHDECO_COMMIT = "54c035f7834b564019656c3e3fcc3646292f727d"
 
 
@@ -45,6 +45,18 @@ def validate_trainer_id(value: str) -> str:
     return value
 
 
+def validate_trainer_strategy(trainer_id: str, effective_config: dict[str, Any]) -> None:
+    trainer_id = validate_trainer_id(trainer_id)
+    strategy = effective_config.get("strategy")
+    strategy_name = strategy.get("name") if isinstance(strategy, dict) else None
+    expected = "mcmc_v1" if trainer_id == "mcmc" else "default_v1"
+    if strategy_name != expected:
+        raise GaussianTrainerError(
+            f"Gaussian trainer '{trainer_id}' requires strategy '{expected}', "
+            f"got '{strategy_name}'"
+        )
+
+
 def get_gaussian_trainer_specs(
     project_root: Path | str | None = None,
 ) -> list[GaussianTrainerSpec]:
@@ -60,6 +72,7 @@ def get_gaussian_trainer_specs(
             revision=GRAPHDECO_COMMIT,
             license_name="Graphdeco research/evaluation only",
         ),
+        _native_spec("mcmc", "MCMC v1 (gsplat)"),
     ]
 
 
@@ -77,13 +90,17 @@ def trainer_record(trainer_id: str, project_root: Path | str | None = None) -> d
 
 
 def _project_spec() -> GaussianTrainerSpec:
+    return _native_spec("project", "Project v7 (gsplat)")
+
+
+def _native_spec(trainer_id: str, label: str) -> GaussianTrainerSpec:
     try:
         import gsplat
         import torch
     except ImportError as exc:
         return GaussianTrainerSpec(
-            trainer_id="project",
-            label="Project v7 (gsplat)",
+            trainer_id=trainer_id,
+            label=label,
             available=False,
             reason=f"optional GPU dependency missing: {exc.name}",
             setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",
@@ -92,8 +109,8 @@ def _project_spec() -> GaussianTrainerSpec:
         )
     cuda_available = bool(torch.cuda.is_available())
     return GaussianTrainerSpec(
-        trainer_id="project",
-        label="Project v7 (gsplat)",
+        trainer_id=trainer_id,
+        label=label,
         available=cuda_available,
         reason=None if cuda_available else "CUDA unavailable",
         setup_command="env -u LD_LIBRARY_PATH uv sync --extra gpu --inexact",

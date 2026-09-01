@@ -37,8 +37,8 @@ def train_external_gaussians(
     cancel_requested: Callable[[], bool] | None = None,
 ) -> TrainingResult:
     trainer_id = validate_trainer_id(trainer_id)
-    if trainer_id == "project":
-        raise TrainingError("external trainer runner cannot dispatch the project trainer")
+    if trainer_id in {"project", "mcmc"}:
+        raise TrainingError("external trainer runner cannot dispatch a native trainer")
     project_root = Path(os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
     spec = next(
         spec

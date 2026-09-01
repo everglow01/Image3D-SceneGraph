@@ -20,6 +20,7 @@ from image3d_scenegraph.gaussian.config import (
     canonical_config_json,
     resolved_config_record,
     resolve_internal_config,
+    resolve_mcmc_config,
     resolve_public_config,
 )
 from image3d_scenegraph.gaussian.dataset import sha256_file
@@ -27,6 +28,7 @@ from image3d_scenegraph.gaussian.trainers import (
     GaussianTrainerError,
     trainer_record,
     validate_trainer_id,
+    validate_trainer_strategy,
 )
 from image3d_scenegraph.geometry.adapters import (
     ReconstructionContext,
@@ -198,6 +200,8 @@ class JobStore:
                     raise JobError(
                         f"unsupported Gaussian recovery prune setting: {recovery_prune}"
                     )
+                if gaussian_trainer == "mcmc" and recovery_prune == "on":
+                    raise JobError("MCMC trainer cannot be combined with recovery prune")
                 if "colmap_matcher" in normalized_options:
                     colmap_matcher = str(normalized_options["colmap_matcher"])
                     if colmap_matcher not in COLMAP_MATCHERS:
@@ -216,7 +220,11 @@ class JobStore:
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
                 if gaussian_config is None:
                     longest_edge = normalized_options.get("gaussian_longest_edge", 1280)
-                    if recovery_prune == "on":
+                    if gaussian_trainer == "mcmc":
+                        gaussian_config = resolve_mcmc_config(
+                            longest_edge=int(longest_edge)
+                        )
+                    elif recovery_prune == "on":
                         gaussian_config = resolve_internal_config(
                             "standard_v1",
                             overrides={
@@ -231,6 +239,9 @@ class JobStore:
                             "standard_v1",
                             longest_edge=longest_edge,
                         )
+                validate_trainer_strategy(
+                    gaussian_trainer, gaussian_config.effective_config
+                )
             gaussian_config_record = (
                 resolved_config_record(gaussian_config) if gaussian_config is not None else None
             )

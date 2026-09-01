@@ -17,11 +17,19 @@ from image3d_scenegraph.gaussian.config import (
 from image3d_scenegraph.gaussian.dataset import sha256_file, validate_contract, with_initialization
 from image3d_scenegraph.gaussian.initialization import (
     dense_initialization,
+    load_frozen_initialization,
     sparse_initialization,
     write_initialization,
 )
+from image3d_scenegraph.gaussian.replay import (
+    build_replay_bundle,
+    validate_replay_bundle,
+)
 from image3d_scenegraph.gaussian.external_trainer import train_external_gaussians
-from image3d_scenegraph.gaussian.trainers import TRAINER_IDS
+from image3d_scenegraph.gaussian.trainers import (
+    TRAINER_IDS,
+    validate_trainer_strategy,
+)
 from image3d_scenegraph.gaussian.trainer import train_gaussians
 
 
@@ -31,8 +39,10 @@ def main() -> None:
     parser.add_argument("--dataset-root", required=True, type=Path)
     parser.add_argument("--run-dir", required=True, type=Path)
     parser.add_argument("--trainer", choices=TRAINER_IDS, default="graphdeco")
-    parser.add_argument("--initialization", choices=["sparse", "dense"], required=True)
-    parser.add_argument("--points", required=True, type=Path)
+    parser.add_argument(
+        "--initialization", choices=["sparse", "dense", "frozen"], required=True
+    )
+    parser.add_argument("--points", type=Path)
     parser.add_argument("--support-diagnostics", type=Path)
     parser.add_argument("--max-initial-points", type=int, default=1_000_000)
     parser.add_argument("--voxel-size", type=float, default=0.005)
@@ -64,31 +74,50 @@ def main() -> None:
         overrides = None
         if args.overrides_json is not None:
             overrides = json.loads(args.overrides_json.read_text(encoding="utf-8"))
-        resolved = resolve_internal_config(overrides=overrides)
-    normalized_from_world = np.asarray(
-        contract["normalization"]["normalized_from_world"], dtype=np.float64
-    )
-    if args.initialization == "sparse":
-        initialized = sparse_initialization(
-            args.points,
-            normalized_from_world,
-            max_points=args.max_initial_points,
+        resolved = resolve_internal_config(
+            "mcmc_v1" if args.trainer == "mcmc" else "standard_v1",
+            overrides=overrides,
+        )
+    validate_trainer_strategy(args.trainer, resolved.effective_config)
+    if args.initialization == "frozen":
+        if args.trainer not in {"project", "mcmc"}:
+            raise SystemExit("frozen initialization is supported only by project and mcmc trainers")
+        validate_replay_bundle(args.dataset_root)
+        asset_relative = Path(str(contract["initialization"]["asset"]))
+        asset_path = args.dataset_root / asset_relative
+        diagnostics_path = asset_path.with_suffix(".json")
+        initialized = load_frozen_initialization(
+            asset_path,
+            diagnostics_path,
+            expected_sha256=str(contract["initialization"]["sha256"]),
         )
     else:
-        initialized = dense_initialization(
-            args.points,
-            normalized_from_world,
-            max_points=args.max_initial_points,
-            voxel_size=args.voxel_size,
-            diagnostics_path=args.support_diagnostics,
-            min_support=args.min_support,
-            min_confidence=args.min_confidence,
+        if args.points is None:
+            raise SystemExit("--points is required for sparse or dense initialization")
+        normalized_from_world = np.asarray(
+            contract["normalization"]["normalized_from_world"], dtype=np.float64
         )
+        if args.initialization == "sparse":
+            initialized = sparse_initialization(
+                args.points,
+                normalized_from_world,
+                max_points=args.max_initial_points,
+            )
+        else:
+            initialized = dense_initialization(
+                args.points,
+                normalized_from_world,
+                max_points=args.max_initial_points,
+                voxel_size=args.voxel_size,
+                diagnostics_path=args.support_diagnostics,
+                min_support=args.min_support,
+                min_confidence=args.min_confidence,
+            )
 
-    initialization_dir = args.run_dir / "preparation" / args.attempt_id / "initialization"
-    asset_path = initialization_dir / f"{args.initialization}.npz"
-    diagnostics_path = initialization_dir / f"{args.initialization}.json"
-    write_initialization(asset_path, diagnostics_path, initialized)
+        initialization_dir = args.run_dir / "preparation" / args.attempt_id / "initialization"
+        asset_path = initialization_dir / f"{args.initialization}.npz"
+        diagnostics_path = initialization_dir / f"{args.initialization}.json"
+        write_initialization(asset_path, diagnostics_path, initialized)
     if args.attempt_kind == "resume":
         if args.parent_attempt_id is None:
             raise SystemExit("resume requires --parent-attempt-id")
@@ -97,6 +126,8 @@ def main() -> None:
         )
         effective_contract = json.loads(parent_contract_path.read_text(encoding="utf-8"))
         validate_contract(effective_contract)
+    elif args.initialization == "frozen":
+        effective_contract = contract
     else:
         effective_contract = with_initialization(
             contract,
@@ -120,8 +151,18 @@ def main() -> None:
         + "\n",
         encoding="utf-8",
     )
+    if args.initialization != "frozen":
+        build_replay_bundle(
+            contract=effective_contract,
+            dataset_path=contract_path,
+            dataset_root=args.dataset_root,
+            initialization_path=asset_path,
+            diagnostics_path=diagnostics_path,
+            replay_root=args.run_dir / "replay",
+        )
 
-    trainer = train_gaussians if args.trainer == "project" else train_external_gaussians
+    native_trainer = args.trainer in {"project", "mcmc"}
+    trainer = train_gaussians if native_trainer else train_external_gaussians
     trainer_args = {
         "contract": effective_contract,
         "dataset_root": args.dataset_root,
@@ -130,7 +171,7 @@ def main() -> None:
         "run_dir": args.run_dir,
         "attempt_id": args.attempt_id,
     }
-    if args.trainer == "project":
+    if native_trainer:
         trainer_args.update(
             attempt_kind=args.attempt_kind,
             parent_attempt_id=args.parent_attempt_id,
@@ -140,7 +181,7 @@ def main() -> None:
             from gsplat.distributed import cli
 
             cli(
-                _distributed_project_train,
+                _distributed_native_train,
                 {"trainer_args": trainer_args, "cancel_file": args.cancel_file},
                 verbose=True,
             )
@@ -152,7 +193,7 @@ def main() -> None:
             return
     else:
         if args.distributed:
-            raise SystemExit("distributed mode is supported only by the project trainer")
+            raise SystemExit("distributed mode is supported only by project and mcmc trainers")
         if args.attempt_kind != "fresh":
             raise SystemExit("external Gaussian trainers currently support fresh attempts only")
         trainer_args["trainer_id"] = args.trainer
@@ -163,7 +204,7 @@ def main() -> None:
     print(json.dumps({**result.__dict__, "trainer_id": args.trainer}, allow_nan=False))
 
 
-def _distributed_project_train(
+def _distributed_native_train(
     local_rank: int, world_rank: int, world_size: int, payload: dict
 ) -> None:
     trainer_args = dict(payload["trainer_args"])

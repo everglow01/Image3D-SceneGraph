@@ -772,7 +772,7 @@ class ProjectGaussianAdapter:
             "--max-initial-points",
             str(context.options.get("gaussian_max_initial_points", 1_000_000)),
         ]
-        if trainer_id == "project":
+        if trainer_id in {"project", "mcmc"}:
             command_train.append("--distributed")
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)
@@ -786,11 +786,21 @@ class ProjectGaussianAdapter:
         attempt_id = result_path.parents[1].name
         effective_dataset_path = training_dir / "preparation" / attempt_id / "dataset.json"
         effective_config_path = training_dir / "preparation" / attempt_id / "effective_config.json"
+        replay_dataset_path = training_dir / "replay" / "dataset.json"
+        replay_record_path = training_dir / "replay" / "replay.json"
         if not all(
             path.is_file()
-            for path in (model_path, progress_path, effective_dataset_path, effective_config_path)
+            for path in (
+                model_path,
+                progress_path,
+                effective_dataset_path,
+                effective_config_path,
+                replay_dataset_path,
+                replay_record_path,
+            )
         ):
             raise ReconstructionError("project Gaussian trainer result references missing assets")
+        raw_model_path = model_path
 
         (
             model_path,
@@ -962,6 +972,12 @@ class ProjectGaussianAdapter:
             "output_type=gaussian_splat",
             "adapter=ProjectGaussianAdapter",
             f"gaussian_trainer={trainer_id}",
+            f"gaussian_strategy={result.get('strategy_name', 'default_v1')}",
+            *(
+                [f"gaussian_cap={result['gaussian_cap']}"]
+                if result.get("gaussian_cap") is not None
+                else []
+            ),
             f"gaussian_geometry_source={geometry_source}",
             f"gaussian_geometry_effective_source={geometry_metrics['gaussian_geometry_effective_source']}",
             f"gaussian_geometry_fallback_applied={str(geometry_metrics['gaussian_geometry_fallback_applied']).lower()}",
@@ -1003,10 +1019,13 @@ class ProjectGaussianAdapter:
             assets={
                 **video_assets,
                 **geometry_assets,
+                "gaussian_raw_model": raw_model_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_model": model_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_training_result": result_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_progress": progress_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_dataset": effective_dataset_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_replay_dataset": replay_dataset_path.relative_to(context.job_dir).as_posix(),
+                "gaussian_replay_record": replay_record_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_effective_config": effective_config_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_evaluation": evaluation_path.relative_to(context.job_dir).as_posix(),
                 **test_assets,
@@ -1023,6 +1042,12 @@ class ProjectGaussianAdapter:
                 **geometry_metrics,
                 "gaussian_count": int(result["gaussian_count"]),
                 "gaussian_trainer": trainer_id,
+                "gaussian_strategy": str(result.get("strategy_name", "default_v1")),
+                **(
+                    {"gaussian_cap": int(result["gaussian_cap"])}
+                    if result.get("gaussian_cap") is not None
+                    else {}
+                ),
                 "gaussian_initial_loss": float(result["initial_loss"]),
                 "gaussian_final_loss": float(result["final_loss"]),
                 "gaussian_peak_allocated_bytes": int(result["peak_allocated_bytes"]),

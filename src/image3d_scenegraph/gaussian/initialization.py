@@ -319,6 +319,57 @@ def _diagnostics(
     return payload
 
 
+def load_frozen_initialization(
+    asset_path: Path,
+    diagnostics_path: Path,
+    *,
+    expected_sha256: str,
+) -> InitializationResult:
+    """Load a previously selected initialization without recomputing it."""
+    if sha256_file(asset_path) != expected_sha256:
+        raise InitializationError("frozen initialization asset hash mismatch")
+    try:
+        diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+        with np.load(asset_path, allow_pickle=False) as payload:
+            if set(payload.files) != {"points", "colors", "scales"}:
+                raise InitializationError("frozen initialization must contain points, colors, and scales")
+            points = np.asarray(payload["points"])
+            colors = np.asarray(payload["colors"])
+            scales = np.asarray(payload["scales"])
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise InitializationError(f"cannot read frozen initialization: {exc}") from exc
+
+    count = len(points)
+    if points.dtype != np.float32 or points.shape != (count, 3):
+        raise InitializationError("frozen initialization points must be float32 N x 3")
+    if colors.dtype != np.uint8 or colors.shape != (count, 3):
+        raise InitializationError("frozen initialization colors must be uint8 N x 3")
+    if scales.dtype != np.float32 or scales.shape != (count,):
+        raise InitializationError("frozen initialization scales must be float32 N")
+    if count == 0 or not np.isfinite(points).all():
+        raise InitializationError("frozen initialization points must be non-empty and finite")
+    if not np.isfinite(scales).all() or np.any(scales <= 0):
+        raise InitializationError("frozen initialization scales must be finite and positive")
+    if diagnostics.get("asset_sha256") != expected_sha256:
+        raise InitializationError("frozen initialization diagnostics asset hash mismatch")
+    if diagnostics.get("counts", {}).get("accepted") != count:
+        raise InitializationError("frozen initialization accepted count mismatch")
+    selected_hash = hashlib.sha256(points.tobytes() + colors.tobytes()).hexdigest()
+    if diagnostics.get("selected_rows_sha256") != selected_hash:
+        raise InitializationError("frozen initialization selected rows hash mismatch")
+    selection_payload = {
+        key: value
+        for key, value in diagnostics.items()
+        if key not in {"asset_sha256", "selection_hash"}
+    }
+    selection_hash = hashlib.sha256(
+        json.dumps(selection_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if diagnostics.get("selection_hash") != selection_hash:
+        raise InitializationError("frozen initialization selection hash mismatch")
+    return InitializationResult(points, colors, scales, diagnostics)
+
+
 def write_initialization(
     output_path: Path,
     diagnostics_path: Path,

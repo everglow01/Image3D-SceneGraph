@@ -108,47 +108,92 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/experiments/r2_7/synthetic-smoke"))
     parser.add_argument("--iterations", type=int, default=40)
+    parser.add_argument("--trainer", choices=["project", "mcmc"], default="project")
     args = parser.parse_args()
     if args.output_dir.exists():
         raise SystemExit(f"refusing to overwrite existing smoke output: {args.output_dir}")
     dataset_root = args.output_dir / "dataset"
     contract = generate_scene(dataset_root)
     radius = float(contract["normalization"]["radius_world"])
-    initial_normalized = np.array([[-0.16, 0.02, 0.01], [0.15, 0.03, 0.02], [0.02, -0.15, -0.02]], dtype=np.float32)
+    initial_normalized = np.array(
+        [[-0.16, 0.02, 0.01], [0.15, 0.03, 0.02], [0.02, -0.15, -0.02]],
+        dtype=np.float32,
+    )
+    initial_colors = np.array(
+        [[150, 80, 60], [70, 150, 80], [70, 80, 150]], dtype=np.uint8
+    )
+    if args.trainer == "mcmc":
+        generator = np.random.RandomState(20260729)
+        initial_normalized = np.repeat(initial_normalized, 10, axis=0)
+        initial_normalized += generator.normal(0.0, 0.02, initial_normalized.shape).astype(
+            np.float32
+        )
+        initial_colors = np.repeat(initial_colors, 10, axis=0)
     initialization = InitializationResult(
         points=initial_normalized,
-        colors=np.array([[150, 80, 60], [70, 150, 80], [70, 80, 150]], dtype=np.uint8),
-        scales=np.full(3, 0.13, dtype=np.float32),
+        colors=initial_colors,
+        scales=np.full(len(initial_normalized), 0.13, dtype=np.float32),
         diagnostics={"kind": "generated_smoke", "radius_world": radius},
     )
-    overrides = {
-        "iterations": args.iterations,
-        "resolution": {"longest_edge": 64},
-        "learning_rate": {
-            "position": {"initial": 0.01, "final": 0.001},
-            "feature": 0.05,
-            "opacity": 0.02,
-            "scaling": 0.01,
-            "rotation": 0.005,
-        },
-        "sh_schedule": {"initial_degree": 0, "max_degree": 0, "increase_every_iterations": 1},
-        "densification": {
-            "enabled": True,
-            "start_iteration": 1,
-            "end_iteration": max(2, args.iterations - 1),
-            "every_iterations": max(1, args.iterations // 4),
-            "gradient_threshold": 0.00000001,
-            "scale_threshold": 0.01,
-        },
-        "opacity_reset": {
-            "enabled": True,
-            "every_iterations": max(1, args.iterations // 4),
-        },
-        "evaluation": {
-            "validation_iterations": [args.iterations // 2, args.iterations],
-        },
-    }
-    resolved = resolve_internal_config(overrides=overrides)
+    if args.trainer == "mcmc":
+        if args.iterations < 300:
+            raise SystemExit("MCMC smoke requires at least 300 iterations")
+        overrides = {
+            "iterations": args.iterations,
+            "resolution": {"longest_edge": 64},
+            "sh_schedule": {
+                "initial_degree": 0,
+                "max_degree": 0,
+                "increase_every_iterations": 1,
+            },
+            "densification": {
+                "enabled": True,
+                "start_iteration": 100,
+                "end_iteration": args.iterations - 100,
+                "every_iterations": 100,
+            },
+            "opacity_reset": {
+                "every_iterations": 100,
+                "recovery_prune": {"window_iterations": 100},
+            },
+            "evaluation": {
+                "validation_iterations": [args.iterations // 2, args.iterations],
+            },
+        }
+        resolved = resolve_internal_config("mcmc_v1", overrides=overrides)
+    else:
+        overrides = {
+            "iterations": args.iterations,
+            "resolution": {"longest_edge": 64},
+            "learning_rate": {
+                "position": {"initial": 0.01, "final": 0.001},
+                "feature": 0.05,
+                "opacity": 0.02,
+                "scaling": 0.01,
+                "rotation": 0.005,
+            },
+            "sh_schedule": {
+                "initial_degree": 0,
+                "max_degree": 0,
+                "increase_every_iterations": 1,
+            },
+            "densification": {
+                "enabled": True,
+                "start_iteration": 1,
+                "end_iteration": max(2, args.iterations - 1),
+                "every_iterations": max(1, args.iterations // 4),
+                "gradient_threshold": 0.00000001,
+                "scale_threshold": 0.01,
+            },
+            "opacity_reset": {
+                "enabled": True,
+                "every_iterations": max(1, args.iterations // 4),
+            },
+            "evaluation": {
+                "validation_iterations": [args.iterations // 2, args.iterations],
+            },
+        }
+        resolved = resolve_internal_config(overrides=overrides)
     interrupted_dir = args.output_dir / "resumed"
     cancel = False
 
@@ -184,6 +229,17 @@ def main() -> None:
     )
     if not result.final_loss < result.initial_loss:
         raise SystemExit(f"loss did not decrease: {result.initial_loss} -> {result.final_loss}")
+    if args.trainer == "mcmc":
+        progress_path = interrupted_dir / result.progress_path
+        events = [
+            json.loads(line)
+            for line in progress_path.read_text(encoding="utf-8").splitlines()
+        ]
+        refinements = [event for event in events if event.get("mcmc_refinement")]
+        if not refinements or not any(event.get("mcmc_added_count", 0) > 0 for event in refinements):
+            raise SystemExit("MCMC smoke did not exercise refinement growth")
+        if result.strategy_name != "mcmc_v1" or result.gaussian_count > 3_000_000:
+            raise SystemExit("MCMC smoke violated strategy or global-cap provenance")
     print(json.dumps(result.__dict__, indent=2))
 
 
