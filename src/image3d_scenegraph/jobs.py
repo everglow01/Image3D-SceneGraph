@@ -1619,7 +1619,7 @@ class JobStore:
     def _try_align_point_cloud(
         self, job_dir: Path, assets: dict[str, str]
     ) -> tuple[dict[str, str], dict[str, int | float | str | bool], list[str]]:
-        point_cloud_asset = assets.get("point_cloud")
+        point_cloud_asset = assets.get("point_cloud") or assets.get("sfm_sparse_point_cloud")
         if not point_cloud_asset:
             return {}, {"alignment_status": "skipped_no_point_cloud"}, ["alignment_status=skipped_no_point_cloud"]
 

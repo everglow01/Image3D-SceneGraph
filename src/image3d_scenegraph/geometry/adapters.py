@@ -461,7 +461,12 @@ class ProjectGaussianAdapter:
             poll_callback=progress_callback,
         )
         cameras_path = context.job_dir / "geometry" / "cameras.json"
-        if not cameras_path.is_file() or not points_path.is_file():
+        sfm_points_path = context.job_dir / "geometry" / "points.ply"
+        if (
+            not cameras_path.is_file()
+            or not sfm_points_path.is_file()
+            or not points_path.is_file()
+        ):
             raise ReconstructionError(
                 f"{geometry_source} did not produce project 3DGS camera/sparse inputs"
             )
@@ -629,6 +634,12 @@ class ProjectGaussianAdapter:
                 geometry_metrics["gaussian_geometry_fallback_reason"] = str(
                     fallback_reason
                 )
+        geometry_assets.update(
+            sfm_sparse_point_cloud=sfm_points_path.relative_to(
+                context.job_dir
+            ).as_posix(),
+            cameras=cameras_path.relative_to(context.job_dir).as_posix(),
+        )
         temporal_timestamps: dict[str, float] | None = None
         registration_log_lines: list[str] = []
         if video_selection is not None:
@@ -668,6 +679,18 @@ class ProjectGaussianAdapter:
             temporal_timestamps=temporal_timestamps,
         )
         write_contract(dataset_path, contract)
+        sfm_assets, sfm_metrics, sfm_log_lines = _try_export_sfm_diagnostics(
+            context=context,
+            database_path=context.job_dir / "colmap" / "database.db",
+            source_image_root=image_dir,
+            dataset_path=dataset_path,
+            output_dir=context.job_dir / "diagnostics" / "sfm",
+            matcher=colmap_matcher,
+            geometry_source=geometry_source,
+            video_selection_path=video_selection_path,
+        )
+        geometry_assets.update(sfm_assets)
+        geometry_metrics.update(sfm_metrics)
         training_points_path = points_path
         if geometry_metrics["gaussian_geometry_effective_source"] == "vggt_ba":
             try:
@@ -968,6 +991,7 @@ class ProjectGaussianAdapter:
             ),
             *video_recovery_log_lines,
             *registration_log_lines,
+            *sfm_log_lines,
             f"trainer={' '.join(command_train)}",
             *sor_log_lines,
             *postprocess_log_lines,
@@ -1025,6 +1049,81 @@ class ProjectGaussianAdapter:
                 **postprocess_metrics,
             },
             log_lines=log_lines,
+        )
+
+
+def _try_export_sfm_diagnostics(
+    *,
+    context: ReconstructionContext,
+    database_path: Path,
+    source_image_root: Path,
+    dataset_path: Path,
+    output_dir: Path,
+    matcher: str,
+    geometry_source: str,
+    video_selection_path: Path | None,
+) -> tuple[
+    dict[str, str],
+    dict[str, int | float | str | bool],
+    list[str],
+]:
+    try:
+        from image3d_scenegraph.geometry.colmap_diagnostics import (
+            export_colmap_diagnostics,
+        )
+
+        provenance_path = (
+            context.job_dir / "diagnostics" / "vggt_ba.json"
+            if geometry_source == "vggt_ba"
+            else context.job_dir / "diagnostics" / "colmap_timing.json"
+        )
+        try:
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            colmap_build = str(provenance.get("colmap_build", "unknown"))
+        except (OSError, json.JSONDecodeError):
+            colmap_build = "unknown"
+        _adapter_progress(context, "sfm_diagnostics", 0.32)
+        manifest_path, metrics = export_colmap_diagnostics(
+            job_dir=context.job_dir,
+            database_path=database_path,
+            source_image_root=source_image_root,
+            dataset_contract_path=dataset_path,
+            output_dir=output_dir,
+            matcher=matcher,
+            colmap_build=colmap_build,
+            video_selection_path=video_selection_path,
+            cancel_requested=context.cancel_requested,
+        )
+        return (
+            {
+                "sfm_diagnostics": manifest_path.relative_to(
+                    context.job_dir
+                ).as_posix()
+            },
+            metrics,
+            [
+                "sfm_diagnostics_status=available",
+                f"sfm_diagnostics_images={metrics['sfm_diagnostics_image_count']}",
+                f"sfm_diagnostics_pairs={metrics['sfm_diagnostics_pair_count']}",
+                f"sfm_diagnostics_bytes={metrics['sfm_diagnostics_bytes']}",
+            ],
+        )
+    except Exception as exc:
+        if context.cancel_requested is not None and context.cancel_requested():
+            from image3d_scenegraph.worker import JobCancelled
+
+            raise JobCancelled("job cancellation requested") from exc
+        reason = str(exc) or exc.__class__.__name__
+        return (
+            {},
+            {
+                "sfm_diagnostics_status": "unavailable",
+                "sfm_diagnostics_reason": reason,
+            },
+            [
+                "sfm_diagnostics_status=unavailable",
+                f"sfm_diagnostics_reason={reason}",
+            ],
         )
 
 
