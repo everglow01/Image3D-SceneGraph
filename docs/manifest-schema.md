@@ -80,6 +80,7 @@ Jobs without `gaussian_config`, including all historical geometry jobs and impor
 Common asset roles include:
 
 - `point_cloud`, `point_cloud_aligned`, and `cameras`
+- `sfm_sparse_point_cloud` and `sfm_diagnostics` for Project Gaussian jobs that publish the final accepted COLMAP sparse PLY/cameras and frontend feature/match diagnostics
 - `alignment_diagnostics`, `fusion_diagnostics`, `visibility_graph`, `scale_disagreement_diagnostics`, and `consistency_diagnostics`
 - `mesh` and `mesh_diagnostics`
 - `scene_splat`, `scene_graph`, and `log`
@@ -101,6 +102,23 @@ The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mes
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
 Only roles present in `assets` are available. Generic postprocessing can add existing alignment or mesh assets when an older manifest is loaded; this does not rerun reconstruction.
+
+## SfM frontend diagnostics
+
+New `project_3dgs + gaussian_splat` jobs publish the final accepted sparse model as `sfm_sparse_point_cloud` (`geometry/points.ply`) and its camera source as `cameras`. The dedicated role does not trigger generic point-cloud alignment; the PLY/camera viewer remains in raw `colmap_world` arbitrary units, while the nearest-input-view records below are separately transformed into the Gaussian normalized frame.
+
+After the final Mapper/registration/recovery/BA result and dataset split are frozen, the adapter attempts a fail-soft frontend export from that same workspace's COLMAP database. Success publishes `sfm_diagnostics=diagnostics/sfm/manifest.json` and `sfm_diagnostics_status=available`; failure omits the role, records `sfm_diagnostics_status=unavailable` plus `sfm_diagnostics_reason`, and does not fail Gaussian training. Data from failed/replaced `lifecycle/partial` attempts is never combined with the accepted model. Historical manifests may omit all these roles and metrics.
+
+`sfm_diagnostics` schema 1 (`profile=sfm_frontend_diagnostics_v1`) records:
+
+- normalized OpenCV camera axes and arbitrary-unit semantics;
+- dataset hash, default run ID, one or more detector/matcher run records, and aggregate image/keypoint/pair/match/inlier counts;
+- every feature-extracted source image's stable frame UID, job-relative path/hash/dimensions, COLMAP image ID, optional source video time, final registration/split state, and—only when registered—normalized center/forward/up and horizontal/vertical FOV;
+- per-run detector/matcher/geometric-verification provenance plus job-relative feature-index and pair-index paths.
+
+Large run children are deterministic gzip-compressed JSON shards. Their filenames end in `.json.gz`; the asset endpoint returns them as `application/json` with `Content-Encoding: gzip`, so browser consumers use ordinary JSON decoding. Feature records contain only rounded `(x,y)` coordinates in original upright feature-input pixels. Pair records store each tentative correspondence exactly once, partitioned into geometrically verified `inliers` and rejected `outliers`; a pair missing from the index means it was not tested, while an indexed pair with zero counts was tested with no correspondences. COLMAP descriptors, the mutable database, and failed-attempt internals are not published. Pixel mosaic stitching and final SfM 3D-track observations are outside schema 1.
+
+Metrics on success include `sfm_diagnostics_image_count`, `sfm_diagnostics_registered_image_count`, `sfm_diagnostics_keypoint_count`, `sfm_diagnostics_pair_count`, `sfm_diagnostics_match_count`, `sfm_diagnostics_inlier_count`, and `sfm_diagnostics_bytes`.
 
 ## Bounded video contract
 
