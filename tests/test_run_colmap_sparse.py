@@ -454,6 +454,8 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
         (output_dir / "diagnostics" / "colmap_timing.json").read_text()
     )
     assert timing["video_profile"] == "video_keyframes_standard_v2"
+    assert timing["colmap_build"] == "COLMAP 4.0.0"
+    assert timing["matcher"] == "sequential"
     assert set(timing["stage_elapsed_seconds"]) == {
         "feature_extraction",
         "feature_matching",

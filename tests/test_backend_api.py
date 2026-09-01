@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 
 from fastapi.testclient import TestClient
@@ -60,6 +61,23 @@ def test_list_jobs_returns_store_summaries(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["jobs"][0]["job_id"] == "job-2"
+
+
+def test_asset_route_serves_gzip_json_as_transparent_json(tmp_path):
+    jobs = tmp_path / "jobs"
+    asset = jobs / "test-job" / "diagnostics" / "sfm" / "index.json.gz"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(gzip.compress(b'{"schema_version":1}', mtime=0))
+    app = create_app(jobs, start_worker=False)
+
+    response = TestClient(app).get(
+        "/api/jobs/test-job/assets/diagnostics/sfm/index.json.gz"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.json() == {"schema_version": 1}
 
 
 def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):

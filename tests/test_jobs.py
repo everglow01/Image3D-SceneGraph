@@ -14,6 +14,7 @@ from image3d_scenegraph.geometry.adapters import (
     ReconstructionError,
     _automatic_test_evaluation_enabled,
     _read_video_registration_recovery,
+    _try_export_sfm_diagnostics,
     _write_video_registration_diagnostics,
 )
 from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
@@ -102,6 +103,82 @@ def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallbac
         ("video_registration_recovery_round_1", 0.303),
         ("video_registration_recovery_round_2", 0.307),
     ]
+
+
+def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypatch):
+    diagnostics = tmp_path / "diagnostics"
+    diagnostics.mkdir()
+    (diagnostics / "colmap_timing.json").write_text(
+        json.dumps({"colmap_build": "COLMAP 4.0.0"}), encoding="utf-8"
+    )
+    exported = diagnostics / "sfm" / "manifest.json"
+    exported.parent.mkdir()
+    exported.write_text("{}", encoding="utf-8")
+    captured = {}
+
+    def fake_export(**kwargs):
+        captured.update(kwargs)
+        return exported, {
+            "sfm_diagnostics_status": "available",
+            "sfm_diagnostics_image_count": 3,
+            "sfm_diagnostics_pair_count": 2,
+            "sfm_diagnostics_bytes": 42,
+        }
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.colmap_diagnostics.export_colmap_diagnostics",
+        fake_export,
+    )
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={},
+    )
+
+    assets, metrics, logs = _try_export_sfm_diagnostics(
+        context=context,
+        database_path=tmp_path / "colmap" / "database.db",
+        source_image_root=tmp_path / "input" / "images",
+        dataset_path=tmp_path / "dataset.json",
+        output_dir=tmp_path / "diagnostics" / "sfm",
+        matcher="exhaustive",
+        geometry_source="colmap",
+        video_selection_path=None,
+    )
+
+    assert assets == {"sfm_diagnostics": "diagnostics/sfm/manifest.json"}
+    assert metrics["sfm_diagnostics_status"] == "available"
+    assert captured["colmap_build"] == "COLMAP 4.0.0"
+    assert captured["cancel_requested"] is None
+    assert "sfm_diagnostics_status=available" in logs
+
+
+def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={},
+    )
+
+    assets, metrics, logs = _try_export_sfm_diagnostics(
+        context=context,
+        database_path=tmp_path / "missing.db",
+        source_image_root=tmp_path / "missing-images",
+        dataset_path=tmp_path / "missing-dataset.json",
+        output_dir=tmp_path / "diagnostics" / "sfm",
+        matcher="exhaustive",
+        geometry_source="colmap",
+        video_selection_path=None,
+    )
+
+    assert assets == {}
+    assert metrics["sfm_diagnostics_status"] == "unavailable"
+    assert "missing" in str(metrics["sfm_diagnostics_reason"])
+    assert logs[0] == "sfm_diagnostics_status=unavailable"
 
 
 def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
