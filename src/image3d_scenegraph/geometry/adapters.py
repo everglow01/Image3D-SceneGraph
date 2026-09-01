@@ -347,6 +347,15 @@ class ProjectGaussianAdapter:
             "gaussian_geometry_effective_source": geometry_source,
             "gaussian_geometry_fallback_applied": False,
         }
+        sfm_feature_profile = _choice_option(
+            context,
+            "sfm_feature_profile",
+            "IMAGE3D_SFM_FEATURE_PROFILE",
+            "sift_v1",
+            {"sift_v1", "aliked_n16rot_v1"},
+        )
+        geometry_metrics["sfm_feature_profile"] = sfm_feature_profile
+        feature_args = ["--feature-profile", sfm_feature_profile]
         colmap_matcher = _choice_option(
             context,
             "colmap_matcher",
@@ -386,6 +395,7 @@ class ProjectGaussianAdapter:
                 str(image_dir),
                 "--output-dir",
                 str(context.job_dir),
+                *feature_args,
                 *video_geometry_args,
                 *matcher_args,
                 "--gaussian-baseline",
@@ -413,6 +423,7 @@ class ProjectGaussianAdapter:
                 str(image_dir),
                 "--output-dir",
                 str(context.job_dir),
+                *feature_args,
                 *video_geometry_args,
                 *matcher_args,
                 "--repo-dir",
@@ -685,6 +696,7 @@ class ProjectGaussianAdapter:
             source_image_root=image_dir,
             dataset_path=dataset_path,
             output_dir=context.job_dir / "diagnostics" / "sfm",
+            feature_profile=sfm_feature_profile,
             matcher=colmap_matcher,
             geometry_source=geometry_source,
             video_selection_path=video_selection_path,
@@ -1084,6 +1096,7 @@ def _try_export_sfm_diagnostics(
     source_image_root: Path,
     dataset_path: Path,
     output_dir: Path,
+    feature_profile: str,
     matcher: str,
     geometry_source: str,
     video_selection_path: Path | None,
@@ -1105,8 +1118,34 @@ def _try_export_sfm_diagnostics(
         try:
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             colmap_build = str(provenance.get("colmap_build", "unknown"))
-        except (OSError, json.JSONDecodeError):
+            feature = provenance.get(
+                "colmap_feature" if geometry_source == "vggt_ba" else "feature"
+            )
+            if not isinstance(feature, dict):
+                if feature_profile != "sift_v1":
+                    raise ValueError("learned COLMAP feature provenance is missing")
+                feature = {
+                    "profile": "sift_v1",
+                    "extractor": "SIFT",
+                    "descriptor": "SIFT",
+                    "local_matcher": "SIFT_BRUTEFORCE",
+                    "max_features": 8_192,
+                    "extractor_model_sha256": None,
+                    "matcher_model_sha256": None,
+                }
+        except (OSError, json.JSONDecodeError, ValueError):
             colmap_build = "unknown"
+            if feature_profile != "sift_v1":
+                raise
+            feature = {
+                "profile": "sift_v1",
+                "extractor": "SIFT",
+                "descriptor": "SIFT",
+                "local_matcher": "SIFT_BRUTEFORCE",
+                "max_features": 8_192,
+                "extractor_model_sha256": None,
+                "matcher_model_sha256": None,
+            }
         _adapter_progress(context, "sfm_diagnostics", 0.32)
         manifest_path, metrics = export_colmap_diagnostics(
             job_dir=context.job_dir,
@@ -1114,7 +1153,9 @@ def _try_export_sfm_diagnostics(
             source_image_root=source_image_root,
             dataset_contract_path=dataset_path,
             output_dir=output_dir,
-            matcher=matcher,
+            feature=feature,
+            pairing=matcher,
+            mapper="incremental",
             colmap_build=colmap_build,
             video_selection_path=video_selection_path,
             cancel_requested=context.cancel_requested,
@@ -1888,6 +1929,13 @@ class ColmapPointCloudAdapter:
             raise ReconstructionError(f"COLMAP runner missing: {script_path}")
 
         image_dir = context.job_dir / "input" / "images"
+        feature_profile = _choice_option(
+            context,
+            "sfm_feature_profile",
+            "IMAGE3D_SFM_FEATURE_PROFILE",
+            "sift_v1",
+            {"sift_v1", "aliked_n16rot_v1"},
+        )
         command = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(script_path),
@@ -1895,6 +1943,8 @@ class ColmapPointCloudAdapter:
             str(image_dir),
             "--output-dir",
             str(context.job_dir),
+            "--feature-profile",
+            feature_profile,
             "--matcher",
             os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
         ]
@@ -1962,6 +2012,13 @@ class ColmapVggtPointCloudAdapter:
             raise ReconstructionError(f"COLMAP+VGGT runner missing: {script_path}")
 
         image_dir = context.job_dir / "input" / "images"
+        feature_profile = _choice_option(
+            context,
+            "sfm_feature_profile",
+            "IMAGE3D_SFM_FEATURE_PROFILE",
+            "sift_v1",
+            {"sift_v1", "aliked_n16rot_v1"},
+        )
         fusion_mode = os.environ.get("IMAGE3D_COLMAP_VGGT_FUSION_MODE", "points")
         if fusion_mode not in {"points", "tsdf"}:
             raise ReconstructionError("IMAGE3D_COLMAP_VGGT_FUSION_MODE must be 'points' or 'tsdf'")
@@ -1994,6 +2051,8 @@ class ColmapVggtPointCloudAdapter:
             str(context.job_dir),
             "--device",
             os.environ.get("IMAGE3D_VGGT_DEVICE", "cuda"),
+            "--feature-profile",
+            feature_profile,
             "--matcher",
             os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
             "--vggt-batch-size",

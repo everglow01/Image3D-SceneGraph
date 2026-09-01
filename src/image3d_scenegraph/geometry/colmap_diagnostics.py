@@ -12,8 +12,9 @@ from typing import Any, Callable
 import numpy as np
 
 
-SCHEMA_VERSION = 1
-PROFILE_ID = "sfm_frontend_diagnostics_v1"
+SCHEMA_VERSION = 2
+PROFILE_ID = "sfm_frontend_diagnostics_v2"
+SHARD_SCHEMA_VERSION = 1
 MAX_IMAGE_ID = 2_147_483_647
 FEATURE_IMAGES_PER_SHARD = 32
 PAIRS_PER_SHARD = 256
@@ -31,8 +32,10 @@ def export_colmap_diagnostics(
     source_image_root: Path,
     dataset_contract_path: Path,
     output_dir: Path,
-    matcher: str,
+    feature: dict[str, Any],
+    pairing: str,
     colmap_build: str,
+    mapper: str = "incremental",
     video_selection_path: Path | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> tuple[Path, dict[str, int | str]]:
@@ -44,8 +47,11 @@ def export_colmap_diagnostics(
     if final_output.exists():
         raise ColmapDiagnosticsError("SfM diagnostics output already exists")
     _relative(root, final_output)
-    if matcher not in {"exhaustive", "sequential"}:
-        raise ColmapDiagnosticsError(f"unsupported COLMAP matcher: {matcher}")
+    if pairing not in {"exhaustive", "sequential"}:
+        raise ColmapDiagnosticsError(f"unsupported COLMAP pairing: {pairing}")
+    if mapper != "incremental":
+        raise ColmapDiagnosticsError(f"unsupported COLMAP mapper: {mapper}")
+    feature_record = _validate_feature_record(feature)
 
     contract = _read_json(contract_path, "dataset contract")
     registered, splits, normalized_from_world = _registered_images(contract)
@@ -71,7 +77,13 @@ def export_colmap_diagnostics(
                 cancel_requested,
             )
             image_set_hash = _hash_json([image["frame_uid"] for image in images])
-            run_id = _run_id(image_set_hash, matcher, colmap_build)
+            run_id = _run_id(
+                image_set_hash,
+                feature_record,
+                pairing,
+                mapper,
+                colmap_build,
+            )
             temporary_run = temporary / "runs" / run_id
             final_run = final_output / "runs" / run_id
             feature_index, keypoint_counts = _write_feature_shards(
@@ -95,11 +107,11 @@ def export_colmap_diagnostics(
 
         _write_gzip_json(
             temporary_run / "features" / "index.json.gz",
-            {"schema_version": SCHEMA_VERSION, "images": feature_index},
+            {"schema_version": SHARD_SCHEMA_VERSION, "images": feature_index},
         )
         _write_gzip_json(
             temporary_run / "pairs" / "index.json.gz",
-            {"schema_version": SCHEMA_VERSION, "pairs": pair_index},
+            {"schema_version": SHARD_SCHEMA_VERSION, "pairs": pair_index},
         )
         counts = {
             "images": len(images),
@@ -109,19 +121,30 @@ def export_colmap_diagnostics(
         }
         run = {
             "run_id": run_id,
-            "detector": {
-                "name": "sift",
+            "feature": {
+                **feature_record,
                 "implementation": "colmap",
                 "version": colmap_build,
                 "keypoint_fields": ["x", "y"],
                 "coordinate_precision_pixels": 10**-KEYPOINT_DECIMALS,
             },
-            "matcher": {
-                "name": matcher,
+            "local_matcher": {
+                "name": feature_record["local_matcher"],
+                "implementation": "colmap",
+                "version": colmap_build,
+                "model_sha256": feature_record["matcher_model_sha256"],
+            },
+            "pairing": {
+                "name": pairing,
                 "implementation": "colmap",
                 "version": colmap_build,
             },
             "geometric_verification": {
+                "implementation": "colmap",
+                "version": colmap_build,
+            },
+            "mapper": {
+                "name": mapper,
                 "implementation": "colmap",
                 "version": colmap_build,
             },
@@ -159,7 +182,69 @@ def export_colmap_diagnostics(
         "sfm_diagnostics_match_count": counts["candidate_matches"],
         "sfm_diagnostics_inlier_count": counts["inliers"],
         "sfm_diagnostics_bytes": total_bytes,
+        "sfm_feature_profile": str(feature_record["profile"]),
+        "sfm_feature_extractor": str(feature_record["extractor"]),
+        "sfm_local_matcher": str(feature_record["local_matcher"]),
+        "sfm_pairing": pairing,
+        "sfm_mapper": mapper,
     }
+
+
+def _validate_feature_record(value: dict[str, Any]) -> dict[str, str | int | None]:
+    if not isinstance(value, dict):
+        raise ColmapDiagnosticsError("COLMAP feature provenance is invalid")
+    expected = {
+        "sift_v1": ("SIFT", "SIFT", "SIFT_BRUTEFORCE", None, None),
+        "aliked_n16rot_v1": (
+            "ALIKED_N16ROT",
+            "ALIKED",
+            "ALIKED_BRUTEFORCE",
+            True,
+            True,
+        ),
+    }
+    profile = value.get("profile")
+    if profile not in expected:
+        raise ColmapDiagnosticsError("COLMAP feature profile is unsupported")
+    extractor, descriptor, local_matcher, needs_extractor_model, needs_matcher_model = (
+        expected[str(profile)]
+    )
+    if (
+        value.get("extractor") != extractor
+        or value.get("descriptor") != descriptor
+        or value.get("local_matcher") != local_matcher
+        or value.get("max_features") != 8_192
+    ):
+        raise ColmapDiagnosticsError("COLMAP feature provenance is inconsistent")
+    extractor_sha = value.get("extractor_model_sha256")
+    matcher_sha = value.get("matcher_model_sha256")
+    if needs_extractor_model:
+        extractor_sha = _sha256_value(extractor_sha, "extractor model")
+    elif extractor_sha is not None:
+        raise ColmapDiagnosticsError("SIFT feature provenance has an extractor model")
+    if needs_matcher_model:
+        matcher_sha = _sha256_value(matcher_sha, "matcher model")
+    elif matcher_sha is not None:
+        raise ColmapDiagnosticsError("SIFT feature provenance has a matcher model")
+    return {
+        "profile": str(profile),
+        "extractor": extractor,
+        "descriptor": descriptor,
+        "local_matcher": local_matcher,
+        "max_features": 8_192,
+        "extractor_model_sha256": extractor_sha,
+        "matcher_model_sha256": matcher_sha,
+    }
+
+
+def _sha256_value(value: Any, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ColmapDiagnosticsError(f"COLMAP {label} SHA-256 is invalid")
+    return value
 
 
 def _image_records(
@@ -246,7 +331,7 @@ def _write_feature_shards(
         if shard:
             _write_gzip_json(
                 output / f"shard-{shard_number:05d}.json.gz",
-                {"schema_version": SCHEMA_VERSION, "images": shard},
+                {"schema_version": SHARD_SCHEMA_VERSION, "images": shard},
             )
             shard, shard_number = {}, shard_number + 1
 
@@ -317,7 +402,7 @@ def _write_pair_shards(
         if shard:
             _write_gzip_json(
                 output / f"shard-{shard_number:05d}.json.gz",
-                {"schema_version": SCHEMA_VERSION, "pairs": shard},
+                {"schema_version": SHARD_SCHEMA_VERSION, "pairs": shard},
             )
             shard, shard_number = {}, shard_number + 1
 
@@ -534,13 +619,22 @@ def _hash_json(value: Any) -> str:
     return hashlib.sha256(_json_bytes(value)).hexdigest()
 
 
-def _run_id(image_set_hash: str, matcher: str, version: str) -> str:
+def _run_id(
+    image_set_hash: str,
+    feature: dict[str, str | int | None],
+    pairing: str,
+    mapper: str,
+    version: str,
+) -> str:
     digest = _hash_json(
         {
-            "detector": "sift",
+            "feature": feature,
+            "local_matcher": feature["local_matcher"],
+            "pairing": pairing,
+            "geometric_verification": "colmap",
+            "mapper": mapper,
             "implementation": "colmap",
             "version": version,
-            "matcher": matcher,
             "image_set_hash": image_set_hash,
         }
     )

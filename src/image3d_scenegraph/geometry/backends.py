@@ -9,7 +9,11 @@ from typing import Any
 
 from image3d_scenegraph.gaussian.trainers import get_gaussian_trainer_specs
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
+    ColmapFeatureError,
+    colmap_learned_feature_support_reason,
     resolve_colmap_executable,
+    resolve_colmap_feature_profile,
     resolve_colmap_vocab_tree,
 )
 
@@ -41,6 +45,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
     external_root = Path(os.environ.get("IMAGE3D_EXTERNAL_ROOT", root / "external"))
     checkpoint_root = Path(os.environ.get("IMAGE3D_CHECKPOINT_ROOT", root / "checkpoints"))
     colmap = resolve_colmap_executable(root)
+    feature_profiles = _colmap_feature_profiles(root, colmap)
 
     return [
         BackendSpec(
@@ -66,11 +71,13 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             available=colmap is not None,
             reason=None if colmap is not None else "colmap executable not found",
             setup_command="uv run python scripts/setup_colmap_cuda.py --install",
+            options={"sfm_feature_profiles": feature_profiles},
         ),
         _colmap_vggt_spec(
             colmap=colmap,
             repo_path=external_root / "vggt",
             checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
+            feature_profiles=feature_profiles,
         ),
         _external_model_spec(
             backend_id="dust3r",
@@ -86,7 +93,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             checkpoint_hint=checkpoint_root / "mast3r",
             supported_outputs=("point_cloud",),
         ),
-        _project_gaussian_spec(root, colmap),
+        _project_gaussian_spec(root, colmap, feature_profiles),
     ]
 
 
@@ -95,8 +102,46 @@ def get_backend_status_payload(project_root: Path | str | None = None) -> dict[s
     return {"backends": [spec.to_dict() for spec in specs]}
 
 
-def _project_gaussian_spec(
+def _colmap_feature_profiles(
     project_root: Path, colmap: Path | None
+) -> list[dict[str, Any]]:
+    sift_reason = None if colmap is not None else "colmap executable not found"
+    learned_reason = sift_reason
+    if colmap is not None:
+        learned_reason = colmap_learned_feature_support_reason(colmap)
+        if learned_reason is None:
+            try:
+                resolve_colmap_feature_profile("aliked_n16rot_v1", project_root)
+            except ColmapFeatureError as exc:
+                learned_reason = str(exc)
+    return [
+        {
+            "id": "sift_v1",
+            "label": "SIFT v1",
+            "available": sift_reason is None,
+            "reason": sift_reason,
+            "experimental": False,
+            "setup_command": (
+                None
+                if sift_reason is None
+                else "uv run python scripts/setup_colmap_cuda.py --install"
+            ),
+        },
+        {
+            "id": "aliked_n16rot_v1",
+            "label": "ALIKED N16Rot v1",
+            "available": learned_reason is None,
+            "reason": learned_reason,
+            "experimental": True,
+            "setup_command": COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
+        },
+    ]
+
+
+def _project_gaussian_spec(
+    project_root: Path,
+    colmap: Path | None,
+    feature_profiles: list[dict[str, Any]],
 ) -> BackendSpec:
     trainers = get_gaussian_trainer_specs(project_root)
     available_trainers = [trainer for trainer in trainers if trainer.available]
@@ -211,6 +256,7 @@ def _project_gaussian_spec(
         setup_command="uv run python scripts/setup_colmap_cuda.py --install && uv run python scripts/setup_gaussian_trainer.py --trainer <trainer>",
         options={
             "gaussian_trainers": [trainer.to_dict() for trainer in trainers],
+            "sfm_feature_profiles": feature_profiles,
             "gaussian_geometry_sources": [
                 {
                     "id": "colmap",
@@ -329,7 +375,11 @@ def _external_model_spec(
 
 
 def _colmap_vggt_spec(
-    *, colmap: Path | None, repo_path: Path, checkpoint_hint: Path
+    *,
+    colmap: Path | None,
+    repo_path: Path,
+    checkpoint_hint: Path,
+    feature_profiles: list[dict[str, Any]],
 ) -> BackendSpec:
     missing: list[str] = []
     if colmap is None:
@@ -345,4 +395,5 @@ def _colmap_vggt_spec(
         available=not missing,
         reason="; ".join(missing) if missing else None,
         setup_command="uv run python scripts/setup_colmap_cuda.py --install && uv run python scripts/setup_model.py --backend vggt",
+        options={"sfm_feature_profiles": feature_profiles},
     )

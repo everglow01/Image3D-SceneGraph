@@ -35,6 +35,13 @@ from image3d_scenegraph.geometry.adapters import (
     ReconstructionError,
     get_reconstruction_adapter,
 )
+from image3d_scenegraph.geometry.colmap import (
+    ColmapFeatureError,
+    colmap_learned_feature_support_reason,
+    resolve_colmap_executable,
+    resolve_colmap_feature_profile,
+    validate_colmap_feature_profile,
+)
 
 
 VALID_MODES = {"image", "multi_image", "video", "panorama"}
@@ -51,6 +58,7 @@ GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
 GAUSSIAN_RECOVERY_PRUNE_SETTINGS = {"on", "off"}
 COLMAP_MATCHERS = {"exhaustive", "sequential"}
+COLMAP_FEATURE_BACKENDS = {"colmap", "colmap_vggt", "project_3dgs"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
     "collision_mesh": "navigation/collision.glb",
@@ -156,6 +164,27 @@ class JobStore:
                 video_keyframe_profile=profile,
                 video_rotation=rotation,
             )
+        if geometry_backend in COLMAP_FEATURE_BACKENDS:
+            try:
+                feature_profile = validate_colmap_feature_profile(
+                    str(normalized_options.get("sfm_feature_profile", "sift_v1"))
+                )
+                if feature_profile != "sift_v1":
+                    project_root = Path(
+                        os.environ.get("IMAGE3D_PROJECT_ROOT", ".")
+                    ).resolve()
+                    colmap = resolve_colmap_executable(project_root)
+                    if colmap is None:
+                        raise JobError("COLMAP executable not found")
+                    support_reason = colmap_learned_feature_support_reason(colmap)
+                    if support_reason is not None:
+                        raise JobError(support_reason)
+                    resolve_colmap_feature_profile(feature_profile, project_root)
+                normalized_options["sfm_feature_profile"] = feature_profile
+            except ColmapFeatureError as exc:
+                raise JobError(str(exc)) from exc
+        else:
+            normalized_options.pop("sfm_feature_profile", None)
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
             if geometry_backend == "project_3dgs":
@@ -285,6 +314,11 @@ class JobStore:
             "assets": {},
             "metrics": {"num_inputs": len(input_assets)},
         }
+        if geometry_backend in COLMAP_FEATURE_BACKENDS:
+            manifest.update(
+                sfm_feature_profile=str(normalized_options["sfm_feature_profile"]),
+                sfm_feature_effective_profile=None,
+            )
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
                 gaussian_geometry_source=str(
@@ -879,6 +913,16 @@ class JobStore:
                 gaussian_trainer_record if isinstance(gaussian_trainer_record, dict) else None
             ),
         )
+        if geometry_backend in COLMAP_FEATURE_BACKENDS:
+            requested_feature_profile = str(
+                options.get("sfm_feature_profile", "sift_v1")
+            )
+            result.update(
+                sfm_feature_profile=requested_feature_profile,
+                sfm_feature_effective_profile=str(
+                    metrics.get("sfm_feature_profile", requested_feature_profile)
+                ),
+            )
         if self._is_gaussian_job(result):
             result.update(
                 gaussian_geometry_source=str(
