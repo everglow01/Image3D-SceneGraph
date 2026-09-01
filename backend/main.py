@@ -91,7 +91,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         geometry_backend: Annotated[str, Form()] = "mock",
         output_type: Annotated[str, Form()] = "point_cloud",
         gaussian_trainer: Annotated[
-            Literal["project", "graphdeco"], Form()
+            Literal["project", "graphdeco", "mcmc"], Form()
         ] = "graphdeco",
         gaussian_geometry_source: Annotated[
             Literal["colmap", "vggt_ba"], Form()
