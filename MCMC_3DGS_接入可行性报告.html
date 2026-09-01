@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <style>
+@page {
+    size: A4;
+    margin: 25mm 20mm 20mm 20mm;
+
+    @top-center {
+        content: "MCMC 3DGS 接入 Image3D-SceneGraph 可行性报告  |  横纵分析法深度研究报告";
+        font-family: "Droid Sans Fallback", Helvetica, Arial, sans-serif;
+        font-size: 8pt;
+        color: #95a5a6;
+        border-bottom: 0.5pt solid #ecf0f1;
+        padding-bottom: 3mm;
+    }
+
+    @bottom-center {
+        content: "第 " counter(page) " 页";
+        font-family: "Droid Sans Fallback", Helvetica, Arial, sans-serif;
+        font-size: 8pt;
+        color: #95a5a6;
+        border-top: 0.8pt solid #1a5276;
+        padding-top: 2mm;
+    }
+}
+
+@page :first {
+    @top-center { content: none; }
+    @bottom-center { content: none; }
+}
+
+body {
+    font-family: "Droid Sans Fallback", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.75;
+    color: #2c3e50;
+    text-align: justify;
+}
+
+/* 封面 */
+.cover {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 45%;
+}
+.cover h1 {
+    font-size: 28pt;
+    color: #1a5276;
+    margin-bottom: 8mm;
+    font-weight: bold;
+    letter-spacing: 2pt;
+}
+.cover .subtitle {
+    font-size: 14pt;
+    color: #95a5a6;
+    margin-bottom: 6mm;
+}
+.cover .meta {
+    font-size: 11pt;
+    color: #95a5a6;
+    margin-bottom: 4mm;
+}
+.cover .divider {
+    width: 60%;
+    margin: 8mm auto;
+    border: none;
+    border-top: 1.5pt solid #1a5276;
+}
+
+/* 一级标题 */
+h1 {
+    font-size: 20pt;
+    color: #1a5276;
+    margin-top: 16mm;
+    margin-bottom: 6mm;
+    padding-bottom: 3mm;
+    border-bottom: 2pt solid #1a5276;
+    page-break-before: always;
+    font-weight: bold;
+}
+
+/* 二级标题 */
+h2 {
+    font-size: 14pt;
+    color: #1e8449;
+    margin-top: 10mm;
+    margin-bottom: 5mm;
+    font-weight: bold;
+}
+
+/* 三级标题 */
+h3 {
+    font-size: 12pt;
+    color: #2e86c1;
+    margin-top: 6mm;
+    margin-bottom: 3mm;
+    font-weight: bold;
+}
+
+h4 {
+    font-size: 11pt;
+    color: #5b2c6f;
+    margin-top: 5mm;
+    margin-bottom: 2mm;
+    font-weight: bold;
+}
+
+/* 段落 */
+p {
+    margin-top: 1.5mm;
+    margin-bottom: 1.5mm;
+    orphans: 3;
+    widows: 3;
+}
+
+/* 引用块 */
+blockquote {
+    margin: 4mm 0;
+    padding: 4mm 4mm 4mm 10mm;
+    background: #f8f9fa;
+    border-left: 3pt solid #1a5276;
+    color: #5d6d7e;
+    font-size: 10pt;
+}
+blockquote p {
+    margin: 1mm 0;
+}
+
+/* 粗体 */
+strong, b {
+    font-weight: bold;
+    color: #1a252f;
+}
+
+/* 行内代码 */
+code {
+    font-family: "Courier New", Courier, monospace;
+    background: #fdf2e9;
+    color: #c0392b;
+    padding: 0.5mm 1.5mm;
+    border-radius: 2pt;
+    font-size: 9.5pt;
+}
+
+/* 表格 */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4mm 0;
+    font-size: 9.5pt;
+}
+thead th {
+    background: #1a5276;
+    color: white;
+    padding: 3mm;
+    text-align: left;
+    font-weight: bold;
+}
+tbody td {
+    padding: 2.5mm 3mm;
+    border-bottom: 0.5pt solid #bdc3c7;
+}
+tbody tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+/* 分隔线 */
+hr {
+    border: none;
+    border-top: 0.5pt solid #bdc3c7;
+    margin: 4mm 0;
+}
+
+/* 列表 */
+ul, ol {
+    margin: 2mm 0;
+    padding-left: 8mm;
+}
+li {
+    margin-bottom: 1mm;
+}
+
+/* 链接 */
+a {
+    color: #2e86c1;
+    text-decoration: none;
+}
+</style>
+</head>
+<body>
+
+    <div class="cover">
+        <h1 style="page-break-before: avoid; border: none;">MCMC 3DGS 接入 Image3D-SceneGraph 可行性报告</h1>
+        <div class="subtitle">横纵分析法深度研究报告</div>
+        <div class='meta'>研究时间：2026-08-28 | 所属领域：3D Gaussian Splatting 训练策略 | 研究对象类型：算法与工程接入决策</div>
+        <hr class="divider">
+        <div class="meta">作者: Claude</div>
+    </div>
+    
+
+<blockquote>
+<p>研究时间：2026-08-28 | 所属领域：3D Gaussian Splatting 训练策略 | 研究对象类型：算法与工程接入决策</p>
+</blockquote>
+<h2>执行摘要</h2>
+<p>结论先放在前面：<strong>MCMC 值得接入，而且是当前训练侧最值得做的下一项实验；但第一版不能只是把 <code>DefaultStrategy</code> 换成 <code>MCMCStrategy</code>。</strong> 当前项目固定的 <code>gsplat==1.5.3</code> 已经包含 Apache-2.0 的 <code>MCMCStrategy</code>，模型参数命名和“每个参数一个 Adam 优化器”的结构也完全符合它的接口，因此不需要引入外部研究仓库、不需要替换光栅器、不需要新增 CUDA 内核。接入成本在候选路线里最低。</p>
+<p>真正的工程工作有两部分。</p>
+<p>第一部分是完整实现论文方法包：原生 <code>MCMCStrategy</code> 只负责低 opacity Gaussian relocation、每轮 5% growth 和位置噪声，并<strong>不包含论文不可缺少的 opacity/scale regularization</strong>。项目训练循环还需要把 MCMC 的位置学习率传给策略、关闭 DefaultStrategy 专属的 opacity reset 与 2B recovery-prune、实现论文使用的初始化和 25k refinement schedule，并把双 GPU 的全局 Gaussian cap 精确拆成每个 rank 的本地 cap。只换策略会得到一个残缺方法；原论文消融中，“MCMC 状态转移 + 原始损失”在 Mip-NeRF 360 随机初始化上只有 23.90 dB，而完整方法为 29.72 dB。</p>
+<p>第二部分是建立真正可复现的训练 replay 数据。当前成功 Job 会发布训练结果、选帧和相机，但不会发布 <code>colmap/undistorted/images</code>。<code>gaussian/preparation/train-001/dataset.json</code> 因而只是一份记录，Job 完成后不能单独重放训练。若 A、B 两臂分别重跑抽帧和 COLMAP，几何差异会污染训练策略结论。用户已经确认采用推荐方案：新增 replay 数据包，再运行一次 Default+2B 基线；随后 MCMC 直接复用相同的无畸变图片、相机、Train/Validation/Test、初始化数组和数据哈希，不再重复空三。</p>
+<p>本报告建议的第一版叫 <strong><code>mcmc_v1</code></strong>，只作为内部实验 profile，不接 API 默认、不加 frontend 控件、不开放原始超参数。用户已经确认：</p>
+<ul>
+<li>采用完整 <code>mcmc_v1</code>，不是 strategy-only；</li>
+<li>MCMC 的双 GPU 全局 Gaussian cap 匹配 A 臂未经 SOR 的最佳 Validation candidate 数量；</li>
+<li>新增 replay 基线，保证训练侧 A/B 不重复 geometry；</li>
+<li>MCMC 与 2B recovery-prune 互斥；</li>
+<li>主判定先看 raw model，再对 A/B 应用相同 SOR；VGGT visibility 只作为后续相同处理的派生比较，不进入第一层归因。</li>
+</ul>
+<p><strong>预期收益必须说得克制。</strong> MCMC 的 relocation 会回收低 opacity、低贡献 Gaussian，理论上正对项目测到的 free-space haze 群体；固定 cap 也能限制模型规模。然而论文主要证明的是渲染质量、初始化鲁棒性和预算控制，没有报告本项目定义的 free-space floater census。BSD Studio 宣传“支持 MCMC”是一个市场信号，不是独立质量证据。MCMC 也不会自动修复 13 秒注册空洞、反射建模或高 opacity 玻璃云。它是否优于已经很强的 Default+2B，只能由同一 replay 数据上的 A/B 决定。</p>
+<h2>一句话定义</h2>
+<p>3DGS-MCMC 把 Gaussian 集合看成场景概率分布的样本，用带位置噪声的 SGLD、低 opacity relocation 和预算内增长替代传统 clone/split/prune 启发式，并配合 opacity/scale regularization 让无效 Gaussian 变成可重新利用的“死样本”。</p>
+<h2>一、纵向分析：为什么 MCMC 会成为当前候选</h2>
+<h3>1. 原始 3DGS 的成功，也留下了密度控制债务</h3>
+<p>原始 3D Gaussian Splatting 的速度优势来自显式表示：相机射线不再穿过神经网络，而是把一组带位置、协方差、opacity 和球谐颜色的 Gaussian 投影、排序、alpha blend。训练本身仍是普通图像重建优化，棘手之处转移到了 Gaussian 数量和空间分布。</p>
+<p>传统 Adaptive Density Control（ADC）用几条人为规则维护这组点：视空间位置梯度大且 Gaussian 小就 clone，梯度大且 Gaussian 大就 split，opacity 太低或尺度太大就 prune，定期把 opacity 压回低值再重新竞争。这套规则能工作，但不同场景的纹理、反射、视角覆盖和 SfM 初始化一变，阈值的含义也跟着变。大 Gaussian 的跨视角梯度可能相互抵消，透明/反射区域又可能以错误位置和高 opacity 遮住真正表面。点越多不必然越好，点少也不必然更干净。</p>
+<p>Image3D-SceneGraph 的 Project v7 正处在这条传统路线的成熟阶段。<code>GaussianModel</code> 已采用 gsplat 需要的参数键：<code>means</code>、<code>scales</code>、<code>quats</code>、<code>opacities</code>、<code>sh0</code>、<code>shN</code>，每个参数有独立 Adam；训练器使用 <code>DefaultStrategy</code>，500–15,000 轮每 100 轮做拓扑更新，3000 轮一次 opacity reset。它不是研究仓库的薄封装，而是项目自己拥有数据契约、训练循环、checkpoint、Validation 选模、双 GPU 分片、导出和 manifest 的完整栈。</p>
+<p>这段历史很重要。MCMC 的价值不是“再换一个外部 trainer”，而是刚好能沿着现有 gsplat strategy 边界替换密度控制，不破坏项目已经固化的其余部分。</p>
+<h3>2. 2024：3DGS-MCMC 把启发式规则改写成采样</h3>
+<p>Kheradmand 等人的《3D Gaussian Splatting as Markov Chain Monte Carlo》发表于 NeurIPS 2024 Spotlight。论文把 Gaussian 集合 (\mathcal{G}) 的目标密度写成：</p>
+<p>[<br />
+\mathcal{P}(\mathcal{G}) \propto \exp(-\mathcal{L}_{total}).<br />
+]</p>
+<p>普通梯度下降只朝低损失方向移动；SGLD 在位置更新中加入与位置学习率、Gaussian 协方差和 opacity 相关的噪声：</p>
+<p>[<br />
+\mu \leftarrow \mu - \lambda_{lr}\nabla_\mu\mathcal{L}</p>
+<ul>
+<li>\lambda_{noise},\lambda_{lr},\sigma(-k(t-o)),\Sigma\eta.<br />
+]</li>
+</ul>
+<p>这里 (\eta\sim\mathcal{N}(0,I))，论文取 (k=100)、(t=0.005)。噪声只作用于位置；高 opacity Gaussian 的噪声被门控压低，低 opacity Gaussian 更积极探索；协方差让位移方向与 Gaussian 的形状一致。</p>
+<p>总损失不是当前项目的 L1+SSIM 原样复用，而是：</p>
+<p>[<br />
+\mathcal{L}<em>{total}=0.8\mathcal{L}<em>1+0.2\mathcal{L}</em>{D-SSIM}<br />
++\lambda_o\operatorname{mean}(|o|)<br />
++\lambda</em>\Sigma\operatorname{mean}(|s|).<br />
+]</p>
+<p>通常 (\lambda_o=0.01)、(\lambda_\Sigma=0.01)；Deep Blending 使用较弱的 opacity 正则 0.001。正则让无贡献点的 opacity 和尺度缩小，但论文没有把它们直接删除，而是每 100 轮把 opacity ≤0.005 的 dead Gaussian relocation 到按 opacity 抽样的 live Gaussian 周围。relocation 同时重算目标和新样本的 opacity、scale，尽量保持迁移前后的积分渲染贡献。</p>
+<p>增长也不再依赖梯度阈值。每次 refinement 令点数最多增加 5%，直到 <code>cap_max</code>。论文 warmup 到 500 轮，refinement 到 25,000 轮，每 100 轮一次。数量预算成为显式约束，而不是训练后的偶然结果。</p>
+<p>论文在相同 Gaussian 数量下报告了稳定优势。以 Mip-NeRF 360 的 SfM 初始化为例，传统 3DGS 为 29.30/0.88/0.21，MCMC 为 29.89/0.90/0.19（PSNR/SSIM/LPIPS）；Tanks &amp; Temples 为 23.67/0.84/0.22 对 24.29/0.86/0.19。更重要的消融是：</p>
+<ul>
+<li>传统 3DGS 加 MCMC 正则：23.84/0.77/0.33；</li>
+<li>MCMC 状态转移但使用原始损失：23.90/0.67/0.42；</li>
+<li>完整 MCMC：29.72/0.89/0.19。</li>
+</ul>
+<p>这正好回答了项目接入方式：strategy-only 不是保守的第一步，而是论文已经证明会误判方法的残缺组合。</p>
+<h3>3. 2025：gsplat 原生实现降低了工程门槛</h3>
+<p>项目固定的 <code>gsplat==1.5.3</code> 已包含 <code>gsplat.strategy.MCMCStrategy</code>。其接口只有：</p>
+<pre><code class="language-text">cap_max
+noise_lr
+refine_start_iter
+refine_stop_iter
+refine_every
+min_opacity
+verbose
+</code></pre>
+<p>源码实现三个动作：</p>
+<ul>
+<li><code>_relocate_gs()</code>：把 opacity ≤ <code>min_opacity</code> 的 Gaussian 迁移到 opacity 加权抽样的 live Gaussian；</li>
+<li><code>_add_new_gs()</code>：每轮增长 5%，不超过 <code>cap_max</code>；</li>
+<li><code>inject_noise_to_position()</code>：每轮在 optimizer step 后给位置加协方差与 opacity 门控噪声。</li>
+</ul>
+<p>它与当前 <code>GaussianModel.params</code> 和 optimizer 字典天然兼容。项目不需要复制 UBC 官方研究仓库；后者基于 Graphdeco/Inria 研究许可证，限制商业使用，而 gsplat 的实现受 Apache-2.0 许可，可以修改、再分发和商用。这里应只依赖 gsplat API，不复制官方仓库代码。</p>
+<p>但“原生支持”容易让人产生一个错误印象：导入类就等于实现论文。gsplat 的 strategy <strong>没有</strong>加入 opacity/scale regularization，也不会替项目决定初始 opacity、scale multiplier、opacity LR、25k schedule 或双 GPU 全局 cap。它只是 MCMC 的拓扑和噪声执行器。</p>
+<h3>4. 2026：BSD Studio 是市场信号，不是实验结论</h3>
+<p><code>research_bsd_studio.md</code> 记录的官网事实仍成立：BSD Studio 当前公开宣称“2DGS/3DGS 算法、MCMC 策略可选”，还宣称支持外部空三、人物/天空 mask 和分块训练。这说明 MCMC 已经进入商业工具的可选策略层，不再只是论文里的孤立想法。</p>
+<p>它不能证明三件事：</p>
+<ul>
+<li>BSD 使用的是 UBC 原始实现、gsplat 实现，还是自研变体；</li>
+<li>演示质量中有多少来自 MCMC，有多少来自空三、采集、mask、人工参数或后处理；</li>
+<li>“毫米级还原”“144 FPS”等宣传在什么数据和硬件上成立。</li>
+</ul>
+<p>因此 BSD 对本项目的作用是调整优先级：MCMC 值得提前验证；它不是可以直接引用的质量 gate。</p>
+<h3>5. 项目自己的实验历史，比市场宣传更关键</h3>
+<p>项目已经完成了比通常 3DGS demo 更严格的 floater 定量分析。<code>analyze_gaussian_floaters.py</code> 不依赖坐标轴，通过 Gaussian 到 SfM 点云和相机中心的最近距离，把 opacity 分成 haze/core/thick，并用 SfM 邻域尺度校准 hugging/free-space 半径。</p>
+<p>冻结参考数据表明：</p>
+<ul>
+<li>视频基线 <code>d62fbce0</code> 有 2,662,630 个 Gaussian，free-space haze 202,879，占 haze 的 30.0%；</li>
+<li>room 基线 <code>33882c23</code> 有 2,403,516 个 Gaussian，free-space haze 231,850，占 haze 的 40.7%；</li>
+<li>两者都呈现 opacity 与离 SfM 表面的距离负相关，说明大量低 opacity Gaussian 偏离有支持的表面。</li>
+</ul>
+<p>这与 MCMC 的 dead-Gaussian recycling 在机制上吻合，但项目也有一条必须保留的反证：单独给 DefaultStrategy 加 0.01 mean-opacity regularization 曾把 haze 从 19.3% 提高到 37.0%。正则的恒定向下梯度把表面贡献摊到更多低 opacity Gaussian 上。这个失败并不否定 MCMC，反而与 MCMC 论文消融一致：正则必须和 relocation、noise、growth 一起工作，不能拆出来当普通 3DGS 补丁。</p>
+<p>2B recovery-prune 则在 room A/B 上取得了强结果：四次 reset 后回收慢的 Gaussian 被一次性清理，free-space haze 减少 87.8%，总点数从 953,200 降到 641,026，PSNR +0.151 dB，SSIM -0.00196（刚好过线）。它已经不是弱基线。MCMC 第一轮必须直接对抗 Default+2B，而不是对抗没有 2B 的旧 Default。</p>
+<h2>二、横向分析：MCMC 在当前候选中的真实位置</h2>
+<h3>1. DefaultStrategy + 2B：当前最强且最便宜的基线</h3>
+<p>2B 不改变传统 ADC 的主框架。它保留 clone/split/prune/opacity reset，只在每次 reset 后 500 轮检查谁仍未恢复到 opacity 0.05，再一次性移除。这种做法的优势是工程简单、已支持双 GPU/checkpoint、room 有项目内证据。短板也很明确：它只能判断“恢复速度”，不知道 Gaussian 是否位于真正的错误区域；它是在既有分布中删点，不会把死点搬到欠覆盖区域。</p>
+<p>对项目而言，2B 是必须击败的对手，不是可以和 MCMC 同时打开的辅助开关。MCMC 依赖持续的低 opacity 样本作为 relocation 资源；opacity reset 会同时压低大量健康点，2B 又会在 500 轮后直接删除它们。两套生命周期叠加会让结果无法解释，也可能触发全 dead 崩溃。</p>
+<h3>2. MCMC：最低接入成本的“密度控制框架替换”</h3>
+<p>MCMC 的独特优势有三点：</p>
+<ul>
+<li>低 opacity Gaussian 不只是被删，而是被重新部署；</li>
+<li>数量上限是训练前明确预算，适合双 GPU 显存管理；</li>
+<li>位置噪声提供局部探索，对 SfM 初始化缺口和错误分布更鲁棒。</li>
+</ul>
+<p>它的短板同样直接：opacity 加权 relocation 只知道“哪里已经有高贡献”，不知道“哪块图像仍然错误”。反射或玻璃上的错误高 opacity Gaussian 可能反而成为 relocation 热点；固定 cap 还需要提前知道合适场景复杂度。MCMC 更像全局资源循环系统，不是局部故障定位器。</p>
+<h3>3. LPM：如果 MCMC 后仍有局部坏区，它比继续调 MCMC 更对症</h3>
+<p>LPM（Localized Points Management）从渲染误差图出发，用 LightGlue 在当前视图和相邻参考视图之间找对应区域，再把两束锥形射线的交集定义为 3D 错误区。区内欠覆盖就 densify 或直接补点；错误区前方的高 opacity Gaussian 可能造成遮挡，于是局部 reset；最后按局部新增密度做自适应 prune。</p>
+<p>这正对本项目“某几个视角、某个透明/反射区域坏得特别明显”的症状。论文在 3DGS 上的平均增益不大但稳定：Mip-NeRF 360 27.47→27.59 dB，Tanks &amp; Temples 23.67→23.83，Deep Blending 29.55→29.76；PlayRoom 中 Gaussian 从 232k 降到 186k，训练时间 22→23 分钟。它的工程代价明显高于 MCMC：需要离线/训练期 feature matching、误差区域分割、跨视角锥体、局部点操作，而且仍依赖传统 split/clone 规则。</p>
+<p>所以 <code>新.md</code> 的排序是合理的：MCMC 先做；若 raw MCMC 的整体 haze 下降但局部错误仍在，下一步借 LPM 的 error-region localization，而不是继续堆全局 prune 阈值。</p>
+<h3>4. MH-3DGS：更新，但不是当前最低风险方案</h3>
+<p>NeurIPS 2025 的 MH-3DGS 用多视角 L1、SSIM 和 opacity 建立 pixel importance map，再以粗到细位置 proposal 生成 Gaussian，并结合 voxel occupancy prior 做 Metropolis-Hastings 接受/拒绝。它不要求预设最终复杂度，论文报告在相同点数下与 3DGS-MCMC 互有胜负，30 dB 达成时间约 14.19 分钟，对 MCMC 的 16.38 分钟。</p>
+<p>这条路线解决了 MCMC 不知道“哪里错”的问题，但要增加多视角误差聚合、projection、voxel occupancy 和 accept/reject。官方实现基于研究版 3DGS，不是 gsplat，未声明多 GPU/checkpoint，许可证仍限制商业用途。论文自己承认多视角 error proposal 每场景约增加 5 分钟，而且稀疏户外数据表现弱于室内。</p>
+<p>对当前项目而言，MH-3DGS 的思路值得记录，但不应抢在已有 Apache gsplat 实现的 MCMC 前面。</p>
+<h3>5. PUP 3D-GS：适合作为“不可误删”保护，不适合作为第一轮 floater 攻击</h3>
+<p>PUP 用训练视图重建误差对 Gaussian mean+scale 参数的 Fisher/Hessian block 近似，估计删掉某个 Gaussian 会有多大影响。它是 post-hoc prune-refine：先训练收敛，再删 80%、微调 5k，再删剩余的 50%、再微调 5k。论文在 Mip-NeRF 360 上把平均 746 MB 模型压到 74.65 MB，最终 PSNR 27.47→26.67，并把 FPS 提升约 3.56 倍。</p>
+<p>它回答的是“删谁最不伤画面”，不是“哪里是 free-space floater”。直接用 PUP 大裁剪不符合当前目标；把 Fisher sensitivity 当作 VGGT visibility 或 SOR 的 veto 更合理：一个 Gaussian 即使几何上可疑，如果删除敏感度很高，也先保留并进入人工/二级检查。</p>
+<h3>6. AbsGS、FeatureGS、SteepGS、2DGS：各自解决的是另一层问题</h3>
+<ul>
+<li><strong>AbsGS</strong> 处理 gradient collision，目标是让细节区域的大 Gaussian 真正触发 split；适合模糊和薄细节，不直接针对 free-space haze。</li>
+<li><strong>FeatureGS</strong> 用 covariance eigenvalue/邻域几何损失约束表面，论文在 DTU 报告约 30% 几何精度提升和约 90% 点数下降，也声称减少 floater；但数据是物体级 DTU，公开代码/许可尚不清晰，接入需邻域统计。</li>
+<li><strong>SteepGS</strong> 从最陡下降角度推导更紧凑的 split，摘要报告约 50% 点数减少；当前公开实现与许可证据不足。</li>
+<li><strong>2DGS</strong> 把体 Gaussian 换成表面圆盘，加入 depth distortion 和 normal consistency，核心价值是 mesh/表面几何；它会改变表示、rasterizer、loss 和导出，不是 MCMC 这种 strategy-level 修改。</li>
+<li><strong>TopoSurfel/TurboGS</strong> 是 2026 年非常新的 mesh-loop 和加速方向，缺少足够项目内外复现证据；继续观察即可。</li>
+</ul>
+<p>横向比较后的判断没有变化：<strong>MCMC 是现在唯一同时满足“原生依赖已安装、许可清晰、改动集中、正对低 opacity 资源浪费、可控预算”的候选。</strong></p>
+<h2>三、现有代码兼容性审计</h2>
+<table>
+<thead>
+<tr>
+<th>项目边界</th>
+<th>当前实现</th>
+<th>MCMC 兼容性</th>
+<th>必须处理的差异</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>参数模型</td>
+<td><code>ParameterDict</code>：means/scales/quats/opacities/sh0/shN</td>
+<td>直接兼容</td>
+<td>无需改模型张量结构</td>
+</tr>
+<tr>
+<td>Optimizer</td>
+<td>每个参数独立 Adam，单 param group</td>
+<td>直接兼容</td>
+<td>MCMC topology ops 会原地替换 Parameter 和 optimizer state</td>
+</tr>
+<tr>
+<td>Renderer</td>
+<td>gsplat rasterization，双 GPU distributed</td>
+<td>可兼容</td>
+<td>MCMC 不依赖 gradient metadata；仍需双 GPU smoke</td>
+</tr>
+<tr>
+<td>Strategy 调用</td>
+<td>Default pre/post；post 传 <code>packed</code></td>
+<td>需要分支</td>
+<td>MCMC post 必须传 <code>lr</code>，不能传 <code>packed</code></td>
+</tr>
+<tr>
+<td>Loss</td>
+<td>L1 0.8 + SSIM 0.2</td>
+<td>不完整</td>
+<td>加 activated opacity/scale mean regularization</td>
+</tr>
+<tr>
+<td>初始化</td>
+<td>opacity 0.1，3NN RMS scale×1</td>
+<td>方法级不同</td>
+<td><code>mcmc_v1</code> 用 opacity 0.5、scale×0.1；点/颜色身份不变</td>
+</tr>
+<tr>
+<td>Refinement</td>
+<td>500–15k / 100</td>
+<td>方法级不同</td>
+<td>MCMC 500–25k / 100</td>
+</tr>
+<tr>
+<td>Opacity lifecycle</td>
+<td>reset 每 3k；可选 2B</td>
+<td>冲突</td>
+<td>MCMC 分支关闭 reset 和 recovery-prune</td>
+</tr>
+<tr>
+<td>Gaussian budget</td>
+<td>只有 initial max，训练期无 global cap</td>
+<td>不足</td>
+<td>增加配置内全局 cap，精确拆到 ranks</td>
+</tr>
+<tr>
+<td>Checkpoint</td>
+<td>model/optimizer/strategy/RNG 分 rank 打包</td>
+<td>基本兼容</td>
+<td>config hash含 strategy；验证 MCMC binoms + RNG resume</td>
+</tr>
+<tr>
+<td>Validation candidate</td>
+<td>每个 Validation 点保存 best model shard</td>
+<td>兼容</td>
+<td>合并后 count 必须≤global cap</td>
+</tr>
+<tr>
+<td>SOR/VGGT</td>
+<td>训练后统一后处理</td>
+<td>正交</td>
+<td>primary 先比较 raw，再同配方应用</td>
+</tr>
+<tr>
+<td>Dataset replay</td>
+<td>Job 完成后删 undistorted images</td>
+<td>阻塞 A/B</td>
+<td>新增 replay bundle，不能只靠现有 download zip</td>
+</tr>
+</tbody>
+</table>
+<h3>一个必须提前修的上游边界</h3>
+<p><code>gsplat==1.5.3</code> 的 MCMC 有一个公开、仍未合并修复的问题：当所有 Gaussian 的 opacity 都≤<code>min_opacity</code> 时，alive set 为空，<code>torch.multinomial</code> 收到空权重后报 CUDA <code>invalid configuration argument</code>。报告环境恰好也是 gsplat 1.5.3 + CUDA 12.1。</p>
+<p>项目不应复制或魔改 site-packages。训练器在每个 refinement step 前检查：</p>
+<pre><code class="language-text">alive_count &gt; 0
+initial_local_count &lt;= local_cap
+local_count &lt;= local_cap
+</code></pre>
+<p>全 dead 时抛出带 iteration、min opacity、opacity 分位数和 regularization 系数的 <code>TrainingError</code>。这不是自动恢复，但能把未知 CUDA 崩溃变成可解释实验失败。</p>
+<h2>四、建议的最小代码改造</h2>
+<h3>1. 配置 schema：把完整方法写进哈希，不藏在代码分支里</h3>
+<p>建议 schema 9→10，默认 <code>standard_v1</code> 行为不变。增加通用字段：</p>
+<pre><code class="language-json">{
+  &quot;strategy&quot;: {
+    &quot;name&quot;: &quot;default_v1&quot;,
+    &quot;gaussian_cap&quot;: null,
+    &quot;mcmc_noise_lr&quot;: 500000.0,
+    &quot;mcmc_min_opacity&quot;: 0.005
+  },
+  &quot;initialization&quot;: {
+    &quot;opacity&quot;: 0.1,
+    &quot;scale_multiplier&quot;: 1.0
+  },
+  &quot;loss&quot;: {
+    &quot;opacity_regularization&quot;: 0.0,
+    &quot;scale_regularization&quot;: 0.0
+  },
+  &quot;learning_rate&quot;: {
+    &quot;position&quot;: {
+      &quot;delay_multiplier&quot;: 1.0
+    }
+  }
+}
+</code></pre>
+<p>内部 <code>mcmc_v1</code> 解析为一组冻结差异：</p>
+<pre><code class="language-text">strategy.name                    mcmc_v1
+strategy.gaussian_cap            A臂raw candidate count
+strategy.mcmc_noise_lr           500000
+strategy.mcmc_min_opacity        0.005
+initialization.opacity           0.5
+initialization.scale_multiplier  0.1
+loss.opacity_regularization      0.01
+loss.scale_regularization        0.01
+learning_rate.opacity            0.05
+learning_rate.position.delay     0.01
+densification.start/end/every    500 / 25000 / 100
+opacity_reset.enabled            false
+recovery_prune.enabled           false
+</code></pre>
+<p>用户选择的是方法级 A/B，所以不应伪装成“只改一个 leaf”。实验审计应列出这组白名单差异，并断言没有第十一个差异。原始参数不进入 API 或 frontend；只有内部 <code>mcmc_v1</code> 生成器能创建它们。</p>
+<h3>2. Trainer：一条分支，不建新的 trainer 架构</h3>
+<p>不需要新增 <code>MCMCTrainer</code> 类。<code>train_gaussians()</code> 保持唯一训练生命周期：</p>
+<ul>
+<li>根据 <code>strategy.name</code> 导入并构造 <code>DefaultStrategy</code> 或 <code>MCMCStrategy</code>；</li>
+<li>Default 继续现有 pre/post、reset、2B；</li>
+<li>MCMC 的 pre 是基类 no-op，可省略；post 调用：</li>
+</ul>
+<pre><code class="language-python">strategy.step_post_backward(
+    params=model.params,
+    optimizers=optimizers,
+    state=strategy_state,
+    step=iteration,
+    info=rendered.metadata,
+    lr=optimizers[&quot;means&quot;].param_groups[0][&quot;lr&quot;],
+)
+</code></pre>
+<ul>
+<li>MCMC loss 在 <code>(loss / world_size).backward()</code> 之前加入：</li>
+</ul>
+<pre><code class="language-text">0.01 * sigmoid(opacity_logits).abs().mean()
+0.01 * exp(log_scales).abs().mean()
+</code></pre>
+<ul>
+<li>history 记录 raw reconstruction loss、两个 regularizer、dead count before relocation、relocated count、added count、global count 和 cap；</li>
+<li>MCMC 不调用 <code>_opacity_reset_due()</code>、<code>reset_opa()</code> 或 <code>_recovery_prune_due()</code>；</li>
+<li>每轮仍执行 <code>model.validate()</code>，refinement 后额外 <code>validate(max_count=local_cap)</code>。</li>
+</ul>
+<p>这比新建第二套训练器更小，也让 checkpoint/evaluation/export 全部复用。</p>
+<h3>3. 双 GPU：cap 必须是全局语义</h3>
+<p><code>MCMCStrategy.cap_max</code> 是每个 Python 进程的本地上限。直接把全局 1.5M 传给两个 rank，最终会得到最多 3M，违反 <code>新.md</code> 的要求。</p>
+<p>精确分配公式：</p>
+<pre><code class="language-text">base = global_cap // world_size
+remainder = global_cap % world_size
+local_cap(rank) = base + (rank &lt; remainder)
+</code></pre>
+<p>两张 GPU 的 local cap 之和严格等于 A 臂 raw candidate count。训练事件继续用现有 all-reduce 统计 global before/after。初始化前若任一 rank 的初始点数超过 local cap，直接失败，不允许“cap 只限制新增但初始已经超预算”。</p>
+<p>MCMC 每次 <code>sample_add</code> 会临时拼接最多 5% 参数和 optimizer state；global cap 与 A 的最终数相同不代表 peak memory 一定相同。remote smoke 必须测 transient peak，若 A 已接近 OOM，再把 cap 调低不是偷偷修参数，而是一次新的有记录实验。</p>
+<h3>4. 初始化：固定点身份，但使用论文方法的激活值</h3>
+<p>用户选择完整 <code>mcmc_v1</code>。A/B 仍使用完全相同的 SfM 点 ID、位置、颜色和冻结 3NN scale 数组；MCMC 在构造模型时应用：</p>
+<pre><code class="language-text">initial_opacity = 0.5
+scale = frozen_scale * 0.1
+</code></pre>
+<p>这与“固定稀疏初始化”不矛盾：输入点和原始 scale evidence 不变，方法如何把 evidence 映射为初始 Gaussian 是 <code>mcmc_v1</code> 的一部分。报告必须把这项列为方法差异，不能写成 strategy-only。</p>
+<h3>5. Replay 数据：用 hardlink 留住训练输入，不复制整套 COLMAP 工作区</h3>
+<p>当前 <code>_publish_workspace()</code> 只发布 <code>frames/geometry/gaussian/diagnostics/...</code>，随后删除 workspace；<code>colmap/undistorted/images</code> 因此消失。不要发布整个 COLMAP database、matches 和 recovery 中间模型，那会把实验垃圾带进每个产品 Job。</p>
+<p>建议在训练完成、workspace 尚存在时创建：</p>
+<pre><code class="language-text">gaussian/replay/
+  dataset.json
+  replay.json
+  geometry/cameras.json
+  initialization/sparse.npz
+  initialization/sparse.json
+  colmap/undistorted/images/*.jpg
+</code></pre>
+<p>图片在同一 filesystem 内使用 hardlink。删除原 workspace/colmap 链接后，replay 链接仍保留数据，不增加远端文件块；下载 zip 中只出现 replay 的一份。<code>dataset.json</code> 保留原相对路径，因此 dataset hash、图片 SHA、相机、split 和 initialization hash都能原样验证。</p>
+<p><code>run_gaussian_training.py</code> 增加“读取冻结 NPZ”入口，不再从 <code>points3D.txt</code> 重新筛选或重算 3NN scale。加载器严格检查：</p>
+<ul>
+<li>NPZ SHA 等于 dataset contract 的 initialization SHA；</li>
+<li>points/colors/scales shape、dtype、finite；</li>
+<li>diagnostics selection hash；</li>
+<li>replay contract 在 replay root 下完整通过 <code>validate_contract</code>。</li>
+</ul>
+<p>完成 Job 的 manifest 只新增 replay contract/record 两个小资产角色；无 raw MCMC 参数、无 frontend 开关。</p>
+<h3>6. Checkpoint/resume：现有边界足够，但要留下专门测试</h3>
+<p>MCMC state 只有 51×51 binomial table；当前 checkpoint 已按 rank 保存 <code>strategy_state</code>。optimizer topology state、Python/NumPy/Torch CPU+CUDA RNG 也已经保存。只要 config hash包含 <code>strategy.name</code> 和 cap，Default checkpoint 就不能误用来 resume MCMC，反之亦然。</p>
+<p>测试必须覆盖：</p>
+<ul>
+<li>checkpoint 前后 strategy type/config hash一致；</li>
+<li>MCMC binoms 按 rank恢复到正确设备；</li>
+<li>CUDA/NumPy sampling RNG恢复；</li>
+<li>resume 后 topology count、cap和事件顺序连续；</li>
+<li>world_size 改变仍按现有合同拒绝。</li>
+</ul>
+<p>考虑到项目已经测到 gsplat GPU 约 0.06 dB 运行间噪声，不能把完整训练 bit-exact 当 promotion gate；checkpoint resume 的目标是状态完整和轨迹连续。</p>
+<h2>五、实验设计与硬门槛</h2>
+<h3>Phase 0：代码级 gate</h3>
+<p>全部通过才允许占用远端视频 GPU：</p>
+<ol>
+<li>默认 config 行为回放：现有 Default+2B 命令和测试不变；</li>
+<li><code>mcmc_v1</code> 白名单差异完整、config hash稳定；</li>
+<li>MCMC constructor 参数精确；</li>
+<li>strategy post 收到当前 means LR，不收到 <code>packed</code>；</li>
+<li>opacity/scale regularizer 对 activated tensors 求 mean；</li>
+<li>2B/reset 在 MCMC 分支绝不触发；</li>
+<li>两 rank local caps 精确求和为 global cap；</li>
+<li>all-dead 给出项目 <code>TrainingError</code>，不进入空 multinomial；</li>
+<li>checkpoint/resume 和 best-shard merge；</li>
+<li>replay contract、图片和 NPZ hash完整。</li>
+</ol>
+<h3>Phase 1：小数据 GPU smoke</h3>
+<p>先单 GPU，再双 GPU；至少跨过 500 轮并触发两次 refinement。</p>
+<p>通过条件：</p>
+<ul>
+<li>relocation、growth、noise 都实际执行；</li>
+<li>loss/grad/params finite；</li>
+<li>global count从未超过 cap；</li>
+<li>双 GPU merged model健康；</li>
+<li>cancel→resume成功；</li>
+<li>peak memory低于硬件余量；</li>
+<li>没有 all-dead、无 alive sample 或 relocation CUDA错误。</li>
+</ul>
+<h3>Phase 2：标准 room 方法级 A/B</h3>
+<p>使用一个自包含 replay room 数据集。A 为 Default+2B，B 为完整 MCMC；相同图片、相机、split、点身份、seed、30k和双 GPU。MCMC cap等于 A raw best candidate count。</p>
+<p>质量硬门槛建议延续项目历史标准并增加尾部视图：</p>
+<pre><code class="language-text">Mean PSNR Δ       ≥ -0.10 dB
+Mean SSIM Δ       ≥ -0.002
+P10 PSNR Δ        ≥ -0.20 dB
+Min PSNR Δ        ≥ -0.50 dB
+非有限指标          0
+</code></pre>
+<p>floater 硬门槛针对 raw model：</p>
+<pre><code class="language-text">free-space haze count      ≤ A × 0.80
+veil count &gt;0.01           ≤ A × 0.80
+veil count &gt;0.03           ≤ A × 0.80
+core free-space count      ≤ A × 1.05
+thick free-space count     ≤ A × 1.05
+</code></pre>
+<p>资源门槛：</p>
+<pre><code class="language-text">任何时刻 global Gaussian count ≤ cap
+peak reserved bytes             ≤ A × 1.10
+training wall time              ≤ A × 1.50
+</code></pre>
+<p>论文每个设置运行三次；项目成本较高，可采用“room 两个 MCMC seed，若结果靠近任一门槛再跑第三个”的顺序策略。不能只挑较好 seed。</p>
+<h3>Phase 3：冻结视频 replay A/B</h3>
+<p>新增 replay 功能后，再运行一次 Default+2B + SOR 基线 Job。它既产生 A 结果，也发布以后不再重跑 geometry 的 replay 数据。</p>
+<p>B 直接从 replay 训练完整 MCMC。主比较顺序：</p>
+<ol>
+<li>A raw vs B raw：唯一用于判断 MCMC；</li>
+<li>A raw+同一 SOR vs B raw+同一 SOR：判断互补性；</li>
+<li>若已有 VGGT visibility 所需资产，再给两边生成同配方 derivative；不把它混入第一层结论。</li>
+</ol>
+<p>视频 gate沿用 room质量/floater/资源门槛，并增加：</p>
+<ul>
+<li>相同 dataset hash、image SHA、camera/split IDs、initialization NPZ SHA；</li>
+<li>Test split没有被 trainer/evaluator加载；</li>
+<li>相同 Validation IDs，比较 Mean/P10/Min；</li>
+<li>相同导出 camera path做盲主观检查；</li>
+<li>MCMC 对 registration gap 区域的改善只能记作观察，不能声称修复空三。</li>
+</ul>
+<h3>Promotion 规则</h3>
+<p>只有 room 和视频都过 gate，才考虑新增一个公开但仍实验性的 <code>gaussian_training_strategy=default_v1|mcmc_v1</code>。此前：</p>
+<ul>
+<li>backend/API/frontend默认不变；</li>
+<li>不允许用户输入 <code>noise_lr</code>、regularizer或cap；</li>
+<li>不与 recovery-prune同时启用；</li>
+<li><code>standard_v1</code>/Default+2B永久可回退；</li>
+<li>不删除 SOR/VGGT 路线。</li>
+</ul>
+<h2>六、主要风险与停止条件</h2>
+<h3>风险 1：MCMC 可能减少 haze，却放大反射热点</h3>
+<p>relocation按 live opacity抽样。玻璃、镜面或错误遮挡若已获得高 opacity，可能吸引更多迁移点。仅看 haze 数量会漏掉这种退化，所以必须同时监测 core/thick free-space 和局部 Validation Min/P10。</p>
+<h3>风险 2：完整方法和当前训练超参数差异较多</h3>
+<p>完整 MCMC 必然改变正则、初始化、opacity LR、schedule和 reset lifecycle。它不是单变量 patch。实验结论应写“<code>mcmc_v1</code> 方法包优于/不优于 Default+2B”，不能把收益单独归因于 SGLD。</p>
+<h3>风险 3：上游 1.5.3 有 all-dead 崩溃</h3>
+<p>项目内 guard可以让失败可解释，但不能替算法自动恢复。出现全 dead 即停止本配置，不通过偷偷降低 min opacity或 regularizer继续跑。</p>
+<h3>风险 4：双 GPU 只在接口上可行，仍缺项目内真实证据</h3>
+<p>gsplat 的 distributed rasterizer支持分片；MCMC topology在每个 rank本地运行，理论上兼容。上游文档没有对 <code>cap_max</code> 的全局语义或 checkpoint做保证。单/双 GPU smoke不可省。</p>
+<h3>风险 5：当前 Job 下载包不能直接成为训练 replay</h3>
+<p>这是已由代码审计确认的事实，不是猜测。若跳过 replay功能直接重跑 B 的 geometry，训练侧归因失效。用户已经选择新增 replay基线，因此应接受再跑一次 A 的成本，之后所有训练实验都不再付 geometry成本。</p>
+<h3>风险 6：MCMC 不是空三恢复、动态 mask 或反射模型</h3>
+<p>它可能让训练对初始化更鲁棒，但不会创造缺失的观测，也不会识别动态人物，不会解决 Gaussian表示对镜面反射的固有限制。若剩余问题集中在特定错误区域，转向 LPM思想；若是动态污染，做 mask benchmark；若是 mesh/导航，再考虑2DGS。</p>
+<p>明确停止条件：</p>
+<ul>
+<li>room 质量门槛失败；</li>
+<li>raw free-space haze没有至少20%下降且没有显著资源收益；</li>
+<li>core/thick free-space增加超过5%；</li>
+<li>双 GPU cap、resume或all-dead稳定性失败；</li>
+<li>wall time超过 A 的1.5倍且质量/floater无明显补偿。</li>
+</ul>
+<h2>七、最终路线建议</h2>
+<h3>最可能成功的路线</h3>
+<p>先做 schema/Trainer/replay 的最小改造，再跑小数据 smoke、room A/B、视频 replay A/B。MCMC raw model减少低 opacity free-space haze，Gaussian数量被精确控制，质量保持在现有 gate内；SOR只做轻量补充。此时 MCMC可成为实验性策略，但仍不自动取代Default+2B。</p>
+<h3>最危险的路线</h3>
+<p>看到gsplat里有一个类就只换strategy，保留当前loss、opacity 0.1、scale×1、15k stop和manual reset；结果质量下降后误判“MCMC不适合”。或者反过来，把MCMC、2B、SOR、VGGT同时打开，最终看见画面变好却无法知道原因。这两条路线都应在代码合同里禁止。</p>
+<h3>最乐观的路线</h3>
+<p>MCMC在同等A臂cap下同时降低free-space haze、Gaussian count/显存和尾部Validation坏视图；SOR边际收益变得很小，说明训练分布本身已经更干净。后续只把LPM式error localization用于少数玻璃/反射坏区，PUP/Fisher作为删除veto，不再堆全局过滤器。</p>
+<h2>八、需要从当前下载结果补齐的证据</h2>
+<p>这些不是新的设计选择，但在生成实验配置前必须读取：</p>
+<pre><code class="language-text">A臂 raw best candidate Gaussian count
+A臂 candidate iteration
+Validation Mean/P10/Min PSNR 与 SSIM
+raw canonical PLY 的 floater census
+SOR 后 canonical PLY 的 floater census
+双 GPU per-rank peak allocated/reserved
+training elapsed seconds
+video registration rate/gap diagnostics
+</code></pre>
+<p>其中 raw Gaussian count决定用户已选择的 MCMC global cap。不要使用 SOR 后点数，因为 cap约束的是训练策略产生的 raw model。</p>
+<h2>九、结论</h2>
+<p>MCMC 的接入可行性是<strong>高</strong>，实验价值是<strong>高</strong>，直接默认推广的成熟度是<strong>低</strong>。</p>
+<p>它之所以排第一，不是因为BSD Studio用了它，也不是因为“概率方法听起来更先进”，而是因为现有项目已经拥有它最难得的三项前置条件：Apache许可的固定gsplat实现、严格的训练/checkpoint/Validation边界，以及一个能测free-space haze而不是只看PSNR的floater census。缺少的部分集中且可验证：完整损失、方法级初始化、双GPU cap、上游guard和replay数据。</p>
+<p>这条路线最值得做，但只能按完整 <code>mcmc_v1</code> 做。strategy-only没有研究价值；每臂重跑geometry没有归因价值；MCMC与2B同时开启没有解释价值。</p>
+<h2>信息来源</h2>
+<h3>一手论文与代码</h3>
+<ol>
+<li>Kheradmand et al., <em>3D Gaussian Splatting as Markov Chain Monte Carlo</em>, NeurIPS 2024 Spotlight：<a href="https://arxiv.org/abs/2404.09591">https://arxiv.org/abs/2404.09591</a>；项目页：<a href="https://ubc-vision.github.io/3dgs-mcmc/">https://ubc-vision.github.io/3dgs-mcmc/</a>（访问：2026-08-28）。</li>
+<li>UBC Vision官方研究代码：<a href="https://github.com/ubc-vision/3dgs-mcmc">https://github.com/ubc-vision/3dgs-mcmc</a>；许可证：<a href="https://github.com/ubc-vision/3dgs-mcmc/blob/main/LICENSE.md">https://github.com/ubc-vision/3dgs-mcmc/blob/main/LICENSE.md</a>（访问：2026-08-28）。</li>
+<li>gsplat Strategy文档：<a href="https://docs.gsplat.studio/main/apis/strategy.html">https://docs.gsplat.studio/main/apis/strategy.html</a>；Apache-2.0许可证：<a href="https://github.com/nerfstudio-project/gsplat/blob/main/LICENSE">https://github.com/nerfstudio-project/gsplat/blob/main/LICENSE</a>（访问：2026-08-28）。</li>
+<li>gsplat 1.5.3 MCMC源码：<a href="https://github.com/nerfstudio-project/gsplat/blob/v1.5.3/gsplat/strategy/mcmc.py">https://github.com/nerfstudio-project/gsplat/blob/v1.5.3/gsplat/strategy/mcmc.py</a>；ops源码：<a href="https://github.com/nerfstudio-project/gsplat/blob/v1.5.3/gsplat/strategy/ops.py">https://github.com/nerfstudio-project/gsplat/blob/v1.5.3/gsplat/strategy/ops.py</a>（访问：2026-08-28）。</li>
+<li>gsplat all-dead relocation issue #1027：<a href="https://github.com/nerfstudio-project/gsplat/issues/1027">https://github.com/nerfstudio-project/gsplat/issues/1027</a>（访问：2026-08-28）。</li>
+<li>Yang et al., <em>Improving Gaussian Splatting with Localized Points Management</em>：<a href="https://arxiv.org/abs/2406.04251">https://arxiv.org/abs/2406.04251</a>（访问：2026-08-28）。</li>
+<li>Kim et al., <em>Metropolis-Hastings Sampling for 3D Gaussian Reconstruction</em>, NeurIPS 2025：<a href="https://arxiv.org/abs/2506.12945">https://arxiv.org/abs/2506.12945</a>；代码：<a href="https://github.com/SNU-VGILab/MH-3DGS">https://github.com/SNU-VGILab/MH-3DGS</a>（访问：2026-08-28）。</li>
+<li>Hanson et al., <em>PUP 3D-GS: Principled Uncertainty Pruning for 3D Gaussian Splatting</em>：<a href="https://arxiv.org/abs/2406.10219">https://arxiv.org/abs/2406.10219</a>（访问：2026-08-28）。</li>
+<li>Ye et al., <em>AbsGS: Recovering Fine Details for 3D Gaussian Splatting</em>：<a href="https://arxiv.org/abs/2404.10484">https://arxiv.org/abs/2404.10484</a>（访问：2026-08-28）。</li>
+<li>Huang et al., <em>2D Gaussian Splatting for Geometrically Accurate Radiance Fields</em>：<a href="https://arxiv.org/abs/2403.17888">https://arxiv.org/abs/2403.17888</a>（访问：2026-08-28）。</li>
+<li><em>Steepest Descent Density Control for Compact 3D Gaussian Splatting</em>：<a href="https://arxiv.org/abs/2505.05587">https://arxiv.org/abs/2505.05587</a>（访问：2026-08-28）。</li>
+<li><em>FeatureGS: Eigenvalue-Feature Optimization in 3D Gaussian Splatting for Geometrically Accurate and Artifact-Reduced Reconstruction</em>：<a href="https://arxiv.org/abs/2501.17655">https://arxiv.org/abs/2501.17655</a>（访问：2026-08-28）。</li>
+</ol>
+<h3>产品与项目内证据</h3>
+<ol start="13">
+<li>BSD Studio官网：<a href="https://www.bsd3dgs.com/">https://www.bsd3dgs.com/</a>（访问：2026-08-28；功能为厂商自述，未当作独立质量证据）。</li>
+<li>项目内 <code>新.md</code>：后续顺序、完整MCMC、2B互斥、双GPU预算与A/B要求。</li>
+<li>项目内 <code>research_bsd_studio.md</code>：BSD产品调研及事实/推断边界。</li>
+<li>项目内 <code>codex.md</code> 决策日志：floater census、opacity regularization失败、SOR与2B实验结果。</li>
+<li>项目代码：<code>src/image3d_scenegraph/gaussian/trainer.py</code>、<code>config.py</code>、<code>model.py</code>、<code>initialization.py</code>、<code>dataset.py</code>，以及 <code>scripts/analyze_gaussian_floaters.py</code>。</li>
+</ol>
+<h2>方法论说明</h2>
+<p>本报告采用横纵分析：纵向追踪3DGS密度控制从传统ADC到SGLD/MCMC及项目内实验的演进，横向比较Default+2B、MCMC、LPM、MH-3DGS、PUP、AbsGS、FeatureGS和2DGS，再把论文机制映射到当前代码与实验合同。产品宣传与论文/代码证据始终分开处理。</p>
+
+</body>
+</html>
