@@ -321,6 +321,9 @@ def main() -> None:
     timing_payload = {
         "schema_version": 1,
         "profile": "colmap_timing_v1",
+        "colmap_executable": colmap,
+        "colmap_build": colmap_build,
+        "matcher": args.matcher,
         "video_profile": (
             str(video_selection.get("profile"))
             if video_selection is not None
