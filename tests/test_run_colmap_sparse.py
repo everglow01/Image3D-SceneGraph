@@ -9,7 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from image3d_scenegraph.geometry.colmap import ResolvedColmapFeatureProfile
+from image3d_scenegraph.geometry.colmap import (
+    ResolvedColmapFeatureProfile,
+    ResolvedColmapLocalMatcher,
+)
 from scripts import run_colmap_sparse
 from scripts.run_colmap_sparse import colmap_version, find_largest_sparse_model, read_sparse_model_counts
 
@@ -266,7 +269,6 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
         profile_id="aliked_n16rot_v1",
         extractor="ALIKED_N16ROT",
         descriptor="ALIKED",
-        local_matcher="ALIKED_BRUTEFORCE",
         max_features=8_192,
         extraction_options=(
             "--FeatureExtraction.type",
@@ -278,14 +280,20 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
             "--AlikedExtraction.n16rot_model_path",
             "/models/aliked.onnx",
         ),
+        extractor_model_sha256="a" * 64,
+    )
+    local_matcher = ResolvedColmapLocalMatcher(
+        profile_id="lightglue",
+        name="ALIKED_LIGHTGLUE",
         matching_options=(
             "--FeatureMatching.type",
-            "ALIKED_BRUTEFORCE",
-            "--AlikedMatching.bruteforce_model_path",
-            "/models/matcher.onnx",
+            "ALIKED_LIGHTGLUE",
+            "--AlikedMatching.lightglue_min_score",
+            "0.1",
+            "--AlikedMatching.lightglue_model_path",
+            "/models/aliked-lightglue.onnx",
         ),
-        extractor_model_sha256="a" * 64,
-        matcher_model_sha256="b" * 64,
+        model_sha256="b" * 64,
     )
 
     def fake_run(command):
@@ -316,6 +324,11 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
     monkeypatch.setattr(
         run_colmap_sparse, "resolve_colmap_feature_profile", lambda _: profile
     )
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "resolve_colmap_local_matcher",
+        lambda _feature, _profile: local_matcher,
+    )
     monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
     monkeypatch.setattr(
         sys,
@@ -328,6 +341,8 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
             str(output_dir),
             "--feature-profile",
             "aliked_n16rot_v1",
+            "--local-matcher",
+            "lightglue",
         ],
     )
 
@@ -338,13 +353,15 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
     assert feature[feature.index("--AlikedExtraction.n16rot_model_path") + 1] == (
         "/models/aliked.onnx"
     )
-    assert matcher[matcher.index("--FeatureMatching.type") + 1] == "ALIKED_BRUTEFORCE"
-    assert matcher[matcher.index("--AlikedMatching.bruteforce_model_path") + 1] == (
-        "/models/matcher.onnx"
+    assert matcher[matcher.index("--FeatureMatching.type") + 1] == "ALIKED_LIGHTGLUE"
+    assert matcher[matcher.index("--AlikedMatching.lightglue_min_score") + 1] == "0.1"
+    assert matcher[matcher.index("--AlikedMatching.lightglue_model_path") + 1] == (
+        "/models/aliked-lightglue.onnx"
     )
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sfm_feature_profile=aliked_n16rot_v1\n" in log
-    assert "sfm_local_matcher=ALIKED_BRUTEFORCE\n" in log
+    assert "sfm_local_matcher_profile=lightglue\n" in log
+    assert "sfm_local_matcher=ALIKED_LIGHTGLUE\n" in log
 
 
 def test_aliked_profile_rejects_sift_vocab_tree(tmp_path, monkeypatch):

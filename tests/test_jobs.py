@@ -145,6 +145,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
         dataset_path=tmp_path / "dataset.json",
         output_dir=tmp_path / "diagnostics" / "sfm",
         feature_profile="sift_v1",
+        local_matcher="bruteforce",
         matcher="exhaustive",
         geometry_source="colmap",
         video_selection_path=None,
@@ -173,6 +174,7 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
         dataset_path=tmp_path / "missing-dataset.json",
         output_dir=tmp_path / "diagnostics" / "sfm",
         feature_profile="sift_v1",
+        local_matcher="bruteforce",
         matcher="exhaustive",
         geometry_source="colmap",
         video_selection_path=None,
@@ -209,6 +211,7 @@ def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monke
             dataset_path=tmp_path / "dataset.json",
             output_dir=tmp_path / "diagnostics" / "sfm",
             feature_profile="sift_v1",
+            local_matcher="bruteforce",
             matcher="exhaustive",
             geometry_source="colmap",
             video_selection_path=None,
@@ -387,6 +390,7 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
         options={
             "gaussian_geometry_source": "vggt_ba",
             "colmap_matcher": "sequential",
+            "sfm_local_matcher": "lightglue",
         },
     )
 
@@ -396,6 +400,7 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
     command = captured[0]
     assert command[1].endswith("run_vggt_ba_sparse.py")
     assert command[command.index("--feature-profile") + 1] == "sift_v1"
+    assert command[command.index("--local-matcher") + 1] == "lightglue"
     assert command[command.index("--matcher") + 1] == "sequential"
     assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
     assert "--video-source" not in command
@@ -484,6 +489,7 @@ def test_project_gaussian_standard_v2_threads_source_and_selection(
     assert extraction_command[extraction_command.index("--profile") + 1] == "standard_v2"
     assert geometry_command[1].endswith(runner_name)
     assert geometry_command[geometry_command.index("--feature-profile") + 1] == "sift_v1"
+    assert geometry_command[geometry_command.index("--local-matcher") + 1] == "bruteforce"
     assert geometry_command[geometry_command.index("--video-source") + 1] == str(
         tmp_path / "input" / "video.mp4"
     )
@@ -867,6 +873,12 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert manifest["gaussian_trainer"]["id"] == "graphdeco"
     assert request["options"]["gaussian_trainer"] == "graphdeco"
     assert request["options"]["gaussian_longest_edge"] == 3072
+    assert request["options"]["sfm_feature_profile"] == "sift_v1"
+    assert request["options"]["sfm_local_matcher"] == "bruteforce"
+    assert manifest["sfm_feature_profile"] == "sift_v1"
+    assert manifest["sfm_feature_effective_profile"] is None
+    assert manifest["sfm_local_matcher"] == "bruteforce"
+    assert manifest["sfm_local_matcher_effective"] is None
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
     assert manifest["gaussian_config"]["schema_version"] == 10
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
@@ -1164,6 +1176,10 @@ def test_job_store_rejects_unavailable_aliked_profile(tmp_path, monkeypatch):
         "image3d_scenegraph.jobs.colmap_learned_feature_support_reason",
         lambda _colmap: None,
     )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_local_matcher_support_reason",
+        lambda _colmap, _feature, _matcher: None,
+    )
 
     def missing_profile(_profile, _root):
         raise ColmapFeatureError("COLMAP learned feature model missing")
@@ -1182,6 +1198,53 @@ def test_job_store_rejects_unavailable_aliked_profile(tmp_path, monkeypatch):
             geometry_backend="colmap",
             output_type="point_cloud",
             options={"sfm_feature_profile": "aliked_n16rot_v1"},
+        )
+
+
+def test_job_store_rejects_unavailable_lightglue_matcher(tmp_path, monkeypatch):
+    store = JobStore(output_root=tmp_path / "jobs")
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_executable",
+        lambda _root: tmp_path / "colmap",
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_local_matcher_support_reason",
+        lambda _colmap, _feature, _matcher: None,
+    )
+
+    def missing_matcher(_feature, _matcher, _root):
+        raise ColmapFeatureError("COLMAP LightGlue model missing")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_local_matcher", missing_matcher
+    )
+
+    with pytest.raises(JobError, match="LightGlue model missing"):
+        store.enqueue_job(
+            "multi_image",
+            [
+                UploadedInput(filename=f"{index}.jpg", content=b"image")
+                for index in range(2)
+            ],
+            geometry_backend="colmap",
+            output_type="point_cloud",
+            options={"sfm_local_matcher": "lightglue"},
+        )
+
+
+def test_job_store_rejects_unknown_local_matcher(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="unsupported COLMAP local matcher"):
+        store.enqueue_job(
+            "multi_image",
+            [
+                UploadedInput(filename=f"{index}.jpg", content=b"image")
+                for index in range(2)
+            ],
+            geometry_backend="colmap",
+            output_type="point_cloud",
+            options={"sfm_local_matcher": "unknown"},
         )
 
 

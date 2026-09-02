@@ -98,6 +98,11 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "aliked_n16rot_v1",
     ]
     assert properties["sfm_feature_profile"]["default"] == "sift_v1"
+    assert properties["sfm_local_matcher"]["enum"] == [
+        "bruteforce",
+        "lightglue",
+    ]
+    assert properties["sfm_local_matcher"]["default"] == "bruteforce"
     assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
     assert properties["gaussian_geometry_source"]["default"] == "colmap"
     assert properties["gaussian_postprocess"]["enum"] == [
@@ -154,6 +159,7 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
         "gaussian_postprocess": "vggt_visibility_v1",
         "gaussian_longest_edge": 3072,
         "sfm_feature_profile": "sift_v1",
+        "sfm_local_matcher": "bruteforce",
     }
 
 
@@ -194,6 +200,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
             "geometry_backend": "colmap",
             "output_type": "point_cloud",
             "sfm_feature_profile": "aliked_n16rot_v1",
+            "sfm_local_matcher": "lightglue",
         },
         files=[
             ("files", (f"{index}.jpg", b"image", "image/jpeg"))
@@ -202,7 +209,10 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
     )
 
     assert response.status_code == 202
-    assert store.options == {"sfm_feature_profile": "aliked_n16rot_v1"}
+    assert store.options == {
+        "sfm_feature_profile": "aliked_n16rot_v1",
+        "sfm_local_matcher": "lightglue",
+    }
 
 
 def test_create_job_omits_sfm_feature_profile_for_non_colmap_backend(tmp_path):
@@ -217,6 +227,7 @@ def test_create_job_omits_sfm_feature_profile_for_non_colmap_backend(tmp_path):
             "geometry_backend": "mock",
             "output_type": "point_cloud",
             "sfm_feature_profile": "aliked_n16rot_v1",
+            "sfm_local_matcher": "lightglue",
         },
         files=[("files", ("room.jpg", b"image", "image/jpeg"))],
     )
@@ -310,8 +321,11 @@ def test_create_video_job_forwards_colmap_matcher(tmp_path):
     request = json.loads((root / job_id / "request.json").read_text())
     assert request["options"]["colmap_matcher"] == "sequential"
     assert request["options"]["sfm_feature_profile"] == "sift_v1"
+    assert request["options"]["sfm_local_matcher"] == "bruteforce"
     assert response.json()["sfm_feature_profile"] == "sift_v1"
     assert response.json()["sfm_feature_effective_profile"] is None
+    assert response.json()["sfm_local_matcher"] == "bruteforce"
+    assert response.json()["sfm_local_matcher_effective"] is None
 
 
 def test_create_job_omits_colmap_matcher_for_non_video_jobs(tmp_path):
@@ -442,6 +456,11 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
         data={"sfm_feature_profile": "unknown"},
         files=files,
     )
+    sfm_local_matcher_response = client.post(
+        "/api/jobs",
+        data={"sfm_local_matcher": "unknown"},
+        files=files,
+    )
 
     assert geometry_response.status_code == 422
     assert postprocess_response.status_code == 422
@@ -449,6 +468,7 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
     assert sor_response.status_code == 422
     assert recovery_prune_response.status_code == 422
     assert sfm_feature_response.status_code == 422
+    assert sfm_local_matcher_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):
@@ -482,7 +502,10 @@ def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
     )
 
     assert response.status_code == 202
-    assert store.options == {"sfm_feature_profile": "sift_v1"}
+    assert store.options == {
+        "sfm_feature_profile": "sift_v1",
+        "sfm_local_matcher": "bruteforce",
+    }
 
 
 def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
@@ -513,6 +536,7 @@ def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
     assert response.status_code == 202
     assert store.options == {
         "sfm_feature_profile": "sift_v1",
+        "sfm_local_matcher": "bruteforce",
         "colmap_vggt_grouping": "covisibility",
         "colmap_vggt_overlap_size": 1,
         "colmap_vggt_confidence_threshold_scope": "per_frame",

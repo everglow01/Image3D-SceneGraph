@@ -11,7 +11,11 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from image3d_scenegraph.geometry.colmap import resolve_colmap_feature_profile  # noqa: E402
+from image3d_scenegraph.geometry.colmap import (  # noqa: E402
+    ResolvedColmapLocalMatcher,
+    resolve_colmap_feature_profile,
+    resolve_colmap_local_matcher,
+)
 from image3d_scenegraph.geometry.grouping import (  # noqa: E402
     ColmapImage,
     CovisibilityEdge,
@@ -66,6 +70,7 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         lambda *_: (tmp_path / "sparse" / "0", []),
     )
 
+    feature_profile = resolve_colmap_feature_profile("sift_v1", tmp_path)
     run_colmap_pipeline(
         colmap="/project/colmap",
         image_dir=tmp_path / "images",
@@ -73,7 +78,10 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         sparse_dir=tmp_path / "sparse",
         text_dir=tmp_path / "sparse_txt",
         matcher="exhaustive",
-        feature_profile=resolve_colmap_feature_profile("sift_v1", tmp_path),
+        feature_profile=feature_profile,
+        local_matcher=resolve_colmap_local_matcher(
+            feature_profile, "bruteforce", tmp_path
+        ),
         single_camera=True,
         mapper_abs_pose_min_num_inliers=30,
         mapper_abs_pose_min_inlier_ratio=0.25,
@@ -86,6 +94,53 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
     assert matcher[matcher.index("--FeatureMatching.use_gpu") + 1] == "1"
     assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
     assert matcher[matcher.index("--FeatureMatching.type") + 1] == "SIFT_BRUTEFORCE"
+
+
+def test_colmap_pipeline_applies_lightglue_matcher(tmp_path, monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.run_command",
+        lambda command: commands.append(command) or "ok",
+    )
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.convert_best_sparse_model",
+        lambda *_: (tmp_path / "sparse" / "0", []),
+    )
+    feature_profile = resolve_colmap_feature_profile("sift_v1", tmp_path)
+    local_matcher = ResolvedColmapLocalMatcher(
+        profile_id="lightglue",
+        name="SIFT_LIGHTGLUE",
+        matching_options=(
+            "--FeatureMatching.type",
+            "SIFT_LIGHTGLUE",
+            "--SiftMatching.lightglue_min_score",
+            "0.1",
+            "--SiftMatching.lightglue_model_path",
+            "/models/sift-lightglue.onnx",
+        ),
+        model_sha256="a" * 64,
+    )
+
+    run_colmap_pipeline(
+        colmap="/project/colmap",
+        image_dir=tmp_path / "images",
+        database_path=tmp_path / "database.db",
+        sparse_dir=tmp_path / "sparse",
+        text_dir=tmp_path / "sparse_txt",
+        matcher="exhaustive",
+        feature_profile=feature_profile,
+        local_matcher=local_matcher,
+        single_camera=True,
+        mapper_abs_pose_min_num_inliers=30,
+        mapper_abs_pose_min_inlier_ratio=0.25,
+    )
+
+    matcher = commands[1]
+    assert matcher[matcher.index("--FeatureMatching.type") + 1] == "SIFT_LIGHTGLUE"
+    assert matcher[matcher.index("--SiftMatching.lightglue_min_score") + 1] == "0.1"
+    assert matcher[matcher.index("--SiftMatching.lightglue_model_path") + 1] == (
+        "/models/sift-lightglue.onnx"
+    )
 
 
 def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):

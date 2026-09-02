@@ -41,6 +41,12 @@ def test_backend_specs_prefer_project_local_colmap(tmp_path, monkeypatch):
         for profile in specs["colmap"].options["sfm_feature_profiles"]
     }
     assert profiles["sift_v1"]["available"] is True
+    sift_matchers = {
+        matcher["id"]: matcher
+        for matcher in profiles["sift_v1"]["local_matchers"]
+    }
+    assert sift_matchers["bruteforce"]["available"] is True
+    assert sift_matchers["lightglue"]["available"] is False
     assert profiles["aliked_n16rot_v1"]["available"] is False
 
 
@@ -59,8 +65,22 @@ def test_backend_specs_report_aliked_without_disabling_sift(
     )
     monkeypatch.setattr(
         backends,
+        "colmap_local_matcher_support_reasons",
+        lambda _path: {
+            (feature, matcher): None
+            for feature in ("sift_v1", "aliked_n16rot_v1")
+            for matcher in ("bruteforce", "lightglue")
+        },
+    )
+    monkeypatch.setattr(
+        backends,
         "resolve_colmap_feature_profile",
         lambda _profile, _root: object(),
+    )
+    monkeypatch.setattr(
+        backends,
+        "resolve_colmap_local_matcher",
+        lambda _feature, _profile, _root: object(),
     )
 
     specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
@@ -71,6 +91,11 @@ def test_backend_specs_report_aliked_without_disabling_sift(
 
     assert profiles["sift_v1"]["available"] is True
     assert profiles["aliked_n16rot_v1"]["available"] is True
+    assert all(
+        matcher["available"]
+        for profile in profiles.values()
+        for matcher in profile["local_matchers"]
+    )
     assert specs["colmap"].available is True
 
 

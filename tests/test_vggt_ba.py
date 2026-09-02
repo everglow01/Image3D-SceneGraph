@@ -325,6 +325,10 @@ def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
             progress_file=tmp_path / "progress.json",
             fallback_applied=False,
             command_logs=logs,
+            feature_extraction_options=("--FeatureExtraction.type", "ALIKED_N16ROT"),
+            local_matching_options=("--FeatureMatching.type", "ALIKED_LIGHTGLUE"),
+            sfm_feature_profile="aliked_n16rot_v1",
+            sfm_local_matcher="ALIKED_LIGHTGLUE",
         )
     )
 
@@ -333,6 +337,16 @@ def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
     assert fallback_registration is None
     assert call["initial_model"] == initial_model
     assert call["database_path"] == tmp_path / "database.db"
+    assert call["feature_extraction_options"] == (
+        "--FeatureExtraction.type",
+        "ALIKED_N16ROT",
+    )
+    assert call["local_matching_options"] == (
+        "--FeatureMatching.type",
+        "ALIKED_LIGHTGLUE",
+    )
+    assert call["sfm_feature_profile"] == "aliked_n16rot_v1"
+    assert call["sfm_local_matcher"] == "ALIKED_LIGHTGLUE"
     assert logs == ["recovery-log"]
 
 

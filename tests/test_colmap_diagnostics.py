@@ -21,6 +21,7 @@ SIFT_FEATURE = {
     "profile": "sift_v1",
     "extractor": "SIFT",
     "descriptor": "SIFT",
+    "local_matcher_profile": "bruteforce",
     "local_matcher": "SIFT_BRUTEFORCE",
     "max_features": 8_192,
     "extractor_model_sha256": None,
@@ -76,6 +77,7 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     run = manifest["runs"][0]
     assert run["feature"]["profile"] == "sift_v1"
     assert run["feature"]["keypoint_fields"] == ["x", "y"]
+    assert run["local_matcher"]["profile"] == "bruteforce"
     assert run["local_matcher"]["name"] == "SIFT_BRUTEFORCE"
     assert run["pairing"]["name"] == "sequential"
     assert run["mapper"]["name"] == "incremental"
@@ -126,6 +128,7 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
             "profile": "aliked_n16rot_v1",
             "extractor": "ALIKED_N16ROT",
             "descriptor": "ALIKED",
+            "local_matcher_profile": "bruteforce",
             "local_matcher": "ALIKED_BRUTEFORCE",
             "max_features": 8_192,
             "extractor_model_sha256": "a" * 64,
@@ -139,6 +142,32 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert learned["default_run_id"] != run["run_id"]
     assert learned["runs"][0]["feature"]["profile"] == "aliked_n16rot_v1"
     assert learned_metrics["sfm_feature_profile"] == "aliked_n16rot_v1"
+
+    shutil.rmtree(output)
+    lightglue_manifest, lightglue_metrics = export_colmap_diagnostics(
+        job_dir=job,
+        database_path=job / "colmap" / "database.db",
+        source_image_root=job / "frames" / "selected",
+        dataset_contract_path=job / "dataset.json",
+        output_dir=output,
+        feature={
+            **SIFT_FEATURE,
+            "local_matcher_profile": "lightglue",
+            "local_matcher": "SIFT_LIGHTGLUE",
+            "matcher_model_sha256": "c" * 64,
+        },
+        pairing="sequential",
+        colmap_build="COLMAP 4.0.0",
+        video_selection_path=job / "frames" / "selection.json",
+    )
+    lightglue = json.loads(lightglue_manifest.read_text(encoding="utf-8"))
+    assert lightglue["default_run_id"] not in {
+        run["run_id"],
+        learned["default_run_id"],
+    }
+    assert lightglue["runs"][0]["local_matcher"]["profile"] == "lightglue"
+    assert lightglue["runs"][0]["local_matcher"]["name"] == "SIFT_LIGHTGLUE"
+    assert lightglue_metrics["sfm_local_matcher_profile"] == "lightglue"
 
 
 def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(

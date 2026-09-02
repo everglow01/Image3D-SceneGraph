@@ -343,9 +343,25 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
         use_gpu=True,
         gpu_index="0,1",
         num_threads=12,
+        feature_extraction_options=(
+            "--FeatureExtraction.type",
+            "ALIKED_N16ROT",
+            "--AlikedExtraction.n16rot_model_path",
+            "/models/aliked.onnx",
+        ),
+        local_matching_options=(
+            "--FeatureMatching.type",
+            "ALIKED_LIGHTGLUE",
+            "--AlikedMatching.lightglue_model_path",
+            "/models/aliked-lightglue.onnx",
+        ),
+        sfm_feature_profile="aliked_n16rot_v1",
+        sfm_local_matcher="ALIKED_LIGHTGLUE",
     )
 
     assert diagnostics["status"] == "recovered"
+    assert diagnostics["sfm_feature_profile"] == "aliked_n16rot_v1"
+    assert diagnostics["sfm_local_matcher"] == "ALIKED_LIGHTGLUE"
     assert diagnostics["recovery_selected_count"] == 3
     assert diagnostics["attempted_round_count"] == 1
     assert diagnostics["accepted_round_count"] == 1
@@ -372,6 +388,15 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
     ]
     assert "--image_list_path" in commands[0]
     assert commands[0][commands[0].index("--ImageReader.existing_camera_id") + 1] == "7"
+    assert commands[0][commands[0].index("--FeatureExtraction.type") + 1] == (
+        "ALIKED_N16ROT"
+    )
+    assert commands[1][commands[1].index("--FeatureMatching.type") + 1] == (
+        "ALIKED_LIGHTGLUE"
+    )
+    assert commands[1][commands[1].index("--AlikedMatching.lightglue_model_path") + 1] == (
+        "/models/aliked-lightglue.onnx"
+    )
     assert commands[3][commands[3].index("--clear_points") + 1] == "0"
     updated = json.loads(selection_path.read_text(encoding="utf-8"))
     assert updated["selected_count"] == 15
