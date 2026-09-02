@@ -189,14 +189,15 @@ uv run python scripts/setup_colmap_learned_features.py --install
 
 The two LightGlue models are the COLMAP release copies of Apache-2.0 LightGlue pretrained weights; ALIKED remains BSD-3-Clause upstream. Runtime model paths are project-local and git-ignored.
 
-A geometry runner can then select feature extraction and local matching independently:
+A geometry runner can then select feature extraction, local matching, and image pairing independently:
 
 ```bash
 uv run python scripts/run_colmap_sparse.py \
   --image-dir INPUT \
   --output-dir OUTPUT \
   --feature-profile aliked_n16rot_v1 \
-  --local-matcher lightglue
+  --local-matcher lightglue \
+  --pairing exhaustive
 ```
 
 The same controls are available through the asynchronous API:
@@ -208,17 +209,19 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F output_type=point_cloud \
   -F sfm_feature_profile=aliked_n16rot_v1 \
   -F sfm_local_matcher=lightglue \
+  -F sfm_pairing=exhaustive \
   -F files=@view-01.jpg \
   -F files=@view-02.jpg
 ```
 
-Sequential matching with vocab-tree loop detection (experimental `colmap_matcher=sequential` for video Gaussian jobs, and `run_colmap_sparse.py --vocab-tree-path`) needs the Flickr100K vocab tree under ignored `external/colmap-vocab/`. The setup script is a dry run unless `--install` is supplied:
+Phase 3 exposes `sfm_pairing=exhaustive|sequential_loop|vocab_tree` independently from the local matcher. `exhaustive` remains the new-product default; `sequential_loop` is video-only and uses temporal neighbors plus loop detection, while `vocab_tree` is multi-image-only. Both retrieval profiles require a descriptor-compatible tree under ignored `external/colmap-vocab/`: the existing 256K-word SIFT tree and the official 64K-word ALIKED N16Rot tree are installed and verified separately. The setup script is dry-run by default, and Jobs never download or substitute trees:
 
 ```bash
+uv run python scripts/setup_colmap_vocab_tree.py
 uv run python scripts/setup_colmap_vocab_tree.py --install
 ```
 
-The production default retains `sift_v1`, `sfm_local_matcher=bruteforce`, and incremental Mapper. Phase 2 exposes experimental `lightglue` independently for SIFT and ALIKED, maps it to the descriptor-compatible COLMAP model, and fixes the minimum score at 0.1. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Global Mapper remains unexposed pending its later single-factor phase; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production defaults remain `sift_v1 + bruteforce + exhaustive + incremental`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper remains unexposed pending Phase 6; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Run COLMAP sparse SfM directly for a local image folder:
 
@@ -227,7 +230,7 @@ Run COLMAP sparse SfM directly for a local image folder:
   --image-dir path/to/images \
   --output-dir outputs/colmap_run \
   --local-matcher bruteforce \
-  --matcher sequential
+  --pairing exhaustive
 ```
 
 COLMAP output is a sparse SfM reference: it estimates a global camera graph and sparse point cloud. Use it to compare whether VGGT multi-image drift is caused by windowed model inference or by weak image overlap / texture. Video extraction writes `diagnostics/video_keyframe_timing.json`; explicit ordinary-COLMAP v2 also writes `diagnostics/video_initial_registration_expansion.json` and `diagnostics/colmap_timing.json`. After same-source v1/v2 geometry-only runs and a second deterministic v2 extraction, `scripts/evaluate_video_v2_promotion.py` evaluates the frozen 95% registration, zero `>2s` gap, camera/point retention, recovery-budget, determinism, and `≤2×` time gates; a failed gate exits nonzero and never changes defaults.
@@ -238,7 +241,7 @@ Run COLMAP + VGGT dense fusion directly:
 env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_colmap_vggt_dense.py \
   --image-dir path/to/images \
   --output-dir outputs/colmap_vggt_run \
-  --matcher exhaustive \
+  --pairing exhaustive \
   --vggt-batch-size 4 \
   --vggt-overlap-size 2 \
   --vggt-grouping sequential \
@@ -349,7 +352,7 @@ Run the normal image-only reconstruction first. Do not pass ETH3D reference came
 env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
   --image-dir data/benchmarks/eth3d/pipes/images/dslr_images_undistorted \
   --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
-  --matcher exhaustive \
+  --pairing exhaustive \
   --vggt-batch-size 4 \
   --vggt-grouping sequential \
   --fusion-mode points \
