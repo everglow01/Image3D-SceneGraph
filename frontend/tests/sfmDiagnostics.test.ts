@@ -82,6 +82,7 @@ function v2Payload(images: unknown[]) {
           version: "4.0"
         },
         local_matcher: {
+          profile: "bruteforce",
           name: "ALIKED_BRUTEFORCE",
           implementation: "colmap",
           version: "4.0",
@@ -102,6 +103,7 @@ test("schema 1 provenance maps to explicit SIFT stages", () => {
 
   assert.equal(run.feature.profile, "sift_v1");
   assert.equal(run.feature.extractor, "SIFT");
+  assert.equal(run.local_matcher.profile, "bruteforce");
   assert.equal(run.local_matcher.name, "SIFT_BRUTEFORCE");
   assert.equal(run.pairing.name, "sequential");
   assert.equal(run.mapper.name, "incremental");
@@ -113,8 +115,34 @@ test("schema 2 preserves learned feature provenance", () => {
 
   assert.equal(run.feature.profile, "aliked_n16rot_v1");
   assert.equal(run.feature.extractor_model_sha256, hash);
+  assert.equal(run.local_matcher.profile, "bruteforce");
   assert.equal(run.local_matcher.name, "ALIKED_BRUTEFORCE");
   assert.equal(run.pairing.name, "exhaustive");
+});
+
+
+test("schema 2 accepts explicit LightGlue provenance", () => {
+  const value = v2Payload([image(1, [0, 0, 0], [0, 0, 1])]);
+  value.runs[0].local_matcher = {
+    profile: "lightglue",
+    name: "ALIKED_LIGHTGLUE",
+    implementation: "colmap",
+    version: "4.0",
+    model_sha256: hash
+  };
+
+  const run = parseSfmDiagnostics(value).runs[0];
+
+  assert.equal(run.local_matcher.profile, "lightglue");
+  assert.equal(run.local_matcher.name, "ALIKED_LIGHTGLUE");
+});
+
+
+test("schema 2 rejects inconsistent matcher profile and name", () => {
+  const value = v2Payload([image(1, [0, 0, 0], [0, 0, 1])]);
+  value.runs[0].local_matcher.profile = "lightglue";
+
+  assert.throws(() => parseSfmDiagnostics(value), /inconsistent/);
 });
 
 

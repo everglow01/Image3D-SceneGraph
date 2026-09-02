@@ -38,6 +38,7 @@ type ConsistencySupportPolicy = "any_support" | "adaptive_two";
 type PointBudgetPolicy = "random" | "spatial_balanced";
 type ColmapVggtGrouping = "sequential" | "covisibility";
 type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
+type SfmLocalMatcher = "bruteforce" | "lightglue";
 type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
@@ -52,6 +53,10 @@ type ExperimentalOptionStatus<T extends string> = {
   experimental: boolean;
   supported_modes?: Mode[];
   setup_command?: string | null;
+};
+
+type SfmFeatureStatus = ExperimentalOptionStatus<SfmFeatureProfile> & {
+  local_matchers?: ExperimentalOptionStatus<SfmLocalMatcher>[];
 };
 
 type MeshSettings = {
@@ -154,6 +159,8 @@ type Manifest = {
   };
   sfm_feature_profile?: SfmFeatureProfile;
   sfm_feature_effective_profile?: SfmFeatureProfile;
+  sfm_local_matcher?: SfmLocalMatcher;
+  sfm_local_matcher_effective?: SfmLocalMatcher;
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -222,8 +229,9 @@ type Manifest = {
     video_registration_recovery_rounds?: number;
     video_registration_recovery_registered_gain?: number;
     sfm_feature_profile?: SfmFeatureProfile;
-  sfm_feature_effective_profile?: SfmFeatureProfile;
-  gaussian_geometry_source?: GaussianGeometrySource;
+    sfm_local_matcher_profile?: SfmLocalMatcher;
+    sfm_local_matcher?: string;
+    gaussian_geometry_source?: GaussianGeometrySource;
     gaussian_geometry_effective_source?: GaussianGeometrySource;
     gaussian_geometry_fallback_applied?: boolean;
     gaussian_geometry_fallback_reason?: string;
@@ -309,7 +317,7 @@ type BackendStatus = {
   supported_outputs: OutputType[];
   setup_command: string | null;
   gaussian_trainers?: GaussianTrainerStatus[];
-  sfm_feature_profiles?: ExperimentalOptionStatus<SfmFeatureProfile>[];
+  sfm_feature_profiles?: SfmFeatureStatus[];
   gaussian_geometry_sources?: ExperimentalOptionStatus<GaussianGeometrySource>[];
   gaussian_postprocessors?: ExperimentalOptionStatus<GaussianPostprocess>[];
   video_ingestion?: {
@@ -337,6 +345,11 @@ const modeOptions: Array<{
 const sfmFeatureOptions: Array<{ id: SfmFeatureProfile; label: string }> = [
   { id: "sift_v1", label: "SIFT v1（默认）" },
   { id: "aliked_n16rot_v1", label: "ALIKED N16Rot v1（实验）" }
+];
+
+const sfmLocalMatcherOptions: Array<{ id: SfmLocalMatcher; label: string }> = [
+  { id: "bruteforce", label: "Brute-force（默认）" },
+  { id: "lightglue", label: "LightGlue（实验）" }
 ];
 
 const backendOptions: Array<{
@@ -380,6 +393,8 @@ export function App() {
   const [outputType, setOutputType] = useState<OutputType>("point_cloud");
   const [sfmFeatureProfile, setSfmFeatureProfile] =
     useState<SfmFeatureProfile>("sift_v1");
+  const [sfmLocalMatcher, setSfmLocalMatcher] =
+    useState<SfmLocalMatcher>("bruteforce");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -434,6 +449,13 @@ export function App() {
   const selectedSfmFeatureStatus = sfmFeatureStatuses.find(
     (option) => option.id === sfmFeatureProfile
   );
+  const sfmLocalMatcherStatuses = selectedSfmFeatureStatus?.local_matchers ?? [];
+  const selectedSfmLocalMatcherStatus = sfmLocalMatcherStatuses.find(
+    (option) => option.id === sfmLocalMatcher
+  );
+  const sfmLocalMatcherNotice = selectedSfmLocalMatcherStatus?.reason
+    ? selectedSfmLocalMatcherStatus
+    : sfmLocalMatcherStatuses.find((option) => option.available === false);
   const usesColmapFeatureStage = ["colmap", "colmap_vggt", "project_3dgs"].includes(
     geometryBackend
   );
@@ -778,6 +800,20 @@ export function App() {
       );
       return;
     }
+    if (
+      usesColmapFeatureStage &&
+      (
+        selectedSfmLocalMatcherStatus?.available === false ||
+        (sfmLocalMatcher !== "bruteforce" &&
+          selectedSfmLocalMatcherStatus?.available !== true)
+      )
+    ) {
+      setError(
+        selectedSfmLocalMatcherStatus?.reason ??
+          "服务器缺少所选 COLMAP 局部匹配模型。"
+      );
+      return;
+    }
     if (!selectedBackendAvailable) {
       setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
@@ -838,6 +874,7 @@ export function App() {
       form.append("output_type", outputType);
       if (usesColmapFeatureStage) {
         form.append("sfm_feature_profile", sfmFeatureProfile);
+        form.append("sfm_local_matcher", sfmLocalMatcher);
       }
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
@@ -1111,43 +1148,84 @@ export function App() {
             </label>
 
             {usesColmapFeatureStage && (
-              <label>
-                <span>特征提取</span>
-                <select
-                  value={sfmFeatureProfile}
-                  onChange={(event) =>
-                    setSfmFeatureProfile(event.target.value as SfmFeatureProfile)
-                  }
-                >
-                  {sfmFeatureOptions.map((option) => {
-                    const status = sfmFeatureStatuses.find(
-                      (candidate) => candidate.id === option.id
-                    );
-                    const unavailable =
-                      option.id !== "sift_v1" && status?.available !== true;
-                    return (
-                      <option
-                        disabled={unavailable}
-                        key={option.id}
-                        value={option.id}
-                      >
-                        {unavailable
-                          ? `${option.label}（不可用）`
-                          : option.label}
-                      </option>
-                    );
-                  })}
-                </select>
-                <small>
-                  只改变 COLMAP 局部特征 profile；图像对策略、Mapper 和 BA 保持不变。
-                </small>
-                {selectedSfmFeatureStatus?.reason && (
-                  <small>{selectedSfmFeatureStatus.reason}</small>
-                )}
-                {selectedSfmFeatureStatus?.setup_command && (
-                  <small>{selectedSfmFeatureStatus.setup_command}</small>
-                )}
-              </label>
+              <>
+                <label>
+                  <span>特征提取</span>
+                  <select
+                    value={sfmFeatureProfile}
+                    onChange={(event) =>
+                      setSfmFeatureProfile(event.target.value as SfmFeatureProfile)
+                    }
+                  >
+                    {sfmFeatureOptions.map((option) => {
+                      const status = sfmFeatureStatuses.find(
+                        (candidate) => candidate.id === option.id
+                      );
+                      const unavailable =
+                        option.id !== "sift_v1" && status?.available !== true;
+                      return (
+                        <option
+                          disabled={unavailable}
+                          key={option.id}
+                          value={option.id}
+                        >
+                          {unavailable
+                            ? `${option.label}（不可用）`
+                            : option.label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <small>
+                    每个 Job 只使用一种 COLMAP 特征；图像对策略、Mapper 和 BA 保持不变。
+                  </small>
+                  {selectedSfmFeatureStatus?.reason && (
+                    <small>{selectedSfmFeatureStatus.reason}</small>
+                  )}
+                  {selectedSfmFeatureStatus?.setup_command && (
+                    <small>{selectedSfmFeatureStatus.setup_command}</small>
+                  )}
+                </label>
+
+                <label>
+                  <span>局部匹配</span>
+                  <select
+                    value={sfmLocalMatcher}
+                    onChange={(event) =>
+                      setSfmLocalMatcher(event.target.value as SfmLocalMatcher)
+                    }
+                  >
+                    {sfmLocalMatcherOptions.map((option) => {
+                      const status = sfmLocalMatcherStatuses.find(
+                        (candidate) => candidate.id === option.id
+                      );
+                      const unavailable =
+                        status?.available === false ||
+                        (option.id !== "bruteforce" && status?.available !== true);
+                      return (
+                        <option
+                          disabled={unavailable}
+                          key={option.id}
+                          value={option.id}
+                        >
+                          {unavailable
+                            ? `${option.label}（不可用）`
+                            : option.label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <small>
+                    只改变已选图像对内的 descriptor 匹配；LightGlue 固定最小分数 0.1。
+                  </small>
+                  {sfmLocalMatcherNotice?.reason && (
+                    <small>{sfmLocalMatcherNotice.reason}</small>
+                  )}
+                  {sfmLocalMatcherNotice?.setup_command && (
+                    <small>{sfmLocalMatcherNotice.setup_command}</small>
+                  )}
+                </label>
+              </>
             )}
 
             {geometryBackend === "project_3dgs" && (
@@ -1777,6 +1855,18 @@ export function App() {
                     manifest.sfm_feature_effective_profile ??
                       manifest.sfm_feature_profile ??
                       currentStatus?.metrics.sfm_feature_profile
+                  )}
+                </dd>
+              </div>
+            )}
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
+              <div>
+                <dt>SfM 局部匹配</dt>
+                <dd>
+                  {formatSfmLocalMatcher(
+                    manifest.sfm_local_matcher_effective ??
+                      manifest.sfm_local_matcher ??
+                      currentStatus?.metrics.sfm_local_matcher_profile
                   )}
                 </dd>
               </div>
@@ -2495,6 +2585,14 @@ function formatSfmFeatureProfile(value: string | undefined) {
   return (
     sfmFeatureOptions.find((option) => option.id === profile)?.label ??
     `未知特征（${profile}）`
+  );
+}
+
+function formatSfmLocalMatcher(value: string | undefined) {
+  const matcher = (value ?? "bruteforce") as SfmLocalMatcher;
+  return (
+    sfmLocalMatcherOptions.find((option) => option.id === matcher)?.label ??
+    `未知局部匹配器（${matcher}）`
   );
 }
 

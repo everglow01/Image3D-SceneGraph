@@ -39,7 +39,10 @@ export type SfmFeature = {
 export type SfmRun = {
   run_id: string;
   feature: SfmFeature;
-  local_matcher: SfmAlgorithm & { model_sha256: string | null };
+  local_matcher: SfmAlgorithm & {
+    profile: "bruteforce" | "lightglue";
+    model_sha256: string | null;
+  };
   pairing: SfmAlgorithm;
   mapper: SfmAlgorithm;
   feature_index_path: string;
@@ -328,6 +331,7 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
         version: detector.version
       },
       local_matcher: {
+        profile: "bruteforce",
         name: "SIFT_BRUTEFORCE",
         implementation: "colmap",
         version: detector.version,
@@ -345,6 +349,7 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
   }
   const feature = object(run.feature, "feature");
   const localMatcher = object(run.local_matcher, "local matcher");
+  const parsedLocalMatcher = parseAlgorithm(localMatcher, "local matcher");
   return {
     run_id: text(run.run_id, "run ID"),
     feature: {
@@ -360,7 +365,8 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
       version: text(feature.version, "feature version")
     },
     local_matcher: {
-      ...parseAlgorithm(localMatcher, "local matcher"),
+      ...parsedLocalMatcher,
+      profile: localMatcherProfile(localMatcher.profile, parsedLocalMatcher.name),
       model_sha256: optionalSha256(
         localMatcher.model_sha256,
         "matcher model SHA-256"
@@ -371,6 +377,30 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
     feature_index_path: featureIndexPath,
     pair_index_path: pairIndexPath
   };
+}
+
+function localMatcherProfile(
+  value: unknown,
+  matcherName: string
+): "bruteforce" | "lightglue" {
+  const inferred = matcherName.endsWith("_BRUTEFORCE")
+    ? "bruteforce"
+    : matcherName.endsWith("_LIGHTGLUE")
+      ? "lightglue"
+      : null;
+  if (inferred === null) {
+    throw new Error("local matcher name is invalid");
+  }
+  if (value === undefined) {
+    return inferred;
+  }
+  if (value !== "bruteforce" && value !== "lightglue") {
+    throw new Error("local matcher profile is invalid");
+  }
+  if (value !== inferred) {
+    throw new Error("local matcher profile and name are inconsistent");
+  }
+  return value;
 }
 
 function parseAlgorithm(value: unknown, label: string) {
