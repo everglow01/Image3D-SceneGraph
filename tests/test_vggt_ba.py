@@ -329,6 +329,7 @@ def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
             local_matching_options=("--FeatureMatching.type", "ALIKED_LIGHTGLUE"),
             sfm_feature_profile="aliked_n16rot_v1",
             sfm_local_matcher="ALIKED_LIGHTGLUE",
+            initial_sfm_pairing="sequential_loop",
         )
     )
 
@@ -347,6 +348,7 @@ def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
     )
     assert call["sfm_feature_profile"] == "aliked_n16rot_v1"
     assert call["sfm_local_matcher"] == "ALIKED_LIGHTGLUE"
+    assert call["initial_sfm_pairing"] == "sequential_loop"
     assert logs == ["recovery-log"]
 
 

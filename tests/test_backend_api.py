@@ -320,12 +320,34 @@ def test_create_video_job_forwards_colmap_matcher(tmp_path):
     job_id = response.json()["job_id"]
     request = json.loads((root / job_id / "request.json").read_text())
     assert request["options"]["colmap_matcher"] == "sequential"
+    assert request["options"]["sfm_pairing"] == "sequential_loop"
     assert request["options"]["sfm_feature_profile"] == "sift_v1"
     assert request["options"]["sfm_local_matcher"] == "bruteforce"
     assert response.json()["sfm_feature_profile"] == "sift_v1"
     assert response.json()["sfm_feature_effective_profile"] is None
     assert response.json()["sfm_local_matcher"] == "bruteforce"
     assert response.json()["sfm_local_matcher_effective"] is None
+    assert response.json()["sfm_pairing"] == "sequential_loop"
+    assert response.json()["sfm_pairing_effective"] is None
+
+
+def test_create_video_job_rejects_conflicting_pairing_fields(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "video",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "sfm_pairing": "sequential_loop",
+            "colmap_matcher": "exhaustive",
+        },
+        files=[("files", ("room.mp4", b"video", "video/mp4"))],
+    )
+
+    assert response.status_code == 400
+    assert "conflicts" in response.json()["detail"]
 
 
 def test_create_job_omits_colmap_matcher_for_non_video_jobs(tmp_path):
@@ -347,6 +369,31 @@ def test_create_job_omits_colmap_matcher_for_non_video_jobs(tmp_path):
     )
 
     assert response.status_code == 202
+    assert "colmap_matcher" not in store.options
+
+
+def test_create_job_forwards_stable_sfm_pairing_to_colmap_backends(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "colmap",
+            "output_type": "point_cloud",
+            "sfm_pairing": "vocab_tree",
+        },
+        files=[
+            ("files", ("one.jpg", b"image", "image/jpeg")),
+            ("files", ("two.jpg", b"image", "image/jpeg")),
+        ],
+    )
+
+    assert response.status_code == 202
+    assert store.options["sfm_pairing"] == "vocab_tree"
     assert "colmap_matcher" not in store.options
 
 
@@ -461,6 +508,11 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
         data={"sfm_local_matcher": "unknown"},
         files=files,
     )
+    sfm_pairing_response = client.post(
+        "/api/jobs",
+        data={"sfm_pairing": "unknown"},
+        files=files,
+    )
 
     assert geometry_response.status_code == 422
     assert postprocess_response.status_code == 422
@@ -469,6 +521,7 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
     assert recovery_prune_response.status_code == 422
     assert sfm_feature_response.status_code == 422
     assert sfm_local_matcher_response.status_code == 422
+    assert sfm_pairing_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):

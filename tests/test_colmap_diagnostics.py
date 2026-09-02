@@ -40,7 +40,8 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         dataset_contract_path=job / "dataset.json",
         output_dir=output,
         feature=SIFT_FEATURE,
-        pairing="sequential",
+        pairing="sequential_loop",
+        pairing_vocab_tree_sha256="b" * 64,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -60,7 +61,8 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert metrics["sfm_diagnostics_keypoint_count"] == 5
     assert metrics["sfm_feature_profile"] == "sift_v1"
     assert metrics["sfm_local_matcher"] == "SIFT_BRUTEFORCE"
-    assert metrics["sfm_pairing"] == "sequential"
+    assert metrics["sfm_pairing"] == "sequential_loop"
+    assert metrics["sfm_pairing_vocab_tree_sha256"] == "b" * 64
 
     images = {image["colmap_image_id"]: image for image in manifest["images"]}
     assert images[1]["registered"] is True
@@ -79,7 +81,8 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert run["feature"]["keypoint_fields"] == ["x", "y"]
     assert run["local_matcher"]["profile"] == "bruteforce"
     assert run["local_matcher"]["name"] == "SIFT_BRUTEFORCE"
-    assert run["pairing"]["name"] == "sequential"
+    assert run["pairing"]["name"] == "sequential_loop"
+    assert run["pairing"]["vocab_tree_sha256"] == "b" * 64
     assert run["mapper"]["name"] == "incremental"
     feature_index = _read_gzip_json(job / run["feature_index_path"])
     feature_entry = next(item for item in feature_index["images"] if item["image_id"] == 1)
@@ -111,7 +114,8 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         dataset_contract_path=job / "dataset.json",
         output_dir=output,
         feature=SIFT_FEATURE,
-        pairing="sequential",
+        pairing="sequential_loop",
+        pairing_vocab_tree_sha256="b" * 64,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -134,7 +138,8 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
             "extractor_model_sha256": "a" * 64,
             "matcher_model_sha256": "b" * 64,
         },
-        pairing="sequential",
+        pairing="sequential_loop",
+        pairing_vocab_tree_sha256="b" * 64,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -156,7 +161,8 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
             "local_matcher": "SIFT_LIGHTGLUE",
             "matcher_model_sha256": "c" * 64,
         },
-        pairing="sequential",
+        pairing="sequential_loop",
+        pairing_vocab_tree_sha256="b" * 64,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -193,7 +199,7 @@ def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(
             dataset_contract_path=job / "dataset.json",
             output_dir=output,
             feature=SIFT_FEATURE,
-        pairing="sequential",
+            pairing="sequential",
             colmap_build="COLMAP 4.0.0",
             video_selection_path=job / "frames" / "selection.json",
         )

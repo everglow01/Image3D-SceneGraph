@@ -357,11 +357,14 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
         ),
         sfm_feature_profile="aliked_n16rot_v1",
         sfm_local_matcher="ALIKED_LIGHTGLUE",
+        initial_sfm_pairing="sequential_loop",
     )
 
     assert diagnostics["status"] == "recovered"
     assert diagnostics["sfm_feature_profile"] == "aliked_n16rot_v1"
     assert diagnostics["sfm_local_matcher"] == "ALIKED_LIGHTGLUE"
+    assert diagnostics["initial_sfm_pairing"] == "sequential_loop"
+    assert diagnostics["recovery_pairing"] == "bounded_temporal_pair_list"
     assert diagnostics["recovery_selected_count"] == 3
     assert diagnostics["attempted_round_count"] == 1
     assert diagnostics["accepted_round_count"] == 1

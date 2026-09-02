@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import struct
 import subprocess
@@ -391,6 +392,8 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     vocab_tree = tmp_path / "vocab_tree.bin"
+    vocab_tree.write_bytes(b"tree")
+    monkeypatch.setenv("IMAGE3D_COLMAP_VOCAB_TREE", str(vocab_tree))
     image_dir.mkdir()
     (image_dir / "frame.jpg").write_bytes(b"image")
     commands = []
@@ -429,11 +432,9 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
             str(image_dir),
             "--output-dir",
             str(output_dir),
-            "--matcher",
-            "sequential",
+            "--pairing",
+            "sequential_loop",
             "--gaussian-baseline",
-            "--vocab-tree-path",
-            str(vocab_tree),
         ],
     )
 
@@ -448,6 +449,8 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
     )
     log = (output_dir / "logs" / "run.log").read_text()
     assert f"vocab_tree={vocab_tree}\n" in log
+    assert "sfm_pairing=sequential_loop\n" in log
+    assert f"sfm_pairing_vocab_tree_sha256={hashlib.sha256(b'tree').hexdigest()}\n" in log
 
 
 def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
@@ -456,6 +459,8 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     vocab_tree = tmp_path / "vocab_tree.bin"
+    vocab_tree.write_bytes(b"tree")
+    monkeypatch.setenv("IMAGE3D_COLMAP_VOCAB_TREE", str(vocab_tree))
     video_source = tmp_path / "video.mp4"
     selection_path = tmp_path / "selection.json"
     image_dir.mkdir()
@@ -545,11 +550,9 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
             str(image_dir),
             "--output-dir",
             str(output_dir),
-            "--matcher",
-            "sequential",
+            "--pairing",
+            "sequential_loop",
             "--gaussian-baseline",
-            "--vocab-tree-path",
-            str(vocab_tree),
             "--video-source",
             str(video_source),
             "--video-selection",
@@ -577,6 +580,7 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert events.index("video_registration_recovery") < events.index("image_undistorter")
     assert recovery_call["database_path"] == output_dir / "colmap" / "database.db"
     assert recovery_call["selection_path"] == selection_path
+    assert recovery_call["initial_sfm_pairing"] == "sequential_loop"
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sequential_overlap=21\n" in log
     assert "num_images=21\n" in log
@@ -589,6 +593,8 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert timing["video_profile"] == "video_keyframes_standard_v2"
     assert timing["colmap_build"] == "COLMAP 4.0.0"
     assert timing["matcher"] == "sequential"
+    assert timing["pairing"] == "sequential_loop"
+    assert timing["vocab_tree_sha256"] == hashlib.sha256(b"tree").hexdigest()
     assert set(timing["stage_elapsed_seconds"]) == {
         "feature_extraction",
         "feature_matching",

@@ -9,10 +9,13 @@ from image3d_scenegraph.geometry import colmap
 from image3d_scenegraph.geometry.colmap import (
     ColmapFeatureAsset,
     ColmapFeatureError,
+    ResolvedColmapFeatureProfile,
     colmap_local_matcher_support_reason,
+    colmap_pairing_support_reason,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_local_matcher,
+    resolve_colmap_pairing,
 )
 
 
@@ -214,3 +217,118 @@ def test_local_matcher_rejects_unknown_id(tmp_path):
 def test_feature_profile_rejects_unknown_id(tmp_path):
     with pytest.raises(ColmapFeatureError, match="unsupported"):
         resolve_colmap_feature_profile("unknown", tmp_path)
+
+
+def test_pairing_resolver_uses_descriptor_specific_vocab_trees(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "external" / "colmap-vocab"
+    root.mkdir(parents=True)
+    assets = {
+        "sift_v1": ColmapFeatureAsset(
+            "sift.bin",
+            "https://example.test/sift.bin",
+            4,
+            hashlib.sha256(b"sift").hexdigest(),
+        ),
+        "aliked_n16rot_v1": ColmapFeatureAsset(
+            "aliked.bin",
+            "https://example.test/aliked.bin",
+            6,
+            hashlib.sha256(b"aliked").hexdigest(),
+        ),
+    }
+    (root / "sift.bin").write_bytes(b"sift")
+    (root / "aliked.bin").write_bytes(b"aliked")
+    monkeypatch.setattr(colmap, "COLMAP_VOCAB_TREE_ASSETS", assets)
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(tmp_path / "external"))
+
+    sift = resolve_colmap_feature_profile("sift_v1", tmp_path)
+    aliked = ResolvedColmapFeatureProfile(
+        profile_id="aliked_n16rot_v1",
+        extractor="ALIKED_N16ROT",
+        descriptor="ALIKED",
+        max_features=8_192,
+        extraction_options=(),
+        extractor_model_sha256="a" * 64,
+    )
+    sequential = resolve_colmap_pairing(sift, "sequential_loop", tmp_path)
+    retrieval = resolve_colmap_pairing(aliked, "vocab_tree", tmp_path)
+
+    assert sequential.command == "sequential_matcher"
+    assert str((root / "sift.bin").resolve()) in sequential.pairing_options
+    assert sequential.vocab_tree_sha256 == assets["sift_v1"].sha256
+    assert retrieval.command == "vocab_tree_matcher"
+    assert str((root / "aliked.bin").resolve()) in retrieval.pairing_options
+    assert retrieval.vocab_tree_sha256 == assets["aliked_n16rot_v1"].sha256
+
+
+def test_pairing_resolver_rejects_missing_or_tampered_tree(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "external" / "colmap-vocab"
+    root.mkdir(parents=True)
+    asset = ColmapFeatureAsset(
+        "sift.bin",
+        "https://example.test/sift.bin",
+        4,
+        hashlib.sha256(b"sift").hexdigest(),
+    )
+    monkeypatch.setattr(
+        colmap,
+        "COLMAP_VOCAB_TREE_ASSETS",
+        {"sift_v1": asset, "aliked_n16rot_v1": asset},
+    )
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(tmp_path / "external"))
+    feature = resolve_colmap_feature_profile("sift_v1", tmp_path)
+
+    with pytest.raises(ColmapFeatureError, match="tree missing"):
+        resolve_colmap_pairing(feature, "vocab_tree", tmp_path)
+
+    (root / "sift.bin").write_bytes(b"bad")
+    with pytest.raises(ColmapFeatureError, match="size mismatch"):
+        resolve_colmap_pairing(feature, "vocab_tree", tmp_path)
+
+
+def test_pairing_capability_probe_is_profile_specific(tmp_path, monkeypatch):
+    executable = _make_executable(tmp_path / "colmap")
+
+    def help_output(_executable, command):
+        return {
+            "exhaustive_matcher": "FeatureMatching.type",
+            "sequential_matcher": (
+                "FeatureMatching.type SequentialMatching.vocab_tree_path "
+                "SiftMatching.lightglue_model_path"
+            ),
+            "vocab_tree_matcher": (
+                "FeatureMatching.type VocabTreeMatching.vocab_tree_path "
+                "AlikedMatching.lightglue_model_path"
+            ),
+        }[command]
+
+    monkeypatch.setattr(colmap, "_capture_help", help_output)
+
+    assert (
+        colmap_pairing_support_reason(
+            executable, "sift_v1", "lightglue", "sequential_loop"
+        )
+        is None
+    )
+    assert "AlikedMatching.lightglue_model_path" in (
+        colmap_pairing_support_reason(
+            executable,
+            "aliked_n16rot_v1",
+            "lightglue",
+            "sequential_loop",
+        )
+        or ""
+    )
+    assert (
+        colmap_pairing_support_reason(
+            executable,
+            "aliked_n16rot_v1",
+            "lightglue",
+            "vocab_tree",
+        )
+        is None
+    )

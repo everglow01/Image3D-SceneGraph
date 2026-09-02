@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from image3d_scenegraph.geometry.colmap import (  # noqa: E402
     ResolvedColmapLocalMatcher,
+    ResolvedColmapPairing,
     resolve_colmap_feature_profile,
     resolve_colmap_local_matcher,
 )
@@ -77,7 +78,11 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         database_path=tmp_path / "database.db",
         sparse_dir=tmp_path / "sparse",
         text_dir=tmp_path / "sparse_txt",
-        matcher="exhaustive",
+        pairing=ResolvedColmapPairing(
+            profile_id="exhaustive",
+            command="exhaustive_matcher",
+            pairing_options=(),
+        ),
         feature_profile=feature_profile,
         local_matcher=resolve_colmap_local_matcher(
             feature_profile, "bruteforce", tmp_path
@@ -127,7 +132,11 @@ def test_colmap_pipeline_applies_lightglue_matcher(tmp_path, monkeypatch):
         database_path=tmp_path / "database.db",
         sparse_dir=tmp_path / "sparse",
         text_dir=tmp_path / "sparse_txt",
-        matcher="exhaustive",
+        pairing=ResolvedColmapPairing(
+            profile_id="exhaustive",
+            command="exhaustive_matcher",
+            pairing_options=(),
+        ),
         feature_profile=feature_profile,
         local_matcher=local_matcher,
         single_camera=True,

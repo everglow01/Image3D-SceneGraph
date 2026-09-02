@@ -146,7 +146,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
         output_dir=tmp_path / "diagnostics" / "sfm",
         feature_profile="sift_v1",
         local_matcher="bruteforce",
-        matcher="exhaustive",
+        pairing="exhaustive",
         geometry_source="colmap",
         video_selection_path=None,
     )
@@ -175,7 +175,7 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
         output_dir=tmp_path / "diagnostics" / "sfm",
         feature_profile="sift_v1",
         local_matcher="bruteforce",
-        matcher="exhaustive",
+        pairing="exhaustive",
         geometry_source="colmap",
         video_selection_path=None,
     )
@@ -212,7 +212,7 @@ def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monke
             output_dir=tmp_path / "diagnostics" / "sfm",
             feature_profile="sift_v1",
             local_matcher="bruteforce",
-            matcher="exhaustive",
+            pairing="exhaustive",
             geometry_source="colmap",
             video_selection_path=None,
         )
@@ -875,10 +875,13 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["options"]["gaussian_longest_edge"] == 3072
     assert request["options"]["sfm_feature_profile"] == "sift_v1"
     assert request["options"]["sfm_local_matcher"] == "bruteforce"
+    assert request["options"]["sfm_pairing"] == "exhaustive"
     assert manifest["sfm_feature_profile"] == "sift_v1"
     assert manifest["sfm_feature_effective_profile"] is None
     assert manifest["sfm_local_matcher"] == "bruteforce"
     assert manifest["sfm_local_matcher_effective"] is None
+    assert manifest["sfm_pairing"] == "exhaustive"
+    assert manifest["sfm_pairing_effective"] is None
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
     assert manifest["gaussian_config"]["schema_version"] == 10
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
@@ -1261,12 +1264,51 @@ def test_sequential_colmap_matcher_rejects_non_video_input(tmp_path):
         )
 
 
+def test_stable_sfm_pairing_validates_mode_and_legacy_conflicts(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    images = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    with pytest.raises(JobError, match="requires video mode"):
+        store.enqueue_job(
+            "multi_image",
+            images,
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"sfm_pairing": "sequential_loop"},
+        )
+    with pytest.raises(JobError, match="requires multi_image mode"):
+        store.enqueue_job(
+            "video",
+            [UploadedInput(filename="room.mp4", content=b"video")],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"sfm_pairing": "vocab_tree"},
+        )
+    with pytest.raises(JobError, match="conflicts"):
+        store.enqueue_job(
+            "video",
+            [UploadedInput(filename="room.mp4", content=b"video")],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={
+                "sfm_pairing": "sequential_loop",
+                "colmap_matcher": "exhaustive",
+            },
+        )
+
+
 def test_project_gaussian_job_rejects_unknown_trainer(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
     with pytest.raises(JobError, match="unsupported Gaussian trainer"):
         store.enqueue_job(
             "multi_image",
-            [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+            [
+                UploadedInput(filename=f"{index}.jpg", content=b"image")
+                for index in range(12)
+            ],
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_trainer": "unknown"},
@@ -1518,7 +1560,7 @@ def test_create_colmap_point_cloud_job_uses_adapter_contract(tmp_path, monkeypat
     assert manifest["assets"]["cameras"] == "geometry/cameras.json"
     assert manifest["metrics"]["registered_images"] == 2
     assert manifest["metrics"]["num_points"] == 9
-    assert captured_command[captured_command.index("--matcher") + 1] == "sequential"
+    assert captured_command[captured_command.index("--pairing") + 1] == "exhaustive"
 
 
 def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monkeypatch):
@@ -1620,7 +1662,7 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["point_budget_applied"] is True
     assert manifest["metrics"]["factorial_output_count"] == 0
     assert manifest["metrics"]["conf_percentile"] == 45.0
-    assert captured_command[captured_command.index("--matcher") + 1] == "exhaustive"
+    assert captured_command[captured_command.index("--pairing") + 1] == "exhaustive"
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"
     assert captured_command[captured_command.index("--vggt-overlap-size") + 1] == "1"
     assert captured_command[captured_command.index("--vggt-grouping") + 1] == "covisibility"

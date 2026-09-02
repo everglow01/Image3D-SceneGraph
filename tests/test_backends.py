@@ -74,12 +74,27 @@ def test_backend_specs_report_aliked_without_disabling_sift(
     )
     monkeypatch.setattr(
         backends,
+        "colmap_pairing_support_reasons",
+        lambda _path: {
+            (feature, matcher, pairing): None
+            for feature in ("sift_v1", "aliked_n16rot_v1")
+            for matcher in ("bruteforce", "lightglue")
+            for pairing in ("exhaustive", "sequential_loop", "vocab_tree")
+        },
+    )
+    monkeypatch.setattr(
+        backends,
         "resolve_colmap_feature_profile",
         lambda _profile, _root: object(),
     )
     monkeypatch.setattr(
         backends,
         "resolve_colmap_local_matcher",
+        lambda _feature, _profile, _root: object(),
+    )
+    monkeypatch.setattr(
+        backends,
+        "resolve_colmap_pairing",
         lambda _feature, _profile, _root: object(),
     )
 
@@ -95,6 +110,12 @@ def test_backend_specs_report_aliked_without_disabling_sift(
         matcher["available"]
         for profile in profiles.values()
         for matcher in profile["local_matchers"]
+    )
+    assert all(
+        pairing["available"]
+        for profile in profiles.values()
+        for matcher in profile["local_matchers"]
+        for pairing in matcher["pairings"]
     )
     assert specs["colmap"].available is True
 
