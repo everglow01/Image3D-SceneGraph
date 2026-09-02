@@ -61,6 +61,7 @@ uv run uvicorn backend.main:app --reload
 Run the backend checks:
 
 ```bash
+uv run ruff check backend src scripts tests
 uv run pytest
 uv run python scripts/smoke_backend.py
 ```
@@ -180,7 +181,7 @@ uv run python scripts/setup_colmap_cuda.py --install
 
 The pinned production build is installed under ignored `external/colmap-4-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`. The RTX 4060 development build uses CUDA 12.2, SM 89, ONNX Runtime, and cuDNN 9.
 
-The experimental `aliked_n16rot_v1` feature and `lightglue` local matcher use pinned COLMAP ONNX assets. Setup is dry-run by default; `--install` verifies existing ALIKED/brute-force files and installs any missing SIFT/ALIKED LightGlue model. Jobs verify local size/SHA-256 and never download models or silently change algorithms:
+The experimental `aliked_n16rot_v1` feature and `lightglue` local matcher use pinned COLMAP ONNX assets. Setup is dry-run by default; `--install` preserves valid assets and repairs damaged project-managed files only after a replacement `.part` passes size/SHA-256 verification. Jobs verify local size/SHA-256 and never download models or silently change algorithms:
 
 ```bash
 uv run python scripts/setup_colmap_learned_features.py
@@ -214,7 +215,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F files=@view-02.jpg
 ```
 
-Phase 3 exposes `sfm_pairing=exhaustive|sequential_loop|vocab_tree` independently from the local matcher. `exhaustive` remains the new-product default; `sequential_loop` is video-only and uses temporal neighbors plus loop detection, while `vocab_tree` is multi-image-only. Both retrieval profiles require a descriptor-compatible tree under ignored `external/colmap-vocab/`: the existing 256K-word SIFT tree and the official 64K-word ALIKED N16Rot tree are installed and verified separately. The setup script is dry-run by default, and Jobs never download or substitute trees:
+Phase 3 exposes `sfm_pairing=exhaustive|sequential_loop|vocab_tree` independently from the local matcher. `exhaustive` remains the new-product default; `sequential_loop` is video-only and uses temporal neighbors plus loop detection, while `vocab_tree` is multi-image-only. Both retrieval profiles require a descriptor-compatible tree under ignored `external/colmap-vocab/`: the 256K-word SIFT tree and official 64K-word ALIKED N16Rot tree are installed and verified separately. The setup script is dry-run by default; explicit `--install` atomically repairs a damaged managed tree after validating its replacement. Jobs never download or substitute trees:
 
 ```bash
 uv run python scripts/setup_colmap_vocab_tree.py
@@ -451,6 +452,8 @@ Install and start the web UI:
 ```bash
 cd frontend
 npm install
+npm run test
+npm run build
 npm run dev
 ```
 

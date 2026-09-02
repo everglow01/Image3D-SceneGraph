@@ -24,6 +24,7 @@ gpu = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
+    "ruff>=0.15.15,<0.16",
 ]
 
 [tool.pytest.ini_options]
@@ -46,3 +47,14 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/image3d_scenegraph", "backend"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_gaussian_evaluation.py" = ["E402"]
+"tests/test_gaussian_export.py" = ["E402"]
+"tests/test_gaussian_model.py" = ["E402"]
+"tests/test_gaussian_render.py" = ["E402"]
+"tests/test_gaussian_trainer.py" = ["E402"]
+"tests/test_vggt_ba.py" = ["E402"]
