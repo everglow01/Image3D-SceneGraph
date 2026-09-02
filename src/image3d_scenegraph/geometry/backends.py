@@ -12,8 +12,10 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
     ColmapFeatureError,
     colmap_learned_feature_support_reason,
+    colmap_local_matcher_support_reasons,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_local_matcher,
     resolve_colmap_vocab_tree,
 )
 
@@ -105,37 +107,91 @@ def get_backend_status_payload(project_root: Path | str | None = None) -> dict[s
 def _colmap_feature_profiles(
     project_root: Path, colmap: Path | None
 ) -> list[dict[str, Any]]:
-    sift_reason = None if colmap is not None else "colmap executable not found"
-    learned_reason = sift_reason
+    missing_colmap_reason = None if colmap is not None else "colmap executable not found"
+    learned_support_reason = missing_colmap_reason
+    local_matcher_support_reasons: dict[tuple[str, str], str | None] = {}
     if colmap is not None:
-        learned_reason = colmap_learned_feature_support_reason(colmap)
-        if learned_reason is None:
+        learned_support_reason = colmap_learned_feature_support_reason(colmap)
+        local_matcher_support_reasons = colmap_local_matcher_support_reasons(
+            colmap
+        )
+
+    result: list[dict[str, Any]] = []
+    for profile_id, label, experimental in (
+        ("sift_v1", "SIFT v1", False),
+        ("aliked_n16rot_v1", "ALIKED N16Rot v1", True),
+    ):
+        feature_reason = missing_colmap_reason
+        if feature_reason is None and profile_id != "sift_v1":
+            feature_reason = learned_support_reason
+        feature = None
+        if feature_reason is None:
             try:
-                resolve_colmap_feature_profile("aliked_n16rot_v1", project_root)
+                feature = resolve_colmap_feature_profile(profile_id, project_root)
             except ColmapFeatureError as exc:
-                learned_reason = str(exc)
-    return [
-        {
-            "id": "sift_v1",
-            "label": "SIFT v1",
-            "available": sift_reason is None,
-            "reason": sift_reason,
-            "experimental": False,
-            "setup_command": (
-                None
-                if sift_reason is None
-                else "uv run python scripts/setup_colmap_cuda.py --install"
-            ),
-        },
-        {
-            "id": "aliked_n16rot_v1",
-            "label": "ALIKED N16Rot v1",
-            "available": learned_reason is None,
-            "reason": learned_reason,
-            "experimental": True,
-            "setup_command": COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
-        },
-    ]
+                feature_reason = str(exc)
+        local_matchers = []
+        for matcher_id, matcher_label, matcher_experimental in (
+            ("bruteforce", "Brute-force", False),
+            ("lightglue", "LightGlue", True),
+        ):
+            matcher_reason = feature_reason
+            matcher_support_reason = missing_colmap_reason
+            if matcher_support_reason is None:
+                matcher_support_reason = local_matcher_support_reasons[
+                    (profile_id, matcher_id)
+                ]
+            if matcher_reason is None:
+                matcher_reason = matcher_support_reason
+            if matcher_reason is None and feature is not None:
+                try:
+                    resolve_colmap_local_matcher(
+                        feature, matcher_id, project_root
+                    )
+                except ColmapFeatureError as exc:
+                    matcher_reason = str(exc)
+            matcher_setup_command = None
+            if matcher_reason is not None:
+                missing_cli_support = (
+                    colmap is None
+                    or (profile_id != "sift_v1" and learned_support_reason is not None)
+                    or matcher_support_reason is not None
+                )
+                matcher_setup_command = (
+                    "uv run python scripts/setup_colmap_cuda.py --install"
+                    if missing_cli_support
+                    else COLMAP_LEARNED_FEATURE_SETUP_COMMAND
+                )
+            local_matchers.append(
+                {
+                    "id": matcher_id,
+                    "label": matcher_label,
+                    "available": matcher_reason is None,
+                    "reason": matcher_reason,
+                    "experimental": matcher_experimental,
+                    "setup_command": matcher_setup_command,
+                }
+            )
+        feature_setup_command = None
+        if feature_reason is not None:
+            feature_setup_command = (
+                "uv run python scripts/setup_colmap_cuda.py --install"
+                if colmap is None
+                or (profile_id != "sift_v1" and learned_support_reason is not None)
+                else COLMAP_LEARNED_FEATURE_SETUP_COMMAND
+            )
+        result.append(
+            {
+                "id": profile_id,
+                "label": label,
+                "available": feature_reason is None,
+                "reason": feature_reason,
+                "experimental": experimental,
+                "setup_command": feature_setup_command,
+                "local_matchers": local_matchers,
+            }
+        )
+    return result
 
 
 def _project_gaussian_spec(

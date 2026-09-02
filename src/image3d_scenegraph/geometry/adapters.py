@@ -356,6 +356,15 @@ class ProjectGaussianAdapter:
         )
         geometry_metrics["sfm_feature_profile"] = sfm_feature_profile
         feature_args = ["--feature-profile", sfm_feature_profile]
+        sfm_local_matcher = _choice_option(
+            context,
+            "sfm_local_matcher",
+            "IMAGE3D_SFM_LOCAL_MATCHER",
+            "bruteforce",
+            {"bruteforce", "lightglue"},
+        )
+        geometry_metrics["sfm_local_matcher_profile"] = sfm_local_matcher
+        local_matcher_args = ["--local-matcher", sfm_local_matcher]
         colmap_matcher = _choice_option(
             context,
             "colmap_matcher",
@@ -396,6 +405,7 @@ class ProjectGaussianAdapter:
                 "--output-dir",
                 str(context.job_dir),
                 *feature_args,
+                *local_matcher_args,
                 *video_geometry_args,
                 *matcher_args,
                 "--gaussian-baseline",
@@ -424,6 +434,7 @@ class ProjectGaussianAdapter:
                 "--output-dir",
                 str(context.job_dir),
                 *feature_args,
+                *local_matcher_args,
                 *video_geometry_args,
                 *matcher_args,
                 "--repo-dir",
@@ -697,6 +708,7 @@ class ProjectGaussianAdapter:
             dataset_path=dataset_path,
             output_dir=context.job_dir / "diagnostics" / "sfm",
             feature_profile=sfm_feature_profile,
+            local_matcher=sfm_local_matcher,
             matcher=colmap_matcher,
             geometry_source=geometry_source,
             video_selection_path=video_selection_path,
@@ -1097,6 +1109,7 @@ def _try_export_sfm_diagnostics(
     dataset_path: Path,
     output_dir: Path,
     feature_profile: str,
+    local_matcher: str,
     matcher: str,
     geometry_source: str,
     video_selection_path: Path | None,
@@ -1122,12 +1135,16 @@ def _try_export_sfm_diagnostics(
                 "colmap_feature" if geometry_source == "vggt_ba" else "feature"
             )
             if not isinstance(feature, dict):
-                if feature_profile != "sift_v1":
-                    raise ValueError("learned COLMAP feature provenance is missing")
+                if (
+                    feature_profile != "sift_v1"
+                    or local_matcher != "bruteforce"
+                ):
+                    raise ValueError("COLMAP frontend provenance is missing")
                 feature = {
                     "profile": "sift_v1",
                     "extractor": "SIFT",
                     "descriptor": "SIFT",
+                    "local_matcher_profile": "bruteforce",
                     "local_matcher": "SIFT_BRUTEFORCE",
                     "max_features": 8_192,
                     "extractor_model_sha256": None,
@@ -1135,12 +1152,13 @@ def _try_export_sfm_diagnostics(
                 }
         except (OSError, json.JSONDecodeError, ValueError):
             colmap_build = "unknown"
-            if feature_profile != "sift_v1":
+            if feature_profile != "sift_v1" or local_matcher != "bruteforce":
                 raise
             feature = {
                 "profile": "sift_v1",
                 "extractor": "SIFT",
                 "descriptor": "SIFT",
+                "local_matcher_profile": "bruteforce",
                 "local_matcher": "SIFT_BRUTEFORCE",
                 "max_features": 8_192,
                 "extractor_model_sha256": None,
@@ -1936,6 +1954,13 @@ class ColmapPointCloudAdapter:
             "sift_v1",
             {"sift_v1", "aliked_n16rot_v1"},
         )
+        local_matcher = _choice_option(
+            context,
+            "sfm_local_matcher",
+            "IMAGE3D_SFM_LOCAL_MATCHER",
+            "bruteforce",
+            {"bruteforce", "lightglue"},
+        )
         command = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(script_path),
@@ -1945,6 +1970,8 @@ class ColmapPointCloudAdapter:
             str(context.job_dir),
             "--feature-profile",
             feature_profile,
+            "--local-matcher",
+            local_matcher,
             "--matcher",
             os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
         ]
@@ -2019,6 +2046,13 @@ class ColmapVggtPointCloudAdapter:
             "sift_v1",
             {"sift_v1", "aliked_n16rot_v1"},
         )
+        local_matcher = _choice_option(
+            context,
+            "sfm_local_matcher",
+            "IMAGE3D_SFM_LOCAL_MATCHER",
+            "bruteforce",
+            {"bruteforce", "lightglue"},
+        )
         fusion_mode = os.environ.get("IMAGE3D_COLMAP_VGGT_FUSION_MODE", "points")
         if fusion_mode not in {"points", "tsdf"}:
             raise ReconstructionError("IMAGE3D_COLMAP_VGGT_FUSION_MODE must be 'points' or 'tsdf'")
@@ -2053,6 +2087,8 @@ class ColmapVggtPointCloudAdapter:
             os.environ.get("IMAGE3D_VGGT_DEVICE", "cuda"),
             "--feature-profile",
             feature_profile,
+            "--local-matcher",
+            local_matcher,
             "--matcher",
             os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
             "--vggt-batch-size",

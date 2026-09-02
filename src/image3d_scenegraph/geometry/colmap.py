@@ -9,6 +9,22 @@ from pathlib import Path
 
 
 COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
+COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
+_LOCAL_MATCHER_REQUIREMENTS = {
+    ("sift_v1", "bruteforce"): (),
+    ("sift_v1", "lightglue"): (
+        ("exhaustive_matcher", "SiftMatching.lightglue_model_path"),
+        ("matches_importer", "SiftMatching.lightglue_model_path"),
+    ),
+    ("aliked_n16rot_v1", "bruteforce"): (
+        ("exhaustive_matcher", "AlikedMatching.bruteforce_model_path"),
+        ("matches_importer", "AlikedMatching.bruteforce_model_path"),
+    ),
+    ("aliked_n16rot_v1", "lightglue"): (
+        ("exhaustive_matcher", "AlikedMatching.lightglue_model_path"),
+        ("matches_importer", "AlikedMatching.lightglue_model_path"),
+    ),
+}
 COLMAP_LEARNED_FEATURE_SETUP_COMMAND = (
     "uv run python scripts/setup_colmap_learned_features.py --install"
 )
@@ -31,23 +47,38 @@ class ResolvedColmapFeatureProfile:
     profile_id: str
     extractor: str
     descriptor: str
-    local_matcher: str
     max_features: int
     extraction_options: tuple[str, ...]
-    matching_options: tuple[str, ...]
     extractor_model_sha256: str | None = None
-    matcher_model_sha256: str | None = None
 
     def provenance(self) -> dict[str, str | int | None]:
         return {
             "profile": self.profile_id,
             "extractor": self.extractor,
             "descriptor": self.descriptor,
-            "local_matcher": self.local_matcher,
             "max_features": self.max_features,
             "extractor_model_sha256": self.extractor_model_sha256,
-            "matcher_model_sha256": self.matcher_model_sha256,
         }
+
+
+@dataclass(frozen=True)
+class ResolvedColmapLocalMatcher:
+    profile_id: str
+    name: str
+    matching_options: tuple[str, ...]
+    model_sha256: str | None = None
+
+
+def colmap_frontend_provenance(
+    feature: ResolvedColmapFeatureProfile,
+    local_matcher: ResolvedColmapLocalMatcher,
+) -> dict[str, str | int | None]:
+    return {
+        **feature.provenance(),
+        "local_matcher_profile": local_matcher.profile_id,
+        "local_matcher": local_matcher.name,
+        "matcher_model_sha256": local_matcher.model_sha256,
+    }
 
 
 COLMAP_FEATURE_ASSETS = {
@@ -68,6 +99,24 @@ COLMAP_FEATURE_ASSETS = {
         ),
         size_bytes=5_014,
         sha256="3c1282f96d83f5ffc861a873298d08bbe5219f59af59223f5ceab5c41a182a47",
+    ),
+    "sift_lightglue": ColmapFeatureAsset(
+        filename="sift-lightglue.onnx",
+        url=(
+            "https://github.com/colmap/colmap/releases/download/3.13.0/"
+            "sift-lightglue.onnx"
+        ),
+        size_bytes=45_806_253,
+        sha256="e0500228472b43f92b3d36881a09b3310d3b058b56187b246cc7b9ab6429096e",
+    ),
+    "aliked_lightglue": ColmapFeatureAsset(
+        filename="aliked-lightglue.onnx",
+        url=(
+            "https://github.com/colmap/colmap/releases/download/3.13.0/"
+            "aliked-lightglue.onnx"
+        ),
+        size_bytes=45_804_950,
+        sha256="b9a5de7204648b18a8cf5dcac819f9d30de1a5961ef03756803c8b86c2dceb8d",
     ),
 }
 
@@ -115,6 +164,12 @@ def validate_colmap_feature_profile(profile_id: str) -> str:
     return profile_id
 
 
+def validate_colmap_local_matcher(profile_id: str) -> str:
+    if profile_id not in COLMAP_LOCAL_MATCHER_IDS:
+        raise ColmapFeatureError(f"unsupported COLMAP local matcher: {profile_id}")
+    return profile_id
+
+
 def resolve_colmap_feature_profile(
     profile_id: str,
     project_root: Path | str | None = None,
@@ -125,7 +180,6 @@ def resolve_colmap_feature_profile(
             profile_id=profile_id,
             extractor="SIFT",
             descriptor="SIFT",
-            local_matcher="SIFT_BRUTEFORCE",
             max_features=8_192,
             extraction_options=(
                 "--FeatureExtraction.type",
@@ -133,21 +187,14 @@ def resolve_colmap_feature_profile(
                 "--SiftExtraction.max_num_features",
                 "8192",
             ),
-            matching_options=(
-                "--FeatureMatching.type",
-                "SIFT_BRUTEFORCE",
-            ),
         )
 
     extractor_asset = COLMAP_FEATURE_ASSETS["aliked_n16rot"]
-    matcher_asset = COLMAP_FEATURE_ASSETS["aliked_bruteforce"]
     extractor_path = resolve_colmap_feature_asset(extractor_asset, project_root)
-    matcher_path = resolve_colmap_feature_asset(matcher_asset, project_root)
     return ResolvedColmapFeatureProfile(
         profile_id=profile_id,
         extractor="ALIKED_N16ROT",
         descriptor="ALIKED",
-        local_matcher="ALIKED_BRUTEFORCE",
         max_features=8_192,
         extraction_options=(
             "--FeatureExtraction.type",
@@ -159,14 +206,64 @@ def resolve_colmap_feature_profile(
             "--AlikedExtraction.n16rot_model_path",
             str(extractor_path),
         ),
-        matching_options=(
-            "--FeatureMatching.type",
-            "ALIKED_BRUTEFORCE",
-            "--AlikedMatching.bruteforce_model_path",
-            str(matcher_path),
-        ),
         extractor_model_sha256=extractor_asset.sha256,
-        matcher_model_sha256=matcher_asset.sha256,
+    )
+
+
+def resolve_colmap_local_matcher(
+    feature: ResolvedColmapFeatureProfile,
+    profile_id: str,
+    project_root: Path | str | None = None,
+) -> ResolvedColmapLocalMatcher:
+    profile_id = validate_colmap_local_matcher(profile_id)
+    if feature.descriptor == "SIFT":
+        if profile_id == "bruteforce":
+            return ResolvedColmapLocalMatcher(
+                profile_id=profile_id,
+                name="SIFT_BRUTEFORCE",
+                matching_options=("--FeatureMatching.type", "SIFT_BRUTEFORCE"),
+            )
+        asset = COLMAP_FEATURE_ASSETS["sift_lightglue"]
+        model_path = resolve_colmap_feature_asset(asset, project_root)
+        return ResolvedColmapLocalMatcher(
+            profile_id=profile_id,
+            name="SIFT_LIGHTGLUE",
+            matching_options=(
+                "--FeatureMatching.type",
+                "SIFT_LIGHTGLUE",
+                "--SiftMatching.lightglue_min_score",
+                "0.1",
+                "--SiftMatching.lightglue_model_path",
+                str(model_path),
+            ),
+            model_sha256=asset.sha256,
+        )
+    if feature.descriptor == "ALIKED":
+        asset_key = (
+            "aliked_bruteforce" if profile_id == "bruteforce" else "aliked_lightglue"
+        )
+        asset = COLMAP_FEATURE_ASSETS[asset_key]
+        model_path = resolve_colmap_feature_asset(asset, project_root)
+        matcher_name = (
+            "ALIKED_BRUTEFORCE" if profile_id == "bruteforce" else "ALIKED_LIGHTGLUE"
+        )
+        option_prefix = (
+            "bruteforce" if profile_id == "bruteforce" else "lightglue"
+        )
+        matching_options = ["--FeatureMatching.type", matcher_name]
+        if profile_id == "lightglue":
+            matching_options.extend(("--AlikedMatching.lightglue_min_score", "0.1"))
+        matching_options.extend(
+            (f"--AlikedMatching.{option_prefix}_model_path", str(model_path))
+        )
+        return ResolvedColmapLocalMatcher(
+            profile_id=profile_id,
+            name=matcher_name,
+            matching_options=tuple(matching_options),
+            model_sha256=asset.sha256,
+        )
+    raise ColmapFeatureError(
+        f"unsupported COLMAP descriptor for local matching: {feature.descriptor}"
     )
 
 
@@ -211,16 +308,72 @@ def colmap_feature_asset_root(
 
 
 def colmap_learned_feature_support_reason(executable: Path) -> str | None:
+    return _colmap_support_reason(
+        executable,
+        (("feature_extractor", "AlikedExtraction.max_num_features"),),
+    )
+
+
+def colmap_local_matcher_support_reason(
+    executable: Path,
+    feature_profile_id: str,
+    local_matcher_id: str,
+) -> str | None:
+    feature_profile_id = validate_colmap_feature_profile(feature_profile_id)
+    local_matcher_id = validate_colmap_local_matcher(local_matcher_id)
+    return colmap_local_matcher_support_reasons(executable)[
+        (feature_profile_id, local_matcher_id)
+    ]
+
+
+def colmap_local_matcher_support_reasons(
+    executable: Path,
+) -> dict[tuple[str, str], str | None]:
+    commands = {
+        command
+        for requirements in _LOCAL_MATCHER_REQUIREMENTS.values()
+        for command, _marker in requirements
+    }
     try:
-        extraction_help = _capture_help(executable, "feature_extractor")
-        matching_help = _capture_help(executable, "exhaustive_matcher")
+        outputs = {
+            command: _capture_help(executable, command)
+            for command in sorted(commands)
+        }
+    except (OSError, subprocess.CalledProcessError) as exc:
+        reason = f"cannot inspect COLMAP learned feature support: {exc}"
+        return {
+            key: None if not requirements else reason
+            for key, requirements in _LOCAL_MATCHER_REQUIREMENTS.items()
+        }
+    return {
+        key: _support_reason_from_outputs(requirements, outputs)
+        for key, requirements in _LOCAL_MATCHER_REQUIREMENTS.items()
+    }
+
+
+def _colmap_support_reason(
+    executable: Path,
+    requirements: tuple[tuple[str, str], ...],
+) -> str | None:
+    outputs: dict[str, str] = {}
+    try:
+        for command, _marker in requirements:
+            if command not in outputs:
+                outputs[command] = _capture_help(executable, command)
     except (OSError, subprocess.CalledProcessError) as exc:
         return f"cannot inspect COLMAP learned feature support: {exc}"
-    markers = (
-        (extraction_help, "AlikedExtraction.max_num_features"),
-        (matching_help, "AlikedMatching.bruteforce_model_path"),
-    )
-    missing = [marker for output, marker in markers if marker not in output]
+    return _support_reason_from_outputs(requirements, outputs)
+
+
+def _support_reason_from_outputs(
+    requirements: tuple[tuple[str, str], ...],
+    outputs: dict[str, str],
+) -> str | None:
+    missing = [
+        f"{command}:{marker}"
+        for command, marker in requirements
+        if marker not in outputs[command]
+    ]
     if missing:
         return "COLMAP build is missing learned feature options: " + ", ".join(
             missing

@@ -122,13 +122,20 @@ def export_colmap_diagnostics(
         run = {
             "run_id": run_id,
             "feature": {
-                **feature_record,
+                "profile": feature_record["profile"],
+                "extractor": feature_record["extractor"],
+                "descriptor": feature_record["descriptor"],
+                "max_features": feature_record["max_features"],
+                "extractor_model_sha256": feature_record[
+                    "extractor_model_sha256"
+                ],
                 "implementation": "colmap",
                 "version": colmap_build,
                 "keypoint_fields": ["x", "y"],
                 "coordinate_precision_pixels": 10**-KEYPOINT_DECIMALS,
             },
             "local_matcher": {
+                "profile": feature_record["local_matcher_profile"],
                 "name": feature_record["local_matcher"],
                 "implementation": "colmap",
                 "version": colmap_build,
@@ -184,6 +191,7 @@ def export_colmap_diagnostics(
         "sfm_diagnostics_bytes": total_bytes,
         "sfm_feature_profile": str(feature_record["profile"]),
         "sfm_feature_extractor": str(feature_record["extractor"]),
+        "sfm_local_matcher_profile": str(feature_record["local_matcher_profile"]),
         "sfm_local_matcher": str(feature_record["local_matcher"]),
         "sfm_pairing": pairing,
         "sfm_mapper": mapper,
@@ -193,26 +201,39 @@ def export_colmap_diagnostics(
 def _validate_feature_record(value: dict[str, Any]) -> dict[str, str | int | None]:
     if not isinstance(value, dict):
         raise ColmapDiagnosticsError("COLMAP feature provenance is invalid")
-    expected = {
-        "sift_v1": ("SIFT", "SIFT", "SIFT_BRUTEFORCE", None, None),
-        "aliked_n16rot_v1": (
-            "ALIKED_N16ROT",
-            "ALIKED",
-            "ALIKED_BRUTEFORCE",
-            True,
-            True,
-        ),
+    expected_features = {
+        "sift_v1": ("SIFT", "SIFT", False),
+        "aliked_n16rot_v1": ("ALIKED_N16ROT", "ALIKED", True),
+    }
+    expected_matchers = {
+        ("sift_v1", "bruteforce"): ("SIFT_BRUTEFORCE", False),
+        ("sift_v1", "lightglue"): ("SIFT_LIGHTGLUE", True),
+        ("aliked_n16rot_v1", "bruteforce"): ("ALIKED_BRUTEFORCE", True),
+        ("aliked_n16rot_v1", "lightglue"): ("ALIKED_LIGHTGLUE", True),
     }
     profile = value.get("profile")
-    if profile not in expected:
+    if profile not in expected_features:
         raise ColmapDiagnosticsError("COLMAP feature profile is unsupported")
-    extractor, descriptor, local_matcher, needs_extractor_model, needs_matcher_model = (
-        expected[str(profile)]
-    )
+    extractor, descriptor, needs_extractor_model = expected_features[str(profile)]
+    local_matcher = value.get("local_matcher")
+    local_matcher_profile = value.get("local_matcher_profile")
+    if local_matcher_profile is None:
+        local_matcher_profile = {
+            "SIFT_BRUTEFORCE": "bruteforce",
+            "SIFT_LIGHTGLUE": "lightglue",
+            "ALIKED_BRUTEFORCE": "bruteforce",
+            "ALIKED_LIGHTGLUE": "lightglue",
+        }.get(local_matcher)
+    if not isinstance(local_matcher_profile, str):
+        raise ColmapDiagnosticsError("COLMAP local matcher profile is unsupported")
+    matcher_key = (str(profile), local_matcher_profile)
+    if matcher_key not in expected_matchers:
+        raise ColmapDiagnosticsError("COLMAP local matcher profile is unsupported")
+    expected_local_matcher, needs_matcher_model = expected_matchers[matcher_key]
     if (
         value.get("extractor") != extractor
         or value.get("descriptor") != descriptor
-        or value.get("local_matcher") != local_matcher
+        or local_matcher != expected_local_matcher
         or value.get("max_features") != 8_192
     ):
         raise ColmapDiagnosticsError("COLMAP feature provenance is inconsistent")
@@ -225,12 +246,13 @@ def _validate_feature_record(value: dict[str, Any]) -> dict[str, str | int | Non
     if needs_matcher_model:
         matcher_sha = _sha256_value(matcher_sha, "matcher model")
     elif matcher_sha is not None:
-        raise ColmapDiagnosticsError("SIFT feature provenance has a matcher model")
+        raise ColmapDiagnosticsError("brute-force SIFT provenance has a matcher model")
     return {
         "profile": str(profile),
         "extractor": extractor,
         "descriptor": descriptor,
-        "local_matcher": local_matcher,
+        "local_matcher_profile": str(local_matcher_profile),
+        "local_matcher": expected_local_matcher,
         "max_features": 8_192,
         "extractor_model_sha256": extractor_sha,
         "matcher_model_sha256": matcher_sha,
@@ -638,7 +660,7 @@ def _run_id(
             "image_set_hash": image_set_hash,
         }
     )
-    return f"colmap-sift-{digest[:12]}"
+    return f"colmap-sfm-{digest[:12]}"
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:

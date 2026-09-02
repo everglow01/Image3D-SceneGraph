@@ -270,6 +270,10 @@ def recover_video_registration(
     use_gpu: bool,
     gpu_index: str | None,
     num_threads: int | None,
+    feature_extraction_options: tuple[str, ...] = (),
+    local_matching_options: tuple[str, ...] = (),
+    sfm_feature_profile: str = "sift_v1",
+    sfm_local_matcher: str = "SIFT_BRUTEFORCE",
     progress: Callable[[str], None] | None = None,
     force_final_bundle_adjustment: bool = False,
 ) -> tuple[Path, dict[str, Any], list[str]]:
@@ -280,6 +284,8 @@ def recover_video_registration(
         "schema_version": 1,
         "profile": "video_registration_recovery_v1",
         "method": "incremental_colmap",
+        "sfm_feature_profile": sfm_feature_profile,
+        "sfm_local_matcher": sfm_local_matcher,
         "policy": {
             "maximum_rounds": MAX_RECOVERY_ROUNDS,
             "round_budget_fraction": ROUND_BUDGET_FRACTION,
@@ -468,6 +474,7 @@ def recover_video_registration(
                     str(camera_id),
                     "--FeatureExtraction.use_gpu",
                     "1" if use_gpu else "0",
+                    *feature_extraction_options,
                 ]
                 if gpu_index is not None:
                     feature_command.extend(
@@ -492,6 +499,7 @@ def recover_video_registration(
                     "pairs",
                     "--FeatureMatching.use_gpu",
                     "1" if use_gpu else "0",
+                    *local_matching_options,
                 ]
                 if gpu_index is not None:
                     match_command.extend(("--FeatureMatching.gpu_index", gpu_index))

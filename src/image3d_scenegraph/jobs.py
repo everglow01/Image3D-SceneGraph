@@ -38,9 +38,12 @@ from image3d_scenegraph.geometry.adapters import (
 from image3d_scenegraph.geometry.colmap import (
     ColmapFeatureError,
     colmap_learned_feature_support_reason,
+    colmap_local_matcher_support_reason,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_local_matcher,
     validate_colmap_feature_profile,
+    validate_colmap_local_matcher,
 )
 
 
@@ -169,22 +172,40 @@ class JobStore:
                 feature_profile = validate_colmap_feature_profile(
                     str(normalized_options.get("sfm_feature_profile", "sift_v1"))
                 )
-                if feature_profile != "sift_v1":
-                    project_root = Path(
-                        os.environ.get("IMAGE3D_PROJECT_ROOT", ".")
-                    ).resolve()
+                local_matcher = validate_colmap_local_matcher(
+                    str(normalized_options.get("sfm_local_matcher", "bruteforce"))
+                )
+                project_root = Path(
+                    os.environ.get("IMAGE3D_PROJECT_ROOT", ".")
+                ).resolve()
+                if feature_profile != "sift_v1" or local_matcher == "lightglue":
                     colmap = resolve_colmap_executable(project_root)
                     if colmap is None:
                         raise JobError("COLMAP executable not found")
-                    support_reason = colmap_learned_feature_support_reason(colmap)
+                    if feature_profile != "sift_v1":
+                        support_reason = colmap_learned_feature_support_reason(colmap)
+                        if support_reason is not None:
+                            raise JobError(support_reason)
+                    support_reason = colmap_local_matcher_support_reason(
+                        colmap, feature_profile, local_matcher
+                    )
                     if support_reason is not None:
                         raise JobError(support_reason)
-                    resolve_colmap_feature_profile(feature_profile, project_root)
-                normalized_options["sfm_feature_profile"] = feature_profile
+                resolved_feature = resolve_colmap_feature_profile(
+                    feature_profile, project_root
+                )
+                resolve_colmap_local_matcher(
+                    resolved_feature, local_matcher, project_root
+                )
+                normalized_options.update(
+                    sfm_feature_profile=feature_profile,
+                    sfm_local_matcher=local_matcher,
+                )
             except ColmapFeatureError as exc:
                 raise JobError(str(exc)) from exc
         else:
             normalized_options.pop("sfm_feature_profile", None)
+            normalized_options.pop("sfm_local_matcher", None)
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
             if geometry_backend == "project_3dgs":
@@ -318,6 +339,8 @@ class JobStore:
             manifest.update(
                 sfm_feature_profile=str(normalized_options["sfm_feature_profile"]),
                 sfm_feature_effective_profile=None,
+                sfm_local_matcher=str(normalized_options["sfm_local_matcher"]),
+                sfm_local_matcher_effective=None,
             )
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
@@ -917,10 +940,19 @@ class JobStore:
             requested_feature_profile = str(
                 options.get("sfm_feature_profile", "sift_v1")
             )
+            requested_local_matcher = str(
+                options.get("sfm_local_matcher", "bruteforce")
+            )
             result.update(
                 sfm_feature_profile=requested_feature_profile,
                 sfm_feature_effective_profile=str(
                     metrics.get("sfm_feature_profile", requested_feature_profile)
+                ),
+                sfm_local_matcher=requested_local_matcher,
+                sfm_local_matcher_effective=str(
+                    metrics.get(
+                        "sfm_local_matcher_profile", requested_local_matcher
+                    )
                 ),
             )
         if self._is_gaussian_job(result):
