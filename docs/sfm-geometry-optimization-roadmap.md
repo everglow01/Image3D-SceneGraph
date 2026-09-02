@@ -388,7 +388,7 @@ aliked_n16rot_v1 + bruteforce → ALIKED_BRUTEFORCE
 aliked_n16rot_v1 + lightglue  → ALIKED_LIGHTGLUE
 ```
 
-第三批将现有 `colmap_matcher` 的产品语义迁移为 `sfm_pairing`，旧字段保留兼容期。
+第三批已将现有 `colmap_matcher` 的产品语义迁移为 `sfm_pairing`，旧字段保留兼容期。
 
 ### 8.2 前端
 
@@ -403,7 +403,7 @@ aliked_n16rot_v1 + lightglue  → ALIKED_LIGHTGLUE
 
 要求：
 
-- 当前已启用第 1、2 项；pairing 与 SfM 求解仍保持既有默认/兼容字段；
+- 当前已启用第 1、2、3 项；SfM 求解仍保持 incremental；
 - 每个实验项显示服务器 availability、缺失模型和 setup command；
 - 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + incremental；
 - SfM inspector 的关键点/pair canvas 继续复用，不新增第二套 Viewer；
@@ -489,11 +489,14 @@ aliked_n16rot_v1:
 - LightGlue min score 第一版使用 COLMAP 固定默认 `0.1`，不放到前端；
 - 记录 COLMAP build、GPU 请求/index、模型 hash、匹配阶段 wall time和 inlier 分布；不伪造 COLMAP 未报告的 ONNX provider/per-pair 时间。
 
-### Phase 3：pairing / retrieval
+### Phase 3：pairing / retrieval（代码已接入，待真实证据）
 
-- video：exhaustive ↔ sequential+loop；
-- still：exhaustive ↔ descriptor-compatible vocab-tree；
-- 为 ALIKED 安装其专用 vocab tree；
+实现状态（2026-09-02）：稳定字段 `sfm_pairing=exhaustive|sequential_loop|vocab_tree` 已接入共享 resolver、三个 COLMAP runner、API/JobStore、backend nested capability、前端、manifest 与 SfM diagnostics schema 2。新产品 Job 默认仍为 `exhaustive`；旧 `colmap_matcher=exhaustive|sequential` 保留并映射到 `exhaustive|sequential_loop`，冲突请求失败。video 支持 exhaustive ↔ sequential+loop，still/multi-image 支持 exhaustive ↔ descriptor-compatible vocab-tree。官方 SIFT 256K tree 与 ALIKED N16Rot 64K tree 已按 URL/大小/SHA 固定在 dry-run setup 中，但代码任务不自动安装 ALIKED tree，也尚无当前 feature/local-matcher profile 的真实 pairing A/B 结论。
+
+- `sequential_loop` 固定为有序视频的 temporal overlap + descriptor-compatible vocab-tree loop detection；
+- `vocab_tree` 固定为无序多图 retrieval；
+- SIFT tree 不可用于 ALIKED，缺失/损坏资产不静默回退 exhaustive；
+- standard_v2 recovery 继续使用独立、显式记录的 bounded temporal pair list，不伪装成重跑初始 pairing；
 - 如 COLMAP vocab 对无序大图不足，再评估 HLoc retrieval，不先引入。
 
 ### Phase 4：两视图几何与 view graph
