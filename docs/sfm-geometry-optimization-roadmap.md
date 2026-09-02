@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 已接入代码；真实 ALIKED geometry A/B 尚待模型安装与运行证据  
+> 状态：Phase 1 特征提取与 Phase 2 局部匹配已接入代码；当前 8192 点配置的真实 geometry A/B 尚待运行证据
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -373,7 +373,7 @@ sfm_feature_profile = sift_v1 | aliked_n16rot_v1
 - request、manifest metrics、run.log、SfM diagnostics 同时记录 requested/effective profile；
 - 不公开 `min_score`、模型路径、descriptor 维度等 raw 参数。
 
-第二批再新增：
+第二批已新增：
 
 ```text
 sfm_local_matcher = bruteforce | lightglue
@@ -396,14 +396,14 @@ aliked_n16rot_v1 + lightglue  → ALIKED_LIGHTGLUE
 
 ```text
 1 特征提取      SIFT v1（默认） / ALIKED N16Rot（实验）
-2 局部匹配      Brute-force（默认） / LightGlue（实验，第二批）
+2 局部匹配      Brute-force（默认） / LightGlue（实验）
 3 图像对策略    Exhaustive / Sequential + Loop / Vocab Tree
 4 SfM 求解       Incremental / Global（后续）
 ```
 
 要求：
 
-- 当前 batch 只启用第 1 项，后续项保持只读默认或暂不显示；
+- 当前已启用第 1、2 项；pairing 与 SfM 求解仍保持既有默认/兼容字段；
 - 每个实验项显示服务器 availability、缺失模型和 setup command；
 - 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + incremental；
 - SfM inspector 的关键点/pair canvas 继续复用，不新增第二套 Viewer；
@@ -417,7 +417,8 @@ aliked_n16rot_v1 + lightglue  → ALIKED_LIGHTGLUE
 uv run python scripts/run_colmap_sparse.py \
   --image-dir INPUT \
   --output-dir OUTPUT \
-  --feature-profile aliked_n16rot_v1
+  --feature-profile aliked_n16rot_v1 \
+  --local-matcher lightglue
 ```
 
 内部再展开为固定 COLMAP 参数和本地模型路径。`run_vggt_ba_sparse.py`、`run_colmap_vggt_dense.py` 应最终使用同一 profile resolver，避免三处命令逐渐漂移。
@@ -440,7 +441,7 @@ uv run python scripts/run_colmap_sparse.py \
 
 ### Phase 1：特征提取器 A/B（代码已接入，待真实证据）
 
-实现状态（2026-09-01）：`sift_v1|aliked_n16rot_v1` 已接入共享 resolver、三个 COLMAP runner、API/JobStore/backend capability、前端选择器、manifest 与 SfM diagnostics schema 2。默认仍为 SIFT；ALIKED 模型未由本次代码任务自动下载，尚无真实 geometry A/B 结论。
+实现状态（2026-09-02）：`sift_v1|aliked_n16rot_v1` 已接入共享 resolver、三个 COLMAP runner、API/JobStore/backend capability、前端选择器、manifest 与 SfM diagnostics schema 2。默认仍为 SIFT；本机 ALIKED extractor/brute-force 资产已由用户显式安装并通过大小/SHA 校验，但尚无当前 profile 的真实 geometry A/B 结论。
 
 冻结两个 profile：
 
@@ -478,13 +479,15 @@ aliked_n16rot_v1:
 - 校验 input set、feature profile/model hash、COLMAP build；
 - 先提供可信 CLI replay，再决定是否增加“从历史 Job 派生几何实验”的 API 生命周期。
 
-### Phase 2：局部 matcher A/B
+### Phase 2：局部 matcher A/B（代码已接入，待真实证据）
+
+实现状态（2026-09-02）：`sfm_local_matcher=bruteforce|lightglue` 已独立接入共享 resolver、三个 COLMAP runner、API/JobStore/backend nested capability、前端选择器、manifest 与现有 SfM diagnostics schema 2。默认仍为 brute-force；SIFT/ALIKED LightGlue ONNX 由同一 dry-run setup 脚本按大小/SHA 安装，代码任务不自动下载，尚无当前 8192 点 profile 的真实 geometry A/B 结论。历史 2026-08-13 的 2048 点/1280px 结果保留为风险证据：SIFT-LightGlue 几乎断图，ALIKED-LightGlue 能完成但匹配成本高，不能直接推广到当前配置。
 
 - SIFT brute-force ↔ SIFT LightGlue；
 - ALIKED brute-force ↔ ALIKED LightGlue；
-- pairing 和 Mapper 保持固定；
+- pairing 和 Mapper 保持固定；standard_v2 新增帧的 recovery extraction/`matches_importer` 复用同一 feature/local-matcher options；
 - LightGlue min score 第一版使用 COLMAP 固定默认 `0.1`，不放到前端；
-- 记录 ONNX provider、模型 hash、每 pair 时间和 inlier 分布。
+- 记录 COLMAP build、GPU 请求/index、模型 hash、匹配阶段 wall time和 inlier 分布；不伪造 COLMAP 未报告的 ONNX provider/per-pair 时间。
 
 ### Phase 3：pairing / retrieval
 
