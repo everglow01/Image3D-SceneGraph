@@ -115,6 +115,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         sfm_local_matcher: Annotated[
             Literal["bruteforce", "lightglue"], Form()
         ] = "bruteforce",
+        sfm_pairing: Annotated[
+            Literal["exhaustive", "sequential_loop", "vocab_tree"] | None,
+            Form(),
+        ] = None,
         video_keyframe_profile: Annotated[
             Literal["standard_v1", "standard_v2"], Form()
         ] = "standard_v1",
@@ -209,6 +213,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "sfm_local_matcher": (
                     sfm_local_matcher
+                    if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
+                    else None
+                ),
+                "sfm_pairing": (
+                    sfm_pairing
                     if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
                     else None
                 ),
