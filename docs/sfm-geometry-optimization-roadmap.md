@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 特征提取与 Phase 2 局部匹配已接入代码；当前 8192 点配置的真实 geometry A/B 尚待运行证据
+> 状态：Phase 1 特征提取、Phase 2 局部匹配与 Phase 3 图像对策略均已接入代码；当前 8192 点配置的真实 geometry A/B 尚待运行证据
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -35,11 +35,13 @@
 
 ---
 
-## 2. 当前代码中的真实流水线
+## 2. Phase 1 前基线与当前状态
 
-### 2.1 普通 COLMAP / Project 3DGS
+### 2.1 Phase 1 前普通 COLMAP / Project 3DGS 基线
 
-当前路径是：
+> 本节保留启动 Phase 1 时的基线，用于解释改动来源；Phase 1–3 完成后的有效实现见第 8 节实施记录。
+
+当时基线路径是：
 
 ```text
 上传 RGB / 视频选帧
@@ -57,7 +59,7 @@
 → graphdeco | project | mcmc
 ```
 
-关键实现：
+当时关键实现：
 
 - `scripts/run_colmap_sparse.py`
   - `feature_extractor` 只传数据库、图片、single-camera、GPU 和线程参数；没有传 `FeatureExtraction.type`，所以实际是 SIFT。
@@ -74,14 +76,14 @@
 - `scripts/run_colmap_vggt_dense.py`
   - 也有一套单独写出的 SIFT→pairing→incremental Mapper 命令。
 
-### 2.2 当前诊断和产品控制存在的语义问题
+### 2.2 Phase 1 前问题及当前状态
 
-1. `src/image3d_scenegraph/geometry/colmap_diagnostics.py` 把 detector 固定写成 `sift`。
-2. 诊断中的 matcher 只记录 `exhaustive|sequential`，混淆了图像对选择和局部特征匹配。
-3. API 的 `colmap_matcher` 目前仅对 `video + project_3dgs` 转发；普通 `colmap`、`colmap_vggt` 和多图 Project Job 没有统一产品控制。
-4. 前端当前没有 `colmap_matcher` 控件，因此现有 sequential 实验主要只能通过 API/环境变量发起。
-5. `--max-image-size` 当前用于 undistortion，但 `run_colmap_sparse.py` 没有把它传给 `FeatureExtraction.max_image_size`。对于未预缩放的多图输入，提取阶段可能仍按原图运行；这是潜在性能优化点，但改变它会改变历史基线，不能在第一次算法 A/B 中静默修改。
-6. COLMAP database 在 Job 中保留，但没有冻结“仅完成特征提取”的只读快照；每个匹配器 A/B 都会重复提取特征。
+1. **已解决（Phase 1）：** diagnostics 不再把 detector 固定写成 SIFT，feature profile 和模型 provenance 已独立记录。
+2. **已解决（Phase 2/3）：** local matcher 与 pairing 已拆成 `sfm_local_matcher` 和 `sfm_pairing`，不再用一个 `matcher` 名称混淆两层。
+3. **已解决（Phase 1–3）：** 普通 COLMAP、COLMAP+VGGT、Project ordinary geometry 与 VGGT-BA 最终 COLMAP database 共享稳定产品控制。
+4. **已解决（Phase 1–3）：** 前端按 feature → local matcher → pairing capability 显示并提交三条独立控制轴。
+5. **仍开放：** `--max-image-size` 当前用于 undistortion，但 `run_colmap_sparse.py` 没有把它传给 `FeatureExtraction.max_image_size`。对于未预缩放的多图输入，提取阶段可能仍按原图运行；这会改变历史基线，不能在首次算法 A/B 中静默修改。
+6. **仍开放（Phase 1.5）：** COLMAP database 尚未冻结“仅完成特征提取”的只读快照，每个 matcher A/B 仍会重复提取特征。
 
 ### 2.3 已具备但尚未产品化的能力
 
