@@ -20,12 +20,15 @@ import torch
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
+    COLMAP_PAIRING_IDS,
     ColmapFeatureError,
     ResolvedColmapFeatureProfile,
     ResolvedColmapLocalMatcher,
+    ResolvedColmapPairing,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_local_matcher,
+    resolve_colmap_pairing,
 )
 from image3d_scenegraph.geometry.grouping import (
     GROUPING_MAX_NEIGHBORS,
@@ -214,7 +217,10 @@ def main() -> None:
     parser.add_argument("--repo-dir", type=Path, default=DEFAULT_VGGT_REPO_DIR)
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
-    parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="exhaustive")
+    parser.add_argument(
+        "--matcher", choices=["sequential", "exhaustive"], default=None
+    )
+    parser.add_argument("--pairing", choices=COLMAP_PAIRING_IDS)
     parser.add_argument(
         "--feature-profile",
         choices=COLMAP_FEATURE_PROFILE_IDS,
@@ -290,6 +296,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    if args.pairing is not None and args.matcher is not None:
+        parser.error("--pairing and legacy --matcher cannot be combined")
+    if args.pairing == "sequential_loop":
+        parser.error("COLMAP+VGGT multi-image geometry does not support sequential_loop")
+    legacy_matcher = args.matcher
+    if args.pairing is None and legacy_matcher is None:
+        legacy_matcher = "exhaustive"
+
     if args.mapper_abs_pose_min_num_inliers <= 0:
         raise SystemExit("--mapper-abs-pose-min-num-inliers must be positive")
     if not 0 < args.mapper_abs_pose_min_inlier_ratio <= 1:
@@ -335,6 +349,15 @@ def main() -> None:
         local_matcher = resolve_colmap_local_matcher(
             feature_profile, args.local_matcher
         )
+        pairing = (
+            resolve_colmap_pairing(feature_profile, args.pairing)
+            if args.pairing is not None
+            else ResolvedColmapPairing(
+                profile_id=str(legacy_matcher),
+                command=f"{legacy_matcher}_matcher",
+                pairing_options=(),
+            )
+        )
     except ColmapFeatureError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -373,7 +396,7 @@ def main() -> None:
                 database_path=database_path,
                 sparse_dir=sparse_dir,
                 text_dir=text_dir,
-                matcher=args.matcher,
+                pairing=pairing,
                 feature_profile=feature_profile,
                 local_matcher=local_matcher,
                 single_camera=bool(args.colmap_single_camera),
@@ -1072,9 +1095,11 @@ def main() -> None:
         f"sfm_feature_max_features={feature_profile.max_features}",
         f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
         f"sfm_local_matcher_model_sha256={local_matcher.model_sha256 or 'none'}",
-        f"sfm_pairing={args.matcher}",
+        f"sfm_pairing={pairing.profile_id}",
+        f"sfm_pairing_command={pairing.command}",
+        f"sfm_pairing_vocab_tree_sha256={pairing.vocab_tree_sha256 or 'none'}",
         "sfm_mapper=incremental",
-        f"matcher={args.matcher}",
+        f"matcher={pairing.command.removesuffix('_matcher')}",
         f"colmap_executable={colmap}",
         f"colmap_source={colmap_source}",
         f"vggt_batch_size={args.vggt_batch_size}",
@@ -1144,7 +1169,7 @@ def run_colmap_pipeline(
     database_path: Path,
     sparse_dir: Path,
     text_dir: Path,
-    matcher: str,
+    pairing: ResolvedColmapPairing,
     feature_profile: ResolvedColmapFeatureProfile,
     local_matcher: ResolvedColmapLocalMatcher,
     single_camera: bool,
@@ -1169,7 +1194,7 @@ def run_colmap_pipeline(
         ],
         [
             colmap,
-            "sequential_matcher" if matcher == "sequential" else "exhaustive_matcher",
+            pairing.command,
             "--database_path",
             str(database_path),
             "--FeatureMatching.use_gpu",
@@ -1177,6 +1202,7 @@ def run_colmap_pipeline(
             "--FeatureMatching.gpu_index",
             "0",
             *local_matcher.matching_options,
+            *pairing.pairing_options,
         ],
         [
             colmap,

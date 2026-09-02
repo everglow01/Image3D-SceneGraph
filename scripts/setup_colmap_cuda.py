@@ -183,12 +183,22 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
     if profile.onnx:
         extractor_help = capture([str(executable), "feature_extractor", "-h"])
         matcher_help = capture([str(executable), "exhaustive_matcher", "-h"])
+        sequential_help = capture([str(executable), "sequential_matcher", "-h"])
+        vocab_help = capture([str(executable), "vocab_tree_matcher", "-h"])
         importer_help = capture([str(executable), "matches_importer", "-h"])
         markers = (
             (extractor_help, "AlikedExtraction.max_num_features"),
             (matcher_help, "AlikedMatching.bruteforce_model_path"),
             (matcher_help, "SiftMatching.lightglue_model_path"),
             (matcher_help, "AlikedMatching.lightglue_model_path"),
+            (sequential_help, "SequentialMatching.vocab_tree_path"),
+            (sequential_help, "AlikedMatching.bruteforce_model_path"),
+            (sequential_help, "SiftMatching.lightglue_model_path"),
+            (sequential_help, "AlikedMatching.lightglue_model_path"),
+            (vocab_help, "VocabTreeMatching.vocab_tree_path"),
+            (vocab_help, "AlikedMatching.bruteforce_model_path"),
+            (vocab_help, "SiftMatching.lightglue_model_path"),
+            (vocab_help, "AlikedMatching.lightglue_model_path"),
             (importer_help, "AlikedMatching.bruteforce_model_path"),
             (importer_help, "SiftMatching.lightglue_model_path"),
             (importer_help, "AlikedMatching.lightglue_model_path"),

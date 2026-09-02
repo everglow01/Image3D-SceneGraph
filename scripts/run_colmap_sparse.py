@@ -12,11 +12,14 @@ from typing import Any
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
+    COLMAP_PAIRING_IDS,
     ColmapFeatureError,
     colmap_frontend_provenance,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_local_matcher,
+    resolve_colmap_pairing,
+    sha256_file,
 )
 from image3d_scenegraph.geometry.video_recovery import (
     expand_v2_initial_registration,
@@ -35,7 +38,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run COLMAP sparse SfM and export a point cloud.")
     parser.add_argument("--image-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
+    parser.add_argument(
+        "--matcher", choices=["sequential", "exhaustive"], default=None
+    )
+    parser.add_argument("--pairing", choices=COLMAP_PAIRING_IDS)
     parser.add_argument(
         "--feature-profile",
         choices=COLMAP_FEATURE_PROFILE_IDS,
@@ -61,14 +67,25 @@ def main() -> None:
         parser.error("--num-threads must be at least 1")
     if args.max_image_size is not None and args.max_image_size < 1:
         parser.error("--max-image-size must be at least 1")
-    if args.gaussian_baseline and args.matcher == "sequential" and args.vocab_tree_path is None:
+    if args.pairing is not None and args.matcher is not None:
+        parser.error("--pairing and legacy --matcher cannot be combined")
+    if args.pairing is not None and args.vocab_tree_path is not None:
+        parser.error("--pairing resolves its vocabulary tree; omit --vocab-tree-path")
+    legacy_matcher = args.matcher
+    if args.pairing is None and legacy_matcher is None:
+        legacy_matcher = "sequential"
+    if (
+        args.gaussian_baseline
+        and legacy_matcher == "sequential"
+        and args.vocab_tree_path is None
+    ):
         raise SystemExit(
             "Gaussian baseline sequential matching requires --vocab-tree-path for loop closure"
         )
     if args.vocab_tree_path is not None and args.feature_profile != "sift_v1":
         raise SystemExit(
-            "the installed COLMAP vocab tree is SIFT-only; "
-            "ALIKED sequential loop detection is not available"
+            "the legacy --vocab-tree-path is SIFT-only; "
+            "use --pairing with the descriptor-specific vocabulary tree"
         )
     if (args.video_source is None) != (args.video_selection is None):
         parser.error("--video-source and --video-selection must be provided together")
@@ -97,6 +114,27 @@ def main() -> None:
         local_matcher = resolve_colmap_local_matcher(
             feature_profile, args.local_matcher
         )
+        if args.pairing is not None:
+            pairing = resolve_colmap_pairing(feature_profile, args.pairing)
+            pairing_profile = pairing.profile_id
+            pairing_command = pairing.command
+            pairing_options = pairing.pairing_options
+            vocab_tree_path = pairing.vocab_tree_path
+            vocab_tree_sha256 = pairing.vocab_tree_sha256
+        else:
+            pairing_command = f"{legacy_matcher}_matcher"
+            pairing_options = ()
+            vocab_tree_path = args.vocab_tree_path
+            vocab_tree_sha256 = (
+                sha256_file(vocab_tree_path)
+                if vocab_tree_path is not None and vocab_tree_path.is_file()
+                else None
+            )
+            pairing_profile = (
+                "sequential_loop"
+                if legacy_matcher == "sequential" and vocab_tree_path is not None
+                else str(legacy_matcher)
+            )
     except ColmapFeatureError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -165,24 +203,25 @@ def main() -> None:
         mapper_command.extend(("--Mapper.num_threads", str(args.num_threads)))
     matcher_command = [
         colmap,
-        "sequential_matcher" if args.matcher == "sequential" else "exhaustive_matcher",
+        pairing_command,
         "--database_path",
         str(work_dir / "database.db"),
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
         *local_matcher.matching_options,
+        *pairing_options,
     ]
-    if args.matcher == "sequential" and args.vocab_tree_path is not None:
+    if legacy_matcher == "sequential" and vocab_tree_path is not None:
         matcher_command.extend(
             (
                 "--SequentialMatching.loop_detection",
                 "1",
                 "--SequentialMatching.vocab_tree_path",
-                str(args.vocab_tree_path),
+                str(vocab_tree_path),
             )
         )
     sequential_overlap_value: int | None = None
-    if args.matcher == "sequential" and video_selection is not None:
+    if pairing_command == "sequential_matcher" and video_selection is not None:
         if video_selection.get("profile") == V2_PROFILE_ID:
             sequential_overlap_value = sequential_overlap(video_selection)
             matcher_command.extend(
@@ -256,6 +295,7 @@ def main() -> None:
             local_matching_options=local_matcher.matching_options,
             sfm_feature_profile=feature_profile.profile_id,
             sfm_local_matcher=local_matcher.name,
+            initial_sfm_pairing=pairing_profile,
             progress=lambda stage: write_progress(args.progress_file, stage),
             force_final_bundle_adjustment=bool(
                 expansion_diagnostics
@@ -360,9 +400,11 @@ def main() -> None:
         "colmap_executable": colmap,
         "colmap_build": colmap_build,
         "feature": colmap_frontend_provenance(feature_profile, local_matcher),
-        "pairing": args.matcher,
+        "pairing": pairing_profile,
+        "pairing_command": pairing_command,
+        "vocab_tree_sha256": vocab_tree_sha256,
         "mapper": "incremental",
-        "matcher": args.matcher,
+        "matcher": pairing_command.removesuffix("_matcher"),
         "video_profile": (
             str(video_selection.get("profile"))
             if video_selection is not None
@@ -406,11 +448,13 @@ def main() -> None:
         f"sfm_feature_max_features={feature_profile.max_features}",
         f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
         f"sfm_local_matcher_model_sha256={local_matcher.model_sha256 or 'none'}",
-        f"sfm_pairing={args.matcher}",
+        f"sfm_pairing={pairing_profile}",
+        f"sfm_pairing_command={pairing_command}",
+        f"sfm_pairing_vocab_tree_sha256={vocab_tree_sha256 or 'none'}",
         "sfm_mapper=incremental",
-        f"matcher={args.matcher}",
+        f"matcher={pairing_command.removesuffix('_matcher')}",
         f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
-        f"vocab_tree={args.vocab_tree_path if args.vocab_tree_path is not None else 'none'}",
+        f"vocab_tree={vocab_tree_path if vocab_tree_path is not None else 'none'}",
         f"single_camera={args.single_camera}",
         f"colmap_executable={colmap}",
         f"colmap_build={colmap_build}",

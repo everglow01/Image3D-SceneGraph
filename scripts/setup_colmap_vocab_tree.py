@@ -1,75 +1,92 @@
-"""Download the COLMAP vocab tree used for sequential matching loop detection.
+"""Install the pinned COLMAP vocabulary trees used for image pairing.
 
-Dry-run by default; pass --install to download. The file lives under the
-git-ignored external/ directory and is never fetched at job runtime.
+Dry-run by default. Jobs never download these assets at runtime.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-# COLMAP switched its visual index from flann to faiss in May 2025; the legacy
-# demuc.de flann trees abort with "Failed to read faiss index" on COLMAP >= 3.11.
-# This is the official faiss tree COLMAP itself auto-downloads.
-VOCAB_TREE_URL = (
-    "https://github.com/colmap/colmap/releases/download/3.11.1/"
-    "vocab_tree_faiss_flickr100K_words256K.bin"
+from image3d_scenegraph.geometry.colmap import (
+    COLMAP_VOCAB_TREE_ASSETS,
+    colmap_vocab_tree_root,
+    sha256_file,
 )
-VOCAB_TREE_SHA256 = "96ca8ec8ea60b1f73465aaf2c401fd3b3ca75cdba2d3c50d6a2f6f760f275ddc"
-VOCAB_TREE_BYTES = 72_412_636
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Set up the COLMAP vocab tree.")
-    parser.add_argument("--install", action="store_true", help="Actually download. Default is dry-run.")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="Download and verify the vocabulary trees. Default is dry-run.",
+    )
     args = parser.parse_args()
 
-    project_root = Path.cwd()
-    destination = project_root / "external" / "colmap-vocab" / "vocab_tree_faiss_flickr100K_words256K.bin"
-
-    print("COLMAP vocab tree setup")
-    print(f"  url: {VOCAB_TREE_URL}")
-    print(f"  destination: {destination}")
-    print(f"  sha256: {VOCAB_TREE_SHA256}")
-    print(f"  size_bytes: {VOCAB_TREE_BYTES}")
+    root = colmap_vocab_tree_root()
+    print("COLMAP vocabulary tree setup")
+    print(f"  destination: {root}")
+    for profile_id, asset in COLMAP_VOCAB_TREE_ASSETS.items():
+        print(f"  profile: {profile_id}")
+        print(f"    asset: {asset.filename}")
+        print(f"    url: {asset.url}")
+        print(f"    size_bytes: {asset.size_bytes}")
+        print(f"    sha256: {asset.sha256}")
     print()
 
     if not args.install:
         print("dry_run=true")
-        print("Add --install to download the vocab tree.")
+        print("Add --install to download the vocabulary trees.")
         return
 
-    if destination.is_file():
-        print(f"vocab_tree_exists={destination}")
-        verify_sha256(destination, VOCAB_TREE_SHA256)
-        print("COLMAP vocab tree setup complete.")
-        return
+    root.mkdir(parents=True, exist_ok=True)
+    for asset in COLMAP_VOCAB_TREE_ASSETS.values():
+        destination = root / asset.filename
+        if destination.is_file():
+            verify_asset(destination, asset.size_bytes, asset.sha256)
+            print(f"vocab_tree_exists={destination}")
+            continue
+        temporary = destination.with_suffix(destination.suffix + ".part")
+        try:
+            for attempt in range(1, 4):
+                try:
+                    urllib.request.urlretrieve(asset.url, temporary)
+                    verify_asset(temporary, asset.size_bytes, asset.sha256)
+                    break
+                except (urllib.error.URLError, SystemExit) as exc:
+                    temporary.unlink(missing_ok=True)
+                    if attempt == 3:
+                        raise
+                    print(
+                        f"download_retry={attempt}/3 asset={asset.filename} "
+                        f"error={exc}",
+                        file=sys.stderr,
+                    )
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        print(f"vocab_tree={destination}")
+    print("COLMAP vocabulary tree setup complete.")
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(destination.suffix + ".part")
-    try:
-        urllib.request.urlretrieve(VOCAB_TREE_URL, temporary)
-        verify_sha256(temporary, VOCAB_TREE_SHA256)
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-    print(f"vocab_tree={destination}")
-    print("COLMAP vocab tree setup complete.")
 
-
-def verify_sha256(path: Path, expected: str) -> None:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    actual = digest.hexdigest()
-    if actual != expected:
-        raise SystemExit(f"vocab tree SHA-256 mismatch for {path}: expected {expected}, got {actual}")
+def verify_asset(path: Path, expected_size: int, expected_sha256: str) -> None:
+    actual_size = path.stat().st_size
+    if actual_size != expected_size:
+        raise SystemExit(
+            f"vocabulary tree size mismatch for {path}: "
+            f"expected {expected_size}, got {actual_size}"
+        )
+    actual_sha256 = sha256_file(path)
+    if actual_sha256 != expected_sha256:
+        raise SystemExit(
+            f"vocabulary tree SHA-256 mismatch for {path}: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
 
 
 if __name__ == "__main__":
