@@ -1,4 +1,4 @@
-"""Install the pinned COLMAP models used by learned feature profiles.
+"""Install the pinned COLMAP models used by learned features and local matchers.
 
 Dry-run by default. Jobs never download these assets at runtime.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -51,8 +52,20 @@ def main() -> None:
             continue
         temporary = destination.with_suffix(destination.suffix + ".part")
         try:
-            urllib.request.urlretrieve(asset.url, temporary)
-            verify_asset(temporary, asset.size_bytes, asset.sha256)
+            for attempt in range(1, 4):
+                try:
+                    urllib.request.urlretrieve(asset.url, temporary)
+                    verify_asset(temporary, asset.size_bytes, asset.sha256)
+                    break
+                except (urllib.error.URLError, SystemExit) as exc:
+                    temporary.unlink(missing_ok=True)
+                    if attempt == 3:
+                        raise
+                    print(
+                        f"download_retry={attempt}/3 asset={asset.filename} "
+                        f"error={exc}",
+                        file=sys.stderr,
+                    )
             os.replace(temporary, destination)
         finally:
             temporary.unlink(missing_ok=True)

@@ -15,9 +15,12 @@ from PIL import Image
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_LOCAL_MATCHER_IDS,
     ColmapFeatureError,
+    colmap_frontend_provenance,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_local_matcher,
 )
 from image3d_scenegraph.geometry.video_recovery import (
     recover_video_registration,
@@ -106,6 +109,11 @@ def main() -> None:
         choices=COLMAP_FEATURE_PROFILE_IDS,
         default="sift_v1",
     )
+    parser.add_argument(
+        "--local-matcher",
+        choices=COLMAP_LOCAL_MATCHER_IDS,
+        default="bruteforce",
+    )
     parser.add_argument("--vocab-tree-path", type=Path)
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
@@ -147,6 +155,9 @@ def main() -> None:
     colmap = str(colmap_path)
     try:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
+        local_matcher = resolve_colmap_local_matcher(
+            feature_profile, args.local_matcher
+        )
     except ColmapFeatureError as exc:
         raise SystemExit(str(exc)) from exc
     output_dir = args.output_dir
@@ -189,7 +200,9 @@ def main() -> None:
             "max_query_points": MAX_QUERY_POINTS,
             "keypoint_extractor": "aliked",
             "tracker_keypoint_extractor": "aliked",
-            "colmap_feature": feature_profile.provenance(),
+            "colmap_feature": colmap_frontend_provenance(
+                feature_profile, local_matcher
+            ),
             "colmap_matcher": args.matcher,
             "seed": args.seed,
             "base_window_count": len(bases),
@@ -382,6 +395,7 @@ def main() -> None:
 
     write_progress(args.progress_file, "vggt_ba_feature_extraction")
     command_logs: list[str] = []
+    colmap_stage_elapsed_seconds: dict[str, float] = {}
     database_path = colmap_dir / "database.db"
     feature_command = [
         colmap,
@@ -400,7 +414,11 @@ def main() -> None:
         str(args.num_threads),
         *feature_profile.extraction_options,
     ]
+    feature_started_at = time.perf_counter()
     command_logs.append(run_command(feature_command))
+    colmap_stage_elapsed_seconds["feature_extraction"] = (
+        time.perf_counter() - feature_started_at
+    )
     write_progress(args.progress_file, "vggt_ba_feature_matching")
     matcher_command = [
         colmap,
@@ -411,7 +429,7 @@ def main() -> None:
         "1",
         "--FeatureMatching.num_threads",
         str(args.num_threads),
-        *feature_profile.matching_options,
+        *local_matcher.matching_options,
     ]
     if args.matcher == "sequential":
         matcher_command.extend(
@@ -432,7 +450,11 @@ def main() -> None:
         matcher_command.extend(
             ["--SequentialMatching.overlap", str(sequential_overlap_value)]
         )
+    matcher_started_at = time.perf_counter()
     command_logs.append(run_command(matcher_command))
+    colmap_stage_elapsed_seconds["feature_matching"] = (
+        time.perf_counter() - matcher_started_at
+    )
     image_ids_by_name = read_colmap_database_image_ids(database_path)
     image_index_by_name = {
         name: index for index, name in enumerate(image_names)
@@ -606,6 +628,10 @@ def main() -> None:
             progress_file=args.progress_file,
             fallback_applied=fallback_applied,
             command_logs=command_logs,
+            feature_extraction_options=feature_profile.extraction_options,
+            local_matching_options=local_matcher.matching_options,
+            sfm_feature_profile=feature_profile.profile_id,
+            sfm_local_matcher=local_matcher.name,
         )
     )
     if recovered_fallback_registration is not None:
@@ -701,10 +727,13 @@ def main() -> None:
         "effective_geometry_source": effective_source,
         "fallback_applied": fallback_applied,
         "fallback_reason": fallback_reason,
-        "colmap_feature": feature_profile.provenance(),
+        "colmap_feature": colmap_frontend_provenance(
+            feature_profile, local_matcher
+        ),
         "colmap_pairing": args.matcher,
         "colmap_mapper": "incremental",
         "colmap_matcher": args.matcher,
+        "colmap_stage_elapsed_seconds": colmap_stage_elapsed_seconds,
         "sequential_overlap": sequential_overlap_value,
         "input_count": final_input_count,
         "initial_input_count": len(image_paths),
@@ -736,12 +765,15 @@ def main() -> None:
                 f"sfm_feature_profile={feature_profile.profile_id}",
                 f"sfm_feature_extractor={feature_profile.extractor}",
                 f"sfm_feature_descriptor={feature_profile.descriptor}",
-                f"sfm_local_matcher={feature_profile.local_matcher}",
+                f"sfm_local_matcher_profile={local_matcher.profile_id}",
+                f"sfm_local_matcher={local_matcher.name}",
                 f"sfm_feature_max_features={feature_profile.max_features}",
                 f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
-                f"sfm_local_matcher_model_sha256={feature_profile.matcher_model_sha256 or 'none'}",
+                f"sfm_local_matcher_model_sha256={local_matcher.model_sha256 or 'none'}",
                 f"sfm_pairing={args.matcher}",
                 "sfm_mapper=incremental",
+                f"colmap_feature_extraction_seconds={colmap_stage_elapsed_seconds['feature_extraction']:.3f}",
+                f"colmap_feature_matching_seconds={colmap_stage_elapsed_seconds['feature_matching']:.3f}",
                 f"colmap_matcher={args.matcher}",
                 f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
                 f"video_registration_recovery_method={'incremental_colmap' if recovery_requested else 'none'}",
@@ -808,6 +840,10 @@ def apply_video_registration_recovery(
     progress_file: Path | None,
     fallback_applied: bool,
     command_logs: list[str],
+    feature_extraction_options: tuple[str, ...] = (),
+    local_matching_options: tuple[str, ...] = (),
+    sfm_feature_profile: str = "sift_v1",
+    sfm_local_matcher: str = "SIFT_BRUTEFORCE",
 ) -> tuple[Path, dict[str, Any] | None, dict[str, Any] | None]:
     if (
         video_selection is None
@@ -827,6 +863,10 @@ def apply_video_registration_recovery(
         use_gpu=True,
         gpu_index=None,
         num_threads=num_threads,
+        feature_extraction_options=feature_extraction_options,
+        local_matching_options=local_matching_options,
+        sfm_feature_profile=sfm_feature_profile,
+        sfm_local_matcher=sfm_local_matcher,
         progress=lambda stage: write_progress(progress_file, stage),
     )
     command_logs.extend(recovery_logs)

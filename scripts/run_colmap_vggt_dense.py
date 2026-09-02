@@ -19,10 +19,13 @@ import torch
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_LOCAL_MATCHER_IDS,
     ColmapFeatureError,
     ResolvedColmapFeatureProfile,
+    ResolvedColmapLocalMatcher,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_local_matcher,
 )
 from image3d_scenegraph.geometry.grouping import (
     GROUPING_MAX_NEIGHBORS,
@@ -218,6 +221,11 @@ def main() -> None:
         default="sift_v1",
     )
     parser.add_argument(
+        "--local-matcher",
+        choices=COLMAP_LOCAL_MATCHER_IDS,
+        default="bruteforce",
+    )
+    parser.add_argument(
         "--colmap-model-dir",
         type=Path,
         help="Reuse an existing COLMAP text model instead of rerunning sparse reconstruction.",
@@ -324,6 +332,9 @@ def main() -> None:
     colmap = str(colmap_path)
     try:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
+        local_matcher = resolve_colmap_local_matcher(
+            feature_profile, args.local_matcher
+        )
     except ColmapFeatureError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -364,6 +375,7 @@ def main() -> None:
                 text_dir=text_dir,
                 matcher=args.matcher,
                 feature_profile=feature_profile,
+                local_matcher=local_matcher,
                 single_camera=bool(args.colmap_single_camera),
                 mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
                 mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
@@ -1055,10 +1067,11 @@ def main() -> None:
         f"sfm_feature_profile={feature_profile.profile_id}",
         f"sfm_feature_extractor={feature_profile.extractor}",
         f"sfm_feature_descriptor={feature_profile.descriptor}",
-        f"sfm_local_matcher={feature_profile.local_matcher}",
+        f"sfm_local_matcher_profile={local_matcher.profile_id}",
+        f"sfm_local_matcher={local_matcher.name}",
         f"sfm_feature_max_features={feature_profile.max_features}",
         f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
-        f"sfm_local_matcher_model_sha256={feature_profile.matcher_model_sha256 or 'none'}",
+        f"sfm_local_matcher_model_sha256={local_matcher.model_sha256 or 'none'}",
         f"sfm_pairing={args.matcher}",
         "sfm_mapper=incremental",
         f"matcher={args.matcher}",
@@ -1133,6 +1146,7 @@ def run_colmap_pipeline(
     text_dir: Path,
     matcher: str,
     feature_profile: ResolvedColmapFeatureProfile,
+    local_matcher: ResolvedColmapLocalMatcher,
     single_camera: bool,
     mapper_abs_pose_min_num_inliers: int,
     mapper_abs_pose_min_inlier_ratio: float,
@@ -1162,7 +1176,7 @@ def run_colmap_pipeline(
             "1",
             "--FeatureMatching.gpu_index",
             "0",
-            *feature_profile.matching_options,
+            *local_matcher.matching_options,
         ],
         [
             colmap,
@@ -1179,7 +1193,17 @@ def run_colmap_pipeline(
             str(mapper_abs_pose_min_inlier_ratio),
         ],
     ]
-    command_logs = [run_command(command) for command in commands]
+    command_logs: list[str] = []
+    for stage, command in zip(
+        ("feature_extraction", "feature_matching", "mapping"),
+        commands,
+        strict=True,
+    ):
+        stage_started_at = time.perf_counter()
+        command_logs.append(run_command(command))
+        command_logs.append(
+            f"colmap_{stage}_seconds={time.perf_counter() - stage_started_at:.3f}"
+        )
     model_dir, selection_logs = convert_best_sparse_model(colmap, sparse_dir, text_dir)
     command_logs.extend(selection_logs)
     command_logs.append(f"selected_model={model_dir}")

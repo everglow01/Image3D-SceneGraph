@@ -11,9 +11,12 @@ from typing import Any
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_LOCAL_MATCHER_IDS,
     ColmapFeatureError,
+    colmap_frontend_provenance,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_local_matcher,
 )
 from image3d_scenegraph.geometry.video_recovery import (
     expand_v2_initial_registration,
@@ -37,6 +40,11 @@ def main() -> None:
         "--feature-profile",
         choices=COLMAP_FEATURE_PROFILE_IDS,
         default="sift_v1",
+    )
+    parser.add_argument(
+        "--local-matcher",
+        choices=COLMAP_LOCAL_MATCHER_IDS,
+        default="bruteforce",
     )
     parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
@@ -86,6 +94,9 @@ def main() -> None:
     colmap_build = colmap_version(colmap)
     try:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
+        local_matcher = resolve_colmap_local_matcher(
+            feature_profile, args.local_matcher
+        )
     except ColmapFeatureError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -159,7 +170,7 @@ def main() -> None:
         str(work_dir / "database.db"),
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
-        *feature_profile.matching_options,
+        *local_matcher.matching_options,
     ]
     if args.matcher == "sequential" and args.vocab_tree_path is not None:
         matcher_command.extend(
@@ -241,6 +252,10 @@ def main() -> None:
             use_gpu=args.use_gpu,
             gpu_index=args.gpu_index,
             num_threads=args.num_threads,
+            feature_extraction_options=feature_profile.extraction_options,
+            local_matching_options=local_matcher.matching_options,
+            sfm_feature_profile=feature_profile.profile_id,
+            sfm_local_matcher=local_matcher.name,
             progress=lambda stage: write_progress(args.progress_file, stage),
             force_final_bundle_adjustment=bool(
                 expansion_diagnostics
@@ -344,7 +359,7 @@ def main() -> None:
         "profile": "colmap_timing_v1",
         "colmap_executable": colmap,
         "colmap_build": colmap_build,
-        "feature": feature_profile.provenance(),
+        "feature": colmap_frontend_provenance(feature_profile, local_matcher),
         "pairing": args.matcher,
         "mapper": "incremental",
         "matcher": args.matcher,
@@ -386,10 +401,11 @@ def main() -> None:
         f"sfm_feature_profile={feature_profile.profile_id}",
         f"sfm_feature_extractor={feature_profile.extractor}",
         f"sfm_feature_descriptor={feature_profile.descriptor}",
-        f"sfm_local_matcher={feature_profile.local_matcher}",
+        f"sfm_local_matcher_profile={local_matcher.profile_id}",
+        f"sfm_local_matcher={local_matcher.name}",
         f"sfm_feature_max_features={feature_profile.max_features}",
         f"sfm_feature_extractor_model_sha256={feature_profile.extractor_model_sha256 or 'none'}",
-        f"sfm_local_matcher_model_sha256={feature_profile.matcher_model_sha256 or 'none'}",
+        f"sfm_local_matcher_model_sha256={local_matcher.model_sha256 or 'none'}",
         f"sfm_pairing={args.matcher}",
         "sfm_mapper=incremental",
         f"matcher={args.matcher}",

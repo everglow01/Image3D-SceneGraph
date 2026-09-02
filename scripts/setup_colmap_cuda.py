@@ -183,10 +183,15 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
     if profile.onnx:
         extractor_help = capture([str(executable), "feature_extractor", "-h"])
         matcher_help = capture([str(executable), "exhaustive_matcher", "-h"])
+        importer_help = capture([str(executable), "matches_importer", "-h"])
         markers = (
             (extractor_help, "AlikedExtraction.max_num_features"),
+            (matcher_help, "AlikedMatching.bruteforce_model_path"),
             (matcher_help, "SiftMatching.lightglue_model_path"),
             (matcher_help, "AlikedMatching.lightglue_model_path"),
+            (importer_help, "AlikedMatching.bruteforce_model_path"),
+            (importer_help, "SiftMatching.lightglue_model_path"),
+            (importer_help, "AlikedMatching.lightglue_model_path"),
         )
         missing = [marker for output, marker in markers if marker not in output]
         if missing:
