@@ -14,7 +14,11 @@ import {
   Video
 } from "lucide-react";
 import companyLogo from "./assets/yuetron-logo.png";
-import { isBackendAvailable, isOutputSupported } from "./backendOptions";
+import {
+  isBackendAvailable,
+  isOutputSupported,
+  type ExperimentalOptionStatus
+} from "./backendOptions";
 import { GeometryViewer } from "./GeometryViewer";
 import { ReconstructionEvidenceRail } from "./ReconstructionEvidenceRail";
 import {
@@ -22,6 +26,22 @@ import {
   type EvidenceStageId
 } from "./reconstructionEvidence";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
+import {
+  formatSfmFeatureProfile,
+  formatSfmLocalMatcher,
+  formatSfmPairing,
+  isSfmPairingAvailable,
+  isSfmPairingModeSupported,
+  sfmFeatureOptions,
+  sfmLocalMatcherOptions,
+  sfmPairingOptions
+} from "./sfmOptions";
+import type {
+  SfmFeatureProfile,
+  SfmFeatureStatus,
+  SfmLocalMatcher,
+  SfmPairing
+} from "./sfmOptions";
 import {
   findGaussianTrainerStatus,
   formatGaussianTrainerOption
@@ -37,32 +57,11 @@ type ConfidenceThresholdScope = "global" | "per_frame";
 type ConsistencySupportPolicy = "any_support" | "adaptive_two";
 type PointBudgetPolicy = "random" | "spatial_balanced";
 type ColmapVggtGrouping = "sequential" | "covisibility";
-type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
-type SfmLocalMatcher = "bruteforce" | "lightglue";
-type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree";
 type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
 type GaussianSorFilter = "on" | "off";
 type GaussianVariant = "original" | "vggt_filtered";
-
-type ExperimentalOptionStatus<T extends string> = {
-  id: T;
-  label: string;
-  available: boolean;
-  reason: string | null;
-  experimental: boolean;
-  supported_modes?: Mode[];
-  setup_command?: string | null;
-};
-
-type SfmLocalMatcherStatus = ExperimentalOptionStatus<SfmLocalMatcher> & {
-  pairings?: ExperimentalOptionStatus<SfmPairing>[];
-};
-
-type SfmFeatureStatus = ExperimentalOptionStatus<SfmFeatureProfile> & {
-  local_matchers?: SfmLocalMatcherStatus[];
-};
 
 type MeshSettings = {
   method: MeshMethod;
@@ -350,22 +349,6 @@ const modeOptions: Array<{
   { id: "panorama", label: "全景图", icon: FileArchive, fileHint: "上传 1 张 360° 全景图" }
 ];
 
-const sfmFeatureOptions: Array<{ id: SfmFeatureProfile; label: string }> = [
-  { id: "sift_v1", label: "SIFT v1（默认）" },
-  { id: "aliked_n16rot_v1", label: "ALIKED N16Rot v1（实验）" }
-];
-
-const sfmLocalMatcherOptions: Array<{ id: SfmLocalMatcher; label: string }> = [
-  { id: "bruteforce", label: "Brute-force（默认）" },
-  { id: "lightglue", label: "LightGlue（实验）" }
-];
-
-const sfmPairingOptions: Array<{ id: SfmPairing; label: string }> = [
-  { id: "exhaustive", label: "Exhaustive（默认）" },
-  { id: "sequential_loop", label: "Sequential + Loop（实验）" },
-  { id: "vocab_tree", label: "Vocab Tree（实验）" }
-];
-
 const backendOptions: Array<{
   id: GeometryBackend;
   label: string;
@@ -475,8 +458,10 @@ export function App() {
   const selectedSfmPairingStatus = sfmPairingStatuses.find(
     (option) => option.id === sfmPairing
   );
-  const selectedSfmPairingSupportsMode =
-    selectedSfmPairingStatus?.supported_modes?.includes(mode) ?? false;
+  const selectedSfmPairingSupportsMode = isSfmPairingModeSupported(
+    selectedSfmPairingStatus,
+    mode
+  );
   const sfmPairingNotice = selectedSfmPairingStatus?.reason
     ? selectedSfmPairingStatus
     : sfmPairingStatuses.find((option) => option.available === false);
@@ -840,13 +825,7 @@ export function App() {
     }
     if (
       usesColmapFeatureStage &&
-      (
-        selectedSfmPairingStatus?.available === false ||
-        (sfmPairing !== "exhaustive" &&
-          selectedSfmPairingStatus?.available !== true) ||
-        (selectedSfmPairingStatus !== undefined &&
-          !selectedSfmPairingSupportsMode)
-      )
+      !isSfmPairingAvailable(sfmPairing, selectedSfmPairingStatus, mode)
     ) {
       setError(
         selectedSfmPairingStatus?.reason ??
@@ -1279,14 +1258,11 @@ export function App() {
                       const status = sfmPairingStatuses.find(
                         (candidate) => candidate.id === option.id
                       );
-                      const unsupportedMode =
-                        status !== undefined &&
-                        !(status.supported_modes?.includes(mode) ?? false);
-                      const unavailable =
-                        status?.available === false ||
-                        unsupportedMode ||
-                        (option.id !== "exhaustive" &&
-                          status?.available !== true);
+                      const unavailable = !isSfmPairingAvailable(
+                        option.id,
+                        status,
+                        mode
+                      );
                       return (
                         <option
                           disabled={unavailable}
@@ -2680,32 +2656,6 @@ function formatBackend(value: GeometryBackend | undefined) {
 function formatOutput(value: OutputType | undefined) {
   return outputOptions.find((option) => option.id === value)?.label ?? "-";
 }
-
-function formatSfmFeatureProfile(value: string | undefined) {
-  const profile = (value ?? "sift_v1") as SfmFeatureProfile;
-  return (
-    sfmFeatureOptions.find((option) => option.id === profile)?.label ??
-    `未知特征（${profile}）`
-  );
-}
-
-function formatSfmLocalMatcher(value: string | undefined) {
-  const matcher = (value ?? "bruteforce") as SfmLocalMatcher;
-  return (
-    sfmLocalMatcherOptions.find((option) => option.id === matcher)?.label ??
-    `未知局部匹配器（${matcher}）`
-  );
-}
-
-function formatSfmPairing(value: string | undefined) {
-  if (value === "sequential") return "Sequential（历史）";
-  const pairing = (value ?? "exhaustive") as SfmPairing;
-  return (
-    sfmPairingOptions.find((option) => option.id === pairing)?.label ??
-    `未知图像对策略（${pairing}）`
-  );
-}
-
 
 function formatTrainer(trainer: Manifest["gaussian_trainer"] | undefined) {
   if (!trainer) {

@@ -11,7 +11,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from image3d_scenegraph.geometry.backends import get_backend_status_payload
-from image3d_scenegraph.jobs import JobError, JobStore, UploadedInput
+from image3d_scenegraph.jobs import (
+    COLMAP_FEATURE_BACKENDS,
+    MAX_VIDEO_BYTES,
+    VIDEO_SUFFIXES,
+    JobError,
+    JobStore,
+    UploadedInput,
+)
 from image3d_scenegraph.worker import LocalJobWorker
 
 
@@ -38,7 +45,7 @@ async def _stage_video_upload(store: JobStore, upload: UploadFile) -> UploadedIn
         with path.open("xb") as handle:
             while chunk := await upload.read(8 * 1024 * 1024):
                 size_bytes += len(chunk)
-                if size_bytes > 2 * 1024**3:
+                if size_bytes > MAX_VIDEO_BYTES:
                     raise JobError("video exceeds the 2 GiB limit")
                 digest.update(chunk)
                 handle.write(chunk)
@@ -153,12 +160,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             )
         if mode == "video" and len(files) != 1:
             raise HTTPException(status_code=400, detail="video mode requires exactly one file")
-        if mode == "video" and Path(files[0].filename or "").suffix.lower() not in {
-            ".mp4",
-            ".mov",
-            ".m4v",
-            ".webm",
-        }:
+        if (
+            mode == "video"
+            and Path(files[0].filename or "").suffix.lower() not in VIDEO_SUFFIXES
+        ):
             raise HTTPException(
                 status_code=400, detail="video must use MP4, MOV, M4V, or WebM"
             )
@@ -208,17 +213,17 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "sfm_feature_profile": (
                     sfm_feature_profile
-                    if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
+                    if geometry_backend in COLMAP_FEATURE_BACKENDS
                     else None
                 ),
                 "sfm_local_matcher": (
                     sfm_local_matcher
-                    if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
+                    if geometry_backend in COLMAP_FEATURE_BACKENDS
                     else None
                 ),
                 "sfm_pairing": (
                     sfm_pairing
-                    if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
+                    if geometry_backend in COLMAP_FEATURE_BACKENDS
                     else None
                 ),
                 "colmap_matcher": (
