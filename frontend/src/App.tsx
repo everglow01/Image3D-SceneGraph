@@ -39,6 +39,7 @@ type PointBudgetPolicy = "random" | "spatial_balanced";
 type ColmapVggtGrouping = "sequential" | "covisibility";
 type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
 type SfmLocalMatcher = "bruteforce" | "lightglue";
+type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree";
 type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
@@ -55,8 +56,12 @@ type ExperimentalOptionStatus<T extends string> = {
   setup_command?: string | null;
 };
 
+type SfmLocalMatcherStatus = ExperimentalOptionStatus<SfmLocalMatcher> & {
+  pairings?: ExperimentalOptionStatus<SfmPairing>[];
+};
+
 type SfmFeatureStatus = ExperimentalOptionStatus<SfmFeatureProfile> & {
-  local_matchers?: ExperimentalOptionStatus<SfmLocalMatcher>[];
+  local_matchers?: SfmLocalMatcherStatus[];
 };
 
 type MeshSettings = {
@@ -161,6 +166,8 @@ type Manifest = {
   sfm_feature_effective_profile?: SfmFeatureProfile;
   sfm_local_matcher?: SfmLocalMatcher;
   sfm_local_matcher_effective?: SfmLocalMatcher;
+  sfm_pairing?: SfmPairing;
+  sfm_pairing_effective?: SfmPairing;
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -231,6 +238,7 @@ type Manifest = {
     sfm_feature_profile?: SfmFeatureProfile;
     sfm_local_matcher_profile?: SfmLocalMatcher;
     sfm_local_matcher?: string;
+    sfm_pairing?: SfmPairing | "sequential";
     gaussian_geometry_source?: GaussianGeometrySource;
     gaussian_geometry_effective_source?: GaussianGeometrySource;
     gaussian_geometry_fallback_applied?: boolean;
@@ -352,6 +360,12 @@ const sfmLocalMatcherOptions: Array<{ id: SfmLocalMatcher; label: string }> = [
   { id: "lightglue", label: "LightGlue（实验）" }
 ];
 
+const sfmPairingOptions: Array<{ id: SfmPairing; label: string }> = [
+  { id: "exhaustive", label: "Exhaustive（默认）" },
+  { id: "sequential_loop", label: "Sequential + Loop（实验）" },
+  { id: "vocab_tree", label: "Vocab Tree（实验）" }
+];
+
 const backendOptions: Array<{
   id: GeometryBackend;
   label: string;
@@ -395,6 +409,7 @@ export function App() {
     useState<SfmFeatureProfile>("sift_v1");
   const [sfmLocalMatcher, setSfmLocalMatcher] =
     useState<SfmLocalMatcher>("bruteforce");
+  const [sfmPairing, setSfmPairing] = useState<SfmPairing>("exhaustive");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -456,6 +471,15 @@ export function App() {
   const sfmLocalMatcherNotice = selectedSfmLocalMatcherStatus?.reason
     ? selectedSfmLocalMatcherStatus
     : sfmLocalMatcherStatuses.find((option) => option.available === false);
+  const sfmPairingStatuses = selectedSfmLocalMatcherStatus?.pairings ?? [];
+  const selectedSfmPairingStatus = sfmPairingStatuses.find(
+    (option) => option.id === sfmPairing
+  );
+  const selectedSfmPairingSupportsMode =
+    selectedSfmPairingStatus?.supported_modes?.includes(mode) ?? false;
+  const sfmPairingNotice = selectedSfmPairingStatus?.reason
+    ? selectedSfmPairingStatus
+    : sfmPairingStatuses.find((option) => option.available === false);
   const usesColmapFeatureStage = ["colmap", "colmap_vggt", "project_3dgs"].includes(
     geometryBackend
   );
@@ -814,6 +838,22 @@ export function App() {
       );
       return;
     }
+    if (
+      usesColmapFeatureStage &&
+      (
+        selectedSfmPairingStatus?.available === false ||
+        (sfmPairing !== "exhaustive" &&
+          selectedSfmPairingStatus?.available !== true) ||
+        (selectedSfmPairingStatus !== undefined &&
+          !selectedSfmPairingSupportsMode)
+      )
+    ) {
+      setError(
+        selectedSfmPairingStatus?.reason ??
+          "所选图像对策略不支持当前输入模式或服务器配置。"
+      );
+      return;
+    }
     if (!selectedBackendAvailable) {
       setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
@@ -875,6 +915,7 @@ export function App() {
       if (usesColmapFeatureStage) {
         form.append("sfm_feature_profile", sfmFeatureProfile);
         form.append("sfm_local_matcher", sfmLocalMatcher);
+        form.append("sfm_pairing", sfmPairing);
       }
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
@@ -1177,7 +1218,7 @@ export function App() {
                     })}
                   </select>
                   <small>
-                    每个 Job 只使用一种 COLMAP 特征；图像对策略、Mapper 和 BA 保持不变。
+                    每个 Job 只使用一种 COLMAP 特征；局部匹配、图像对策略和 Mapper 分别控制。
                   </small>
                   {selectedSfmFeatureStatus?.reason && (
                     <small>{selectedSfmFeatureStatus.reason}</small>
@@ -1223,6 +1264,54 @@ export function App() {
                   )}
                   {sfmLocalMatcherNotice?.setup_command && (
                     <small>{sfmLocalMatcherNotice.setup_command}</small>
+                  )}
+                </label>
+
+                <label>
+                  <span>图像对策略</span>
+                  <select
+                    value={sfmPairing}
+                    onChange={(event) =>
+                      setSfmPairing(event.target.value as SfmPairing)
+                    }
+                  >
+                    {sfmPairingOptions.map((option) => {
+                      const status = sfmPairingStatuses.find(
+                        (candidate) => candidate.id === option.id
+                      );
+                      const unsupportedMode =
+                        status !== undefined &&
+                        !(status.supported_modes?.includes(mode) ?? false);
+                      const unavailable =
+                        status?.available === false ||
+                        unsupportedMode ||
+                        (option.id !== "exhaustive" &&
+                          status?.available !== true);
+                      return (
+                        <option
+                          disabled={unavailable}
+                          key={option.id}
+                          value={option.id}
+                        >
+                          {unavailable
+                            ? `${option.label}（不可用）`
+                            : option.label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <small>
+                    决定哪些图像对进入局部匹配；Sequential + Loop 仅用于视频，Vocab Tree 仅用于多图。
+                  </small>
+                  {selectedSfmPairingStatus !== undefined &&
+                    !selectedSfmPairingSupportsMode && (
+                      <small>所选图像对策略不支持当前输入模式。</small>
+                    )}
+                  {sfmPairingNotice?.reason && (
+                    <small>{sfmPairingNotice.reason}</small>
+                  )}
+                  {sfmPairingNotice?.setup_command && (
+                    <small>{sfmPairingNotice.setup_command}</small>
                   )}
                 </label>
               </>
@@ -1867,6 +1956,18 @@ export function App() {
                     manifest.sfm_local_matcher_effective ??
                       manifest.sfm_local_matcher ??
                       currentStatus?.metrics.sfm_local_matcher_profile
+                  )}
+                </dd>
+              </div>
+            )}
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
+              <div>
+                <dt>SfM 图像对策略</dt>
+                <dd>
+                  {formatSfmPairing(
+                    manifest.sfm_pairing_effective ??
+                      manifest.sfm_pairing ??
+                      currentStatus?.metrics.sfm_pairing
                   )}
                 </dd>
               </div>
@@ -2595,6 +2696,16 @@ function formatSfmLocalMatcher(value: string | undefined) {
     `未知局部匹配器（${matcher}）`
   );
 }
+
+function formatSfmPairing(value: string | undefined) {
+  if (value === "sequential") return "Sequential（历史）";
+  const pairing = (value ?? "exhaustive") as SfmPairing;
+  return (
+    sfmPairingOptions.find((option) => option.id === pairing)?.label ??
+    `未知图像对策略（${pairing}）`
+  );
+}
+
 
 function formatTrainer(trainer: Manifest["gaussian_trainer"] | undefined) {
   if (!trainer) {

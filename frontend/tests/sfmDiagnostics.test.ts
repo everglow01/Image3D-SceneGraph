@@ -121,6 +121,25 @@ test("schema 2 preserves learned feature provenance", () => {
 });
 
 
+test("schema 2 validates vocabulary-tree pairing provenance", () => {
+  const value = v2Payload([image(1, [0, 0, 0], [0, 0, 1])]);
+  value.runs[0].pairing = {
+    name: "vocab_tree",
+    implementation: "colmap",
+    version: "4.0",
+    vocab_tree_sha256: hash
+  };
+
+  const run = parseSfmDiagnostics(value).runs[0];
+
+  assert.equal(run.pairing.name, "vocab_tree");
+  assert.equal(run.pairing.vocab_tree_sha256, hash);
+
+  delete value.runs[0].pairing.vocab_tree_sha256;
+  assert.throws(() => parseSfmDiagnostics(value), /provenance is missing/);
+});
+
+
 test("schema 2 accepts explicit LightGlue provenance", () => {
   const value = v2Payload([image(1, [0, 0, 0], [0, 0, 1])]);
   value.runs[0].local_matcher = {

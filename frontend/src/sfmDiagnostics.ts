@@ -43,7 +43,9 @@ export type SfmRun = {
     profile: "bruteforce" | "lightglue";
     model_sha256: string | null;
   };
-  pairing: SfmAlgorithm;
+  pairing: SfmAlgorithm & {
+    vocab_tree_sha256: string | null;
+  };
   mapper: SfmAlgorithm;
   feature_index_path: string;
   pair_index_path: string;
@@ -337,7 +339,7 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
         version: detector.version,
         model_sha256: null
       },
-      pairing: legacyMatcher,
+      pairing: { ...legacyMatcher, vocab_tree_sha256: null },
       mapper: {
         name: "incremental",
         implementation: "colmap",
@@ -350,6 +352,34 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
   const feature = object(run.feature, "feature");
   const localMatcher = object(run.local_matcher, "local matcher");
   const parsedLocalMatcher = parseAlgorithm(localMatcher, "local matcher");
+  const pairing = object(run.pairing, "pairing");
+  const parsedPairing = parseAlgorithm(pairing, "pairing");
+  const pairingNames = new Set([
+    "exhaustive",
+    "sequential",
+    "sequential_loop",
+    "vocab_tree"
+  ]);
+  if (!pairingNames.has(parsedPairing.name)) {
+    throw new Error("pairing profile is invalid");
+  }
+  const pairingVocabTreeSha256 = optionalSha256(
+    pairing.vocab_tree_sha256,
+    "vocabulary tree SHA-256"
+  );
+  if (
+    (parsedPairing.name === "sequential_loop" ||
+      parsedPairing.name === "vocab_tree") &&
+    pairingVocabTreeSha256 === null
+  ) {
+    throw new Error("pairing vocabulary-tree provenance is missing");
+  }
+  if (
+    parsedPairing.name === "exhaustive" &&
+    pairingVocabTreeSha256 !== null
+  ) {
+    throw new Error("exhaustive pairing has a vocabulary tree");
+  }
   return {
     run_id: text(run.run_id, "run ID"),
     feature: {
@@ -372,7 +402,10 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
         "matcher model SHA-256"
       )
     },
-    pairing: parseAlgorithm(run.pairing, "pairing"),
+    pairing: {
+      ...parsedPairing,
+      vocab_tree_sha256: pairingVocabTreeSha256
+    },
     mapper: parseAlgorithm(run.mapper, "mapper"),
     feature_index_path: featureIndexPath,
     pair_index_path: pairIndexPath
