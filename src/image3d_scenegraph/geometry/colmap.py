@@ -5,11 +5,19 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 
 COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
 COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
+COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree")
+_LOCAL_MATCHER_MARKERS = {
+    ("sift_v1", "bruteforce"): None,
+    ("sift_v1", "lightglue"): "SiftMatching.lightglue_model_path",
+    ("aliked_n16rot_v1", "bruteforce"): "AlikedMatching.bruteforce_model_path",
+    ("aliked_n16rot_v1", "lightglue"): "AlikedMatching.lightglue_model_path",
+}
 _LOCAL_MATCHER_REQUIREMENTS = {
     ("sift_v1", "bruteforce"): (),
     ("sift_v1", "lightglue"): (
@@ -27,6 +35,9 @@ _LOCAL_MATCHER_REQUIREMENTS = {
 }
 COLMAP_LEARNED_FEATURE_SETUP_COMMAND = (
     "uv run python scripts/setup_colmap_learned_features.py --install"
+)
+COLMAP_VOCAB_TREE_SETUP_COMMAND = (
+    "uv run python scripts/setup_colmap_vocab_tree.py --install"
 )
 
 
@@ -67,6 +78,27 @@ class ResolvedColmapLocalMatcher:
     name: str
     matching_options: tuple[str, ...]
     model_sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedColmapPairing:
+    profile_id: str
+    command: str
+    pairing_options: tuple[str, ...]
+    vocab_tree_path: Path | None = None
+    vocab_tree_sha256: str | None = None
+
+    def provenance(self) -> dict[str, str | None]:
+        return {
+            "profile": self.profile_id,
+            "command": self.command,
+            "vocab_tree": (
+                self.vocab_tree_path.name
+                if self.vocab_tree_path is not None
+                else None
+            ),
+            "vocab_tree_sha256": self.vocab_tree_sha256,
+        }
 
 
 def colmap_frontend_provenance(
@@ -120,8 +152,31 @@ COLMAP_FEATURE_ASSETS = {
     ),
 }
 
+COLMAP_VOCAB_TREE_ASSETS = {
+    "sift_v1": ColmapFeatureAsset(
+        filename="vocab_tree_faiss_flickr100K_words256K.bin",
+        url=(
+            "https://github.com/colmap/colmap/releases/download/3.11.1/"
+            "vocab_tree_faiss_flickr100K_words256K.bin"
+        ),
+        size_bytes=72_412_636,
+        sha256="96ca8ec8ea60b1f73465aaf2c401fd3b3ca75cdba2d3c50d6a2f6f760f275ddc",
+    ),
+    "aliked_n16rot_v1": ColmapFeatureAsset(
+        filename="vocab_tree_faiss_flickr100K_words64K_aliked_n16rot.bin",
+        url=(
+            "https://github.com/colmap/colmap/releases/download/3.13.0/"
+            "vocab_tree_faiss_flickr100K_words64K_aliked_n16rot.bin"
+        ),
+        size_bytes=18_764_565,
+        sha256="8b2f9bdc44ca7204d8543bb3adab4c03ba9336c84ef41220b5007991036f075e",
+    ),
+}
 
-def resolve_colmap_executable(project_root: Path | str | None = None) -> Path | None:
+
+def resolve_colmap_executable(
+    project_root: Path | str | None = None,
+) -> Path | None:
     """Resolve an explicit, project-local, or PATH COLMAP executable."""
     configured = os.environ.get("IMAGE3D_COLMAP_BIN")
     if configured:
@@ -139,23 +194,56 @@ def resolve_colmap_executable(project_root: Path | str | None = None) -> Path | 
     return _executable(Path(found)) if found else None
 
 
-def resolve_colmap_vocab_tree(project_root: Path | str | None = None) -> Path | None:
-    """Resolve the COLMAP vocab tree used for sequential matching loop detection."""
-    configured = os.environ.get("IMAGE3D_COLMAP_VOCAB_TREE")
+def resolve_colmap_vocab_tree(
+    project_root: Path | str | None = None,
+    *,
+    feature_profile_id: str = "sift_v1",
+) -> Path | None:
+    """Resolve a descriptor-compatible COLMAP vocabulary tree."""
+    feature_profile_id = validate_colmap_feature_profile(feature_profile_id)
+    configured_name = (
+        "IMAGE3D_COLMAP_VOCAB_TREE"
+        if feature_profile_id == "sift_v1"
+        else "IMAGE3D_COLMAP_ALIKED_VOCAB_TREE"
+    )
+    configured = os.environ.get(configured_name)
     if configured:
         path = Path(configured).expanduser().resolve()
         return path if path.is_file() else None
 
+    asset = COLMAP_VOCAB_TREE_ASSETS[feature_profile_id]
+    path = (colmap_vocab_tree_root(project_root) / asset.filename).resolve()
+    if not path.is_file():
+        return None
+    _verify_vocab_tree_asset(path, asset)
+    return path
+
+
+def colmap_vocab_tree_root(
+    project_root: Path | str | None = None,
+) -> Path:
     root = Path(project_root or os.environ.get("IMAGE3D_PROJECT_ROOT", ".")).resolve()
     external_root = Path(
         os.environ.get("IMAGE3D_EXTERNAL_ROOT", root / "external")
     ).expanduser()
-    local = (
-        external_root
-        / "colmap-vocab"
-        / "vocab_tree_faiss_flickr100K_words256K.bin"
-    ).resolve()
-    return local if local.is_file() else None
+    return (external_root / "colmap-vocab").resolve()
+
+
+def _verify_vocab_tree_asset(path: Path, asset: ColmapFeatureAsset) -> None:
+    actual_size = path.stat().st_size
+    if actual_size != asset.size_bytes:
+        raise ColmapFeatureError(
+            f"COLMAP vocabulary tree size mismatch for {path}: "
+            f"expected {asset.size_bytes}, got {actual_size}; run "
+            f"`{COLMAP_VOCAB_TREE_SETUP_COMMAND}`"
+        )
+    actual_sha256 = sha256_file(path)
+    if actual_sha256 != asset.sha256:
+        raise ColmapFeatureError(
+            f"COLMAP vocabulary tree SHA-256 mismatch for {path}: "
+            f"expected {asset.sha256}, got {actual_sha256}; run "
+            f"`{COLMAP_VOCAB_TREE_SETUP_COMMAND}`"
+        )
 
 
 def validate_colmap_feature_profile(profile_id: str) -> str:
@@ -167,6 +255,12 @@ def validate_colmap_feature_profile(profile_id: str) -> str:
 def validate_colmap_local_matcher(profile_id: str) -> str:
     if profile_id not in COLMAP_LOCAL_MATCHER_IDS:
         raise ColmapFeatureError(f"unsupported COLMAP local matcher: {profile_id}")
+    return profile_id
+
+
+def validate_colmap_pairing(profile_id: str) -> str:
+    if profile_id not in COLMAP_PAIRING_IDS:
+        raise ColmapFeatureError(f"unsupported COLMAP pairing: {profile_id}")
     return profile_id
 
 
@@ -267,6 +361,54 @@ def resolve_colmap_local_matcher(
     )
 
 
+def resolve_colmap_pairing(
+    feature: ResolvedColmapFeatureProfile,
+    profile_id: str,
+    project_root: Path | str | None = None,
+) -> ResolvedColmapPairing:
+    profile_id = validate_colmap_pairing(profile_id)
+    if profile_id == "exhaustive":
+        return ResolvedColmapPairing(
+            profile_id=profile_id,
+            command="exhaustive_matcher",
+            pairing_options=(),
+        )
+
+    tree_path = resolve_colmap_vocab_tree(
+        project_root,
+        feature_profile_id=feature.profile_id,
+    )
+    if tree_path is None:
+        raise ColmapFeatureError(
+            f"COLMAP vocabulary tree missing for {feature.profile_id}; run "
+            f"`{COLMAP_VOCAB_TREE_SETUP_COMMAND}`"
+        )
+    tree_sha256 = sha256_file(tree_path)
+    if profile_id == "sequential_loop":
+        return ResolvedColmapPairing(
+            profile_id=profile_id,
+            command="sequential_matcher",
+            pairing_options=(
+                "--SequentialMatching.loop_detection",
+                "1",
+                "--SequentialMatching.vocab_tree_path",
+                str(tree_path),
+            ),
+            vocab_tree_path=tree_path,
+            vocab_tree_sha256=tree_sha256,
+        )
+    return ResolvedColmapPairing(
+        profile_id=profile_id,
+        command="vocab_tree_matcher",
+        pairing_options=(
+            "--VocabTreeMatching.vocab_tree_path",
+            str(tree_path),
+        ),
+        vocab_tree_path=tree_path,
+        vocab_tree_sha256=tree_sha256,
+    )
+
+
 def resolve_colmap_feature_asset(
     asset: ColmapFeatureAsset,
     project_root: Path | str | None = None,
@@ -351,6 +493,71 @@ def colmap_local_matcher_support_reasons(
     }
 
 
+def colmap_pairing_support_reason(
+    executable: Path,
+    feature_profile_id: str,
+    local_matcher_id: str,
+    pairing_id: str,
+) -> str | None:
+    feature_profile_id = validate_colmap_feature_profile(feature_profile_id)
+    local_matcher_id = validate_colmap_local_matcher(local_matcher_id)
+    pairing_id = validate_colmap_pairing(pairing_id)
+    return colmap_pairing_support_reasons(executable)[
+        (feature_profile_id, local_matcher_id, pairing_id)
+    ]
+
+
+def colmap_pairing_support_reasons(
+    executable: Path,
+) -> dict[tuple[str, str, str], str | None]:
+    commands = {
+        "exhaustive": "exhaustive_matcher",
+        "sequential_loop": "sequential_matcher",
+        "vocab_tree": "vocab_tree_matcher",
+    }
+    pairing_markers = {
+        "exhaustive": None,
+        "sequential_loop": "SequentialMatching.vocab_tree_path",
+        "vocab_tree": "VocabTreeMatching.vocab_tree_path",
+    }
+    outputs: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    for command in commands.values():
+        try:
+            outputs[command] = _capture_help(executable, command)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            errors[command] = f"cannot inspect COLMAP pairing support: {exc}"
+
+    result: dict[tuple[str, str, str], str | None] = {}
+    for feature_id in COLMAP_FEATURE_PROFILE_IDS:
+        for matcher_id in COLMAP_LOCAL_MATCHER_IDS:
+            matcher_marker = _LOCAL_MATCHER_MARKERS[(feature_id, matcher_id)]
+            for pairing_id in COLMAP_PAIRING_IDS:
+                command = commands[pairing_id]
+                if command in errors:
+                    reason = errors[command]
+                else:
+                    required = ["FeatureMatching.type"]
+                    if matcher_marker is not None:
+                        required.append(matcher_marker)
+                    pairing_marker = pairing_markers[pairing_id]
+                    if pairing_marker is not None:
+                        required.append(pairing_marker)
+                    missing = [
+                        marker
+                        for marker in required
+                        if marker not in outputs[command]
+                    ]
+                    reason = (
+                        "COLMAP build is missing pairing options: "
+                        + ", ".join(f"{command}:{marker}" for marker in missing)
+                        if missing
+                        else None
+                    )
+                result[(feature_id, matcher_id, pairing_id)] = reason
+    return result
+
+
 def _colmap_support_reason(
     executable: Path,
     requirements: tuple[tuple[str, str], ...],
@@ -389,6 +596,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+@lru_cache(maxsize=32)
 def _capture_help(executable: Path, command: str) -> str:
     completed = subprocess.run(
         [str(executable), command, "-h"],

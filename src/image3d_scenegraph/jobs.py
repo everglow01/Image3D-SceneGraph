@@ -39,11 +39,14 @@ from image3d_scenegraph.geometry.colmap import (
     ColmapFeatureError,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reason,
+    colmap_pairing_support_reason,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_local_matcher,
+    resolve_colmap_pairing,
     validate_colmap_feature_profile,
     validate_colmap_local_matcher,
+    validate_colmap_pairing,
 )
 
 
@@ -175,15 +178,76 @@ class JobStore:
                 local_matcher = validate_colmap_local_matcher(
                     str(normalized_options.get("sfm_local_matcher", "bruteforce"))
                 )
+                requested_pairing = normalized_options.get("sfm_pairing")
+                legacy_matcher = normalized_options.get("colmap_matcher")
+                legacy_pairing = None
+                if legacy_matcher is not None:
+                    legacy_matcher = str(legacy_matcher)
+                    if legacy_matcher not in COLMAP_MATCHERS:
+                        raise JobError(
+                            f"unsupported COLMAP matcher: {legacy_matcher}"
+                        )
+                    legacy_pairing = {
+                        "exhaustive": "exhaustive",
+                        "sequential": "sequential_loop",
+                    }[legacy_matcher]
+                if requested_pairing is not None and (
+                    legacy_pairing is not None
+                    and str(requested_pairing) != legacy_pairing
+                ):
+                    raise JobError(
+                        "sfm_pairing conflicts with legacy colmap_matcher"
+                    )
+                if requested_pairing is None:
+                    requested_pairing = legacy_pairing
+                if requested_pairing is None:
+                    requested_pairing = os.environ.get("IMAGE3D_SFM_PAIRING")
+                if requested_pairing is None:
+                    legacy_environment_names = {
+                        "project_3dgs": "IMAGE3D_GAUSSIAN_COLMAP_MATCHER",
+                        "colmap": "IMAGE3D_COLMAP_MATCHER",
+                        "colmap_vggt": "IMAGE3D_COLMAP_VGGT_MATCHER",
+                    }
+                    legacy_environment = os.environ.get(
+                        legacy_environment_names[geometry_backend]
+                    )
+                    if legacy_environment is not None:
+                        if legacy_environment not in COLMAP_MATCHERS:
+                            raise JobError(
+                                "unsupported legacy COLMAP matcher environment: "
+                                f"{legacy_environment}"
+                            )
+                        requested_pairing = {
+                            "exhaustive": "exhaustive",
+                            "sequential": "sequential_loop",
+                        }[legacy_environment]
+                pairing = validate_colmap_pairing(
+                    str(requested_pairing or "exhaustive")
+                )
+                if pairing == "sequential_loop" and mode != "video":
+                    raise JobError(
+                        "sequential_loop SfM pairing currently requires video mode"
+                    )
+                if pairing == "vocab_tree" and mode != "multi_image":
+                    raise JobError(
+                        "vocab_tree SfM pairing currently requires multi_image mode"
+                    )
+
                 project_root = Path(
                     os.environ.get("IMAGE3D_PROJECT_ROOT", ".")
                 ).resolve()
-                if feature_profile != "sift_v1" or local_matcher == "lightglue":
+                if (
+                    feature_profile != "sift_v1"
+                    or local_matcher == "lightglue"
+                    or pairing != "exhaustive"
+                ):
                     colmap = resolve_colmap_executable(project_root)
                     if colmap is None:
                         raise JobError("COLMAP executable not found")
                     if feature_profile != "sift_v1":
-                        support_reason = colmap_learned_feature_support_reason(colmap)
+                        support_reason = colmap_learned_feature_support_reason(
+                            colmap
+                        )
                         if support_reason is not None:
                             raise JobError(support_reason)
                     support_reason = colmap_local_matcher_support_reason(
@@ -191,21 +255,36 @@ class JobStore:
                     )
                     if support_reason is not None:
                         raise JobError(support_reason)
+                    if pairing != "exhaustive":
+                        support_reason = colmap_pairing_support_reason(
+                            colmap,
+                            feature_profile,
+                            local_matcher,
+                            pairing,
+                        )
+                        if support_reason is not None:
+                            raise JobError(support_reason)
                 resolved_feature = resolve_colmap_feature_profile(
                     feature_profile, project_root
                 )
                 resolve_colmap_local_matcher(
                     resolved_feature, local_matcher, project_root
                 )
+                resolve_colmap_pairing(
+                    resolved_feature, pairing, project_root
+                )
                 normalized_options.update(
                     sfm_feature_profile=feature_profile,
                     sfm_local_matcher=local_matcher,
+                    sfm_pairing=pairing,
                 )
             except ColmapFeatureError as exc:
                 raise JobError(str(exc)) from exc
         else:
             normalized_options.pop("sfm_feature_profile", None)
             normalized_options.pop("sfm_local_matcher", None)
+            normalized_options.pop("sfm_pairing", None)
+            normalized_options.pop("colmap_matcher", None)
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
             if geometry_backend == "project_3dgs":
@@ -341,6 +420,8 @@ class JobStore:
                 sfm_feature_effective_profile=None,
                 sfm_local_matcher=str(normalized_options["sfm_local_matcher"]),
                 sfm_local_matcher_effective=None,
+                sfm_pairing=str(normalized_options["sfm_pairing"]),
+                sfm_pairing_effective=None,
             )
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
@@ -955,6 +1036,14 @@ class JobStore:
                     )
                 ),
             )
+            if "sfm_pairing" in options:
+                requested_pairing = str(options["sfm_pairing"])
+                result.update(
+                    sfm_pairing=requested_pairing,
+                    sfm_pairing_effective=str(
+                        metrics.get("sfm_pairing", requested_pairing)
+                    ),
+                )
         if self._is_gaussian_job(result):
             result.update(
                 gaussian_geometry_source=str(

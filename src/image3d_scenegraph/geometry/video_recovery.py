@@ -274,6 +274,7 @@ def recover_video_registration(
     local_matching_options: tuple[str, ...] = (),
     sfm_feature_profile: str = "sift_v1",
     sfm_local_matcher: str = "SIFT_BRUTEFORCE",
+    initial_sfm_pairing: str = "exhaustive",
     progress: Callable[[str], None] | None = None,
     force_final_bundle_adjustment: bool = False,
 ) -> tuple[Path, dict[str, Any], list[str]]:
@@ -286,6 +287,8 @@ def recover_video_registration(
         "method": "incremental_colmap",
         "sfm_feature_profile": sfm_feature_profile,
         "sfm_local_matcher": sfm_local_matcher,
+        "initial_sfm_pairing": initial_sfm_pairing,
+        "recovery_pairing": "bounded_temporal_pair_list",
         "policy": {
             "maximum_rounds": MAX_RECOVERY_ROUNDS,
             "round_budget_fraction": ROUND_BUDGET_FRACTION,

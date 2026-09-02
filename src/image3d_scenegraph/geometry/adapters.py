@@ -365,26 +365,52 @@ class ProjectGaussianAdapter:
         )
         geometry_metrics["sfm_local_matcher_profile"] = sfm_local_matcher
         local_matcher_args = ["--local-matcher", sfm_local_matcher]
-        colmap_matcher = _choice_option(
-            context,
-            "colmap_matcher",
-            "IMAGE3D_GAUSSIAN_COLMAP_MATCHER",
-            "exhaustive",
-            {"exhaustive", "sequential"},
-        )
-        geometry_metrics["colmap_matcher"] = colmap_matcher
-        matcher_args = ["--matcher", colmap_matcher]
-        if colmap_matcher == "sequential":
-            from image3d_scenegraph.geometry.colmap import resolve_colmap_vocab_tree
-
-            vocab_tree = resolve_colmap_vocab_tree(project_root)
-            if vocab_tree is None:
+        requested_pairing = context.options.get("sfm_pairing")
+        if requested_pairing is not None:
+            sfm_pairing = str(requested_pairing)
+            if sfm_pairing not in {
+                "exhaustive",
+                "sequential_loop",
+                "vocab_tree",
+            }:
                 raise ReconstructionError(
-                    "sequential COLMAP matching requires the vocab tree; run "
-                    "`uv run python scripts/setup_colmap_vocab_tree.py --install` "
-                    "or set IMAGE3D_COLMAP_VOCAB_TREE"
+                    f"unsupported COLMAP pairing: {sfm_pairing}"
                 )
-            matcher_args.extend(("--vocab-tree-path", str(vocab_tree)))
+            pairing_args = ["--pairing", sfm_pairing]
+            colmap_matcher = {
+                "exhaustive": "exhaustive",
+                "sequential_loop": "sequential",
+                "vocab_tree": "vocab_tree",
+            }[sfm_pairing]
+        else:
+            colmap_matcher = _choice_option(
+                context,
+                "colmap_matcher",
+                "IMAGE3D_GAUSSIAN_COLMAP_MATCHER",
+                "exhaustive",
+                {"exhaustive", "sequential"},
+            )
+            sfm_pairing = (
+                "sequential_loop"
+                if colmap_matcher == "sequential"
+                else "exhaustive"
+            )
+            pairing_args = ["--matcher", colmap_matcher]
+            if colmap_matcher == "sequential":
+                from image3d_scenegraph.geometry.colmap import (
+                    resolve_colmap_vocab_tree,
+                )
+
+                vocab_tree = resolve_colmap_vocab_tree(project_root)
+                if vocab_tree is None:
+                    raise ReconstructionError(
+                        "sequential COLMAP matching requires the vocab tree; run "
+                        "`uv run python scripts/setup_colmap_vocab_tree.py --install` "
+                        "or set IMAGE3D_COLMAP_VOCAB_TREE"
+                    )
+                pairing_args.extend(("--vocab-tree-path", str(vocab_tree)))
+        geometry_metrics["sfm_pairing"] = sfm_pairing
+        geometry_metrics["colmap_matcher"] = colmap_matcher
         video_geometry_args: list[str] = []
         if context.mode == "video" and video_profile == "standard_v2":
             if video_source_path is None or video_selection_path is None:
@@ -407,7 +433,7 @@ class ProjectGaussianAdapter:
                 *feature_args,
                 *local_matcher_args,
                 *video_geometry_args,
-                *matcher_args,
+                *pairing_args,
                 "--gaussian-baseline",
                 "--use-gpu",
                 "--num-threads",
@@ -436,7 +462,7 @@ class ProjectGaussianAdapter:
                 *feature_args,
                 *local_matcher_args,
                 *video_geometry_args,
-                *matcher_args,
+                *pairing_args,
                 "--repo-dir",
                 str(external_root / "vggt"),
                 "--checkpoint-dir",
@@ -709,7 +735,7 @@ class ProjectGaussianAdapter:
             output_dir=context.job_dir / "diagnostics" / "sfm",
             feature_profile=sfm_feature_profile,
             local_matcher=sfm_local_matcher,
-            matcher=colmap_matcher,
+            pairing=sfm_pairing,
             geometry_source=geometry_source,
             video_selection_path=video_selection_path,
         )
@@ -1110,7 +1136,7 @@ def _try_export_sfm_diagnostics(
     output_dir: Path,
     feature_profile: str,
     local_matcher: str,
-    matcher: str,
+    pairing: str,
     geometry_source: str,
     video_selection_path: Path | None,
 ) -> tuple[
@@ -1128,9 +1154,18 @@ def _try_export_sfm_diagnostics(
             if geometry_source == "vggt_ba"
             else context.job_dir / "diagnostics" / "colmap_timing.json"
         )
+        pairing_vocab_tree_sha256: str | None = None
         try:
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             colmap_build = str(provenance.get("colmap_build", "unknown"))
+            pairing_hash_key = (
+                "colmap_vocab_tree_sha256"
+                if geometry_source == "vggt_ba"
+                else "vocab_tree_sha256"
+            )
+            pairing_hash = provenance.get(pairing_hash_key)
+            if isinstance(pairing_hash, str):
+                pairing_vocab_tree_sha256 = pairing_hash
             feature = provenance.get(
                 "colmap_feature" if geometry_source == "vggt_ba" else "feature"
             )
@@ -1172,7 +1207,8 @@ def _try_export_sfm_diagnostics(
             dataset_contract_path=dataset_path,
             output_dir=output_dir,
             feature=feature,
-            pairing=matcher,
+            pairing=pairing,
+            pairing_vocab_tree_sha256=pairing_vocab_tree_sha256,
             mapper="incremental",
             colmap_build=colmap_build,
             video_selection_path=video_selection_path,
@@ -1961,6 +1997,13 @@ class ColmapPointCloudAdapter:
             "bruteforce",
             {"bruteforce", "lightglue"},
         )
+        if "sfm_pairing" in context.options:
+            pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
+        else:
+            pairing_args = [
+                "--matcher",
+                os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
+            ]
         command = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
             str(script_path),
@@ -1972,8 +2015,7 @@ class ColmapPointCloudAdapter:
             feature_profile,
             "--local-matcher",
             local_matcher,
-            "--matcher",
-            os.environ.get("IMAGE3D_COLMAP_MATCHER", "sequential"),
+            *pairing_args,
         ]
 
         try:
@@ -2053,6 +2095,13 @@ class ColmapVggtPointCloudAdapter:
             "bruteforce",
             {"bruteforce", "lightglue"},
         )
+        if "sfm_pairing" in context.options:
+            pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
+        else:
+            pairing_args = [
+                "--matcher",
+                os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
+            ]
         fusion_mode = os.environ.get("IMAGE3D_COLMAP_VGGT_FUSION_MODE", "points")
         if fusion_mode not in {"points", "tsdf"}:
             raise ReconstructionError("IMAGE3D_COLMAP_VGGT_FUSION_MODE must be 'points' or 'tsdf'")
@@ -2089,8 +2138,7 @@ class ColmapVggtPointCloudAdapter:
             feature_profile,
             "--local-matcher",
             local_matcher,
-            "--matcher",
-            os.environ.get("IMAGE3D_COLMAP_VGGT_MATCHER", "exhaustive"),
+            *pairing_args,
             "--vggt-batch-size",
             str(batch_size),
             "--vggt-overlap-size",

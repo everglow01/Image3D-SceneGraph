@@ -10,12 +10,15 @@ from typing import Any
 from image3d_scenegraph.gaussian.trainers import get_gaussian_trainer_specs
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
+    COLMAP_VOCAB_TREE_SETUP_COMMAND,
     ColmapFeatureError,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reasons,
+    colmap_pairing_support_reasons,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_local_matcher,
+    resolve_colmap_pairing,
     resolve_colmap_vocab_tree,
 )
 
@@ -110,11 +113,13 @@ def _colmap_feature_profiles(
     missing_colmap_reason = None if colmap is not None else "colmap executable not found"
     learned_support_reason = missing_colmap_reason
     local_matcher_support_reasons: dict[tuple[str, str], str | None] = {}
+    pairing_support_reasons: dict[tuple[str, str, str], str | None] = {}
     if colmap is not None:
         learned_support_reason = colmap_learned_feature_support_reason(colmap)
         local_matcher_support_reasons = colmap_local_matcher_support_reasons(
             colmap
         )
+        pairing_support_reasons = colmap_pairing_support_reasons(colmap)
 
     result: list[dict[str, Any]] = []
     for profile_id, label, experimental in (
@@ -130,6 +135,14 @@ def _colmap_feature_profiles(
                 feature = resolve_colmap_feature_profile(profile_id, project_root)
             except ColmapFeatureError as exc:
                 feature_reason = str(exc)
+        pairing_asset_reason = feature_reason
+        if pairing_asset_reason is None and feature is not None:
+            try:
+                resolve_colmap_pairing(
+                    feature, "sequential_loop", project_root
+                )
+            except ColmapFeatureError as exc:
+                pairing_asset_reason = str(exc)
         local_matchers = []
         for matcher_id, matcher_label, matcher_experimental in (
             ("bruteforce", "Brute-force", False),
@@ -162,6 +175,55 @@ def _colmap_feature_profiles(
                     if missing_cli_support
                     else COLMAP_LEARNED_FEATURE_SETUP_COMMAND
                 )
+            pairings = []
+            for (
+                pairing_id,
+                pairing_label,
+                pairing_modes,
+            ) in (
+                ("exhaustive", "Exhaustive", ["multi_image", "video"]),
+                (
+                    "sequential_loop",
+                    "Sequential + Loop",
+                    ["video"],
+                ),
+                ("vocab_tree", "Vocab Tree", ["multi_image"]),
+            ):
+                pairing_reason = matcher_reason
+                pairing_support_reason = missing_colmap_reason
+                if pairing_support_reason is None:
+                    pairing_support_reason = pairing_support_reasons[
+                        (profile_id, matcher_id, pairing_id)
+                    ]
+                if pairing_reason is None:
+                    pairing_reason = pairing_support_reason
+                if (
+                    pairing_reason is None
+                    and pairing_id != "exhaustive"
+                    and pairing_asset_reason is not None
+                ):
+                    pairing_reason = pairing_asset_reason
+                pairing_setup_command = None
+                if pairing_reason is not None:
+                    if pairing_support_reason is not None:
+                        pairing_setup_command = (
+                            "uv run python scripts/setup_colmap_cuda.py --install"
+                        )
+                    elif matcher_reason is not None:
+                        pairing_setup_command = matcher_setup_command
+                    elif pairing_id != "exhaustive":
+                        pairing_setup_command = COLMAP_VOCAB_TREE_SETUP_COMMAND
+                pairings.append(
+                    {
+                        "id": pairing_id,
+                        "label": pairing_label,
+                        "available": pairing_reason is None,
+                        "reason": pairing_reason,
+                        "experimental": pairing_id != "exhaustive",
+                        "supported_modes": pairing_modes,
+                        "setup_command": pairing_setup_command,
+                    }
+                )
             local_matchers.append(
                 {
                     "id": matcher_id,
@@ -170,6 +232,7 @@ def _colmap_feature_profiles(
                     "reason": matcher_reason,
                     "experimental": matcher_experimental,
                     "setup_command": matcher_setup_command,
+                    "pairings": pairings,
                 }
             )
         feature_setup_command = None
@@ -209,7 +272,12 @@ def _project_gaussian_spec(
     colmap_available = colmap is not None
     if not colmap_available:
         reasons.append("colmap executable not found")
-    vocab_tree = resolve_colmap_vocab_tree(project_root)
+    try:
+        vocab_tree = resolve_colmap_vocab_tree(project_root)
+        vocab_tree_reason = None if vocab_tree is not None else "COLMAP vocab tree missing"
+    except ColmapFeatureError as exc:
+        vocab_tree = None
+        vocab_tree_reason = str(exc)
     ffmpeg = shutil.which(os.environ.get("IMAGE3D_FFMPEG_BIN") or "ffmpeg")
     ffprobe = shutil.which(os.environ.get("IMAGE3D_FFPROBE_BIN") or "ffprobe")
     video_available = bool(ffmpeg and ffprobe)
@@ -361,7 +429,7 @@ def _project_gaussian_spec(
                         + (
                             []
                             if vocab_tree is not None
-                            else ["COLMAP vocab tree missing"]
+                            else [str(vocab_tree_reason)]
                         )
                     ),
                     "experimental": True,

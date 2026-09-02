@@ -34,6 +34,7 @@ def export_colmap_diagnostics(
     output_dir: Path,
     feature: dict[str, Any],
     pairing: str,
+    pairing_vocab_tree_sha256: str | None = None,
     colmap_build: str,
     mapper: str = "incremental",
     video_selection_path: Path | None = None,
@@ -47,8 +48,27 @@ def export_colmap_diagnostics(
     if final_output.exists():
         raise ColmapDiagnosticsError("SfM diagnostics output already exists")
     _relative(root, final_output)
-    if pairing not in {"exhaustive", "sequential"}:
+    if pairing not in {
+        "exhaustive",
+        "sequential",
+        "sequential_loop",
+        "vocab_tree",
+    }:
         raise ColmapDiagnosticsError(f"unsupported COLMAP pairing: {pairing}")
+    if pairing_vocab_tree_sha256 is not None:
+        pairing_vocab_tree_sha256 = _sha256_value(
+            pairing_vocab_tree_sha256, "vocabulary tree"
+        )
+    if pairing in {"sequential_loop", "vocab_tree"} and (
+        pairing_vocab_tree_sha256 is None
+    ):
+        raise ColmapDiagnosticsError(
+            "COLMAP pairing vocabulary-tree provenance is missing"
+        )
+    if pairing == "exhaustive" and pairing_vocab_tree_sha256 is not None:
+        raise ColmapDiagnosticsError(
+            "exhaustive COLMAP pairing has a vocabulary tree"
+        )
     if mapper != "incremental":
         raise ColmapDiagnosticsError(f"unsupported COLMAP mapper: {mapper}")
     feature_record = _validate_feature_record(feature)
@@ -81,6 +101,7 @@ def export_colmap_diagnostics(
                 image_set_hash,
                 feature_record,
                 pairing,
+                pairing_vocab_tree_sha256,
                 mapper,
                 colmap_build,
             )
@@ -145,6 +166,7 @@ def export_colmap_diagnostics(
                 "name": pairing,
                 "implementation": "colmap",
                 "version": colmap_build,
+                "vocab_tree_sha256": pairing_vocab_tree_sha256,
             },
             "geometric_verification": {
                 "implementation": "colmap",
@@ -194,6 +216,9 @@ def export_colmap_diagnostics(
         "sfm_local_matcher_profile": str(feature_record["local_matcher_profile"]),
         "sfm_local_matcher": str(feature_record["local_matcher"]),
         "sfm_pairing": pairing,
+        "sfm_pairing_vocab_tree_sha256": (
+            pairing_vocab_tree_sha256 or "none"
+        ),
         "sfm_mapper": mapper,
     }
 
@@ -645,6 +670,7 @@ def _run_id(
     image_set_hash: str,
     feature: dict[str, str | int | None],
     pairing: str,
+    pairing_vocab_tree_sha256: str | None,
     mapper: str,
     version: str,
 ) -> str:
@@ -652,7 +678,10 @@ def _run_id(
         {
             "feature": feature,
             "local_matcher": feature["local_matcher"],
-            "pairing": pairing,
+            "pairing": {
+                "profile": pairing,
+                "vocab_tree_sha256": pairing_vocab_tree_sha256,
+            },
             "geometric_verification": "colmap",
             "mapper": mapper,
             "implementation": "colmap",
