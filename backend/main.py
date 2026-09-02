@@ -112,6 +112,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         sfm_feature_profile: Annotated[
             Literal["sift_v1", "aliked_n16rot_v1"], Form()
         ] = "sift_v1",
+        sfm_local_matcher: Annotated[
+            Literal["bruteforce", "lightglue"], Form()
+        ] = "bruteforce",
         video_keyframe_profile: Annotated[
             Literal["standard_v1", "standard_v2"], Form()
         ] = "standard_v1",
@@ -201,6 +204,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "sfm_feature_profile": (
                     sfm_feature_profile
+                    if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
+                    else None
+                ),
+                "sfm_local_matcher": (
+                    sfm_local_matcher
                     if geometry_backend in {"colmap", "colmap_vggt", "project_3dgs"}
                     else None
                 ),
