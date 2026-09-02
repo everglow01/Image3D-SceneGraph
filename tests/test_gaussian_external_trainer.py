@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 from image3d_scenegraph.gaussian.external_trainer import (
     _graphdeco_command,

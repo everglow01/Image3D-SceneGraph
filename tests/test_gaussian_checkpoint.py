@@ -10,7 +10,6 @@ from image3d_scenegraph.gaussian.checkpoint import (
     AttemptRecord,
     CheckpointContractError,
     CheckpointProvenance,
-    CheckpointRecord,
     CheckpointState,
     create_attempt,
     load_attempt,

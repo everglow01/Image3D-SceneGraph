@@ -17,7 +17,6 @@ from analyze_g1_17a_scene_pressure import (  # noqa: E402
     analyze,
     concentration_records,
     fraction,
-    load_sidecar,
     main,
     support_strata,
 )

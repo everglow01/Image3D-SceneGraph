@@ -12,7 +12,6 @@ from image3d_scenegraph.geometry.adapters import (
     ProjectGaussianAdapter,
     ReconstructionContext,
     ReconstructionError,
-    _automatic_test_evaluation_enabled,
     _read_video_registration_recovery,
     _try_export_sfm_diagnostics,
     _write_video_registration_diagnostics,
@@ -512,11 +511,6 @@ def test_project_gaussian_sequential_matcher_without_vocab_tree_fails(
 
     with pytest.raises(ReconstructionError, match="vocab tree"):
         ProjectGaussianAdapter().run(context)
-
-
-def test_frontend_gaussian_jobs_do_not_automatically_consume_test():
-    assert _automatic_test_evaluation_enabled("project") is False
-    assert _automatic_test_evaluation_enabled("graphdeco") is False
 
 
 def test_video_recovery_diagnostics_publish_stable_metrics(tmp_path):

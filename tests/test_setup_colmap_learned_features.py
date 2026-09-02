@@ -5,8 +5,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-import pytest
-
+from image3d_scenegraph import file_integrity
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_ASSETS,
     ColmapFeatureAsset,
@@ -45,9 +44,7 @@ def test_setup_is_dry_run_by_default(tmp_path, monkeypatch, capsys):
     assert not root.exists()
 
 
-def test_setup_downloads_verifies_and_atomically_publishes(
-    tmp_path, monkeypatch
-):
+def test_setup_downloads_verifies_and_atomically_publishes(tmp_path, monkeypatch):
     payload = b"model"
     asset = _asset(payload)
     root = tmp_path / "models"
@@ -63,10 +60,8 @@ def test_setup_downloads_verifies_and_atomically_publishes(
             raise urllib.error.ContentTooShortError("incomplete", b"partial")
         Path(path).write_bytes(payload)
 
-    monkeypatch.setattr(setup.urllib.request, "urlretrieve", retrieve)
-    monkeypatch.setattr(
-        sys, "argv", ["setup_colmap_learned_features.py", "--install"]
-    )
+    monkeypatch.setattr(file_integrity.urllib.request, "urlretrieve", retrieve)
+    monkeypatch.setattr(sys, "argv", ["setup_colmap_learned_features.py", "--install"])
 
     setup.main()
 
@@ -75,17 +70,22 @@ def test_setup_downloads_verifies_and_atomically_publishes(
     assert not (root / f"{asset.filename}.part").exists()
 
 
-def test_setup_rejects_tampered_existing_model(tmp_path, monkeypatch):
+def test_setup_replaces_tampered_existing_model(tmp_path, monkeypatch):
     payload = b"model"
     asset = _asset(payload)
     root = tmp_path / "models"
     root.mkdir()
-    (root / asset.filename).write_bytes(b"wrong")
+    destination = root / asset.filename
+    destination.write_bytes(b"wrong")
+
+    def retrieve(_url, path):
+        Path(path).write_bytes(payload)
+
     monkeypatch.setenv("IMAGE3D_COLMAP_FEATURE_ROOT", str(root))
     monkeypatch.setattr(setup, "COLMAP_FEATURE_ASSETS", {"model": asset})
-    monkeypatch.setattr(
-        sys, "argv", ["setup_colmap_learned_features.py", "--install"]
-    )
+    monkeypatch.setattr(file_integrity.urllib.request, "urlretrieve", retrieve)
+    monkeypatch.setattr(sys, "argv", ["setup_colmap_learned_features.py", "--install"])
 
-    with pytest.raises(SystemExit, match="SHA-256 mismatch"):
-        setup.main()
+    setup.main()
+
+    assert destination.read_bytes() == payload

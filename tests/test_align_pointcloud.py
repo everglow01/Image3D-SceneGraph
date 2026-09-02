@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"

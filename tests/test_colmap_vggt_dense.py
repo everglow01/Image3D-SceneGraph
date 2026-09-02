@@ -31,7 +31,6 @@ from run_colmap_vggt_dense import (  # noqa: E402
     DepthScaleEstimate,
     FusionCamera,
     FusionFrame,
-    SupportPointDiagnostics,
     apply_point_budget,
     apply_support_policy,
     build_fusion_camera,

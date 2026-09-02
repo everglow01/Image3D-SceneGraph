@@ -5,8 +5,7 @@ import sys
 import urllib.error
 from pathlib import Path
 
-import pytest
-
+from image3d_scenegraph import file_integrity
 from image3d_scenegraph.geometry.colmap import ColmapFeatureAsset
 from scripts import setup_colmap_vocab_tree as setup
 
@@ -23,9 +22,7 @@ def _asset(name: str, payload: bytes) -> ColmapFeatureAsset:
 def test_aliked_vocab_tree_asset_is_pinned() -> None:
     asset = setup.COLMAP_VOCAB_TREE_ASSETS["aliked_n16rot_v1"]
 
-    assert asset.filename == (
-        "vocab_tree_faiss_flickr100K_words64K_aliked_n16rot.bin"
-    )
+    assert asset.filename == ("vocab_tree_faiss_flickr100K_words64K_aliked_n16rot.bin")
     assert asset.size_bytes == 18_764_565
     assert asset.sha256 == (
         "8b2f9bdc44ca7204d8543bb3adab4c03ba9336c84ef41220b5007991036f075e"
@@ -43,9 +40,7 @@ def test_vocab_setup_is_dry_run_by_default(tmp_path, monkeypatch, capsys):
     assert not root.exists()
 
 
-def test_vocab_setup_retries_verifies_and_publishes(
-    tmp_path, monkeypatch
-):
+def test_vocab_setup_retries_verifies_and_publishes(tmp_path, monkeypatch):
     payload = b"tree"
     asset = _asset("tree.bin", payload)
     root = tmp_path / "vocab"
@@ -60,13 +55,9 @@ def test_vocab_setup_retries_verifies_and_publishes(
         Path(path).write_bytes(payload)
 
     monkeypatch.setattr(setup, "colmap_vocab_tree_root", lambda: root)
-    monkeypatch.setattr(
-        setup, "COLMAP_VOCAB_TREE_ASSETS", {"sift_v1": asset}
-    )
-    monkeypatch.setattr(setup.urllib.request, "urlretrieve", retrieve)
-    monkeypatch.setattr(
-        sys, "argv", ["setup_colmap_vocab_tree.py", "--install"]
-    )
+    monkeypatch.setattr(setup, "COLMAP_VOCAB_TREE_ASSETS", {"sift_v1": asset})
+    monkeypatch.setattr(file_integrity.urllib.request, "urlretrieve", retrieve)
+    monkeypatch.setattr(sys, "argv", ["setup_colmap_vocab_tree.py", "--install"])
 
     setup.main()
 
@@ -75,21 +66,22 @@ def test_vocab_setup_retries_verifies_and_publishes(
     assert not (root / f"{asset.filename}.part").exists()
 
 
-def test_vocab_setup_rejects_tampered_existing_tree(
-    tmp_path, monkeypatch
-):
+def test_vocab_setup_replaces_tampered_existing_tree(tmp_path, monkeypatch):
     payload = b"tree"
     asset = _asset("tree.bin", payload)
     root = tmp_path / "vocab"
     root.mkdir()
-    (root / asset.filename).write_bytes(b"bad!")
-    monkeypatch.setattr(setup, "colmap_vocab_tree_root", lambda: root)
-    monkeypatch.setattr(
-        setup, "COLMAP_VOCAB_TREE_ASSETS", {"sift_v1": asset}
-    )
-    monkeypatch.setattr(
-        sys, "argv", ["setup_colmap_vocab_tree.py", "--install"]
-    )
+    destination = root / asset.filename
+    destination.write_bytes(b"bad!")
 
-    with pytest.raises(SystemExit, match="SHA-256 mismatch"):
-        setup.main()
+    def retrieve(_url, path):
+        Path(path).write_bytes(payload)
+
+    monkeypatch.setattr(setup, "colmap_vocab_tree_root", lambda: root)
+    monkeypatch.setattr(setup, "COLMAP_VOCAB_TREE_ASSETS", {"sift_v1": asset})
+    monkeypatch.setattr(file_integrity.urllib.request, "urlretrieve", retrieve)
+    monkeypatch.setattr(sys, "argv", ["setup_colmap_vocab_tree.py", "--install"])
+
+    setup.main()
+
+    assert destination.read_bytes() == payload
