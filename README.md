@@ -180,23 +180,26 @@ uv run python scripts/setup_colmap_cuda.py --install
 
 The pinned production build is installed under ignored `external/colmap-4-cuda/` and does not replace `/usr/bin/colmap`. Runners resolve `IMAGE3D_COLMAP_BIN` first, then this project-local build, then `colmap` on `PATH`. The RTX 4060 development build uses CUDA 12.2, SM 89, ONNX Runtime, and cuDNN 9.
 
-The experimental `aliked_n16rot_v1` profile additionally needs two pinned COLMAP ONNX assets. Setup is dry-run by default; jobs verify local size/SHA-256 and never download models or silently fall back to SIFT:
+The experimental `aliked_n16rot_v1` feature and `lightglue` local matcher use pinned COLMAP ONNX assets. Setup is dry-run by default; `--install` verifies existing ALIKED/brute-force files and installs any missing SIFT/ALIKED LightGlue model. Jobs verify local size/SHA-256 and never download models or silently change algorithms:
 
 ```bash
 uv run python scripts/setup_colmap_learned_features.py
 uv run python scripts/setup_colmap_learned_features.py --install
 ```
 
-A geometry runner can then select it explicitly:
+The two LightGlue models are the COLMAP release copies of Apache-2.0 LightGlue pretrained weights; ALIKED remains BSD-3-Clause upstream. Runtime model paths are project-local and git-ignored.
+
+A geometry runner can then select feature extraction and local matching independently:
 
 ```bash
 uv run python scripts/run_colmap_sparse.py \
   --image-dir INPUT \
   --output-dir OUTPUT \
-  --feature-profile aliked_n16rot_v1
+  --feature-profile aliked_n16rot_v1 \
+  --local-matcher lightglue
 ```
 
-The same profile is available through the asynchronous API:
+The same controls are available through the asynchronous API:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/jobs \
@@ -204,6 +207,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F geometry_backend=colmap \
   -F output_type=point_cloud \
   -F sfm_feature_profile=aliked_n16rot_v1 \
+  -F sfm_local_matcher=lightglue \
   -F files=@view-01.jpg \
   -F files=@view-02.jpg
 ```
@@ -214,7 +218,7 @@ Sequential matching with vocab-tree loop detection (experimental `colmap_matcher
 uv run python scripts/setup_colmap_vocab_tree.py --install
 ```
 
-The production default retains `sift_v1`, brute-force matching, and incremental Mapper. `aliked_n16rot_v1` is an explicit experimental feature profile with the same 8,192-keypoint cap and descriptor-compatible brute-force matcher. LightGlue and Global Mapper remain unexposed pending later single-factor phases and controlled Validation ablations; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+The production default retains `sift_v1`, `sfm_local_matcher=bruteforce`, and incremental Mapper. Phase 2 exposes experimental `lightglue` independently for SIFT and ALIKED, maps it to the descriptor-compatible COLMAP model, and fixes the minimum score at 0.1. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Global Mapper remains unexposed pending its later single-factor phase; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Run COLMAP sparse SfM directly for a local image folder:
 
@@ -222,6 +226,7 @@ Run COLMAP sparse SfM directly for a local image folder:
 .venv/bin/python scripts/run_colmap_sparse.py \
   --image-dir path/to/images \
   --output-dir outputs/colmap_run \
+  --local-matcher bruteforce \
   --matcher sequential
 ```
 
