@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.video.registration import registered_gap_violations
 
 
@@ -20,14 +21,6 @@ SPLIT_SEED = 20260729
 
 class DatasetContractError(ValueError):
     """Raised when a 3DGS dataset contract is invalid."""
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def qvec_to_rotmat(qvec: Any) -> np.ndarray:

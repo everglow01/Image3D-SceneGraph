@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -18,6 +17,8 @@ from typing import Any
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
+
+from image3d_scenegraph.file_integrity import sha256_file
 
 STANDARD_V1 = "standard_v1"
 STANDARD_V2 = "standard_v2"
@@ -170,7 +171,7 @@ def probe_video(
         "source": {
             "filename": source.name,
             "size_bytes": size_bytes,
-            "sha256": _sha256_file(source),
+            "sha256": sha256_file(source),
         },
         "container": container,
         "codec": stream.get("codec_name"),
@@ -313,7 +314,7 @@ def extract_video_keyframes(
                 "path": path.relative_to(output_root).as_posix(),
                 "width": image.width,
                 "height": image.height,
-                "sha256": _sha256_file(path),
+                "sha256": sha256_file(path),
                 "exif": {
                     "orientation": image.getexif().get(274),
                     "software": image.getexif().get(305),
@@ -1133,14 +1134,6 @@ def _orientation(width: int, height: int) -> str:
     if width == height:
         return "square"
     return "portrait" if height > width else "landscape"
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

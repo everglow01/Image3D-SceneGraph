@@ -14,6 +14,8 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Callable
 
+from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
+from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.gaussian.config import (
     GaussianConfigError,
     ResolvedGaussianConfig,
@@ -23,7 +25,6 @@ from image3d_scenegraph.gaussian.config import (
     resolve_mcmc_config,
     resolve_public_config,
 )
-from image3d_scenegraph.gaussian.dataset import sha256_file
 from image3d_scenegraph.gaussian.trainers import (
     GaussianTrainerError,
     trainer_record,
@@ -36,6 +37,8 @@ from image3d_scenegraph.geometry.adapters import (
     get_reconstruction_adapter,
 )
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_LEGACY_MATCHER_IDS,
+    COLMAP_LEGACY_MATCHER_TO_PAIRING,
     ColmapFeatureError,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reason,
@@ -63,7 +66,6 @@ GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
 GAUSSIAN_RECOVERY_PRUNE_SETTINGS = {"on", "off"}
-COLMAP_MATCHERS = {"exhaustive", "sequential"}
 COLMAP_FEATURE_BACKENDS = {"colmap", "colmap_vggt", "project_3dgs"}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
@@ -102,10 +104,6 @@ class UploadedInput:
 
 class JobError(ValueError):
     """Raised when a job request violates the local job contract."""
-
-
-class JobCancelled(RuntimeError):
-    """Raised when a queued or running local job is cancelled."""
 
 
 class JobStore:
@@ -183,14 +181,13 @@ class JobStore:
                 legacy_pairing = None
                 if legacy_matcher is not None:
                     legacy_matcher = str(legacy_matcher)
-                    if legacy_matcher not in COLMAP_MATCHERS:
+                    if legacy_matcher not in COLMAP_LEGACY_MATCHER_IDS:
                         raise JobError(
                             f"unsupported COLMAP matcher: {legacy_matcher}"
                         )
-                    legacy_pairing = {
-                        "exhaustive": "exhaustive",
-                        "sequential": "sequential_loop",
-                    }[legacy_matcher]
+                    legacy_pairing = COLMAP_LEGACY_MATCHER_TO_PAIRING[
+                        legacy_matcher
+                    ]
                 if requested_pairing is not None and (
                     legacy_pairing is not None
                     and str(requested_pairing) != legacy_pairing
@@ -212,15 +209,14 @@ class JobStore:
                         legacy_environment_names[geometry_backend]
                     )
                     if legacy_environment is not None:
-                        if legacy_environment not in COLMAP_MATCHERS:
+                        if legacy_environment not in COLMAP_LEGACY_MATCHER_IDS:
                             raise JobError(
                                 "unsupported legacy COLMAP matcher environment: "
                                 f"{legacy_environment}"
                             )
-                        requested_pairing = {
-                            "exhaustive": "exhaustive",
-                            "sequential": "sequential_loop",
-                        }[legacy_environment]
+                        requested_pairing = COLMAP_LEGACY_MATCHER_TO_PAIRING[
+                            legacy_environment
+                        ]
                 pairing = validate_colmap_pairing(
                     str(requested_pairing or "exhaustive")
                 )
@@ -331,14 +327,6 @@ class JobStore:
                     )
                 if gaussian_trainer == "mcmc" and recovery_prune == "on":
                     raise JobError("MCMC trainer cannot be combined with recovery prune")
-                if "colmap_matcher" in normalized_options:
-                    colmap_matcher = str(normalized_options["colmap_matcher"])
-                    if colmap_matcher not in COLMAP_MATCHERS:
-                        raise JobError(f"unsupported COLMAP matcher: {colmap_matcher}")
-                    if colmap_matcher == "sequential" and mode != "video":
-                        raise JobError(
-                            "sequential COLMAP matching currently requires video mode"
-                        )
                 normalized_options.update(
                     gaussian_trainer=gaussian_trainer,
                     gaussian_geometry_source=geometry_source,
@@ -1187,8 +1175,6 @@ class JobStore:
                 text=True,
                 timeout=330,
             )
-        from image3d_scenegraph.worker import run_cancellable_command
-
         return run_cancellable_command(
             command,
             cwd=project_root,
@@ -1272,7 +1258,7 @@ class JobStore:
             raise JobError("navigation provenance is missing")
         contract = self._read_json(sources["dataset"])
         config = self._read_json(sources["config"])
-        export = self._read_json(sources["export"])
+        self._read_json(sources["export"])
         train_ids = contract.get("splits", {}).get("train")
         if not isinstance(train_ids, list) or not train_ids:
             raise JobError("Gaussian Train split is invalid")
@@ -1956,8 +1942,6 @@ class JobStore:
                     text=True,
                 )
             else:
-                from image3d_scenegraph.worker import run_cancellable_command
-
                 completed = run_cancellable_command(
                     command,
                     cwd=project_root,

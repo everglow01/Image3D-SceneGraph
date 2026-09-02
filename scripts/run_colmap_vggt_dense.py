@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import resource
 import shutil
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -19,6 +17,7 @@ import torch
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
@@ -31,18 +30,12 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_pairing,
 )
 from image3d_scenegraph.geometry.grouping import (
-    GROUPING_MAX_NEIGHBORS,
-    GROUPING_MIN_SHARED_POINTS,
     ColmapImage,
     CovisibilityEdge,
     build_covisibility_graph,
     build_scale_disagreement_diagnostics,
     build_vggt_group_diagnostics,
     build_vggt_group_selection,
-    build_vggt_groups,
-    colmap_camera_center,
-    colmap_camera_view_axis,
-    order_images_by_covisibility,
     parse_colmap_images_with_points,
     parse_colmap_points3d,
     qvec_to_rotmat,
@@ -218,7 +211,7 @@ def main() -> None:
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--precision", default="auto", choices=["auto", "bf16", "fp16", "fp32"])
     parser.add_argument(
-        "--matcher", choices=["sequential", "exhaustive"], default=None
+        "--matcher", choices=COLMAP_LEGACY_MATCHER_IDS, default=None
     )
     parser.add_argument("--pairing", choices=COLMAP_PAIRING_IDS)
     parser.add_argument(

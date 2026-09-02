@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
+from image3d_scenegraph.geometry.colmap import (
+    COLMAP_LEGACY_MATCHER_IDS,
+    COLMAP_LEGACY_MATCHER_TO_PAIRING,
+    COLMAP_PAIRING_IDS,
+    resolve_colmap_vocab_tree,
+)
 from image3d_scenegraph.video.registration import (
     MIN_VIDEO_REGISTERED_COUNT,
     MIN_VIDEO_REGISTRATION_RATE,
@@ -368,11 +375,7 @@ class ProjectGaussianAdapter:
         requested_pairing = context.options.get("sfm_pairing")
         if requested_pairing is not None:
             sfm_pairing = str(requested_pairing)
-            if sfm_pairing not in {
-                "exhaustive",
-                "sequential_loop",
-                "vocab_tree",
-            }:
+            if sfm_pairing not in COLMAP_PAIRING_IDS:
                 raise ReconstructionError(
                     f"unsupported COLMAP pairing: {sfm_pairing}"
                 )
@@ -388,19 +391,11 @@ class ProjectGaussianAdapter:
                 "colmap_matcher",
                 "IMAGE3D_GAUSSIAN_COLMAP_MATCHER",
                 "exhaustive",
-                {"exhaustive", "sequential"},
+                set(COLMAP_LEGACY_MATCHER_IDS),
             )
-            sfm_pairing = (
-                "sequential_loop"
-                if colmap_matcher == "sequential"
-                else "exhaustive"
-            )
+            sfm_pairing = COLMAP_LEGACY_MATCHER_TO_PAIRING[colmap_matcher]
             pairing_args = ["--matcher", colmap_matcher]
             if colmap_matcher == "sequential":
-                from image3d_scenegraph.geometry.colmap import (
-                    resolve_colmap_vocab_tree,
-                )
-
                 vocab_tree = resolve_colmap_vocab_tree(project_root)
                 if vocab_tree is None:
                     raise ReconstructionError(
@@ -900,56 +895,8 @@ class ProjectGaussianAdapter:
         _adapter_progress(context, "gaussian_validation", 0.72)
         _run_adapter_command(command_evaluate, context, project_root, env=env)
         evaluation_path = evaluation_dir / "evaluation.json"
-        test_assets: dict[str, str] = {}
-        required_test_paths: tuple[Path, ...] = ()
         test_status = "not_run"
         test_reason = "frontend_validation_only_visual_comparison"
-        if _automatic_test_evaluation_enabled(trainer_id):
-            frozen_candidate_path = training_dir / "evaluation" / attempt_id / "frozen-candidate.json"
-            test_evaluation_dir = training_dir / "evaluation" / attempt_id / "test"
-            command_test = [
-                os.environ.get("IMAGE3D_PYTHON", sys.executable),
-                str(evaluator_script),
-                "--dataset-contract",
-                str(effective_dataset_path),
-                "--dataset-root",
-                str(context.job_dir),
-                "--model",
-                str(model_path),
-                "--resolved-config-json",
-                str(effective_config_path),
-                "--split",
-                "test",
-                "--output-dir",
-                str(test_evaluation_dir),
-                "--progress",
-                str(progress_path),
-                "--frozen-candidate",
-                str(frozen_candidate_path),
-                "--freeze-candidate-id",
-                f"{context.job_id}-{attempt_id}",
-            ]
-            _adapter_progress(context, "gaussian_test_evaluation", 0.80)
-            _run_adapter_command(command_test, context, project_root, env=env)
-            test_evaluation_path = test_evaluation_dir / "evaluation.json"
-            test_consumption_path = frozen_candidate_path.with_name(
-                f"{frozen_candidate_path.stem}.test-consumed.json"
-            )
-            required_test_paths = (
-                test_evaluation_path,
-                frozen_candidate_path,
-                test_consumption_path,
-            )
-            test_assets = {
-                "gaussian_test_evaluation": test_evaluation_path.relative_to(
-                    context.job_dir
-                ).as_posix(),
-                "gaussian_test_decision": test_consumption_path.relative_to(
-                    context.job_dir
-                ).as_posix(),
-            }
-            test_status = "complete"
-            test_reason = "frozen_candidate_test_evaluation_complete"
         export_dir = training_dir / "export" / attempt_id
         command_export = [
             os.environ.get("IMAGE3D_PYTHON", sys.executable),
@@ -985,7 +932,6 @@ class ProjectGaussianAdapter:
             path.is_file()
             for path in (
                 evaluation_path,
-                *required_test_paths,
                 export_metadata_path,
                 scene_splat_path,
                 canonical_path,
@@ -1078,7 +1024,6 @@ class ProjectGaussianAdapter:
                 "gaussian_replay_record": replay_record_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_effective_config": effective_config_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_evaluation": evaluation_path.relative_to(context.job_dir).as_posix(),
-                **test_assets,
                 "gaussian_export_metadata": export_metadata_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_canonical": canonical_path.relative_to(context.job_dir).as_posix(),
                 "scene_splat": scene_splat_path.relative_to(context.job_dir).as_posix(),
@@ -1125,6 +1070,19 @@ class ProjectGaussianAdapter:
             },
             log_lines=log_lines,
         )
+
+
+def _legacy_sift_frontend_provenance() -> dict[str, str | int | None]:
+    return {
+        "profile": "sift_v1",
+        "extractor": "SIFT",
+        "descriptor": "SIFT",
+        "local_matcher_profile": "bruteforce",
+        "local_matcher": "SIFT_BRUTEFORCE",
+        "max_features": 8_192,
+        "extractor_model_sha256": None,
+        "matcher_model_sha256": None,
+    }
 
 
 def _try_export_sfm_diagnostics(
@@ -1175,16 +1133,7 @@ def _try_export_sfm_diagnostics(
                     or local_matcher != "bruteforce"
                 ):
                     raise ValueError("COLMAP frontend provenance is missing")
-                feature = {
-                    "profile": "sift_v1",
-                    "extractor": "SIFT",
-                    "descriptor": "SIFT",
-                    "local_matcher_profile": "bruteforce",
-                    "local_matcher": "SIFT_BRUTEFORCE",
-                    "max_features": 8_192,
-                    "extractor_model_sha256": None,
-                    "matcher_model_sha256": None,
-                }
+                feature = _legacy_sift_frontend_provenance()
         except (OSError, json.JSONDecodeError, ValueError):
             colmap_build = "unknown"
             if feature_profile != "sift_v1" or local_matcher != "bruteforce":
@@ -1230,8 +1179,6 @@ def _try_export_sfm_diagnostics(
         )
     except Exception as exc:
         if context.cancel_requested is not None and context.cancel_requested():
-            from image3d_scenegraph.worker import JobCancelled
-
             raise JobCancelled("job cancellation requested") from exc
         reason = str(exc) or exc.__class__.__name__
         return (
@@ -1793,10 +1740,6 @@ def _write_video_registration_diagnostics(
     return timestamps, metrics, gap_violations
 
 
-def _automatic_test_evaluation_enabled(_trainer_id: str) -> bool:
-    return False
-
-
 def _adapter_progress(context: ReconstructionContext, stage: str, progress: float) -> None:
     if context.progress_callback is not None:
         context.progress_callback(stage, progress)
@@ -1820,8 +1763,6 @@ def _run_adapter_command(
                 capture_output=True,
                 text=True,
             )
-        from image3d_scenegraph.worker import run_cancellable_command
-
         return run_cancellable_command(
             command,
             cwd=cwd,
@@ -1929,8 +1870,6 @@ class VggtPointCloudAdapter:
                     text=True,
                 )
             else:
-                from image3d_scenegraph.worker import run_cancellable_command
-
                 completed = run_cancellable_command(
                     command,
                     cwd=project_root,
@@ -2028,8 +1967,6 @@ class ColmapPointCloudAdapter:
                     text=True,
                 )
             else:
-                from image3d_scenegraph.worker import run_cancellable_command
-
                 completed = run_cancellable_command(
                     command,
                     cwd=project_root,
@@ -2193,8 +2130,6 @@ class ColmapVggtPointCloudAdapter:
                     text=True,
                 )
             else:
-                from image3d_scenegraph.worker import run_cancellable_command
-
                 completed = run_cancellable_command(
                     command,
                     cwd=project_root,

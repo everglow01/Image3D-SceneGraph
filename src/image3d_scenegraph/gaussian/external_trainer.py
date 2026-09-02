@@ -13,6 +13,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from image3d_scenegraph.execution import run_cancellable_command
+
 from .config import ResolvedGaussianConfig, resolved_config_record
 from .dataset import sha256_file
 from .importer import import_inria_ply
@@ -188,8 +190,6 @@ def _run(
             return subprocess.run(
                 command, cwd=cwd, env=env, check=True, capture_output=True, text=True
             )
-        from image3d_scenegraph.worker import run_cancellable_command
-
         return run_cancellable_command(
             command, cwd=cwd, env=env, cancel_requested=cancel_requested
         )

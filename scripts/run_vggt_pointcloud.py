@@ -258,7 +258,6 @@ def run_reconstruction(
             )
             local_points = transform_points(local_points, global_from_local)
 
-        local_from_global = np.linalg.inv(global_from_local)
         for local_index, image_index in enumerate(image_indices):
             global_extrinsics[image_index] = transform_extrinsic_by_similarity(
                 local_extrinsic[local_index],

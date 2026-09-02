@@ -9,11 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from run_colmap_vggt_dense import (
+from image3d_scenegraph.geometry.grouping import (
     GROUPING_MIN_SHARED_POINTS,
-    build_scale_disagreement_diagnostics,
     parse_colmap_images_with_points,
 )
+from run_colmap_vggt_dense import build_scale_disagreement_diagnostics
 
 
 class ScaleDiagnosticsError(RuntimeError):

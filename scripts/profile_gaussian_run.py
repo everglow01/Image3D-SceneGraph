@@ -30,7 +30,7 @@ def main() -> None:
     initialization = _read(args.initialization)
     config = _read(args.effective_config)
     evaluation = _read(args.evaluation)
-    exported = _read(args.export_metadata)
+    _read(args.export_metadata)
     progress = [json.loads(line) for line in args.progress.read_text(encoding="utf-8").splitlines()]
     topology = {
         key: sum(int(event.get(key, 0)) for event in progress)

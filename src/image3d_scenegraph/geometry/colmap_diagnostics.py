@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from image3d_scenegraph.file_integrity import sha256_file
+
 
 SCHEMA_VERSION = 2
 PROFILE_ID = "sfm_frontend_diagnostics_v2"
@@ -324,7 +326,7 @@ def _image_records(
         digest = (
             str(selected["sha256"])
             if selected is not None and _is_sha256(selected.get("sha256"))
-            else _sha256_file(source)
+            else sha256_file(source)
         )
         record: dict[str, Any] = {
             "frame_uid": hashlib.sha256(f"{relative}\0{digest}".encode()).hexdigest(),
@@ -652,14 +654,6 @@ def _unit(vector: Any) -> np.ndarray:
 def _check_cancelled(cancel_requested: Callable[[], bool] | None) -> None:
     if cancel_requested is not None and cancel_requested():
         raise ColmapDiagnosticsError("SfM diagnostics cancelled")
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _hash_json(value: Any) -> str:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import math
 import sqlite3
@@ -11,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.video.keyframes import (
     V2_PROFILE_ID,
     materialize_video_candidates,
@@ -1052,7 +1052,7 @@ def _append_materialized_selection(
                 "path": (relative_parent / path.name).as_posix(),
                 "width": int(reference["width"]),
                 "height": int(reference["height"]),
-                "sha256": _sha256_file(path),
+                "sha256": sha256_file(path),
                 "exif": {
                     "orientation": 1,
                     "software": f"Image3D-SceneGraph {V2_PROFILE_ID}",
@@ -1094,14 +1094,6 @@ def run_command(command: list[str]) -> str:
         + completed.stderr.strip()
         + f"\nelapsed_seconds={time.perf_counter() - started_at:.3f}"
     )
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

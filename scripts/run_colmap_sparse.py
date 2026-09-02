@@ -11,6 +11,7 @@ from typing import Any
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
@@ -39,7 +40,7 @@ def main() -> None:
     parser.add_argument("--image-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
-        "--matcher", choices=["sequential", "exhaustive"], default=None
+        "--matcher", choices=COLMAP_LEGACY_MATCHER_IDS, default=None
     )
     parser.add_argument("--pairing", choices=COLMAP_PAIRING_IDS)
     parser.add_argument(

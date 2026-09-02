@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import subprocess
@@ -8,10 +7,17 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from image3d_scenegraph.file_integrity import sha256_file
+
 
 COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
 COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
 COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree")
+COLMAP_LEGACY_MATCHER_IDS = ("exhaustive", "sequential")
+COLMAP_LEGACY_MATCHER_TO_PAIRING = {
+    "exhaustive": "exhaustive",
+    "sequential": "sequential_loop",
+}
 _LOCAL_MATCHER_MARKERS = {
     ("sift_v1", "bruteforce"): None,
     ("sift_v1", "lightglue"): "SiftMatching.lightglue_model_path",
@@ -586,14 +592,6 @@ def _support_reason_from_outputs(
             missing
         )
     return None
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 @lru_cache(maxsize=32)

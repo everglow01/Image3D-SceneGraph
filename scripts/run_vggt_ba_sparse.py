@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess
 import sys
@@ -13,8 +12,10 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
@@ -104,7 +105,7 @@ def main() -> None:
     parser.add_argument("--max-image-size", type=int, default=1280)
     parser.add_argument("--num-threads", type=int, default=8)
     parser.add_argument(
-        "--matcher", choices=["exhaustive", "sequential"], default=None
+        "--matcher", choices=COLMAP_LEGACY_MATCHER_IDS, default=None
     )
     parser.add_argument("--pairing", choices=COLMAP_PAIRING_IDS)
     parser.add_argument(
@@ -1409,14 +1410,6 @@ def git_revision(path: Path) -> str:
         text=True,
     )
     return completed.stdout.strip()
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 if __name__ == "__main__":

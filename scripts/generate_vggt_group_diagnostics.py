@@ -9,12 +9,12 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from run_colmap_sparse import discover_images
-from run_colmap_vggt_dense import (
+from image3d_scenegraph.geometry.grouping import (
     build_vggt_group_diagnostics,
     build_vggt_groups,
     parse_colmap_images_with_points,
 )
+from run_colmap_sparse import discover_images
 
 
 class GroupDiagnosticsError(RuntimeError):
