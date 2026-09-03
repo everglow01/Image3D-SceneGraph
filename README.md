@@ -126,7 +126,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F files=@room.mp4
 ```
 
-Every successful native Project/MCMC preparation publishes `gaussian/replay/` with hardlinked (or copied across filesystems) registered images, cameras, dataset contract, and frozen initialization. It excludes the COLMAP database and matches. Reuse it without rerunning geometry, sparse-point selection, or 3NN scale estimation:
+Every successful native Project/MCMC preparation publishes `gaussian/replay/` with hardlinked (or copied across filesystems) registered images, cameras, dataset contract, and frozen initialization. It excludes the COLMAP database and matches. Before CUDA starts, all trainer paths write `gaussian/preparation/ATTEMPT/geometry_readiness.json` and reject catastrophic isolated camera poses or a collapsed 3NN-scale distribution with stable reason codes. Reuse a passing replay without rerunning geometry, sparse-point selection, or 3NN scale estimation:
 
 ```bash
 uv run python scripts/run_gaussian_training.py \
@@ -137,6 +137,21 @@ uv run python scripts/run_gaussian_training.py \
   --initialization frozen \
   --distributed
 ```
+
+Append `--readiness-only` to the runner command to generate/check `geometry_readiness.json` and exit before any trainer or distributed CUDA process starts.
+
+A retained failed workspace with one independently verified bad camera can be converted only through an explicit derivative; the tool does not choose an image or start training, and refuses to overwrite its output:
+
+```bash
+uv run python scripts/derive_gaussian_pose_repair.py \
+  --dataset-contract WORKSPACE/geometry/dataset.json \
+  --dataset-root WORKSPACE \
+  --points WORKSPACE/colmap/undistorted/sparse_txt/points3D.txt \
+  --exclude-image-id 61 \
+  --output-dir outputs/replays/JOB-pose-repair
+```
+
+The new `repair.json` binds the original and derived hashes and states that surviving sparse coordinates are preserved without rerunning bundle adjustment. Its `replay/` may then be passed to `run_gaussian_training.py --initialization frozen`; it is a `repaired_derivative`, not a successful result for the original SfM arm.
 
 DUSt3R, MASt3R, and panorama-to-geometry are still API contract placeholders and return a clear not implemented error.
 
