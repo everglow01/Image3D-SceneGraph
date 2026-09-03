@@ -146,6 +146,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
         feature_profile="sift_v1",
         local_matcher="bruteforce",
         pairing="exhaustive",
+        geometric_verification="default_v1",
         geometry_source="colmap",
         video_selection_path=None,
     )
@@ -175,6 +176,7 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
         feature_profile="sift_v1",
         local_matcher="bruteforce",
         pairing="exhaustive",
+        geometric_verification="default_v1",
         geometry_source="colmap",
         video_selection_path=None,
     )
@@ -212,6 +214,7 @@ def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monke
             feature_profile="sift_v1",
             local_matcher="bruteforce",
             pairing="exhaustive",
+            geometric_verification="default_v1",
             geometry_source="colmap",
             video_selection_path=None,
         )
@@ -870,12 +873,15 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["options"]["sfm_feature_profile"] == "sift_v1"
     assert request["options"]["sfm_local_matcher"] == "bruteforce"
     assert request["options"]["sfm_pairing"] == "exhaustive"
+    assert request["options"]["sfm_geometric_verification"] == "default_v1"
     assert manifest["sfm_feature_profile"] == "sift_v1"
     assert manifest["sfm_feature_effective_profile"] is None
     assert manifest["sfm_local_matcher"] == "bruteforce"
     assert manifest["sfm_local_matcher_effective"] is None
     assert manifest["sfm_pairing"] == "exhaustive"
     assert manifest["sfm_pairing_effective"] is None
+    assert manifest["sfm_geometric_verification"] == "default_v1"
+    assert manifest["sfm_geometric_verification_effective"] is None
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
     assert manifest["gaussian_config"]["schema_version"] == 10
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
@@ -1243,6 +1249,46 @@ def test_job_store_rejects_unknown_local_matcher(tmp_path):
             output_type="point_cloud",
             options={"sfm_local_matcher": "unknown"},
         )
+
+
+def test_job_store_validates_geometric_verification_profile(tmp_path, monkeypatch):
+    store = JobStore(output_root=tmp_path / "jobs")
+    images = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(2)
+    ]
+
+    with pytest.raises(JobError, match="unsupported COLMAP geometric verification"):
+        store.enqueue_job(
+            "multi_image",
+            images,
+            geometry_backend="colmap",
+            output_type="point_cloud",
+            options={"sfm_geometric_verification": "unknown"},
+        )
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_executable",
+        lambda _root: tmp_path / "colmap",
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_geometric_verification_support_reason",
+        lambda _colmap, _pairing, _profile: None,
+    )
+    manifest = store.enqueue_job(
+        "multi_image",
+        images,
+        geometry_backend="colmap",
+        output_type="point_cloud",
+        options={"sfm_geometric_verification": "guided_v1"},
+    )
+    request = json.loads(
+        (store.job_dir(manifest["job_id"]) / "request.json").read_text()
+    )
+
+    assert request["options"]["sfm_geometric_verification"] == "guided_v1"
+    assert manifest["sfm_geometric_verification"] == "guided_v1"
+    assert manifest["sfm_geometric_verification_effective"] is None
 
 
 def test_sequential_colmap_matcher_rejects_non_video_input(tmp_path):

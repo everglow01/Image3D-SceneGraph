@@ -84,6 +84,15 @@ def test_backend_specs_report_aliked_without_disabling_sift(
     )
     monkeypatch.setattr(
         backends,
+        "colmap_geometric_verification_support_reasons",
+        lambda _path: {
+            (pairing, geometric): None
+            for pairing in ("exhaustive", "sequential_loop", "vocab_tree")
+            for geometric in ("default_v1", "guided_v1")
+        },
+    )
+    monkeypatch.setattr(
+        backends,
         "resolve_colmap_feature_profile",
         lambda _profile, _root: object(),
     )
@@ -116,6 +125,13 @@ def test_backend_specs_report_aliked_without_disabling_sift(
         for profile in profiles.values()
         for matcher in profile["local_matchers"]
         for pairing in matcher["pairings"]
+    )
+    assert all(
+        geometric["available"]
+        for profile in profiles.values()
+        for matcher in profile["local_matchers"]
+        for pairing in matcher["pairings"]
+        for geometric in pairing["geometric_verifications"]
     )
     assert specs["colmap"].available is True
 

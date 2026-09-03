@@ -103,6 +103,11 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "lightglue",
     ]
     assert properties["sfm_local_matcher"]["default"] == "bruteforce"
+    assert properties["sfm_geometric_verification"]["enum"] == [
+        "default_v1",
+        "guided_v1",
+    ]
+    assert properties["sfm_geometric_verification"]["default"] == "default_v1"
     assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
     assert properties["gaussian_geometry_source"]["default"] == "colmap"
     assert properties["gaussian_postprocess"]["enum"] == [
@@ -160,6 +165,7 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
         "gaussian_longest_edge": 3072,
         "sfm_feature_profile": "sift_v1",
         "sfm_local_matcher": "bruteforce",
+        "sfm_geometric_verification": "default_v1",
     }
 
 
@@ -201,6 +207,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
             "output_type": "point_cloud",
             "sfm_feature_profile": "aliked_n16rot_v1",
             "sfm_local_matcher": "lightglue",
+            "sfm_geometric_verification": "guided_v1",
         },
         files=[
             ("files", (f"{index}.jpg", b"image", "image/jpeg"))
@@ -212,6 +219,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
     assert store.options == {
         "sfm_feature_profile": "aliked_n16rot_v1",
         "sfm_local_matcher": "lightglue",
+        "sfm_geometric_verification": "guided_v1",
     }
 
 
@@ -323,12 +331,15 @@ def test_create_video_job_forwards_colmap_matcher(tmp_path):
     assert request["options"]["sfm_pairing"] == "sequential_loop"
     assert request["options"]["sfm_feature_profile"] == "sift_v1"
     assert request["options"]["sfm_local_matcher"] == "bruteforce"
+    assert request["options"]["sfm_geometric_verification"] == "default_v1"
     assert response.json()["sfm_feature_profile"] == "sift_v1"
     assert response.json()["sfm_feature_effective_profile"] is None
     assert response.json()["sfm_local_matcher"] == "bruteforce"
     assert response.json()["sfm_local_matcher_effective"] is None
     assert response.json()["sfm_pairing"] == "sequential_loop"
     assert response.json()["sfm_pairing_effective"] is None
+    assert response.json()["sfm_geometric_verification"] == "default_v1"
+    assert response.json()["sfm_geometric_verification_effective"] is None
 
 
 def test_create_video_job_rejects_conflicting_pairing_fields(tmp_path):
@@ -513,6 +524,11 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
         data={"sfm_pairing": "unknown"},
         files=files,
     )
+    sfm_geometric_response = client.post(
+        "/api/jobs",
+        data={"sfm_geometric_verification": "unknown"},
+        files=files,
+    )
 
     assert geometry_response.status_code == 422
     assert postprocess_response.status_code == 422
@@ -522,6 +538,7 @@ def test_create_job_rejects_invalid_gaussian_experimental_options(tmp_path):
     assert sfm_feature_response.status_code == 422
     assert sfm_local_matcher_response.status_code == 422
     assert sfm_pairing_response.status_code == 422
+    assert sfm_geometric_response.status_code == 422
 
 
 def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):
@@ -558,6 +575,7 @@ def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
     assert store.options == {
         "sfm_feature_profile": "sift_v1",
         "sfm_local_matcher": "bruteforce",
+        "sfm_geometric_verification": "default_v1",
     }
 
 
@@ -590,6 +608,7 @@ def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
     assert store.options == {
         "sfm_feature_profile": "sift_v1",
         "sfm_local_matcher": "bruteforce",
+        "sfm_geometric_verification": "default_v1",
         "colmap_vggt_grouping": "covisibility",
         "colmap_vggt_overlap_size": 1,
         "colmap_vggt_confidence_threshold_scope": "per_frame",

@@ -10,10 +10,12 @@ from image3d_scenegraph.geometry.colmap import (
     ColmapFeatureAsset,
     ColmapFeatureError,
     ResolvedColmapFeatureProfile,
+    colmap_geometric_verification_support_reason,
     colmap_local_matcher_support_reason,
     colmap_pairing_support_reason,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
 )
@@ -331,4 +333,58 @@ def test_pairing_capability_probe_is_profile_specific(tmp_path, monkeypatch):
             "vocab_tree",
         )
         is None
+    )
+
+
+def test_geometric_verification_profiles_only_change_guided_matching() -> None:
+    default = resolve_colmap_geometric_verification("default_v1")
+    guided = resolve_colmap_geometric_verification("guided_v1")
+
+    assert default.provenance() == {
+        "profile": "default_v1",
+        "guided_matching": False,
+        "skip_geometric_verification": False,
+        "raw_parameter_policy": "colmap_build_defaults",
+    }
+    assert default.matching_options == (
+        "--FeatureMatching.guided_matching",
+        "0",
+        "--FeatureMatching.skip_geometric_verification",
+        "0",
+    )
+    assert guided.matching_options == (
+        "--FeatureMatching.guided_matching",
+        "1",
+        "--FeatureMatching.skip_geometric_verification",
+        "0",
+    )
+
+
+def test_geometric_verification_capability_checks_pairing_and_recovery(
+    tmp_path, monkeypatch
+) -> None:
+    executable = _make_executable(tmp_path / "colmap")
+    markers = (
+        "FeatureMatching.guided_matching "
+        "FeatureMatching.skip_geometric_verification"
+    )
+    monkeypatch.setattr(colmap, "_capture_help", lambda _executable, _command: markers)
+
+    assert (
+        colmap_geometric_verification_support_reason(
+            executable, "exhaustive", "guided_v1"
+        )
+        is None
+    )
+
+    monkeypatch.setattr(
+        colmap,
+        "_capture_help",
+        lambda _executable, command: markers if command != "matches_importer" else "",
+    )
+    assert "matches_importer:FeatureMatching.guided_matching" in (
+        colmap_geometric_verification_support_reason(
+            executable, "exhaustive", "guided_v1"
+        )
+        or ""
     )

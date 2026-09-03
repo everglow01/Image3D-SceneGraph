@@ -15,6 +15,7 @@ from image3d_scenegraph.geometry.colmap import (  # noqa: E402
     ResolvedColmapLocalMatcher,
     ResolvedColmapPairing,
     resolve_colmap_feature_profile,
+    resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
 )
 from image3d_scenegraph.geometry.grouping import (  # noqa: E402
@@ -43,6 +44,7 @@ from run_colmap_vggt_dense import (  # noqa: E402
     factorial_arm_name,
     fuse_frames_tsdf,
     map_original_pixel_to_vggt,
+    main as run_dense_main,
     optimize_depth_scale_graph,
     prepare_colmap_text_model,
     run_colmap_pipeline,
@@ -86,6 +88,9 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         local_matcher=resolve_colmap_local_matcher(
             feature_profile, "bruteforce", tmp_path
         ),
+        geometric_verification=resolve_colmap_geometric_verification(
+            "default_v1"
+        ),
         single_camera=True,
         mapper_abs_pose_min_num_inliers=30,
         mapper_abs_pose_min_inlier_ratio=0.25,
@@ -98,6 +103,11 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
     assert matcher[matcher.index("--FeatureMatching.use_gpu") + 1] == "1"
     assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
     assert matcher[matcher.index("--FeatureMatching.type") + 1] == "SIFT_BRUTEFORCE"
+    assert matcher[matcher.index("--FeatureMatching.guided_matching") + 1] == "0"
+    assert (
+        matcher[matcher.index("--FeatureMatching.skip_geometric_verification") + 1]
+        == "0"
+    )
 
 
 def test_colmap_pipeline_applies_lightglue_matcher(tmp_path, monkeypatch):
@@ -138,6 +148,9 @@ def test_colmap_pipeline_applies_lightglue_matcher(tmp_path, monkeypatch):
         ),
         feature_profile=feature_profile,
         local_matcher=local_matcher,
+        geometric_verification=resolve_colmap_geometric_verification(
+            "guided_v1"
+        ),
         single_camera=True,
         mapper_abs_pose_min_num_inliers=30,
         mapper_abs_pose_min_inlier_ratio=0.25,
@@ -149,6 +162,34 @@ def test_colmap_pipeline_applies_lightglue_matcher(tmp_path, monkeypatch):
     assert matcher[matcher.index("--SiftMatching.lightglue_model_path") + 1] == (
         "/models/sift-lightglue.onnx"
     )
+    assert matcher[matcher.index("--FeatureMatching.guided_matching") + 1] == "1"
+    assert (
+        matcher[matcher.index("--FeatureMatching.skip_geometric_verification") + 1]
+        == "0"
+    )
+
+
+def test_dense_runner_rejects_guided_profile_when_reusing_text_model(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_vggt_dense.py",
+            "--image-dir",
+            str(tmp_path / "images"),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--colmap-model-dir",
+            str(tmp_path / "model"),
+            "--geometric-verification",
+            "guided_v1",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        run_dense_main()
 
 
 def test_prepare_colmap_text_model_reuses_frozen_model(tmp_path):

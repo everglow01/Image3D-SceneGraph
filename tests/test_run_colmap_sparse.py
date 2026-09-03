@@ -344,6 +344,8 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
             "aliked_n16rot_v1",
             "--local-matcher",
             "lightglue",
+            "--geometric-verification",
+            "guided_v1",
         ],
     )
 
@@ -359,10 +361,16 @@ def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
     assert matcher[matcher.index("--AlikedMatching.lightglue_model_path") + 1] == (
         "/models/aliked-lightglue.onnx"
     )
+    assert matcher[matcher.index("--FeatureMatching.guided_matching") + 1] == "1"
+    assert (
+        matcher[matcher.index("--FeatureMatching.skip_geometric_verification") + 1]
+        == "0"
+    )
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sfm_feature_profile=aliked_n16rot_v1\n" in log
     assert "sfm_local_matcher_profile=lightglue\n" in log
     assert "sfm_local_matcher=ALIKED_LIGHTGLUE\n" in log
+    assert "sfm_geometric_verification_profile=guided_v1\n" in log
 
 
 def test_aliked_profile_rejects_sift_vocab_tree(tmp_path, monkeypatch):
@@ -552,6 +560,8 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
             str(output_dir),
             "--pairing",
             "sequential_loop",
+            "--geometric-verification",
+            "guided_v1",
             "--gaussian-baseline",
             "--video-source",
             str(video_source),
@@ -581,6 +591,13 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert recovery_call["database_path"] == output_dir / "colmap" / "database.db"
     assert recovery_call["selection_path"] == selection_path
     assert recovery_call["initial_sfm_pairing"] == "sequential_loop"
+    assert recovery_call["sfm_geometric_verification"] == "guided_v1"
+    assert recovery_call["geometric_verification_options"] == (
+        "--FeatureMatching.guided_matching",
+        "1",
+        "--FeatureMatching.skip_geometric_verification",
+        "0",
+    )
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sequential_overlap=21\n" in log
     assert "num_images=21\n" in log
@@ -594,6 +611,8 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert timing["colmap_build"] == "COLMAP 4.0.0"
     assert timing["matcher"] == "sequential"
     assert timing["pairing"] == "sequential_loop"
+    assert timing["geometric_verification"]["profile"] == "guided_v1"
+    assert timing["geometric_verification"]["guided_matching"] is True
     assert timing["vocab_tree_sha256"] == hashlib.sha256(b"tree").hexdigest()
     assert set(timing["stage_elapsed_seconds"]) == {
         "feature_extraction",

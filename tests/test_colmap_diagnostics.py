@@ -27,6 +27,17 @@ SIFT_FEATURE = {
     "extractor_model_sha256": None,
     "matcher_model_sha256": None,
 }
+DEFAULT_GEOMETRIC_VERIFICATION = {
+    "profile": "default_v1",
+    "guided_matching": False,
+    "skip_geometric_verification": False,
+    "raw_parameter_policy": "colmap_build_defaults",
+}
+GUIDED_GEOMETRIC_VERIFICATION = {
+    **DEFAULT_GEOMETRIC_VERIFICATION,
+    "profile": "guided_v1",
+    "guided_matching": True,
+}
 
 
 def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: Path) -> None:
@@ -42,18 +53,21 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         feature=SIFT_FEATURE,
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
+        geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["profile"] == "sfm_frontend_diagnostics_v2"
+    assert manifest["profile"] == "sfm_frontend_diagnostics_v3"
     assert manifest["counts"] == {
         "images": 3,
         "registered_images": 2,
         "keypoints": 5,
         "pairs": 2,
         "candidate_matches": 2,
+        "candidate_inliers": 1,
+        "guided_inliers": 0,
         "inliers": 1,
         "outliers": 1,
     }
@@ -83,7 +97,17 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert run["local_matcher"]["name"] == "SIFT_BRUTEFORCE"
     assert run["pairing"]["name"] == "sequential_loop"
     assert run["pairing"]["vocab_tree_sha256"] == "b" * 64
+    assert run["geometric_verification"]["profile"] == "default_v1"
+    assert run["geometric_verification"]["guided_matching"] is False
     assert run["mapper"]["name"] == "incremental"
+    assert run["view_graph"]["verified_edge_count"] == 1
+    assert run["view_graph"]["connected_component_count"] == 2
+    assert run["view_graph"]["largest_component_node_count"] == 2
+    assert run["view_graph"]["isolated_node_count"] == 1
+    assert run["view_graph"]["degree_distribution"]["p50"] == 1.0
+    assert run["view_graph"]["video"]["verified_edge_time_span_seconds"][
+        "p50"
+    ] == pytest.approx(0.1)
     feature_index = _read_gzip_json(job / run["feature_index_path"])
     feature_entry = next(item for item in feature_index["images"] if item["image_id"] == 1)
     feature_shard = _read_gzip_json(job / feature_entry["detail_shard"])
@@ -92,7 +116,10 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     pair_index = _read_gzip_json(job / run["pair_index_path"])
     direct = next(item for item in pair_index["pairs"] if item["pair_key"] == "1-2")
     assert direct["candidate_match_count"] == 2
+    assert direct["candidate_inlier_count"] == 1
+    assert direct["guided_inlier_count"] == 0
     assert direct["inlier_count"] == 1
+    assert direct["outlier_count"] == 1
     pair_shard = _read_gzip_json(job / direct["detail_shard"])
     assert pair_shard["pairs"]["1-2"] == {
         "inliers": [[0, 0]],
@@ -116,6 +143,7 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         feature=SIFT_FEATURE,
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
+        geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -140,6 +168,7 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         },
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
+        geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -163,6 +192,7 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         },
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
+        geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -200,12 +230,60 @@ def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(
             output_dir=output,
             feature=SIFT_FEATURE,
             pairing="sequential",
-            colmap_build="COLMAP 4.0.0",
+            geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        colmap_build="COLMAP 4.0.0",
             video_selection_path=job / "frames" / "selection.json",
         )
 
     assert not output.exists()
     assert not (job / "diagnostics" / ".sfm.tmp").exists()
+
+
+def test_export_colmap_diagnostics_records_guided_matches_outside_candidates(
+    tmp_path: Path,
+) -> None:
+    job = _fixture_job(tmp_path)
+    pair_id = 1 * MAX_IMAGE_ID + 2
+    verified = np.asarray([[0, 0], [0, 1]], dtype="<u4")
+    with sqlite3.connect(job / "colmap" / "database.db") as database:
+        database.execute(
+            "UPDATE two_view_geometries SET rows=?, data=? WHERE pair_id=?",
+            (len(verified), verified.tobytes(), pair_id),
+        )
+    output = job / "diagnostics" / "sfm"
+
+    manifest_path, metrics = export_colmap_diagnostics(
+        job_dir=job,
+        database_path=job / "colmap" / "database.db",
+        source_image_root=job / "frames" / "selected",
+        dataset_contract_path=job / "dataset.json",
+        output_dir=output,
+        feature=SIFT_FEATURE,
+        pairing="sequential_loop",
+        geometric_verification=GUIDED_GEOMETRIC_VERIFICATION,
+        pairing_vocab_tree_sha256="b" * 64,
+        colmap_build="COLMAP 4.0.0",
+        video_selection_path=job / "frames" / "selection.json",
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    run = manifest["runs"][0]
+    pair_index = _read_gzip_json(job / run["pair_index_path"])
+    direct = next(item for item in pair_index["pairs"] if item["pair_key"] == "1-2")
+    pair_shard = _read_gzip_json(job / direct["detail_shard"])
+
+    assert direct["candidate_match_count"] == 2
+    assert direct["candidate_inlier_count"] == 1
+    assert direct["guided_inlier_count"] == 1
+    assert direct["inlier_count"] == 2
+    assert direct["outlier_count"] == 1
+    assert pair_shard["pairs"]["1-2"] == {
+        "inliers": [[0, 0], [0, 1]],
+        "outliers": [[1, 1]],
+    }
+    assert run["geometric_verification"]["profile"] == "guided_v1"
+    assert run["view_graph"]["match_totals"]["guided_inliers"] == 1
+    assert metrics["sfm_view_graph_guided_inlier_count"] == 1
 
 
 def _fixture_job(tmp_path: Path) -> Path:

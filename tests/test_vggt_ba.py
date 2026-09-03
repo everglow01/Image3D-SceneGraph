@@ -327,8 +327,10 @@ def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
             command_logs=logs,
             feature_extraction_options=("--FeatureExtraction.type", "ALIKED_N16ROT"),
             local_matching_options=("--FeatureMatching.type", "ALIKED_LIGHTGLUE"),
+            geometric_verification_options=("--FeatureMatching.guided_matching", "1"),
             sfm_feature_profile="aliked_n16rot_v1",
             sfm_local_matcher="ALIKED_LIGHTGLUE",
+            sfm_geometric_verification="guided_v1",
             initial_sfm_pairing="sequential_loop",
         )
     )
@@ -346,8 +348,13 @@ def test_vggt_ba_seeded_model_uses_shared_incremental_recovery(
         "--FeatureMatching.type",
         "ALIKED_LIGHTGLUE",
     )
+    assert call["geometric_verification_options"] == (
+        "--FeatureMatching.guided_matching",
+        "1",
+    )
     assert call["sfm_feature_profile"] == "aliked_n16rot_v1"
     assert call["sfm_local_matcher"] == "ALIKED_LIGHTGLUE"
+    assert call["sfm_geometric_verification"] == "guided_v1"
     assert call["initial_sfm_pairing"] == "sequential_loop"
     assert logs == ["recovery-log"]
 

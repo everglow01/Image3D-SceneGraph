@@ -173,6 +173,58 @@ def test_completed_gaussian_manifest_publishes_geometry_fallback_provenance(
     )
 
 
+def test_completed_colmap_manifest_publishes_effective_geometric_profile(
+    tmp_path, monkeypatch
+):
+    store = JobStore(tmp_path / "jobs")
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_executable",
+        lambda _root: tmp_path / "colmap",
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_geometric_verification_support_reason",
+        lambda _colmap, _pairing, _profile: None,
+    )
+    queued = store.enqueue_job(
+        "multi_image",
+        [
+            UploadedInput(filename="left.jpg", content=b"left"),
+            UploadedInput(filename="right.jpg", content=b"right"),
+        ],
+        geometry_backend="colmap",
+        output_type="point_cloud",
+        options={"sfm_geometric_verification": "guided_v1"},
+    )
+
+    class ColmapAdapter:
+        def run(self, context):
+            (context.job_dir / "geometry" / "points.ply").write_text(
+                "ply\n", encoding="utf-8"
+            )
+            return ReconstructionResult(
+                "colmap_sparse_reconstruction",
+                {"point_cloud": "geometry/points.ply"},
+                {
+                    "sfm_feature_profile": "sift_v1",
+                    "sfm_local_matcher_profile": "bruteforce",
+                    "sfm_pairing": "exhaustive",
+                    "sfm_geometric_verification_profile": "guided_v1",
+                },
+                [],
+            )
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.get_reconstruction_adapter",
+        lambda *_: ColmapAdapter(),
+    )
+
+    done = store.execute_job(queued["job_id"])
+
+    assert done["status"] == "done"
+    assert done["sfm_geometric_verification"] == "guided_v1"
+    assert done["sfm_geometric_verification_effective"] == "guided_v1"
+
+
 def test_running_cancellation_preserves_partial_workspace(tmp_path, monkeypatch):
     store = JobStore(tmp_path / "jobs")
     queued = store.enqueue_job("image", upload())

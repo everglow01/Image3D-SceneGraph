@@ -355,14 +355,22 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
             "--AlikedMatching.lightglue_model_path",
             "/models/aliked-lightglue.onnx",
         ),
+        geometric_verification_options=(
+            "--FeatureMatching.guided_matching",
+            "1",
+            "--FeatureMatching.skip_geometric_verification",
+            "0",
+        ),
         sfm_feature_profile="aliked_n16rot_v1",
         sfm_local_matcher="ALIKED_LIGHTGLUE",
+        sfm_geometric_verification="guided_v1",
         initial_sfm_pairing="sequential_loop",
     )
 
     assert diagnostics["status"] == "recovered"
     assert diagnostics["sfm_feature_profile"] == "aliked_n16rot_v1"
     assert diagnostics["sfm_local_matcher"] == "ALIKED_LIGHTGLUE"
+    assert diagnostics["sfm_geometric_verification"] == "guided_v1"
     assert diagnostics["initial_sfm_pairing"] == "sequential_loop"
     assert diagnostics["recovery_pairing"] == "bounded_temporal_pair_list"
     assert diagnostics["recovery_selected_count"] == 3
@@ -399,6 +407,13 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
     )
     assert commands[1][commands[1].index("--AlikedMatching.lightglue_model_path") + 1] == (
         "/models/aliked-lightglue.onnx"
+    )
+    assert commands[1][commands[1].index("--FeatureMatching.guided_matching") + 1] == "1"
+    assert (
+        commands[1][
+            commands[1].index("--FeatureMatching.skip_geometric_verification") + 1
+        ]
+        == "0"
     )
     assert commands[3][commands[3].index("--clear_points") + 1] == "0"
     updated = json.loads(selection_path.read_text(encoding="utf-8"))
