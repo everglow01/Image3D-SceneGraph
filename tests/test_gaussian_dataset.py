@@ -10,6 +10,7 @@ import pytest
 from image3d_scenegraph.gaussian.dataset import (
     DatasetContractError,
     build_colmap_contract,
+    camera_from_normalized_transform,
     contract_hash,
     deterministic_spatial_split,
     deterministic_temporal_group_split,
@@ -183,6 +184,29 @@ def write_colmap_fixture(root: Path, count: int = 12) -> None:
         "images": images,
     }
     (root / "cameras.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_camera_transform_uses_normalized_camera_units():
+    radius = 1_297_235_666.7843318
+    center = np.array([4.0e8, -8.0e8, 2.0e8])
+    normalized_center = np.array([0.001, -0.002, 0.0005])
+    camera_center = center + radius * normalized_center
+    normalized_from_world = np.eye(4)
+    normalized_from_world[:3, :3] /= radius
+    normalized_from_world[:3, 3] = -center / radius
+    camera_from_world = np.eye(4)
+    camera_from_world[:3, 3] = -camera_center
+
+    camera = camera_from_normalized_transform(
+        camera_from_world,
+        {"normalized_from_world": normalized_from_world.tolist()},
+    )
+
+    assert np.allclose(camera[:3, :3], np.eye(3))
+    assert np.allclose(np.linalg.inv(camera)[:3, 3], normalized_center)
+    assert np.allclose(np.linalg.norm(camera[:3, :3], axis=0), 1.0)
+    legacy = camera_from_world @ np.linalg.inv(normalized_from_world)
+    assert np.allclose(np.linalg.norm(legacy[:3, :3], axis=0), radius)
 
 
 def test_build_colmap_contract_round_trips_and_hashes_sources(tmp_path):

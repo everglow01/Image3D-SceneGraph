@@ -9,6 +9,7 @@ import pytest
 from image3d_scenegraph.gaussian.dataset import contract_hash
 from scripts.build_gaussian_navigation import (
     load_sparse_initialization,
+    load_train_cameras,
     mask_to_polygons,
     point_in_polygon,
     protect_train_passages,
@@ -66,6 +67,26 @@ def _contract() -> dict:
     }
     contract["dataset_hash"] = contract_hash(contract)
     return contract
+
+
+def test_navigation_cameras_use_rigid_normalized_units():
+    contract = _contract()
+    normalized_from_world = np.eye(4)
+    normalized_from_world[:3, :3] /= 1_000.0
+    contract["normalization"].update(
+        radius_world=1_000.0,
+        normalized_from_world=normalized_from_world.tolist(),
+        world_from_normalized=np.linalg.inv(normalized_from_world).tolist(),
+    )
+
+    cameras = load_train_cameras(
+        contract, contract["splits"]["train"], longest_edge=64
+    )
+
+    assert all(
+        np.allclose(camera.camera_from_normalized[:3, :3], np.eye(3))
+        for camera in cameras
+    )
 
 
 def test_navigation_inputs_enforce_train_only_and_provenance(tmp_path: Path):
