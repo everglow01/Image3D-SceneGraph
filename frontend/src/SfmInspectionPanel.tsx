@@ -9,6 +9,7 @@ import {
   parsePairShard,
   rankSfmImages,
   sampleDeterministic,
+  summarizeSfmViewGraph,
   type PairIndexEntry,
   type RankedSfmImage,
   type RankingMode,
@@ -114,6 +115,14 @@ export function SfmInspectionPanel({
       ) as SfmImage[])
     : [];
   const registeredCount = diagnostics.images.filter((image) => image.registered).length;
+  const viewGraph = useMemo(
+    () =>
+      run.view_graph ??
+      (pairIndex === null
+        ? null
+        : summarizeSfmViewGraph(diagnostics.images, pairIndex)),
+    [diagnostics.images, pairIndex, run.view_graph]
+  );
 
   useEffect(() => {
     setTab(initialTab);
@@ -167,7 +176,11 @@ export function SfmInspectionPanel({
 
   useEffect(() => {
     setPairDetail(null);
-    if (tab !== "matches" || !pairEntry || pairEntry.candidate_match_count === 0) {
+    if (
+      tab !== "matches" ||
+      !pairEntry ||
+      (pairEntry.candidate_match_count === 0 && pairEntry.inlier_count === 0)
+    ) {
       return;
     }
     const controller = new AbortController();
@@ -189,7 +202,7 @@ export function SfmInspectionPanel({
       cancelled = true;
       controller.abort();
     };
-  }, [jobId, pairEntry?.detail_shard, pairEntry?.pair_key, pairEntry?.candidate_match_count, tab]);
+  }, [jobId, pairEntry?.detail_shard, pairEntry?.pair_key, pairEntry?.candidate_match_count, pairEntry?.inlier_count, tab]);
 
   useEffect(() => {
     const wanted = new Set<number>();
@@ -272,6 +285,7 @@ export function SfmInspectionPanel({
           局部匹配: {run.local_matcher.implementation}/{run.local_matcher.name}
         </span>
         <span>图像对: {run.pairing.name}</span>
+        <span>几何验证: {run.geometric_verification.profile}</span>
         <span>求解器: {run.mapper.name}</span>
       </div>
 
@@ -377,6 +391,46 @@ export function SfmInspectionPanel({
 
       {tab === "matches" && (
         <section className="sfm-match-section">
+          {viewGraph && (
+            <dl className="sfm-frame-metrics sfm-view-graph-summary">
+              <div>
+                <dt>Verified edges</dt>
+                <dd>
+                  {viewGraph.verified_edge_count.toLocaleString()} / {viewGraph.tested_pair_count.toLocaleString()}（{formatPercent(viewGraph.verified_edge_ratio)}）
+                </dd>
+              </div>
+              <div>
+                <dt>连通分量</dt>
+                <dd>
+                  {viewGraph.connected_component_count.toLocaleString()} · 最大 {viewGraph.largest_component_node_count.toLocaleString()} / {viewGraph.node_count.toLocaleString()}（{formatPercent(viewGraph.largest_component_ratio)}）
+                </dd>
+              </div>
+              <div>
+                <dt>弱连接节点</dt>
+                <dd>
+                  孤立 {viewGraph.isolated_node_count.toLocaleString()} · degree 1 {viewGraph.degree_one_node_count.toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt>Degree</dt>
+                <dd>
+                  P50 {formatMetric(viewGraph.degree_distribution.p50)} · P90 {formatMetric(viewGraph.degree_distribution.p90)}
+                </dd>
+              </div>
+              <div>
+                <dt>Guided 新增</dt>
+                <dd>{viewGraph.match_totals.guided_inliers.toLocaleString()}</dd>
+              </div>
+              {viewGraph.video && (
+                <div>
+                  <dt>视频软 gap 桥接</dt>
+                  <dd>
+                    {viewGraph.video.directly_bridged_registered_gap_count.toLocaleString()} / {viewGraph.video.registered_gap_count.toLocaleString()} 个直接跨越
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
           <FramePicker
             filteredImages={filteredImages}
             frameOptions={frameOptions}
@@ -412,7 +466,7 @@ export function SfmInspectionPanel({
                       const image = imageById.get(neighbor.neighbor_image_id);
                       return (
                         <option key={neighbor.entry.pair_key} value={neighbor.entry.pair_key}>
-                          {image?.name ?? `image #${neighbor.neighbor_image_id}`} · 内点 {neighbor.entry.inlier_count} / {neighbor.entry.candidate_match_count} ({formatPercent(neighbor.inlier_rate)})
+                          {image?.name ?? `image #${neighbor.neighbor_image_id}`} · 最终内点 {neighbor.entry.inlier_count} · 候选保留 {neighbor.entry.candidate_inlier_count} / {neighbor.entry.candidate_match_count} ({formatPercent(neighbor.inlier_rate)})
                         </option>
                       );
                     })}
@@ -436,12 +490,12 @@ export function SfmInspectionPanel({
                   </label>
                 </div>
               </div>
-              {pairEntry?.candidate_match_count === 0 ? (
+              {pairEntry?.candidate_match_count === 0 && pairEntry.inlier_count === 0 ? (
                 <div className="sfm-empty">该图像对已测试，但没有候选匹配。</div>
               ) : pairEntry && pairDetail && pairImages.length === 2 ? (
                 <>
                   <div className="sfm-match-summary">
-                    候选 {pairEntry.candidate_match_count.toLocaleString()} · 内点 {pairEntry.inlier_count.toLocaleString()} · 外点 {(pairEntry.candidate_match_count - pairEntry.inlier_count).toLocaleString()} · 内点率 {formatPercent(pairEntry.inlier_count / pairEntry.candidate_match_count)} · geometric config {pairEntry.geometric_config}
+                    候选 {pairEntry.candidate_match_count.toLocaleString()} · 候选保留 {pairEntry.candidate_inlier_count.toLocaleString()} · Guided 新增 {pairEntry.guided_inlier_count.toLocaleString()} · 最终内点 {pairEntry.inlier_count.toLocaleString()} · 候选外点 {pairEntry.outlier_count.toLocaleString()} · 候选保留率 {formatPercent(pairEntry.candidate_match_count === 0 ? 0 : pairEntry.candidate_inlier_count / pairEntry.candidate_match_count)} · geometric config {pairEntry.geometric_config}
                   </div>
                   <MatchCanvas
                     detail={pairDetail}
@@ -811,6 +865,10 @@ function formatConfidence(value: RankedSfmImage["confidence"]) {
 
 function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatMetric(value: number | null) {
+  return value === null ? "-" : value.toFixed(1);
 }
 
 function formatTime(value: number | null) {

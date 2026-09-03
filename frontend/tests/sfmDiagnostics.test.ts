@@ -10,6 +10,7 @@ import {
   parseSfmDiagnostics,
   rankSfmImages,
   sampleDeterministic,
+  summarizeSfmViewGraph,
   type SfmImage
 } from "../src/sfmDiagnostics.ts";
 
@@ -98,6 +99,56 @@ function v2Payload(images: unknown[]) {
 }
 
 
+function v3Payload(images: unknown[]) {
+  const value = v2Payload(images);
+  value.schema_version = 3;
+  value.profile = "sfm_frontend_diagnostics_v3";
+  Object.assign(value.runs[0], {
+    geometric_verification: {
+      profile: "guided_v1",
+      guided_matching: true,
+      skip_geometric_verification: false,
+      raw_parameter_policy: "colmap_build_defaults",
+      implementation: "colmap",
+      version: "4.0"
+    },
+    view_graph: {
+      schema_version: 1,
+      profile: "sfm_verified_view_graph_v1",
+      edge_definition: "nonempty_two_view_geometry",
+      node_count: images.length,
+      registered_node_count: images.length,
+      tested_pair_count: 1,
+      candidate_pair_count: 1,
+      verified_edge_count: 1,
+      verified_edge_ratio: 1,
+      match_totals: {
+        candidate: 4,
+        candidate_inliers: 3,
+        guided_inliers: 1,
+        verified: 4,
+        outliers: 1
+      },
+      geometric_config_counts: { "3": 1 },
+      connected_component_count: 1,
+      largest_component_node_count: images.length,
+      largest_component_ratio: 1,
+      largest_component_registered_node_count: images.length,
+      largest_component_unregistered_node_count: 0,
+      isolated_node_count: 0,
+      degree_one_node_count: images.length,
+      degree_distribution: { count: images.length, min: 1, p50: 1, p90: 1, max: 1 },
+      component_size_distribution: { count: 1, min: images.length, p50: images.length, p90: images.length, max: images.length },
+      candidate_match_distribution: { count: 1, min: 4, p50: 4, p90: 4, max: 4 },
+      verified_inlier_distribution: { count: 1, min: 4, p50: 4, p90: 4, max: 4 },
+      candidate_survival_ratio_distribution: { count: 1, min: 0.75, p50: 0.75, p90: 0.75, max: 0.75 },
+      video: null
+    }
+  });
+  return value;
+}
+
+
 test("schema 1 provenance maps to explicit SIFT stages", () => {
   const run = parseSfmDiagnostics(payload([image(1, [0, 0, 0], [0, 0, 1])])).runs[0];
 
@@ -107,6 +158,32 @@ test("schema 1 provenance maps to explicit SIFT stages", () => {
   assert.equal(run.local_matcher.name, "SIFT_BRUTEFORCE");
   assert.equal(run.pairing.name, "sequential");
   assert.equal(run.mapper.name, "incremental");
+});
+
+
+test("schema 3 preserves geometric verification and view graph provenance", () => {
+  const value = v3Payload([
+    image(1, [0, 0, 0], [0, 0, 1]),
+    image(2, [1, 0, 0], [0, 0, 1])
+  ]);
+
+  const run = parseSfmDiagnostics(value).runs[0];
+
+  assert.equal(run.geometric_verification.profile, "guided_v1");
+  assert.equal(run.geometric_verification.guided_matching, true);
+  assert.equal(run.view_graph?.verified_edge_count, 1);
+  assert.equal(run.view_graph?.match_totals.guided_inliers, 1);
+});
+
+
+test("schema 3 rejects inconsistent geometric verification", () => {
+  const value = v3Payload([
+    image(1, [0, 0, 0], [0, 0, 1]),
+    image(2, [1, 0, 0], [0, 0, 1])
+  ]);
+  value.runs[0].geometric_verification.guided_matching = false;
+
+  assert.throws(() => parseSfmDiagnostics(value), /inconsistent/);
 });
 
 
@@ -235,6 +312,53 @@ test("pair index distinguishes untested from tested zero-match pairs", () => {
     "/api/jobs/job-1/assets/frames/selected/a%20b.jpg"
   );
 });
+
+test("pair index schema 2 separates guided matches from candidate survival", () => {
+  const index = parsePairIndex({
+    schema_version: 2,
+    pairs: [
+      {
+        pair_key: "1-2",
+        image_ids: [1, 2],
+        candidate_match_count: 4,
+        candidate_inlier_count: 3,
+        guided_inlier_count: 2,
+        inlier_count: 5,
+        outlier_count: 1,
+        geometric_config: 3,
+        detail_shard: "diagnostics/sfm/pair.json.gz"
+      }
+    ]
+  });
+
+  assert.equal(index[0].candidate_inlier_count, 3);
+  assert.equal(index[0].guided_inlier_count, 2);
+  assert.equal(index[0].inlier_count, 5);
+  assert.equal(index[0].outlier_count, 1);
+});
+
+
+test("historical pair indexes derive the same compact view graph summary", () => {
+  const images = [
+    image(1, [0, 0, 0], [0, 0, 1]),
+    image(2, [1, 0, 0], [0, 0, 1]),
+    image(3, null, null)
+  ].map((entry) => parseSfmDiagnostics(payload([entry])).images[0]);
+  const pairs = parsePairIndex({
+    schema_version: 1,
+    pairs: [
+      { pair_key: "1-2", image_ids: [1, 2], candidate_match_count: 4, inlier_count: 3, geometric_config: 3, detail_shard: "a.json.gz" }
+    ]
+  });
+
+  const summary = summarizeSfmViewGraph(images, pairs);
+
+  assert.equal(summary.connected_component_count, 2);
+  assert.equal(summary.largest_component_node_count, 2);
+  assert.equal(summary.isolated_node_count, 1);
+  assert.equal(summary.match_totals.guided_inliers, 0);
+});
+
 
 test("frame filtering and pair adjacency expose every tested neighbor", () => {
   const diagnostics = parseSfmDiagnostics(

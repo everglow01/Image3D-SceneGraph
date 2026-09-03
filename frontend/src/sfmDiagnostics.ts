@@ -36,6 +36,38 @@ export type SfmFeature = {
   version: string;
 };
 
+export type SfmGeometricVerification = {
+  profile: "default_v1" | "guided_v1";
+  guided_matching: boolean;
+  skip_geometric_verification: false;
+  raw_parameter_policy: "colmap_build_defaults";
+  implementation: string;
+  version: string;
+};
+
+export type SfmDistributionMiddle = {
+  p50: number;
+  p90: number;
+};
+
+export type SfmViewGraphSummary = {
+  node_count: number;
+  tested_pair_count: number;
+  verified_edge_count: number;
+  verified_edge_ratio: number;
+  connected_component_count: number;
+  largest_component_node_count: number;
+  largest_component_ratio: number;
+  isolated_node_count: number;
+  degree_one_node_count: number;
+  degree_distribution: SfmDistributionMiddle;
+  match_totals: { guided_inliers: number };
+  video: {
+    registered_gap_count: number;
+    directly_bridged_registered_gap_count: number;
+  } | null;
+};
+
 export type SfmRun = {
   run_id: string;
   feature: SfmFeature;
@@ -46,6 +78,8 @@ export type SfmRun = {
   pairing: SfmAlgorithm & {
     vocab_tree_sha256: string | null;
   };
+  geometric_verification: SfmGeometricVerification;
+  view_graph: SfmViewGraphSummary | null;
   mapper: SfmAlgorithm;
   feature_index_path: string;
   pair_index_path: string;
@@ -67,7 +101,10 @@ export type PairIndexEntry = {
   pair_key: string;
   image_ids: [number, number];
   candidate_match_count: number;
+  candidate_inlier_count: number;
+  guided_inlier_count: number;
   inlier_count: number;
+  outlier_count: number;
   geometric_config: number;
   detail_shard: string;
 };
@@ -100,7 +137,7 @@ export function parseSfmDiagnostics(value: unknown): SfmDiagnostics {
   const record = object(value, "SfM diagnostics");
   const schemaVersion = record.schema_version;
   if (
-    (schemaVersion !== 1 && schemaVersion !== 2) ||
+    (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3) ||
     record.profile !== `sfm_frontend_diagnostics_v${schemaVersion}` ||
     record.coordinate_frame !== "normalized" ||
     record.camera_convention !== "opencv" ||
@@ -119,6 +156,14 @@ export function parseSfmDiagnostics(value: unknown): SfmDiagnostics {
   const ids = new Set(images.map((image) => image.colmap_image_id));
   if (ids.size !== images.length) {
     throw new Error("SfM image IDs are not unique");
+  }
+  if (
+    runs.some(
+      (run) =>
+        run.view_graph !== null && run.view_graph.node_count !== images.length
+    )
+  ) {
+    throw new Error("SfM view graph node count is inconsistent");
   }
   return { default_run_id: defaultRunId, runs, images };
 }
@@ -140,7 +185,8 @@ export function parseFeatureIndex(value: unknown): FeatureIndexEntry[] {
 
 export function parsePairIndex(value: unknown): PairIndexEntry[] {
   const record = object(value, "pair index");
-  if (record.schema_version !== 1) {
+  const schemaVersion = record.schema_version;
+  if (schemaVersion !== 1 && schemaVersion !== 2) {
     throw new Error("Pair index schema is unsupported");
   }
   return array(record.pairs, "pair index pairs").map((value) => {
@@ -154,12 +200,45 @@ export function parsePairIndex(value: unknown): PairIndexEntry[] {
     if (left >= right) {
       throw new Error("Pair image IDs are not ordered");
     }
+    const candidateMatchCount = nonNegativeInteger(
+      entry.candidate_match_count,
+      "candidate matches"
+    );
+    const inlierCount = nonNegativeInteger(entry.inlier_count, "inliers");
+    const candidateInlierCount =
+      schemaVersion === 1
+        ? inlierCount
+        : nonNegativeInteger(
+            entry.candidate_inlier_count,
+            "candidate inliers"
+          );
+    const guidedInlierCount =
+      schemaVersion === 1
+        ? 0
+        : nonNegativeInteger(entry.guided_inlier_count, "guided inliers");
+    const outlierCount =
+      schemaVersion === 1
+        ? candidateMatchCount - candidateInlierCount
+        : nonNegativeInteger(entry.outlier_count, "outliers");
+    if (
+      candidateInlierCount > candidateMatchCount ||
+      candidateInlierCount + guidedInlierCount !== inlierCount ||
+      candidateInlierCount + outlierCount !== candidateMatchCount
+    ) {
+      throw new Error("Pair match counts are inconsistent");
+    }
     return {
       pair_key: text(entry.pair_key, "pair key"),
       image_ids: [left, right],
-      candidate_match_count: nonNegativeInteger(entry.candidate_match_count, "candidate matches"),
-      inlier_count: nonNegativeInteger(entry.inlier_count, "inliers"),
-      geometric_config: nonNegativeInteger(entry.geometric_config, "geometric config"),
+      candidate_match_count: candidateMatchCount,
+      candidate_inlier_count: candidateInlierCount,
+      guided_inlier_count: guidedInlierCount,
+      inlier_count: inlierCount,
+      outlier_count: outlierCount,
+      geometric_config: nonNegativeInteger(
+        entry.geometric_config,
+        "geometric config"
+      ),
       detail_shard: assetPath(entry.detail_shard)
     };
   });
@@ -177,7 +256,7 @@ export function parseFeatureShard(value: unknown, imageId: number): Array<[numbe
 
 export function parsePairShard(value: unknown, key: string): SfmPairDetail {
   const record = object(value, "pair shard");
-  if (record.schema_version !== 1) {
+  if (record.schema_version !== 1 && record.schema_version !== 2) {
     throw new Error("Pair shard schema is unsupported");
   }
   const pairs = object(record.pairs, "pair shard pairs");
@@ -286,7 +365,9 @@ export function pairNeighbors(index: PairIndexEntry[], imageId: number): PairNei
       entry,
       neighbor_image_id: entry.image_ids[0] === imageId ? entry.image_ids[1] : entry.image_ids[0],
       inlier_rate:
-        entry.candidate_match_count === 0 ? 0 : entry.inlier_count / entry.candidate_match_count
+        entry.candidate_match_count === 0
+          ? 0
+          : entry.candidate_inlier_count / entry.candidate_match_count
     }))
     .sort(
       (left, right) =>
@@ -295,6 +376,120 @@ export function pairNeighbors(index: PairIndexEntry[], imageId: number): PairNei
         right.entry.candidate_match_count - left.entry.candidate_match_count ||
         left.entry.pair_key.localeCompare(right.entry.pair_key)
     );
+}
+
+export function summarizeSfmViewGraph(
+  images: SfmImage[],
+  pairs: PairIndexEntry[]
+): SfmViewGraphSummary {
+  if (images.length === 0) throw new Error("View graph has no images");
+  const adjacency = new Map(
+    images.map((image) => [image.colmap_image_id, new Set<number>()])
+  );
+  const verifiedEdges = pairs
+    .filter((pair) => pair.inlier_count > 0)
+    .map((pair) => pair.image_ids);
+  for (const [left, right] of verifiedEdges) {
+    const leftNeighbors = adjacency.get(left);
+    const rightNeighbors = adjacency.get(right);
+    if (!leftNeighbors || !rightNeighbors) {
+      throw new Error("View graph pair references a missing image");
+    }
+    leftNeighbors.add(right);
+    rightNeighbors.add(left);
+  }
+  const componentSizes = connectedComponentSizes(adjacency);
+  const degrees = [...adjacency.values()].map((neighbors) => neighbors.size);
+  return {
+    node_count: images.length,
+    tested_pair_count: pairs.length,
+    verified_edge_count: verifiedEdges.length,
+    verified_edge_ratio:
+      pairs.length === 0 ? 0 : verifiedEdges.length / pairs.length,
+    connected_component_count: componentSizes.length,
+    largest_component_node_count: componentSizes[0],
+    largest_component_ratio: componentSizes[0] / images.length,
+    isolated_node_count: degrees.filter((degree) => degree === 0).length,
+    degree_one_node_count: degrees.filter((degree) => degree === 1).length,
+    degree_distribution: distributionMiddle(degrees),
+    match_totals: {
+      guided_inliers: pairs.reduce(
+        (total, pair) => total + pair.guided_inlier_count,
+        0
+      )
+    },
+    video: summarizeViewGraphVideo(images, verifiedEdges)
+  };
+}
+
+function connectedComponentSizes(adjacency: Map<number, Set<number>>): number[] {
+  const remaining = new Set(adjacency.keys());
+  const sizes: number[] = [];
+  while (remaining.size > 0) {
+    const stack = [remaining.values().next().value!];
+    let size = 0;
+    while (stack.length > 0) {
+      const imageId = stack.pop()!;
+      if (!remaining.delete(imageId)) continue;
+      size += 1;
+      stack.push(...(adjacency.get(imageId) ?? []));
+    }
+    sizes.push(size);
+  }
+  return sizes.sort((left, right) => right - left);
+}
+
+function summarizeViewGraphVideo(
+  images: SfmImage[],
+  verifiedEdges: Array<[number, number]>
+): SfmViewGraphSummary["video"] {
+  const timestamps = new Map(
+    images.flatMap((image) =>
+      image.source_time_seconds === null
+        ? []
+        : [[image.colmap_image_id, image.source_time_seconds] as const]
+    )
+  );
+  if (timestamps.size === 0) return null;
+  const registeredTimes = images
+    .flatMap((image) =>
+      image.registered && image.source_time_seconds !== null
+        ? [image.source_time_seconds]
+        : []
+    )
+    .sort((left, right) => left - right);
+  const gaps = registeredTimes.slice(1).flatMap((end, index) =>
+    end - registeredTimes[index] > 2
+      ? [[registeredTimes[index], end] as const]
+      : []
+  );
+  const timedEdges = verifiedEdges.flatMap(([left, right]) => {
+    const leftTime = timestamps.get(left);
+    const rightTime = timestamps.get(right);
+    return leftTime === undefined || rightTime === undefined
+      ? []
+      : [[Math.min(leftTime, rightTime), Math.max(leftTime, rightTime)] as const];
+  });
+  const bridged = gaps.filter(([gapStart, gapEnd]) =>
+    timedEdges.some(
+      ([edgeStart, edgeEnd]) => edgeStart <= gapStart && edgeEnd >= gapEnd
+    )
+  ).length;
+  return {
+    registered_gap_count: gaps.length,
+    directly_bridged_registered_gap_count: bridged
+  };
+}
+
+function distributionMiddle(values: number[]) {
+  const ordered = [...values].sort((left, right) => left - right);
+  const percentile = (fraction: number) => {
+    const position = (ordered.length - 1) * fraction;
+    const lower = Math.floor(position);
+    const weight = position - lower;
+    return ordered[lower] * (1 - weight) + ordered[Math.ceil(position)] * weight;
+  };
+  return { p50: percentile(0.5), p90: percentile(0.9) };
 }
 
 export function sampleDeterministic<T>(items: T[], maximum: number): T[] {
@@ -314,7 +509,7 @@ export function assetUrl(jobId: string, path: string): string {
     .join("/")}`;
 }
 
-function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
+function parseRun(value: unknown, schemaVersion: 1 | 2 | 3): SfmRun {
   const run = object(value, "SfM run");
   const featureIndexPath = assetPath(run.feature_index_path);
   const pairIndexPath = assetPath(run.pair_index_path);
@@ -340,6 +535,10 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
         model_sha256: null
       },
       pairing: { ...legacyMatcher, vocab_tree_sha256: null },
+      geometric_verification: defaultGeometricVerification(
+        detector.version
+      ),
+      view_graph: null,
       mapper: {
         name: "incremental",
         implementation: "colmap",
@@ -380,6 +579,12 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
   ) {
     throw new Error("exhaustive pairing has a vocabulary tree");
   }
+  const geometricVerification =
+    schemaVersion === 3
+      ? parseGeometricVerification(run.geometric_verification)
+      : defaultGeometricVerification(parsedLocalMatcher.version);
+  const viewGraph =
+    schemaVersion === 3 ? parseViewGraphSummary(run.view_graph) : null;
   return {
     run_id: text(run.run_id, "run ID"),
     feature: {
@@ -406,9 +611,159 @@ function parseRun(value: unknown, schemaVersion: 1 | 2): SfmRun {
       ...parsedPairing,
       vocab_tree_sha256: pairingVocabTreeSha256
     },
+    geometric_verification: geometricVerification,
+    view_graph: viewGraph,
     mapper: parseAlgorithm(run.mapper, "mapper"),
     feature_index_path: featureIndexPath,
     pair_index_path: pairIndexPath
+  };
+}
+
+function parseGeometricVerification(value: unknown): SfmGeometricVerification {
+  const record = object(value, "geometric verification");
+  const implementation = text(
+    record.implementation,
+    "geometric verification implementation"
+  );
+  const version = text(record.version, "geometric verification version");
+  const profile = record.profile;
+  if (profile !== "default_v1" && profile !== "guided_v1") {
+    throw new Error("geometric verification profile is invalid");
+  }
+  const guidedMatching = boolean(
+    record.guided_matching,
+    "guided matching"
+  );
+  if (guidedMatching !== (profile === "guided_v1")) {
+    throw new Error("geometric verification profile is inconsistent");
+  }
+  if (
+    record.skip_geometric_verification !== false ||
+    record.raw_parameter_policy !== "colmap_build_defaults"
+  ) {
+    throw new Error("geometric verification policy is invalid");
+  }
+  return {
+    implementation,
+    version,
+    profile,
+    guided_matching: guidedMatching,
+    skip_geometric_verification: false,
+    raw_parameter_policy: "colmap_build_defaults"
+  };
+}
+
+function defaultGeometricVerification(
+  version: string
+): SfmGeometricVerification {
+  return {
+    profile: "default_v1",
+    guided_matching: false,
+    skip_geometric_verification: false,
+    raw_parameter_policy: "colmap_build_defaults",
+    implementation: "colmap",
+    version
+  };
+}
+
+function parseViewGraphSummary(value: unknown): SfmViewGraphSummary {
+  const record = object(value, "view graph");
+  if (
+    record.schema_version !== 1 ||
+    record.profile !== "sfm_verified_view_graph_v1" ||
+    record.edge_definition !== "nonempty_two_view_geometry"
+  ) {
+    throw new Error("view graph schema is unsupported");
+  }
+  const nodeCount = positiveInteger(record.node_count, "view graph nodes");
+  const testedPairCount = nonNegativeInteger(
+    record.tested_pair_count,
+    "tested pairs"
+  );
+  const verifiedEdgeCount = nonNegativeInteger(
+    record.verified_edge_count,
+    "verified edges"
+  );
+  const componentCount = positiveInteger(
+    record.connected_component_count,
+    "connected components"
+  );
+  const largestComponent = positiveInteger(
+    record.largest_component_node_count,
+    "largest component nodes"
+  );
+  const isolated = nonNegativeInteger(record.isolated_node_count, "isolated nodes");
+  const degreeOne = nonNegativeInteger(record.degree_one_node_count, "degree-one nodes");
+  if (
+    verifiedEdgeCount > testedPairCount ||
+    componentCount > nodeCount ||
+    largestComponent > nodeCount ||
+    isolated > nodeCount ||
+    degreeOne > nodeCount
+  ) {
+    throw new Error("view graph counts are inconsistent");
+  }
+  const totals = object(record.match_totals, "view graph match totals");
+  const candidate = nonNegativeInteger(totals.candidate, "candidate total");
+  const candidateInliers = nonNegativeInteger(
+    totals.candidate_inliers,
+    "candidate inlier total"
+  );
+  const guidedInliers = nonNegativeInteger(
+    totals.guided_inliers,
+    "guided inlier total"
+  );
+  const verified = nonNegativeInteger(totals.verified, "verified total");
+  const outliers = nonNegativeInteger(totals.outliers, "outlier total");
+  if (
+    candidateInliers + guidedInliers !== verified ||
+    candidateInliers + outliers !== candidate
+  ) {
+    throw new Error("view graph match totals are inconsistent");
+  }
+  const degree = object(record.degree_distribution, "degree distribution");
+  const videoRecord = record.video;
+  const video =
+    videoRecord === null
+      ? null
+      : (() => {
+          const item = object(videoRecord, "view graph video summary");
+          const gaps = nonNegativeInteger(item.registered_gap_count, "registered gaps");
+          const bridged = nonNegativeInteger(
+            item.directly_bridged_registered_gap_count,
+            "directly bridged gaps"
+          );
+          const unbridged = nonNegativeInteger(
+            item.unbridged_registered_gap_count,
+            "unbridged gaps"
+          );
+          if (bridged + unbridged !== gaps) {
+            throw new Error("view graph gap counts are inconsistent");
+          }
+          return {
+            registered_gap_count: gaps,
+            directly_bridged_registered_gap_count: bridged
+          };
+        })();
+  return {
+    node_count: nodeCount,
+    tested_pair_count: testedPairCount,
+    verified_edge_count: verifiedEdgeCount,
+    verified_edge_ratio: ratio(record.verified_edge_ratio, "verified edge ratio"),
+    connected_component_count: componentCount,
+    largest_component_node_count: largestComponent,
+    largest_component_ratio: ratio(
+      record.largest_component_ratio,
+      "largest component ratio"
+    ),
+    isolated_node_count: isolated,
+    degree_one_node_count: degreeOne,
+    degree_distribution: {
+      p50: nonNegativeNumber(degree.p50, "degree p50"),
+      p90: nonNegativeNumber(degree.p90, "degree p90")
+    },
+    match_totals: { guided_inliers: guidedInliers },
+    video
   };
 }
 
@@ -533,6 +888,22 @@ function positiveInteger(value: unknown, label: string): number {
   const number = finite(value, label);
   if (!Number.isInteger(number) || number <= 0) {
     throw new Error(`${label} must be a positive integer`);
+  }
+  return number;
+}
+
+function nonNegativeNumber(value: unknown, label: string): number {
+  const number = finite(value, label);
+  if (number < 0) {
+    throw new Error(`${label} must not be negative`);
+  }
+  return number;
+}
+
+function ratio(value: unknown, label: string): number {
+  const number = finite(value, label);
+  if (number < 0 || number > 1) {
+    throw new Error(`${label} must be between zero and one`);
   }
   return number;
 }

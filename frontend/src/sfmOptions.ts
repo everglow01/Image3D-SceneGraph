@@ -3,9 +3,17 @@ import type { ExperimentalOptionStatus } from "./backendOptions";
 export type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
 export type SfmLocalMatcher = "bruteforce" | "lightglue";
 export type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree";
+export type SfmGeometricVerification = "default_v1" | "guided_v1";
+
+export type SfmGeometricVerificationStatus =
+  ExperimentalOptionStatus<SfmGeometricVerification>;
+
+export type SfmPairingStatus = ExperimentalOptionStatus<SfmPairing> & {
+  geometric_verifications?: SfmGeometricVerificationStatus[];
+};
 
 export type SfmLocalMatcherStatus = ExperimentalOptionStatus<SfmLocalMatcher> & {
-  pairings?: ExperimentalOptionStatus<SfmPairing>[];
+  pairings?: SfmPairingStatus[];
 };
 
 export type SfmFeatureStatus = ExperimentalOptionStatus<SfmFeatureProfile> & {
@@ -34,6 +42,14 @@ export const sfmPairingOptions: Array<{ id: SfmPairing; label: string }> = [
   { id: "vocab_tree", label: "Vocab Tree（实验）" }
 ];
 
+export const sfmGeometricVerificationOptions: Array<{
+  id: SfmGeometricVerification;
+  label: string;
+}> = [
+  { id: "default_v1", label: "Default v1（默认）" },
+  { id: "guided_v1", label: "Guided v1（实验）" }
+];
+
 export function isSfmPairingModeSupported(
   status: ExperimentalOptionStatus<SfmPairing> | undefined,
   mode: string
@@ -43,7 +59,7 @@ export function isSfmPairingModeSupported(
 
 export function isSfmPairingAvailable(
   pairing: SfmPairing,
-  status: ExperimentalOptionStatus<SfmPairing> | undefined,
+  status: SfmPairingStatus | undefined,
   mode: string
 ): boolean {
   if (
@@ -53,6 +69,16 @@ export function isSfmPairingAvailable(
     return false;
   }
   return status === undefined || isSfmPairingModeSupported(status, mode);
+}
+
+export function isSfmGeometricVerificationAvailable(
+  profile: SfmGeometricVerification,
+  status: SfmGeometricVerificationStatus | undefined
+): boolean {
+  return (
+    status?.available !== false &&
+    (profile === "default_v1" || status?.available === true)
+  );
 }
 
 export function formatSfmFeatureProfile(value: string | undefined): string {
@@ -77,5 +103,15 @@ export function formatSfmPairing(value: string | undefined): string {
   return (
     sfmPairingOptions.find((option) => option.id === pairing)?.label ??
     `未知图像对策略（${pairing}）`
+  );
+}
+
+export function formatSfmGeometricVerification(
+  value: string | undefined
+): string {
+  const profile = value ?? "default_v1";
+  return (
+    sfmGeometricVerificationOptions.find((option) => option.id === profile)
+      ?.label ?? `未知几何验证（${profile}）`
   );
 }

@@ -28,17 +28,21 @@ import {
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
   formatSfmFeatureProfile,
+  formatSfmGeometricVerification,
   formatSfmLocalMatcher,
   formatSfmPairing,
+  isSfmGeometricVerificationAvailable,
   isSfmPairingAvailable,
   isSfmPairingModeSupported,
   sfmFeatureOptions,
+  sfmGeometricVerificationOptions,
   sfmLocalMatcherOptions,
   sfmPairingOptions
 } from "./sfmOptions";
 import type {
   SfmFeatureProfile,
   SfmFeatureStatus,
+  SfmGeometricVerification,
   SfmLocalMatcher,
   SfmPairing
 } from "./sfmOptions";
@@ -167,6 +171,8 @@ type Manifest = {
   sfm_local_matcher_effective?: SfmLocalMatcher;
   sfm_pairing?: SfmPairing;
   sfm_pairing_effective?: SfmPairing;
+  sfm_geometric_verification?: SfmGeometricVerification;
+  sfm_geometric_verification_effective?: SfmGeometricVerification;
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -238,6 +244,12 @@ type Manifest = {
     sfm_local_matcher_profile?: SfmLocalMatcher;
     sfm_local_matcher?: string;
     sfm_pairing?: SfmPairing | "sequential";
+    sfm_geometric_verification_profile?: SfmGeometricVerification;
+    sfm_view_graph_verified_edge_count?: number;
+    sfm_view_graph_component_count?: number;
+    sfm_view_graph_largest_component_ratio?: number;
+    sfm_view_graph_isolated_node_count?: number;
+    sfm_view_graph_guided_inlier_count?: number;
     gaussian_geometry_source?: GaussianGeometrySource;
     gaussian_geometry_effective_source?: GaussianGeometrySource;
     gaussian_geometry_fallback_applied?: boolean;
@@ -393,6 +405,8 @@ export function App() {
   const [sfmLocalMatcher, setSfmLocalMatcher] =
     useState<SfmLocalMatcher>("bruteforce");
   const [sfmPairing, setSfmPairing] = useState<SfmPairing>("exhaustive");
+  const [sfmGeometricVerification, setSfmGeometricVerification] =
+    useState<SfmGeometricVerification>("default_v1");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -465,6 +479,18 @@ export function App() {
   const sfmPairingNotice = selectedSfmPairingStatus?.reason
     ? selectedSfmPairingStatus
     : sfmPairingStatuses.find((option) => option.available === false);
+  const sfmGeometricVerificationStatuses =
+    selectedSfmPairingStatus?.geometric_verifications ?? [];
+  const selectedSfmGeometricVerificationStatus =
+    sfmGeometricVerificationStatuses.find(
+      (option) => option.id === sfmGeometricVerification
+    );
+  const sfmGeometricVerificationNotice =
+    selectedSfmGeometricVerificationStatus?.reason
+      ? selectedSfmGeometricVerificationStatus
+      : sfmGeometricVerificationStatuses.find(
+          (option) => option.available === false
+        );
   const usesColmapFeatureStage = ["colmap", "colmap_vggt", "project_3dgs"].includes(
     geometryBackend
   );
@@ -833,6 +859,19 @@ export function App() {
       );
       return;
     }
+    if (
+      usesColmapFeatureStage &&
+      !isSfmGeometricVerificationAvailable(
+        sfmGeometricVerification,
+        selectedSfmGeometricVerificationStatus
+      )
+    ) {
+      setError(
+        selectedSfmGeometricVerificationStatus?.reason ??
+          "服务器不支持所选两视图几何验证配置。"
+      );
+      return;
+    }
     if (!selectedBackendAvailable) {
       setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
@@ -895,6 +934,7 @@ export function App() {
         form.append("sfm_feature_profile", sfmFeatureProfile);
         form.append("sfm_local_matcher", sfmLocalMatcher);
         form.append("sfm_pairing", sfmPairing);
+        form.append("sfm_geometric_verification", sfmGeometricVerification);
       }
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
@@ -1197,7 +1237,7 @@ export function App() {
                     })}
                   </select>
                   <small>
-                    每个 Job 只使用一种 COLMAP 特征；局部匹配、图像对策略和 Mapper 分别控制。
+                    每个 Job 只使用一种 COLMAP 特征；局部匹配、图像对、几何验证和 Mapper 分别控制。
                   </small>
                   {selectedSfmFeatureStatus?.reason && (
                     <small>{selectedSfmFeatureStatus.reason}</small>
@@ -1288,6 +1328,46 @@ export function App() {
                   )}
                   {sfmPairingNotice?.setup_command && (
                     <small>{sfmPairingNotice.setup_command}</small>
+                  )}
+                </label>
+
+                <label>
+                  <span>两视图几何验证</span>
+                  <select
+                    value={sfmGeometricVerification}
+                    onChange={(event) =>
+                      setSfmGeometricVerification(
+                        event.target.value as SfmGeometricVerification
+                      )
+                    }
+                  >
+                    {sfmGeometricVerificationOptions.map((option) => {
+                      const status = sfmGeometricVerificationStatuses.find(
+                        (candidate) => candidate.id === option.id
+                      );
+                      const unavailable =
+                        !isSfmGeometricVerificationAvailable(option.id, status);
+                      return (
+                        <option
+                          disabled={unavailable}
+                          key={option.id}
+                          value={option.id}
+                        >
+                          {unavailable
+                            ? `${option.label}（不可用）`
+                            : option.label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <small>
+                    Guided 只扩展满足已估计几何的对应；RANSAC 原始参数保持同一 COLMAP build 默认值。
+                  </small>
+                  {sfmGeometricVerificationNotice?.reason && (
+                    <small>{sfmGeometricVerificationNotice.reason}</small>
+                  )}
+                  {sfmGeometricVerificationNotice?.setup_command && (
+                    <small>{sfmGeometricVerificationNotice.setup_command}</small>
                   )}
                 </label>
               </>
@@ -1944,6 +2024,18 @@ export function App() {
                     manifest.sfm_pairing_effective ??
                       manifest.sfm_pairing ??
                       currentStatus?.metrics.sfm_pairing
+                  )}
+                </dd>
+              </div>
+            )}
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
+              <div>
+                <dt>SfM 几何验证</dt>
+                <dd>
+                  {formatSfmGeometricVerification(
+                    manifest.sfm_geometric_verification_effective ??
+                      manifest.sfm_geometric_verification ??
+                      currentStatus?.metrics.sfm_geometric_verification_profile
                   )}
                 </dd>
               </div>

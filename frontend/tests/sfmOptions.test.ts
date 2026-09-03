@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatSfmGeometricVerification,
   formatSfmPairing,
+  isSfmGeometricVerificationAvailable,
   isSfmPairingAvailable,
   type SfmPairing
 } from "../src/sfmOptions.ts";
@@ -55,4 +57,34 @@ test("explicit backend unavailability always wins", () => {
 
 test("historical sequential pairing keeps its compatibility label", () => {
   assert.equal(formatSfmPairing("sequential"), "Sequential（历史）");
+});
+
+test("legacy capability permits default geometric verification only", () => {
+  assert.equal(
+    isSfmGeometricVerificationAvailable("default_v1", undefined),
+    true
+  );
+  assert.equal(isSfmGeometricVerificationAvailable("guided_v1", undefined), false);
+  assert.equal(formatSfmGeometricVerification(undefined), "Default v1（默认）");
+});
+
+test("guided verification requires explicit backend availability", () => {
+  const available = {
+    id: "guided_v1" as const,
+    label: "Guided v1",
+    available: true,
+    reason: null,
+    experimental: true
+  };
+  assert.equal(
+    isSfmGeometricVerificationAvailable("guided_v1", available),
+    true
+  );
+  assert.equal(
+    isSfmGeometricVerificationAvailable("guided_v1", {
+      ...available,
+      available: false
+    }),
+    false
+  );
 });
