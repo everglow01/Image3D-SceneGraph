@@ -10,6 +10,7 @@ from typing import Any, Callable, Protocol
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LEGACY_MATCHER_TO_PAIRING,
     COLMAP_PAIRING_IDS,
@@ -406,6 +407,20 @@ class ProjectGaussianAdapter:
                 pairing_args.extend(("--vocab-tree-path", str(vocab_tree)))
         geometry_metrics["sfm_pairing"] = sfm_pairing
         geometry_metrics["colmap_matcher"] = colmap_matcher
+        sfm_geometric_verification = _choice_option(
+            context,
+            "sfm_geometric_verification",
+            "IMAGE3D_SFM_GEOMETRIC_VERIFICATION",
+            "default_v1",
+            set(COLMAP_GEOMETRIC_VERIFICATION_IDS),
+        )
+        geometry_metrics["sfm_geometric_verification_profile"] = (
+            sfm_geometric_verification
+        )
+        geometric_verification_args = [
+            "--geometric-verification",
+            sfm_geometric_verification,
+        ]
         video_geometry_args: list[str] = []
         if context.mode == "video" and video_profile == "standard_v2":
             if video_source_path is None or video_selection_path is None:
@@ -427,6 +442,7 @@ class ProjectGaussianAdapter:
                 str(context.job_dir),
                 *feature_args,
                 *local_matcher_args,
+                *geometric_verification_args,
                 *video_geometry_args,
                 *pairing_args,
                 "--gaussian-baseline",
@@ -456,6 +472,7 @@ class ProjectGaussianAdapter:
                 str(context.job_dir),
                 *feature_args,
                 *local_matcher_args,
+                *geometric_verification_args,
                 *video_geometry_args,
                 *pairing_args,
                 "--repo-dir",
@@ -731,6 +748,7 @@ class ProjectGaussianAdapter:
             feature_profile=sfm_feature_profile,
             local_matcher=sfm_local_matcher,
             pairing=sfm_pairing,
+            geometric_verification=sfm_geometric_verification,
             geometry_source=geometry_source,
             video_selection_path=video_selection_path,
         )
@@ -1085,6 +1103,15 @@ def _legacy_sift_frontend_provenance() -> dict[str, str | int | None]:
     }
 
 
+def _default_geometric_verification_provenance() -> dict[str, str | bool]:
+    return {
+        "profile": "default_v1",
+        "guided_matching": False,
+        "skip_geometric_verification": False,
+        "raw_parameter_policy": "colmap_build_defaults",
+    }
+
+
 def _try_export_sfm_diagnostics(
     *,
     context: ReconstructionContext,
@@ -1095,6 +1122,7 @@ def _try_export_sfm_diagnostics(
     feature_profile: str,
     local_matcher: str,
     pairing: str,
+    geometric_verification: str,
     geometry_source: str,
     video_selection_path: Path | None,
 ) -> tuple[
@@ -1134,20 +1162,33 @@ def _try_export_sfm_diagnostics(
                 ):
                     raise ValueError("COLMAP frontend provenance is missing")
                 feature = _legacy_sift_frontend_provenance()
+            geometric_record = provenance.get(
+                (
+                    "colmap_geometric_verification"
+                    if geometry_source == "vggt_ba"
+                    else "geometric_verification"
+                )
+            )
+            if not isinstance(geometric_record, dict):
+                if geometric_verification != "default_v1":
+                    raise ValueError(
+                        "COLMAP geometric verification provenance is missing"
+                    )
+                geometric_record = _default_geometric_verification_provenance()
+            if geometric_record.get("profile") != geometric_verification:
+                raise ValueError(
+                    "COLMAP geometric verification provenance changed during the run"
+                )
         except (OSError, json.JSONDecodeError, ValueError):
             colmap_build = "unknown"
-            if feature_profile != "sift_v1" or local_matcher != "bruteforce":
+            if (
+                feature_profile != "sift_v1"
+                or local_matcher != "bruteforce"
+                or geometric_verification != "default_v1"
+            ):
                 raise
-            feature = {
-                "profile": "sift_v1",
-                "extractor": "SIFT",
-                "descriptor": "SIFT",
-                "local_matcher_profile": "bruteforce",
-                "local_matcher": "SIFT_BRUTEFORCE",
-                "max_features": 8_192,
-                "extractor_model_sha256": None,
-                "matcher_model_sha256": None,
-            }
+            feature = _legacy_sift_frontend_provenance()
+            geometric_record = _default_geometric_verification_provenance()
         _adapter_progress(context, "sfm_diagnostics", 0.32)
         manifest_path, metrics = export_colmap_diagnostics(
             job_dir=context.job_dir,
@@ -1157,6 +1198,7 @@ def _try_export_sfm_diagnostics(
             output_dir=output_dir,
             feature=feature,
             pairing=pairing,
+            geometric_verification=geometric_record,
             pairing_vocab_tree_sha256=pairing_vocab_tree_sha256,
             mapper="incremental",
             colmap_build=colmap_build,
@@ -1936,6 +1978,13 @@ class ColmapPointCloudAdapter:
             "bruteforce",
             {"bruteforce", "lightglue"},
         )
+        geometric_verification = _choice_option(
+            context,
+            "sfm_geometric_verification",
+            "IMAGE3D_SFM_GEOMETRIC_VERIFICATION",
+            "default_v1",
+            set(COLMAP_GEOMETRIC_VERIFICATION_IDS),
+        )
         if "sfm_pairing" in context.options:
             pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
         else:
@@ -1954,6 +2003,8 @@ class ColmapPointCloudAdapter:
             feature_profile,
             "--local-matcher",
             local_matcher,
+            "--geometric-verification",
+            geometric_verification,
             *pairing_args,
         ]
 
@@ -2032,6 +2083,13 @@ class ColmapVggtPointCloudAdapter:
             "bruteforce",
             {"bruteforce", "lightglue"},
         )
+        geometric_verification = _choice_option(
+            context,
+            "sfm_geometric_verification",
+            "IMAGE3D_SFM_GEOMETRIC_VERIFICATION",
+            "default_v1",
+            set(COLMAP_GEOMETRIC_VERIFICATION_IDS),
+        )
         if "sfm_pairing" in context.options:
             pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
         else:
@@ -2075,6 +2133,8 @@ class ColmapVggtPointCloudAdapter:
             feature_profile,
             "--local-matcher",
             local_matcher,
+            "--geometric-verification",
+            geometric_verification,
             *pairing_args,
             "--vggt-batch-size",
             str(batch_size),

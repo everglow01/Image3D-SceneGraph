@@ -272,8 +272,10 @@ def recover_video_registration(
     num_threads: int | None,
     feature_extraction_options: tuple[str, ...] = (),
     local_matching_options: tuple[str, ...] = (),
+    geometric_verification_options: tuple[str, ...] = (),
     sfm_feature_profile: str = "sift_v1",
     sfm_local_matcher: str = "SIFT_BRUTEFORCE",
+    sfm_geometric_verification: str = "default_v1",
     initial_sfm_pairing: str = "exhaustive",
     progress: Callable[[str], None] | None = None,
     force_final_bundle_adjustment: bool = False,
@@ -287,6 +289,7 @@ def recover_video_registration(
         "method": "incremental_colmap",
         "sfm_feature_profile": sfm_feature_profile,
         "sfm_local_matcher": sfm_local_matcher,
+        "sfm_geometric_verification": sfm_geometric_verification,
         "initial_sfm_pairing": initial_sfm_pairing,
         "recovery_pairing": "bounded_temporal_pair_list",
         "policy": {
@@ -503,6 +506,7 @@ def recover_video_registration(
                     "--FeatureMatching.use_gpu",
                     "1" if use_gpu else "0",
                     *local_matching_options,
+                    *geometric_verification_options,
                 ]
                 if gpu_index is not None:
                     match_command.extend(("--FeatureMatching.gpu_index", gpu_index))

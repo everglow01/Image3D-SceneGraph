@@ -40,14 +40,17 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LEGACY_MATCHER_TO_PAIRING,
     ColmapFeatureError,
+    colmap_geometric_verification_support_reason,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reason,
     colmap_pairing_support_reason,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
     validate_colmap_feature_profile,
+    validate_colmap_geometric_verification,
     validate_colmap_local_matcher,
     validate_colmap_pairing,
 )
@@ -176,6 +179,13 @@ class JobStore:
                 local_matcher = validate_colmap_local_matcher(
                     str(normalized_options.get("sfm_local_matcher", "bruteforce"))
                 )
+                geometric_verification = validate_colmap_geometric_verification(
+                    str(
+                        normalized_options.get(
+                            "sfm_geometric_verification", "default_v1"
+                        )
+                    )
+                )
                 requested_pairing = normalized_options.get("sfm_pairing")
                 legacy_matcher = normalized_options.get("colmap_matcher")
                 legacy_pairing = None
@@ -236,6 +246,7 @@ class JobStore:
                     feature_profile != "sift_v1"
                     or local_matcher == "lightglue"
                     or pairing != "exhaustive"
+                    or geometric_verification != "default_v1"
                 ):
                     colmap = resolve_colmap_executable(project_root)
                     if colmap is None:
@@ -260,6 +271,16 @@ class JobStore:
                         )
                         if support_reason is not None:
                             raise JobError(support_reason)
+                    if geometric_verification != "default_v1":
+                        support_reason = (
+                            colmap_geometric_verification_support_reason(
+                                colmap,
+                                pairing,
+                                geometric_verification,
+                            )
+                        )
+                        if support_reason is not None:
+                            raise JobError(support_reason)
                 resolved_feature = resolve_colmap_feature_profile(
                     feature_profile, project_root
                 )
@@ -269,10 +290,12 @@ class JobStore:
                 resolve_colmap_pairing(
                     resolved_feature, pairing, project_root
                 )
+                resolve_colmap_geometric_verification(geometric_verification)
                 normalized_options.update(
                     sfm_feature_profile=feature_profile,
                     sfm_local_matcher=local_matcher,
                     sfm_pairing=pairing,
+                    sfm_geometric_verification=geometric_verification,
                 )
             except ColmapFeatureError as exc:
                 raise JobError(str(exc)) from exc
@@ -280,6 +303,7 @@ class JobStore:
             normalized_options.pop("sfm_feature_profile", None)
             normalized_options.pop("sfm_local_matcher", None)
             normalized_options.pop("sfm_pairing", None)
+            normalized_options.pop("sfm_geometric_verification", None)
             normalized_options.pop("colmap_matcher", None)
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
@@ -410,6 +434,10 @@ class JobStore:
                 sfm_local_matcher_effective=None,
                 sfm_pairing=str(normalized_options["sfm_pairing"]),
                 sfm_pairing_effective=None,
+                sfm_geometric_verification=str(
+                    normalized_options["sfm_geometric_verification"]
+                ),
+                sfm_geometric_verification_effective=None,
             )
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
@@ -1032,6 +1060,18 @@ class JobStore:
                         metrics.get("sfm_pairing", requested_pairing)
                     ),
                 )
+            requested_geometric_verification = str(
+                options.get("sfm_geometric_verification", "default_v1")
+            )
+            result.update(
+                sfm_geometric_verification=requested_geometric_verification,
+                sfm_geometric_verification_effective=str(
+                    metrics.get(
+                        "sfm_geometric_verification_profile",
+                        requested_geometric_verification,
+                    )
+                ),
+            )
         if self._is_gaussian_job(result):
             result.update(
                 gaussian_geometry_source=str(

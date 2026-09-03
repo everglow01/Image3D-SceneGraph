@@ -13,6 +13,7 @@ from image3d_scenegraph.file_integrity import sha256_file
 COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
 COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
 COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree")
+COLMAP_GEOMETRIC_VERIFICATION_IDS = ("default_v1", "guided_v1")
 COLMAP_LEGACY_MATCHER_IDS = ("exhaustive", "sequential")
 COLMAP_LEGACY_MATCHER_TO_PAIRING = {
     "exhaustive": "exhaustive",
@@ -104,6 +105,21 @@ class ResolvedColmapPairing:
                 else None
             ),
             "vocab_tree_sha256": self.vocab_tree_sha256,
+        }
+
+
+@dataclass(frozen=True)
+class ResolvedColmapGeometricVerification:
+    profile_id: str
+    guided_matching: bool
+    matching_options: tuple[str, ...]
+
+    def provenance(self) -> dict[str, str | bool]:
+        return {
+            "profile": self.profile_id,
+            "guided_matching": self.guided_matching,
+            "skip_geometric_verification": False,
+            "raw_parameter_policy": "colmap_build_defaults",
         }
 
 
@@ -270,6 +286,14 @@ def validate_colmap_pairing(profile_id: str) -> str:
     return profile_id
 
 
+def validate_colmap_geometric_verification(profile_id: str) -> str:
+    if profile_id not in COLMAP_GEOMETRIC_VERIFICATION_IDS:
+        raise ColmapFeatureError(
+            f"unsupported COLMAP geometric verification: {profile_id}"
+        )
+    return profile_id
+
+
 def resolve_colmap_feature_profile(
     profile_id: str,
     project_root: Path | str | None = None,
@@ -412,6 +436,23 @@ def resolve_colmap_pairing(
         ),
         vocab_tree_path=tree_path,
         vocab_tree_sha256=tree_sha256,
+    )
+
+
+def resolve_colmap_geometric_verification(
+    profile_id: str,
+) -> ResolvedColmapGeometricVerification:
+    profile_id = validate_colmap_geometric_verification(profile_id)
+    guided_matching = profile_id == "guided_v1"
+    return ResolvedColmapGeometricVerification(
+        profile_id=profile_id,
+        guided_matching=guided_matching,
+        matching_options=(
+            "--FeatureMatching.guided_matching",
+            "1" if guided_matching else "0",
+            "--FeatureMatching.skip_geometric_verification",
+            "0",
+        ),
     )
 
 
@@ -561,6 +602,67 @@ def colmap_pairing_support_reasons(
                         else None
                     )
                 result[(feature_id, matcher_id, pairing_id)] = reason
+    return result
+
+
+def colmap_geometric_verification_support_reason(
+    executable: Path,
+    pairing_id: str,
+    profile_id: str,
+) -> str | None:
+    pairing_id = validate_colmap_pairing(pairing_id)
+    profile_id = validate_colmap_geometric_verification(profile_id)
+    return colmap_geometric_verification_support_reasons(executable)[
+        (pairing_id, profile_id)
+    ]
+
+
+def colmap_geometric_verification_support_reasons(
+    executable: Path,
+) -> dict[tuple[str, str], str | None]:
+    commands = {
+        "exhaustive": "exhaustive_matcher",
+        "sequential_loop": "sequential_matcher",
+        "vocab_tree": "vocab_tree_matcher",
+    }
+    required_markers = (
+        "FeatureMatching.guided_matching",
+        "FeatureMatching.skip_geometric_verification",
+    )
+    outputs: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    for command in (*commands.values(), "matches_importer"):
+        try:
+            outputs[command] = _capture_help(executable, command)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            errors[command] = (
+                f"cannot inspect COLMAP geometric verification support: {exc}"
+            )
+
+    result: dict[tuple[str, str], str | None] = {}
+    for pairing_id, pairing_command in commands.items():
+        checked_commands = (pairing_command, "matches_importer")
+        for profile_id in COLMAP_GEOMETRIC_VERIFICATION_IDS:
+            command_error = next(
+                (errors[command] for command in checked_commands if command in errors),
+                None,
+            )
+            if command_error is not None:
+                reason = command_error
+            else:
+                missing = [
+                    f"{command}:{marker}"
+                    for command in checked_commands
+                    for marker in required_markers
+                    if marker not in outputs[command]
+                ]
+                reason = (
+                    "COLMAP build is missing geometric verification options: "
+                    + ", ".join(missing)
+                    if missing
+                    else None
+                )
+            result[(pairing_id, profile_id)] = reason
     return result
 
 

@@ -12,6 +12,7 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
     COLMAP_VOCAB_TREE_SETUP_COMMAND,
     ColmapFeatureError,
+    colmap_geometric_verification_support_reasons,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reasons,
     colmap_pairing_support_reasons,
@@ -114,12 +115,16 @@ def _colmap_feature_profiles(
     learned_support_reason = missing_colmap_reason
     local_matcher_support_reasons: dict[tuple[str, str], str | None] = {}
     pairing_support_reasons: dict[tuple[str, str, str], str | None] = {}
+    geometric_support_reasons: dict[tuple[str, str], str | None] = {}
     if colmap is not None:
         learned_support_reason = colmap_learned_feature_support_reason(colmap)
         local_matcher_support_reasons = colmap_local_matcher_support_reasons(
             colmap
         )
         pairing_support_reasons = colmap_pairing_support_reasons(colmap)
+        geometric_support_reasons = (
+            colmap_geometric_verification_support_reasons(colmap)
+        )
 
     result: list[dict[str, Any]] = []
     for profile_id, label, experimental in (
@@ -213,6 +218,35 @@ def _colmap_feature_profiles(
                         pairing_setup_command = matcher_setup_command
                     elif pairing_id != "exhaustive":
                         pairing_setup_command = COLMAP_VOCAB_TREE_SETUP_COMMAND
+                geometric_verifications = []
+                for geometric_id, geometric_label in (
+                    ("default_v1", "Default v1"),
+                    ("guided_v1", "Guided v1"),
+                ):
+                    geometric_support_reason = missing_colmap_reason
+                    if geometric_support_reason is None:
+                        geometric_support_reason = geometric_support_reasons[
+                            (pairing_id, geometric_id)
+                        ]
+                    geometric_reason = pairing_reason or geometric_support_reason
+                    geometric_verifications.append(
+                        {
+                            "id": geometric_id,
+                            "label": geometric_label,
+                            "available": geometric_reason is None,
+                            "reason": geometric_reason,
+                            "experimental": geometric_id != "default_v1",
+                            "setup_command": (
+                                pairing_setup_command
+                                if pairing_reason is not None
+                                else (
+                                    "uv run python scripts/setup_colmap_cuda.py --install"
+                                    if geometric_support_reason is not None
+                                    else None
+                                )
+                            ),
+                        }
+                    )
                 pairings.append(
                     {
                         "id": pairing_id,
@@ -222,6 +256,7 @@ def _colmap_feature_profiles(
                         "experimental": pairing_id != "exhaustive",
                         "supported_modes": pairing_modes,
                         "setup_command": pairing_setup_command,
+                        "geometric_verifications": geometric_verifications,
                     }
                 )
             local_matchers.append(

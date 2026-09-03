@@ -12,11 +12,13 @@ from typing import Any, Callable
 import numpy as np
 
 from image3d_scenegraph.file_integrity import sha256_file
+from image3d_scenegraph.geometry.view_graph import summarize_view_graph
 
 
-SCHEMA_VERSION = 2
-PROFILE_ID = "sfm_frontend_diagnostics_v2"
-SHARD_SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+PROFILE_ID = "sfm_frontend_diagnostics_v3"
+FEATURE_SHARD_SCHEMA_VERSION = 1
+PAIR_SHARD_SCHEMA_VERSION = 2
 MAX_IMAGE_ID = 2_147_483_647
 FEATURE_IMAGES_PER_SHARD = 32
 PAIRS_PER_SHARD = 256
@@ -36,12 +38,13 @@ def export_colmap_diagnostics(
     output_dir: Path,
     feature: dict[str, Any],
     pairing: str,
+    geometric_verification: dict[str, Any],
     pairing_vocab_tree_sha256: str | None = None,
     colmap_build: str,
     mapper: str = "incremental",
     video_selection_path: Path | None = None,
     cancel_requested: Callable[[], bool] | None = None,
-) -> tuple[Path, dict[str, int | str]]:
+) -> tuple[Path, dict[str, int | float | str]]:
     root = job_dir.resolve()
     database = _contained(database_path, root, file=True, label="COLMAP database")
     image_root = _contained(source_image_root, root, file=False, label="source image root")
@@ -74,6 +77,9 @@ def export_colmap_diagnostics(
     if mapper != "incremental":
         raise ColmapDiagnosticsError(f"unsupported COLMAP mapper: {mapper}")
     feature_record = _validate_feature_record(feature)
+    geometric_record = _validate_geometric_verification_record(
+        geometric_verification
+    )
 
     contract = _read_json(contract_path, "dataset contract")
     registered, splits, normalized_from_world = _registered_images(contract)
@@ -104,6 +110,7 @@ def export_colmap_diagnostics(
                 feature_record,
                 pairing,
                 pairing_vocab_tree_sha256,
+                geometric_record,
                 mapper,
                 colmap_build,
             )
@@ -123,6 +130,7 @@ def export_colmap_diagnostics(
                 final_run,
                 set(keypoint_counts),
                 keypoint_counts,
+                bool(geometric_record["guided_matching"]),
                 cancel_requested,
             )
         finally:
@@ -130,11 +138,11 @@ def export_colmap_diagnostics(
 
         _write_gzip_json(
             temporary_run / "features" / "index.json.gz",
-            {"schema_version": SHARD_SCHEMA_VERSION, "images": feature_index},
+            {"schema_version": FEATURE_SHARD_SCHEMA_VERSION, "images": feature_index},
         )
         _write_gzip_json(
             temporary_run / "pairs" / "index.json.gz",
-            {"schema_version": SHARD_SCHEMA_VERSION, "pairs": pair_index},
+            {"schema_version": PAIR_SHARD_SCHEMA_VERSION, "pairs": pair_index},
         )
         counts = {
             "images": len(images),
@@ -142,6 +150,7 @@ def export_colmap_diagnostics(
             "keypoints": sum(keypoint_counts.values()),
             **pair_counts,
         }
+        view_graph = summarize_view_graph(images, pair_index)
         run = {
             "run_id": run_id,
             "feature": {
@@ -171,9 +180,18 @@ def export_colmap_diagnostics(
                 "vocab_tree_sha256": pairing_vocab_tree_sha256,
             },
             "geometric_verification": {
+                "profile": geometric_record["profile"],
+                "guided_matching": geometric_record["guided_matching"],
+                "skip_geometric_verification": geometric_record[
+                    "skip_geometric_verification"
+                ],
+                "raw_parameter_policy": geometric_record[
+                    "raw_parameter_policy"
+                ],
                 "implementation": "colmap",
                 "version": colmap_build,
             },
+            "view_graph": view_graph,
             "mapper": {
                 "name": mapper,
                 "implementation": "colmap",
@@ -220,6 +238,24 @@ def export_colmap_diagnostics(
         "sfm_pairing": pairing,
         "sfm_pairing_vocab_tree_sha256": (
             pairing_vocab_tree_sha256 or "none"
+        ),
+        "sfm_geometric_verification_profile": str(
+            geometric_record["profile"]
+        ),
+        "sfm_view_graph_verified_edge_count": int(
+            view_graph["verified_edge_count"]
+        ),
+        "sfm_view_graph_component_count": int(
+            view_graph["connected_component_count"]
+        ),
+        "sfm_view_graph_largest_component_ratio": float(
+            view_graph["largest_component_ratio"]
+        ),
+        "sfm_view_graph_isolated_node_count": int(
+            view_graph["isolated_node_count"]
+        ),
+        "sfm_view_graph_guided_inlier_count": int(
+            view_graph["match_totals"]["guided_inliers"]
         ),
         "sfm_mapper": mapper,
     }
@@ -283,6 +319,35 @@ def _validate_feature_record(value: dict[str, Any]) -> dict[str, str | int | Non
         "max_features": 8_192,
         "extractor_model_sha256": extractor_sha,
         "matcher_model_sha256": matcher_sha,
+    }
+
+
+def _validate_geometric_verification_record(
+    value: dict[str, Any],
+) -> dict[str, str | bool]:
+    if not isinstance(value, dict):
+        raise ColmapDiagnosticsError(
+            "COLMAP geometric verification provenance is invalid"
+        )
+    profile = value.get("profile")
+    if profile not in {"default_v1", "guided_v1"}:
+        raise ColmapDiagnosticsError(
+            "COLMAP geometric verification profile is unsupported"
+        )
+    expected_guided = profile == "guided_v1"
+    if (
+        value.get("guided_matching") is not expected_guided
+        or value.get("skip_geometric_verification") is not False
+        or value.get("raw_parameter_policy") != "colmap_build_defaults"
+    ):
+        raise ColmapDiagnosticsError(
+            "COLMAP geometric verification provenance is inconsistent"
+        )
+    return {
+        "profile": str(profile),
+        "guided_matching": expected_guided,
+        "skip_geometric_verification": False,
+        "raw_parameter_policy": "colmap_build_defaults",
     }
 
 
@@ -380,7 +445,7 @@ def _write_feature_shards(
         if shard:
             _write_gzip_json(
                 output / f"shard-{shard_number:05d}.json.gz",
-                {"schema_version": SHARD_SCHEMA_VERSION, "images": shard},
+                {"schema_version": FEATURE_SHARD_SCHEMA_VERSION, "images": shard},
             )
             shard, shard_number = {}, shard_number + 1
 
@@ -423,6 +488,7 @@ def _write_pair_shards(
     final_run: Path,
     image_ids: set[int],
     keypoint_counts: dict[int, int],
+    guided_matching: bool,
     cancel_requested: Callable[[], bool] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     rows = connection.execute(
@@ -444,14 +510,16 @@ def _write_pair_shards(
     output.mkdir(parents=True)
     index: list[dict[str, Any]] = []
     shard: dict[str, Any] = {}
-    shard_number = candidate_total = inlier_total = 0
+    shard_number = 0
+    candidate_total = candidate_inlier_total = guided_inlier_total = 0
+    inlier_total = outlier_total = 0
 
     def flush() -> None:
         nonlocal shard, shard_number
         if shard:
             _write_gzip_json(
                 output / f"shard-{shard_number:05d}.json.gz",
-                {"schema_version": SHARD_SCHEMA_VERSION, "pairs": shard},
+                {"schema_version": PAIR_SHARD_SCHEMA_VERSION, "pairs": shard},
             )
             shard, shard_number = {}, shard_number + 1
 
@@ -464,35 +532,54 @@ def _write_pair_shards(
             raise ColmapDiagnosticsError(f"pair {pair_id} references a missing image")
         candidate = _decode_matches(row[1], row[2], row[3], pair_id, "candidate")
         verified = _decode_matches(row[4], row[5], row[6], pair_id, "verified")
+        candidate_set = {tuple(match) for match in candidate}
         verified_set = {tuple(match) for match in verified}
-        if not verified_set <= {tuple(match) for match in candidate}:
-            raise ColmapDiagnosticsError(f"verified matches are not a subset for pair {pair_id}")
+        if not guided_matching and not verified_set <= candidate_set:
+            raise ColmapDiagnosticsError(
+                f"verified matches are not a subset for pair {pair_id}"
+            )
         _validate_match_indices(candidate, left_id, right_id, keypoint_counts, pair_id)
-        inliers = [match for match in candidate if tuple(match) in verified_set]
-        outliers = [match for match in candidate if tuple(match) not in verified_set]
+        _validate_match_indices(verified, left_id, right_id, keypoint_counts, pair_id)
+        candidate_inliers = [
+            match for match in candidate if tuple(match) in verified_set
+        ]
+        guided_inliers = [
+            match for match in verified if tuple(match) not in candidate_set
+        ]
+        outliers = [
+            match for match in candidate if tuple(match) not in verified_set
+        ]
         pair_key = f"{left_id}-{right_id}"
         shard_name = f"shard-{shard_number:05d}.json.gz"
-        shard[pair_key] = {"inliers": inliers, "outliers": outliers}
+        shard[pair_key] = {"inliers": verified, "outliers": outliers}
         index.append(
             {
                 "pair_key": pair_key,
                 "image_ids": [left_id, right_id],
                 "candidate_match_count": len(candidate),
-                "inlier_count": len(inliers),
+                "candidate_inlier_count": len(candidate_inliers),
+                "guided_inlier_count": len(guided_inliers),
+                "inlier_count": len(verified),
+                "outlier_count": len(outliers),
                 "geometric_config": int(row[7] or 0),
                 "detail_shard": _asset(root, final_run / "pairs" / "shards" / shard_name),
             }
         )
         candidate_total += len(candidate)
-        inlier_total += len(inliers)
+        candidate_inlier_total += len(candidate_inliers)
+        guided_inlier_total += len(guided_inliers)
+        inlier_total += len(verified)
+        outlier_total += len(outliers)
         if row_number % PAIRS_PER_SHARD == 0:
             flush()
     flush()
     return index, {
         "pairs": len(index),
         "candidate_matches": candidate_total,
+        "candidate_inliers": candidate_inlier_total,
+        "guided_inliers": guided_inlier_total,
         "inliers": inlier_total,
-        "outliers": candidate_total - inlier_total,
+        "outliers": outlier_total,
     }
 
 
@@ -665,6 +752,7 @@ def _run_id(
     feature: dict[str, str | int | None],
     pairing: str,
     pairing_vocab_tree_sha256: str | None,
+    geometric_verification: dict[str, str | bool],
     mapper: str,
     version: str,
 ) -> str:
@@ -676,7 +764,7 @@ def _run_id(
                 "profile": pairing,
                 "vocab_tree_sha256": pairing_vocab_tree_sha256,
             },
-            "geometric_verification": "colmap",
+            "geometric_verification": geometric_verification,
             "mapper": mapper,
             "implementation": "colmap",
             "version": version,
