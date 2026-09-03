@@ -11,9 +11,14 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from image3d_scenegraph.geometry.camera_calibration import (  # noqa: E402
+    CameraExtractionBatch,
+    CameraExtractionPlan,
+)
 from image3d_scenegraph.geometry.colmap import (  # noqa: E402
     ResolvedColmapLocalMatcher,
     ResolvedColmapPairing,
+    resolve_colmap_camera_calibration,
     resolve_colmap_feature_profile,
     resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
@@ -108,6 +113,93 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         matcher[matcher.index("--FeatureMatching.skip_geometric_verification") + 1]
         == "0"
     )
+
+
+def test_colmap_pipeline_runs_each_camera_extraction_batch(tmp_path, monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.run_command",
+        lambda command: commands.append(command) or "ok",
+    )
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.convert_best_sparse_model",
+        lambda *_: (tmp_path / "sparse" / "0", []),
+    )
+    calibration = resolve_colmap_camera_calibration(
+        "auto_grouped_simple_radial_v1"
+    )
+    first_list = tmp_path / "first.txt"
+    second_list = tmp_path / "second.txt"
+    plan = CameraExtractionPlan(
+        calibration=calibration,
+        groups=(
+            {"group_id": "camera-group-0000", "images": ["a.jpg", "b.jpg"]},
+            {"group_id": "camera-group-0001", "images": ["c.jpg"]},
+        ),
+        batches=(
+            CameraExtractionBatch(
+                image_names=("a.jpg", "b.jpg"),
+                image_list_path=first_list,
+                image_reader_options=(
+                    "--ImageReader.camera_model",
+                    "SIMPLE_RADIAL",
+                    "--ImageReader.single_camera",
+                    "1",
+                ),
+            ),
+            CameraExtractionBatch(
+                image_names=("c.jpg",),
+                image_list_path=second_list,
+                image_reader_options=(
+                    "--ImageReader.camera_model",
+                    "SIMPLE_RADIAL",
+                    "--ImageReader.single_camera_per_image",
+                    "1",
+                ),
+            ),
+        ),
+    )
+    feature_profile = resolve_colmap_feature_profile("sift_v1", tmp_path)
+
+    logs = run_colmap_pipeline(
+        colmap="/project/colmap",
+        image_dir=tmp_path / "images",
+        database_path=tmp_path / "database.db",
+        sparse_dir=tmp_path / "sparse",
+        text_dir=tmp_path / "sparse_txt",
+        pairing=ResolvedColmapPairing(
+            profile_id="exhaustive",
+            command="exhaustive_matcher",
+            pairing_options=(),
+        ),
+        feature_profile=feature_profile,
+        local_matcher=resolve_colmap_local_matcher(
+            feature_profile, "bruteforce", tmp_path
+        ),
+        geometric_verification=resolve_colmap_geometric_verification(
+            "default_v1"
+        ),
+        single_camera=False,
+        mapper_abs_pose_min_num_inliers=30,
+        mapper_abs_pose_min_inlier_ratio=0.25,
+        camera_calibration=calibration,
+        camera_plan=plan,
+    )
+
+    feature_commands = commands[:2]
+    assert [command[1] for command in feature_commands] == [
+        "feature_extractor",
+        "feature_extractor",
+    ]
+    assert feature_commands[0][
+        feature_commands[0].index("--image_list_path") + 1
+    ] == str(first_list)
+    assert feature_commands[1][
+        feature_commands[1].index("--image_list_path") + 1
+    ] == str(second_list)
+    assert commands[2][1] == "exhaustive_matcher"
+    assert commands[3][1] == "mapper"
+    assert sum(line.startswith("colmap_feature_extraction_seconds=") for line in logs) == 1
 
 
 def test_colmap_pipeline_applies_lightglue_matcher(tmp_path, monkeypatch):

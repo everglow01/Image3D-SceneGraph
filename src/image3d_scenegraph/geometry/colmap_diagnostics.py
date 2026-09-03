@@ -15,8 +15,8 @@ from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.geometry.view_graph import summarize_view_graph
 
 
-SCHEMA_VERSION = 3
-PROFILE_ID = "sfm_frontend_diagnostics_v3"
+SCHEMA_VERSION = 4
+PROFILE_ID = "sfm_frontend_diagnostics_v4"
 FEATURE_SHARD_SCHEMA_VERSION = 1
 PAIR_SHARD_SCHEMA_VERSION = 2
 MAX_IMAGE_ID = 2_147_483_647
@@ -39,6 +39,8 @@ def export_colmap_diagnostics(
     feature: dict[str, Any],
     pairing: str,
     geometric_verification: dict[str, Any],
+    camera_calibration: dict[str, Any],
+    camera_calibration_diagnostics_path: Path,
     pairing_vocab_tree_sha256: str | None = None,
     colmap_build: str,
     mapper: str = "incremental",
@@ -49,6 +51,12 @@ def export_colmap_diagnostics(
     database = _contained(database_path, root, file=True, label="COLMAP database")
     image_root = _contained(source_image_root, root, file=False, label="source image root")
     contract_path = _contained(dataset_contract_path, root, file=True, label="dataset contract")
+    camera_diagnostics_path = _contained(
+        camera_calibration_diagnostics_path,
+        root,
+        file=True,
+        label="camera calibration diagnostics",
+    )
     final_output = output_dir.resolve()
     if final_output.exists():
         raise ColmapDiagnosticsError("SfM diagnostics output already exists")
@@ -80,6 +88,13 @@ def export_colmap_diagnostics(
     geometric_record = _validate_geometric_verification_record(
         geometric_verification
     )
+    camera_diagnostics = _read_json(
+        camera_diagnostics_path, "camera calibration diagnostics"
+    )
+    camera_record = _validate_camera_calibration_record(
+        camera_calibration,
+        camera_diagnostics,
+    )
 
     contract = _read_json(contract_path, "dataset contract")
     registered, splits, normalized_from_world = _registered_images(contract)
@@ -104,6 +119,20 @@ def export_colmap_diagnostics(
                 selection,
                 cancel_requested,
             )
+            image_camera_ids = {int(image["camera_id"]) for image in images}
+            registered_camera_ids = {
+                int(image["camera_id"])
+                for image in images
+                if bool(image["registered"])
+            }
+            if (
+                len(image_camera_ids) != camera_record["initial_camera_count"]
+                or len(registered_camera_ids)
+                != camera_record["final_camera_count"]
+            ):
+                raise ColmapDiagnosticsError(
+                    "COLMAP camera calibration image mapping is inconsistent"
+                )
             image_set_hash = _hash_json([image["frame_uid"] for image in images])
             run_id = _run_id(
                 image_set_hash,
@@ -111,6 +140,7 @@ def export_colmap_diagnostics(
                 pairing,
                 pairing_vocab_tree_sha256,
                 geometric_record,
+                camera_record,
                 mapper,
                 colmap_build,
             )
@@ -191,6 +221,12 @@ def export_colmap_diagnostics(
                 "implementation": "colmap",
                 "version": colmap_build,
             },
+            "camera_calibration": {
+                **camera_record,
+                "implementation": "colmap",
+                "version": colmap_build,
+                "diagnostics_path": _asset(root, camera_diagnostics_path),
+            },
             "view_graph": view_graph,
             "mapper": {
                 "name": mapper,
@@ -242,6 +278,14 @@ def export_colmap_diagnostics(
         "sfm_geometric_verification_profile": str(
             geometric_record["profile"]
         ),
+        "sfm_camera_calibration_profile": str(camera_record["profile"]),
+        "sfm_camera_model": str(camera_record["camera_model"]),
+        "sfm_camera_initial_count": int(camera_record["initial_camera_count"]),
+        "sfm_camera_final_count": int(camera_record["final_camera_count"]),
+        "sfm_camera_prior_focal_count": int(
+            camera_record["prior_focal_camera_count"]
+        ),
+        "sfm_camera_warning_count": int(camera_record["warning_count"]),
         "sfm_view_graph_verified_edge_count": int(
             view_graph["verified_edge_count"]
         ),
@@ -351,6 +395,115 @@ def _validate_geometric_verification_record(
     }
 
 
+def _validate_camera_calibration_record(
+    value: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> dict[str, str | int]:
+    if (
+        not isinstance(value, dict)
+        or diagnostics.get("schema_version") != 1
+        or diagnostics.get("profile")
+        != "sfm_camera_calibration_diagnostics_v1"
+        or diagnostics.get("calibration") != value
+    ):
+        raise ColmapDiagnosticsError(
+            "COLMAP camera calibration provenance is invalid"
+        )
+    expected = {
+        "shared_opencv_v1": (
+            "OPENCV",
+            "single_camera",
+            "all_images",
+        ),
+        "shared_simple_radial_v1": (
+            "SIMPLE_RADIAL",
+            "single_camera",
+            "all_images",
+        ),
+        "auto_grouped_simple_radial_v1": (
+            "SIMPLE_RADIAL",
+            "focal_aware_groups",
+            "exif_device_lens_focal_size_orientation_v1",
+        ),
+    }
+    profile = value.get("profile")
+    if profile not in expected:
+        raise ColmapDiagnosticsError(
+            "COLMAP camera calibration profile is unsupported"
+        )
+    camera_model, sharing_policy, grouping_policy = expected[str(profile)]
+    if (
+        value.get("camera_model") != camera_model
+        or value.get("sharing_policy") != sharing_policy
+        or value.get("grouping_key_policy") != grouping_policy
+        or value.get("initial_focal_policy") != "colmap_exif_or_default"
+    ):
+        raise ColmapDiagnosticsError(
+            "COLMAP camera calibration provenance is inconsistent"
+        )
+    grouping = diagnostics.get("grouping")
+    initial = diagnostics.get("initial")
+    final = diagnostics.get("final")
+    plausibility = diagnostics.get("plausibility")
+    if not all(
+        isinstance(record, dict)
+        for record in (grouping, initial, final, plausibility)
+    ):
+        raise ColmapDiagnosticsError(
+            "COLMAP camera calibration summary is invalid"
+        )
+    planned_count = _positive_int(
+        grouping.get("planned_camera_count"), "planned camera count"
+    )
+    initial_count = _positive_int(
+        initial.get("camera_count"), "initial camera count"
+    )
+    final_count = _positive_int(final.get("camera_count"), "final camera count")
+    prior_count = _non_negative_int(
+        initial.get("prior_focal_camera_count"), "prior focal camera count"
+    )
+    warning_count = _non_negative_int(
+        plausibility.get("warning_count"), "camera warning count"
+    )
+    if (
+        planned_count != initial_count
+        or final_count > initial_count
+        or prior_count > initial_count
+        or (
+            sharing_policy == "single_camera"
+            and (planned_count != 1 or final_count != 1)
+        )
+        or plausibility.get("warnings_are_job_gates") is not False
+    ):
+        raise ColmapDiagnosticsError(
+            "COLMAP camera calibration counts are inconsistent"
+        )
+    return {
+        "profile": str(profile),
+        "camera_model": camera_model,
+        "sharing_policy": sharing_policy,
+        "grouping_key_policy": grouping_policy,
+        "initial_focal_policy": "colmap_exif_or_default",
+        "planned_camera_count": planned_count,
+        "initial_camera_count": initial_count,
+        "final_camera_count": final_count,
+        "prior_focal_camera_count": prior_count,
+        "warning_count": warning_count,
+    }
+
+
+def _positive_int(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ColmapDiagnosticsError(f"COLMAP {label} is invalid")
+    return value
+
+
+def _non_negative_int(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ColmapDiagnosticsError(f"COLMAP {label} is invalid")
+    return value
+
+
 def _sha256_value(value: Any, label: str) -> str:
     if (
         not isinstance(value, str)
@@ -373,7 +526,8 @@ def _image_records(
 ) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT images.image_id, images.name, cameras.width, cameras.height
+        SELECT images.image_id, images.name, images.camera_id,
+               cameras.width, cameras.height
         FROM images JOIN cameras ON cameras.camera_id = images.camera_id
         ORDER BY images.image_id
         """
@@ -381,10 +535,14 @@ def _image_records(
     if not rows:
         raise ColmapDiagnosticsError("COLMAP database contains no images")
     result: list[dict[str, Any]] = []
-    for row_number, (image_id, name, width, height) in enumerate(rows, start=1):
+    for row_number, (image_id, name, camera_id, width, height) in enumerate(
+        rows, start=1
+    ):
         if row_number % FEATURE_IMAGES_PER_SHARD == 1:
             _check_cancelled(cancel_requested)
-        image_id, name = int(image_id), str(name)
+        image_id, name, camera_id = int(image_id), str(name), int(camera_id)
+        if camera_id < 1:
+            raise ColmapDiagnosticsError("COLMAP image camera ID is invalid")
         source = _contained(image_root / name, root, file=True, label="feature source image")
         relative = source.relative_to(root).as_posix()
         selected = selection.get(name)
@@ -396,6 +554,7 @@ def _image_records(
         record: dict[str, Any] = {
             "frame_uid": hashlib.sha256(f"{relative}\0{digest}".encode()).hexdigest(),
             "colmap_image_id": image_id,
+            "camera_id": camera_id,
             "name": name,
             "path": relative,
             "sha256": digest,
@@ -753,6 +912,7 @@ def _run_id(
     pairing: str,
     pairing_vocab_tree_sha256: str | None,
     geometric_verification: dict[str, str | bool],
+    camera_calibration: dict[str, str | int],
     mapper: str,
     version: str,
 ) -> str:
@@ -765,6 +925,16 @@ def _run_id(
                 "vocab_tree_sha256": pairing_vocab_tree_sha256,
             },
             "geometric_verification": geometric_verification,
+            "camera_calibration": {
+                key: camera_calibration[key]
+                for key in (
+                    "profile",
+                    "camera_model",
+                    "sharing_policy",
+                    "grouping_key_policy",
+                    "initial_focal_policy",
+                )
+            },
             "mapper": mapper,
             "implementation": "colmap",
             "version": version,

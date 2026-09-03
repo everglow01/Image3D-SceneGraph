@@ -14,6 +14,11 @@ COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
 COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
 COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree")
 COLMAP_GEOMETRIC_VERIFICATION_IDS = ("default_v1", "guided_v1")
+COLMAP_CAMERA_CALIBRATION_IDS = (
+    "shared_opencv_v1",
+    "shared_simple_radial_v1",
+    "auto_grouped_simple_radial_v1",
+)
 COLMAP_LEGACY_MATCHER_IDS = ("exhaustive", "sequential")
 COLMAP_LEGACY_MATCHER_TO_PAIRING = {
     "exhaustive": "exhaustive",
@@ -120,6 +125,24 @@ class ResolvedColmapGeometricVerification:
             "guided_matching": self.guided_matching,
             "skip_geometric_verification": False,
             "raw_parameter_policy": "colmap_build_defaults",
+        }
+
+
+@dataclass(frozen=True)
+class ResolvedColmapCameraCalibration:
+    profile_id: str
+    camera_model: str
+    sharing_policy: str
+    grouping_key_policy: str
+    image_reader_options: tuple[str, ...]
+
+    def provenance(self) -> dict[str, str]:
+        return {
+            "profile": self.profile_id,
+            "camera_model": self.camera_model,
+            "sharing_policy": self.sharing_policy,
+            "grouping_key_policy": self.grouping_key_policy,
+            "initial_focal_policy": "colmap_exif_or_default",
         }
 
 
@@ -294,6 +317,14 @@ def validate_colmap_geometric_verification(profile_id: str) -> str:
     return profile_id
 
 
+def validate_colmap_camera_calibration(profile_id: str) -> str:
+    if profile_id not in COLMAP_CAMERA_CALIBRATION_IDS:
+        raise ColmapFeatureError(
+            f"unsupported COLMAP camera calibration: {profile_id}"
+        )
+    return profile_id
+
+
 def resolve_colmap_feature_profile(
     profile_id: str,
     project_root: Path | str | None = None,
@@ -452,6 +483,48 @@ def resolve_colmap_geometric_verification(
             "1" if guided_matching else "0",
             "--FeatureMatching.skip_geometric_verification",
             "0",
+        ),
+    )
+
+
+def resolve_colmap_camera_calibration(
+    profile_id: str,
+) -> ResolvedColmapCameraCalibration:
+    profile_id = validate_colmap_camera_calibration(profile_id)
+    if profile_id == "shared_opencv_v1":
+        return ResolvedColmapCameraCalibration(
+            profile_id=profile_id,
+            camera_model="OPENCV",
+            sharing_policy="single_camera",
+            grouping_key_policy="all_images",
+            image_reader_options=(
+                "--ImageReader.camera_model",
+                "OPENCV",
+                "--ImageReader.single_camera",
+                "1",
+            ),
+        )
+    if profile_id == "shared_simple_radial_v1":
+        return ResolvedColmapCameraCalibration(
+            profile_id=profile_id,
+            camera_model="SIMPLE_RADIAL",
+            sharing_policy="single_camera",
+            grouping_key_policy="all_images",
+            image_reader_options=(
+                "--ImageReader.camera_model",
+                "SIMPLE_RADIAL",
+                "--ImageReader.single_camera",
+                "1",
+            ),
+        )
+    return ResolvedColmapCameraCalibration(
+        profile_id=profile_id,
+        camera_model="SIMPLE_RADIAL",
+        sharing_policy="focal_aware_groups",
+        grouping_key_policy="exif_device_lens_focal_size_orientation_v1",
+        image_reader_options=(
+            "--ImageReader.camera_model",
+            "SIMPLE_RADIAL",
         ),
     )
 
@@ -663,6 +736,45 @@ def colmap_geometric_verification_support_reasons(
                     else None
                 )
             result[(pairing_id, profile_id)] = reason
+    return result
+
+
+def colmap_camera_calibration_support_reason(
+    executable: Path,
+    profile_id: str,
+) -> str | None:
+    profile_id = validate_colmap_camera_calibration(profile_id)
+    return colmap_camera_calibration_support_reasons(executable)[profile_id]
+
+
+def colmap_camera_calibration_support_reasons(
+    executable: Path,
+) -> dict[str, str | None]:
+    try:
+        output = _capture_help(executable, "feature_extractor")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        reason = f"cannot inspect COLMAP camera calibration support: {exc}"
+        return {profile_id: reason for profile_id in COLMAP_CAMERA_CALIBRATION_IDS}
+
+    common = ("ImageReader.camera_model", "ImageReader.single_camera")
+    requirements = {
+        "shared_opencv_v1": common,
+        "shared_simple_radial_v1": common,
+        "auto_grouped_simple_radial_v1": (
+            *common,
+            "image_list_path",
+            "ImageReader.single_camera_per_image",
+        ),
+    }
+    result: dict[str, str | None] = {}
+    for profile_id, markers in requirements.items():
+        missing = [marker for marker in markers if marker not in output]
+        result[profile_id] = (
+            "COLMAP build is missing camera calibration options: "
+            + ", ".join(f"feature_extractor:{marker}" for marker in missing)
+            if missing
+            else None
+        )
     return result
 
 

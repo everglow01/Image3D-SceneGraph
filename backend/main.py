@@ -129,6 +129,15 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         sfm_geometric_verification: Annotated[
             Literal["default_v1", "guided_v1"], Form()
         ] = "default_v1",
+        sfm_camera_calibration: Annotated[
+            Literal[
+                "shared_opencv_v1",
+                "shared_simple_radial_v1",
+                "auto_grouped_simple_radial_v1",
+            ]
+            | None,
+            Form(),
+        ] = None,
         video_keyframe_profile: Annotated[
             Literal["standard_v1", "standard_v2"], Form()
         ] = "standard_v1",
@@ -231,6 +240,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "sfm_geometric_verification": (
                     sfm_geometric_verification
+                    if geometry_backend in COLMAP_FEATURE_BACKENDS
+                    else None
+                ),
+                "sfm_camera_calibration": (
+                    sfm_camera_calibration
                     if geometry_backend in COLMAP_FEATURE_BACKENDS
                     else None
                 ),

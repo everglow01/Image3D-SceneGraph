@@ -467,6 +467,7 @@ def write_initial_colmap_model(
     image_sizes: dict[int, tuple[int, int]],
     *,
     image_ids_by_name: dict[str, int] | None = None,
+    camera_model: str = "OPENCV",
 ) -> dict[str, Any]:
     camera_indices = sorted(cameras)
     if not camera_indices:
@@ -484,10 +485,25 @@ def write_initial_colmap_model(
     cy = float(np.median(intrinsics[:, 1, 2]))
     if min(fx, fy) <= 0 or not np.isfinite([fx, fy, cx, cy]).all():
         raise VggtBaError("VGGT intrinsics cannot initialize a shared camera")
+    if camera_model == "OPENCV":
+        camera_row = (
+            f"1 OPENCV {width} {height} "
+            f"{fx:.17g} {fy:.17g} {cx:.17g} {cy:.17g} 0 0 0 0"
+        )
+        effective_focal = None
+    elif camera_model == "SIMPLE_RADIAL":
+        effective_focal = float(
+            np.median((intrinsics[:, 0, 0] + intrinsics[:, 1, 1]) / 2.0)
+        )
+        camera_row = (
+            f"1 SIMPLE_RADIAL {width} {height} "
+            f"{effective_focal:.17g} {cx:.17g} {cy:.17g} 0"
+        )
+    else:
+        raise VggtBaError(f"unsupported VGGT-BA camera model: {camera_model}")
     output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "cameras.txt").write_text(
-        f"# CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n1 OPENCV {width} {height} "
-        f"{fx:.17g} {fy:.17g} {cx:.17g} {cy:.17g} 0 0 0 0\n",
+        "# CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n" + camera_row + "\n",
         encoding="utf-8",
     )
     image_rows = ["# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME"]
@@ -522,8 +538,8 @@ def write_initial_colmap_model(
         )
         / 2.0
     )
-    return {
-        "camera_model": "OPENCV",
+    record = {
+        "camera_model": camera_model,
         "shared_camera": True,
         "camera_count": len(camera_indices),
         "width": width,
@@ -534,6 +550,9 @@ def write_initial_colmap_model(
         "cy": cy,
         "focal_relative_median_dispersion": focal_dispersion,
     }
+    if effective_focal is not None:
+        record["f"] = effective_focal
+    return record
 
 
 def filter_train_supported_points(

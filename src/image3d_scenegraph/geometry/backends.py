@@ -12,6 +12,7 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_LEARNED_FEATURE_SETUP_COMMAND,
     COLMAP_VOCAB_TREE_SETUP_COMMAND,
     ColmapFeatureError,
+    colmap_camera_calibration_support_reasons,
     colmap_geometric_verification_support_reasons,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reasons,
@@ -52,6 +53,26 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
     checkpoint_root = Path(os.environ.get("IMAGE3D_CHECKPOINT_ROOT", root / "checkpoints"))
     colmap = resolve_colmap_executable(root)
     feature_profiles = _colmap_feature_profiles(root, colmap)
+    colmap_camera_calibrations = _colmap_camera_calibrations(
+        colmap,
+        default_profile="shared_simple_radial_v1",
+        supported_modes=("multi_image",),
+    )
+    dense_camera_calibrations = _colmap_camera_calibrations(
+        colmap,
+        default_profile="shared_simple_radial_v1",
+        supported_modes=("multi_image",),
+        unsupported={
+            "shared_opencv_v1": (
+                "COLMAP+VGGT dense fusion does not support OPENCV distortion"
+            )
+        },
+    )
+    project_camera_calibrations = _colmap_camera_calibrations(
+        colmap,
+        default_profile="shared_opencv_v1",
+        supported_modes=("multi_image", "video"),
+    )
 
     return [
         BackendSpec(
@@ -77,13 +98,17 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             available=colmap is not None,
             reason=None if colmap is not None else "colmap executable not found",
             setup_command="uv run python scripts/setup_colmap_cuda.py --install",
-            options={"sfm_feature_profiles": feature_profiles},
+            options={
+                "sfm_feature_profiles": feature_profiles,
+                "sfm_camera_calibrations": colmap_camera_calibrations,
+            },
         ),
         _colmap_vggt_spec(
             colmap=colmap,
             repo_path=external_root / "vggt",
             checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
             feature_profiles=feature_profiles,
+            camera_calibrations=dense_camera_calibrations,
         ),
         _external_model_spec(
             backend_id="dust3r",
@@ -99,7 +124,12 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             checkpoint_hint=checkpoint_root / "mast3r",
             supported_outputs=("point_cloud",),
         ),
-        _project_gaussian_spec(root, colmap, feature_profiles),
+        _project_gaussian_spec(
+            root,
+            colmap,
+            feature_profiles,
+            project_camera_calibrations,
+        ),
     ]
 
 
@@ -292,10 +322,64 @@ def _colmap_feature_profiles(
     return result
 
 
+def _colmap_camera_calibrations(
+    colmap: Path | None,
+    *,
+    default_profile: str,
+    supported_modes: tuple[str, ...],
+    unsupported: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    missing_colmap_reason = None if colmap is not None else "colmap executable not found"
+    support_reasons = (
+        colmap_camera_calibration_support_reasons(colmap)
+        if colmap is not None
+        else {}
+    )
+    unsupported = unsupported or {}
+    result = []
+    for profile_id, label in (
+        ("shared_opencv_v1", "Shared OPENCV v1"),
+        ("shared_simple_radial_v1", "Shared SIMPLE_RADIAL v1"),
+        (
+            "auto_grouped_simple_radial_v1",
+            "Auto-grouped SIMPLE_RADIAL v1",
+        ),
+    ):
+        support_reason = (
+            missing_colmap_reason
+            if missing_colmap_reason is not None
+            else support_reasons[profile_id]
+        )
+        reason = unsupported.get(profile_id) or support_reason
+        modes = (
+            ["multi_image"]
+            if profile_id == "auto_grouped_simple_radial_v1"
+            else list(supported_modes)
+        )
+        result.append(
+            {
+                "id": profile_id,
+                "label": label,
+                "available": reason is None,
+                "reason": reason,
+                "experimental": profile_id != default_profile,
+                "is_default": profile_id == default_profile,
+                "supported_modes": modes,
+                "setup_command": (
+                    "uv run python scripts/setup_colmap_cuda.py --install"
+                    if support_reason is not None
+                    else None
+                ),
+            }
+        )
+    return result
+
+
 def _project_gaussian_spec(
     project_root: Path,
     colmap: Path | None,
     feature_profiles: list[dict[str, Any]],
+    camera_calibrations: list[dict[str, Any]],
 ) -> BackendSpec:
     trainers = get_gaussian_trainer_specs(project_root)
     available_trainers = [trainer for trainer in trainers if trainer.available]
@@ -416,6 +500,7 @@ def _project_gaussian_spec(
         options={
             "gaussian_trainers": [trainer.to_dict() for trainer in trainers],
             "sfm_feature_profiles": feature_profiles,
+            "sfm_camera_calibrations": camera_calibrations,
             "gaussian_geometry_sources": [
                 {
                     "id": "colmap",
@@ -539,6 +624,7 @@ def _colmap_vggt_spec(
     repo_path: Path,
     checkpoint_hint: Path,
     feature_profiles: list[dict[str, Any]],
+    camera_calibrations: list[dict[str, Any]],
 ) -> BackendSpec:
     missing: list[str] = []
     if colmap is None:
@@ -554,5 +640,8 @@ def _colmap_vggt_spec(
         available=not missing,
         reason="; ".join(missing) if missing else None,
         setup_command="uv run python scripts/setup_colmap_cuda.py --install && uv run python scripts/setup_model.py --backend vggt",
-        options={"sfm_feature_profiles": feature_profiles},
+        options={
+            "sfm_feature_profiles": feature_profiles,
+            "sfm_camera_calibrations": camera_calibrations,
+        },
     )

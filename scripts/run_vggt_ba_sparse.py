@@ -13,7 +13,14 @@ import numpy as np
 from PIL import Image
 
 from image3d_scenegraph.file_integrity import sha256_file
+from image3d_scenegraph.geometry.camera_calibration import (
+    build_camera_calibration_diagnostics,
+    camera_calibration_metrics,
+    prepare_camera_extraction,
+    write_camera_calibration_diagnostics,
+)
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_CAMERA_CALIBRATION_IDS,
     COLMAP_FEATURE_PROFILE_IDS,
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
@@ -21,6 +28,7 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
     colmap_frontend_provenance,
+    resolve_colmap_camera_calibration,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_geometric_verification,
@@ -125,6 +133,11 @@ def main() -> None:
         choices=COLMAP_GEOMETRIC_VERIFICATION_IDS,
         default="default_v1",
     )
+    parser.add_argument(
+        "--camera-calibration",
+        choices=COLMAP_CAMERA_CALIBRATION_IDS,
+        default="shared_opencv_v1",
+    )
     parser.add_argument("--vocab-tree-path", type=Path)
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
@@ -139,6 +152,8 @@ def main() -> None:
         parser.error("--pairing resolves its vocabulary tree; omit --vocab-tree-path")
     if args.pairing == "vocab_tree":
         parser.error("VGGT-BA video geometry does not support vocab_tree pairing")
+    if args.camera_calibration == "auto_grouped_simple_radial_v1":
+        parser.error("VGGT-BA video geometry does not support auto-grouped cameras")
     legacy_matcher = args.matcher
     if args.pairing is None and legacy_matcher is None:
         legacy_matcher = "exhaustive"
@@ -173,6 +188,7 @@ def main() -> None:
     if colmap_path is None:
         raise SystemExit("COLMAP executable not found")
     colmap = str(colmap_path)
+    colmap_build = colmap_version(colmap)
     try:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
         local_matcher = resolve_colmap_local_matcher(
@@ -180,6 +196,9 @@ def main() -> None:
         )
         geometric_verification = resolve_colmap_geometric_verification(
             args.geometric_verification
+        )
+        camera_calibration = resolve_colmap_camera_calibration(
+            args.camera_calibration
         )
         if args.pairing is not None:
             pairing = resolve_colmap_pairing(feature_profile, args.pairing)
@@ -212,6 +231,12 @@ def main() -> None:
     colmap_dir = output_dir / "colmap"
     for path in (windows_dir, diagnostics_dir, geometry_dir, colmap_dir):
         path.mkdir(parents=True, exist_ok=True)
+    camera_plan = prepare_camera_extraction(
+        camera_calibration,
+        args.image_dir,
+        image_paths,
+        work_dir / "camera_groups",
+    )
 
     write_progress(args.progress_file, "vggt_ba_descriptors")
     runtime = load_runtime(args)
@@ -450,10 +475,7 @@ def main() -> None:
         str(database_path),
         "--image_path",
         str(args.image_dir),
-        "--ImageReader.single_camera",
-        "1",
-        "--ImageReader.camera_model",
-        "OPENCV",
+        *camera_plan.batches[0].image_reader_options,
         "--FeatureExtraction.use_gpu",
         "1",
         "--FeatureExtraction.num_threads",
@@ -530,6 +552,7 @@ def main() -> None:
             merged,
             image_sizes,
             image_ids_by_name=image_ids_by_name,
+            camera_model=camera_calibration.camera_model,
         )
         write_progress(args.progress_file, "vggt_ba_global_triangulation")
         triangulated_dir = work_dir / "triangulated"
@@ -690,6 +713,47 @@ def main() -> None:
     if recovered_fallback_registration is not None:
         fallback_registration = recovered_fallback_registration
 
+    camera_plan = prepare_camera_extraction(
+        camera_calibration,
+        args.image_dir,
+        discover_images(args.image_dir),
+        work_dir / "camera_groups",
+    )
+    raw_text_dir = work_dir / "final_raw_txt"
+    raw_text_dir.mkdir(parents=True, exist_ok=False)
+    raw_conversion_started = time.perf_counter()
+    command_logs.append(
+        run_command(
+            [
+                colmap,
+                "model_converter",
+                "--input_path",
+                str(final_model),
+                "--output_path",
+                str(raw_text_dir),
+                "--output_type",
+                "TXT",
+            ]
+        )
+    )
+    colmap_stage_elapsed_seconds["raw_model_conversion"] = (
+        time.perf_counter() - raw_conversion_started
+    )
+    camera_diagnostics = build_camera_calibration_diagnostics(
+        database_path=database_path,
+        final_camera_payload=build_camera_payload(raw_text_dir),
+        points3d_path=raw_text_dir / "points3D.txt",
+        plan=camera_plan,
+        colmap_build=colmap_build,
+    )
+    camera_diagnostics_path = (
+        diagnostics_dir / "sfm_camera_calibration.json"
+    )
+    write_camera_calibration_diagnostics(
+        camera_diagnostics_path, camera_diagnostics
+    )
+    camera_metrics = camera_calibration_metrics(camera_diagnostics)
+
     write_progress(args.progress_file, "colmap_undistortion")
     undistorted_dir = colmap_dir / "undistorted"
     command_logs.append(
@@ -787,6 +851,10 @@ def main() -> None:
         "colmap_pairing_command": pairing_command,
         "colmap_vocab_tree_sha256": vocab_tree_sha256,
         "colmap_geometric_verification": geometric_verification.provenance(),
+        "colmap_camera_calibration": camera_diagnostics["calibration"],
+        "camera_calibration_diagnostics": camera_diagnostics_path.relative_to(
+            output_dir
+        ).as_posix(),
         "colmap_mapper": "incremental",
         "colmap_matcher": pairing_command.removesuffix("_matcher"),
         "colmap_stage_elapsed_seconds": colmap_stage_elapsed_seconds,
@@ -805,7 +873,7 @@ def main() -> None:
         "fallback_registration": fallback_registration,
         "window_graph": graph_payload,
         "colmap_executable": colmap,
-        "colmap_build": colmap_version(colmap),
+        "colmap_build": colmap_build,
         "elapsed_seconds": elapsed,
         "dependencies": dependency_record(args),
     }
@@ -831,6 +899,11 @@ def main() -> None:
                 f"sfm_pairing_vocab_tree_sha256={vocab_tree_sha256 or 'none'}",
                 f"sfm_geometric_verification_profile={geometric_verification.profile_id}",
                 f"sfm_geometric_verification_guided_matching={str(geometric_verification.guided_matching).lower()}",
+                *[
+                    f"{key}={value}"
+                    for key, value in camera_metrics.items()
+                ],
+                f"sfm_camera_calibration_diagnostics={camera_diagnostics_path.relative_to(output_dir).as_posix()}",
                 "sfm_mapper=incremental",
                 f"colmap_feature_extraction_seconds={colmap_stage_elapsed_seconds['feature_extraction']:.3f}",
                 f"colmap_feature_matching_seconds={colmap_stage_elapsed_seconds['feature_matching']:.3f}",

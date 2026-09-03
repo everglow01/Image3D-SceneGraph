@@ -29,7 +29,15 @@ def test_learned_profile_is_colmap_400_cuda_122_onnx():
 def test_install_verification_requires_geometry_flags_on_matches_importer(
     tmp_path, monkeypatch
 ):
-    feature_markers = "AlikedExtraction.max_num_features"
+    feature_markers = " ".join(
+        [
+            "AlikedExtraction.max_num_features",
+            "image_list_path",
+            "ImageReader.camera_model",
+            "ImageReader.single_camera",
+            "ImageReader.single_camera_per_image",
+        ]
+    )
     matcher_markers = " ".join(
         [
             "AlikedMatching.bruteforce_model_path",
@@ -59,4 +67,11 @@ def test_install_verification_requires_geometry_flags_on_matches_importer(
     monkeypatch.setattr(SETUP, "capture", capture)
 
     with pytest.raises(SystemExit, match="skip_geometric_verification"):
+        SETUP.verify_install(tmp_path / "colmap", SETUP.PROFILES["learned"])
+
+    outputs["matches_importer"] = matcher_markers
+    outputs["feature_extractor"] = feature_markers.replace(
+        "ImageReader.single_camera_per_image", ""
+    )
+    with pytest.raises(SystemExit, match="single_camera_per_image"):
         SETUP.verify_install(tmp_path / "colmap", SETUP.PROFILES["learned"])

@@ -9,11 +9,16 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
+from image3d_scenegraph.geometry.camera_calibration import (
+    camera_calibration_metrics,
+)
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_CAMERA_CALIBRATION_IDS,
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LEGACY_MATCHER_TO_PAIRING,
     COLMAP_PAIRING_IDS,
+    resolve_colmap_camera_calibration,
     resolve_colmap_vocab_tree,
 )
 from image3d_scenegraph.video.registration import (
@@ -421,6 +426,20 @@ class ProjectGaussianAdapter:
             "--geometric-verification",
             sfm_geometric_verification,
         ]
+        sfm_camera_calibration = _choice_option(
+            context,
+            "sfm_camera_calibration",
+            "IMAGE3D_SFM_CAMERA_CALIBRATION",
+            "shared_opencv_v1",
+            set(COLMAP_CAMERA_CALIBRATION_IDS),
+        )
+        geometry_metrics["sfm_camera_calibration_profile"] = (
+            sfm_camera_calibration
+        )
+        camera_calibration_args = [
+            "--camera-calibration",
+            sfm_camera_calibration,
+        ]
         video_geometry_args: list[str] = []
         if context.mode == "video" and video_profile == "standard_v2":
             if video_source_path is None or video_selection_path is None:
@@ -443,6 +462,7 @@ class ProjectGaussianAdapter:
                 *feature_args,
                 *local_matcher_args,
                 *geometric_verification_args,
+                *camera_calibration_args,
                 *video_geometry_args,
                 *pairing_args,
                 "--gaussian-baseline",
@@ -473,6 +493,7 @@ class ProjectGaussianAdapter:
                 *feature_args,
                 *local_matcher_args,
                 *geometric_verification_args,
+                *camera_calibration_args,
                 *video_geometry_args,
                 *pairing_args,
                 "--repo-dir",
@@ -522,14 +543,27 @@ class ProjectGaussianAdapter:
         )
         cameras_path = context.job_dir / "geometry" / "cameras.json"
         sfm_points_path = context.job_dir / "geometry" / "points.ply"
+        camera_calibration_path = (
+            context.job_dir / "diagnostics" / "sfm_camera_calibration.json"
+        )
         if (
             not cameras_path.is_file()
             or not sfm_points_path.is_file()
             or not points_path.is_file()
+            or not camera_calibration_path.is_file()
         ):
             raise ReconstructionError(
-                f"{geometry_source} did not produce project 3DGS camera/sparse inputs"
+                f"{geometry_source} did not produce complete project 3DGS camera/sparse inputs"
             )
+        geometry_metrics.update(
+            _camera_calibration_diagnostics_metrics(
+                camera_calibration_path,
+                sfm_camera_calibration,
+            )
+        )
+        geometry_assets["sfm_camera_calibration_diagnostics"] = (
+            camera_calibration_path.relative_to(context.job_dir).as_posix()
+        )
         if geometry_source == "colmap" and video_profile == "standard_v2":
             colmap_timing_path = (
                 context.job_dir / "diagnostics" / "colmap_timing.json"
@@ -749,6 +783,7 @@ class ProjectGaussianAdapter:
             local_matcher=sfm_local_matcher,
             pairing=sfm_pairing,
             geometric_verification=sfm_geometric_verification,
+            camera_calibration=sfm_camera_calibration,
             geometry_source=geometry_source,
             video_selection_path=video_selection_path,
         )
@@ -1123,6 +1158,7 @@ def _try_export_sfm_diagnostics(
     local_matcher: str,
     pairing: str,
     geometric_verification: str,
+    camera_calibration: str,
     geometry_source: str,
     video_selection_path: Path | None,
 ) -> tuple[
@@ -1141,6 +1177,10 @@ def _try_export_sfm_diagnostics(
             else context.job_dir / "diagnostics" / "colmap_timing.json"
         )
         pairing_vocab_tree_sha256: str | None = None
+        camera_record: dict[str, Any] | None = None
+        camera_diagnostics_path = (
+            context.job_dir / "diagnostics" / "sfm_camera_calibration.json"
+        )
         try:
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             colmap_build = str(provenance.get("colmap_build", "unknown"))
@@ -1179,8 +1219,29 @@ def _try_export_sfm_diagnostics(
                 raise ValueError(
                     "COLMAP geometric verification provenance changed during the run"
                 )
+            camera_key = (
+                "colmap_camera_calibration"
+                if geometry_source == "vggt_ba"
+                else "camera_calibration"
+            )
+            provenance_camera = provenance.get(camera_key)
+            if not isinstance(provenance_camera, dict):
+                raise ValueError("COLMAP camera calibration provenance is missing")
+            camera_diagnostics = json.loads(
+                camera_diagnostics_path.read_text(encoding="utf-8")
+            )
+            camera_record = camera_diagnostics.get("calibration")
+            if (
+                not isinstance(camera_record, dict)
+                or camera_record.get("profile") != camera_calibration
+                or provenance_camera != camera_record
+            ):
+                raise ValueError(
+                    "COLMAP camera calibration provenance changed during the run"
+                )
         except (OSError, json.JSONDecodeError, ValueError):
             colmap_build = "unknown"
+            camera_record = None
             if (
                 feature_profile != "sift_v1"
                 or local_matcher != "bruteforce"
@@ -1189,6 +1250,8 @@ def _try_export_sfm_diagnostics(
                 raise
             feature = _legacy_sift_frontend_provenance()
             geometric_record = _default_geometric_verification_provenance()
+        if camera_record is None:
+            raise ValueError("COLMAP camera calibration provenance is missing")
         _adapter_progress(context, "sfm_diagnostics", 0.32)
         manifest_path, metrics = export_colmap_diagnostics(
             job_dir=context.job_dir,
@@ -1199,6 +1262,8 @@ def _try_export_sfm_diagnostics(
             feature=feature,
             pairing=pairing,
             geometric_verification=geometric_record,
+            camera_calibration=camera_record,
+            camera_calibration_diagnostics_path=camera_diagnostics_path,
             pairing_vocab_tree_sha256=pairing_vocab_tree_sha256,
             mapper="incremental",
             colmap_build=colmap_build,
@@ -1985,6 +2050,13 @@ class ColmapPointCloudAdapter:
             "default_v1",
             set(COLMAP_GEOMETRIC_VERIFICATION_IDS),
         )
+        camera_calibration = _choice_option(
+            context,
+            "sfm_camera_calibration",
+            "IMAGE3D_SFM_CAMERA_CALIBRATION",
+            "shared_simple_radial_v1",
+            set(COLMAP_CAMERA_CALIBRATION_IDS),
+        )
         if "sfm_pairing" in context.options:
             pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
         else:
@@ -2005,6 +2077,8 @@ class ColmapPointCloudAdapter:
             local_matcher,
             "--geometric-verification",
             geometric_verification,
+            "--camera-calibration",
+            camera_calibration,
             *pairing_args,
         ]
 
@@ -2029,11 +2103,26 @@ class ColmapPointCloudAdapter:
 
         point_cloud_path = context.job_dir / "geometry" / "points.ply"
         cameras_path = context.job_dir / "geometry" / "cameras.json"
-        if not point_cloud_path.exists() or not cameras_path.exists():
-            raise ReconstructionError("COLMAP reconstruction did not produce points.ply and cameras.json")
+        camera_calibration_path = (
+            context.job_dir / "diagnostics" / "sfm_camera_calibration.json"
+        )
+        if (
+            not point_cloud_path.exists()
+            or not cameras_path.exists()
+            or not camera_calibration_path.exists()
+        ):
+            raise ReconstructionError(
+                "COLMAP reconstruction did not produce complete point, camera, and calibration outputs"
+            )
 
         runner_log = context.job_dir / "logs" / "run.log"
         metrics = _parse_key_value_metrics(runner_log)
+        metrics.update(
+            _camera_calibration_diagnostics_metrics(
+                camera_calibration_path,
+                camera_calibration,
+            )
+        )
         log_lines = [
             "geometry_backend=colmap",
             "output_type=point_cloud",
@@ -2049,6 +2138,9 @@ class ColmapPointCloudAdapter:
             assets={
                 "point_cloud": "geometry/points.ply",
                 "cameras": "geometry/cameras.json",
+                "sfm_camera_calibration_diagnostics": (
+                    "diagnostics/sfm_camera_calibration.json"
+                ),
             },
             metrics=metrics,
             log_lines=log_lines,
@@ -2089,6 +2181,13 @@ class ColmapVggtPointCloudAdapter:
             "IMAGE3D_SFM_GEOMETRIC_VERIFICATION",
             "default_v1",
             set(COLMAP_GEOMETRIC_VERIFICATION_IDS),
+        )
+        camera_calibration = _choice_option(
+            context,
+            "sfm_camera_calibration",
+            "IMAGE3D_SFM_CAMERA_CALIBRATION",
+            "shared_simple_radial_v1",
+            set(COLMAP_CAMERA_CALIBRATION_IDS),
         )
         if "sfm_pairing" in context.options:
             pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
@@ -2135,6 +2234,8 @@ class ColmapVggtPointCloudAdapter:
             local_matcher,
             "--geometric-verification",
             geometric_verification,
+            "--camera-calibration",
+            camera_calibration,
             *pairing_args,
             "--vggt-batch-size",
             str(batch_size),
@@ -2202,6 +2303,9 @@ class ColmapVggtPointCloudAdapter:
 
         point_cloud_path = context.job_dir / "geometry" / "points.ply"
         cameras_path = context.job_dir / "geometry" / "cameras.json"
+        camera_calibration_path = (
+            context.job_dir / "diagnostics" / "sfm_camera_calibration.json"
+        )
         fusion_diagnostics_path = context.job_dir / "diagnostics" / "fusion.json"
         visibility_graph_path = context.job_dir / "diagnostics" / "visibility_graph.json"
         scale_disagreement_path = context.job_dir / "diagnostics" / "scale_disagreement.json"
@@ -2211,6 +2315,7 @@ class ColmapVggtPointCloudAdapter:
             for path in [
                 point_cloud_path,
                 cameras_path,
+                camera_calibration_path,
                 fusion_diagnostics_path,
                 visibility_graph_path,
                 scale_disagreement_path,
@@ -2221,6 +2326,12 @@ class ColmapVggtPointCloudAdapter:
 
         runner_log = context.job_dir / "logs" / "run.log"
         metrics = _parse_key_value_metrics(runner_log)
+        metrics.update(
+            _camera_calibration_diagnostics_metrics(
+                camera_calibration_path,
+                camera_calibration,
+            )
+        )
         log_lines = [
             "geometry_backend=colmap_vggt",
             "output_type=point_cloud",
@@ -2236,6 +2347,9 @@ class ColmapVggtPointCloudAdapter:
             assets={
                 "point_cloud": "geometry/points.ply",
                 "cameras": "geometry/cameras.json",
+                "sfm_camera_calibration_diagnostics": (
+                    "diagnostics/sfm_camera_calibration.json"
+                ),
                 "fusion_diagnostics": "diagnostics/fusion.json",
                 "visibility_graph": "diagnostics/visibility_graph.json",
                 "scale_disagreement_diagnostics": "diagnostics/scale_disagreement.json",
@@ -2244,6 +2358,31 @@ class ColmapVggtPointCloudAdapter:
             metrics=metrics,
             log_lines=log_lines,
         )
+
+
+def _camera_calibration_diagnostics_metrics(
+    path: Path,
+    expected_profile: str,
+) -> dict[str, int | float | str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("camera calibration diagnostics must be an object")
+        calibration = payload.get("calibration")
+        if (
+            payload.get("schema_version") != 1
+            or payload.get("profile")
+            != "sfm_camera_calibration_diagnostics_v1"
+            or not isinstance(calibration, dict)
+            or calibration
+            != resolve_colmap_camera_calibration(expected_profile).provenance()
+        ):
+            raise ValueError("camera calibration provenance changed")
+        return camera_calibration_metrics(payload)
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ReconstructionError(
+            "camera calibration diagnostics are invalid"
+        ) from exc
 
 
 def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
@@ -2274,6 +2413,11 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "factorial_output_count",
             "point_budget_sensitivity_output_count",
             "gpu_peak_memory_bytes",
+            "sfm_camera_planned_count",
+            "sfm_camera_initial_count",
+            "sfm_camera_final_count",
+            "sfm_camera_prior_focal_count",
+            "sfm_camera_warning_count",
         }:
             metrics[key] = int(value)
         elif key == "point_budget_applied":
@@ -2304,6 +2448,9 @@ def _parse_key_value_metrics(path: Path) -> dict[str, int | float | str | bool]:
             "tsdf_depth_trunc",
             "tsdf_full_sparse_diagonal",
             "tsdf_robust_sparse_diagonal",
+            "sfm_camera_median_focal_length_ratio",
+            "sfm_median_reprojection_error_pixels",
+            "sfm_median_track_length",
         }:
             metrics[key] = float(value)
         elif key in {

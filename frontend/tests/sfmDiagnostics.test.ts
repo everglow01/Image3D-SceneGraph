@@ -149,6 +149,36 @@ function v3Payload(images: unknown[]) {
 }
 
 
+function v4Payload(images: unknown[]) {
+  const value = v3Payload(
+    images.map((entry) => ({
+      ...(entry as Record<string, unknown>),
+      camera_id: 1
+    }))
+  );
+  value.schema_version = 4;
+  value.profile = "sfm_frontend_diagnostics_v4";
+  Object.assign(value.runs[0], {
+    camera_calibration: {
+      profile: "shared_opencv_v1",
+      camera_model: "OPENCV",
+      sharing_policy: "single_camera",
+      grouping_key_policy: "all_images",
+      initial_focal_policy: "colmap_exif_or_default",
+      planned_camera_count: 1,
+      initial_camera_count: 1,
+      final_camera_count: 1,
+      prior_focal_camera_count: 1,
+      warning_count: 0,
+      implementation: "colmap",
+      version: "4.0",
+      diagnostics_path: "diagnostics/sfm_camera_calibration.json"
+    }
+  });
+  return value;
+}
+
+
 test("schema 1 provenance maps to explicit SIFT stages", () => {
   const run = parseSfmDiagnostics(payload([image(1, [0, 0, 0], [0, 0, 1])])).runs[0];
 
@@ -157,6 +187,8 @@ test("schema 1 provenance maps to explicit SIFT stages", () => {
   assert.equal(run.local_matcher.profile, "bruteforce");
   assert.equal(run.local_matcher.name, "SIFT_BRUTEFORCE");
   assert.equal(run.pairing.name, "sequential");
+  assert.equal(run.camera_calibration.profile, "shared_opencv_v1");
+  assert.equal(run.camera_calibration.final_camera_count, null);
   assert.equal(run.mapper.name, "incremental");
 });
 
@@ -184,6 +216,42 @@ test("schema 3 rejects inconsistent geometric verification", () => {
   value.runs[0].geometric_verification.guided_matching = false;
 
   assert.throws(() => parseSfmDiagnostics(value), /inconsistent/);
+});
+
+
+test("schema 4 preserves camera calibration and image grouping", () => {
+  const value = v4Payload([
+    image(1, [0, 0, 0], [0, 0, 1]),
+    image(2, [1, 0, 0], [0, 0, 1])
+  ]);
+
+  const diagnostics = parseSfmDiagnostics(value);
+
+  assert.equal(
+    diagnostics.runs[0].camera_calibration.profile,
+    "shared_opencv_v1"
+  );
+  assert.equal(diagnostics.runs[0].camera_calibration.camera_model, "OPENCV");
+  assert.equal(diagnostics.runs[0].camera_calibration.final_camera_count, 1);
+  assert.deepEqual(
+    diagnostics.images.map((entry) => entry.camera_id),
+    [1, 1]
+  );
+});
+
+
+test("schema 4 rejects inconsistent camera calibration", () => {
+  const value = v4Payload([
+    image(1, [0, 0, 0], [0, 0, 1]),
+    image(2, [1, 0, 0], [0, 0, 1])
+  ]);
+  value.runs[0].camera_calibration.camera_model = "SIMPLE_RADIAL";
+
+  assert.throws(() => parseSfmDiagnostics(value), /inconsistent/);
+
+  value.runs[0].camera_calibration.camera_model = "OPENCV";
+  value.images[1].camera_id = 2;
+  assert.throws(() => parseSfmDiagnostics(value), /image mapping is inconsistent/);
 });
 
 

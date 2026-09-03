@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  defaultSfmCameraCalibration,
+  formatSfmCameraCalibration,
   formatSfmGeometricVerification,
   formatSfmPairing,
+  isSfmCameraCalibrationAvailable,
   isSfmGeometricVerificationAvailable,
   isSfmPairingAvailable,
+  type SfmCameraCalibrationStatus,
   type SfmPairing
 } from "../src/sfmOptions.ts";
 import type { ExperimentalOptionStatus } from "../src/backendOptions.ts";
@@ -85,6 +89,84 @@ test("guided verification requires explicit backend availability", () => {
       ...available,
       available: false
     }),
+    false
+  );
+});
+
+
+test("camera calibration defaults preserve backend history", () => {
+  assert.equal(
+    defaultSfmCameraCalibration("project_3dgs"),
+    "shared_opencv_v1"
+  );
+  assert.equal(
+    defaultSfmCameraCalibration("colmap"),
+    "shared_simple_radial_v1"
+  );
+  assert.equal(
+    defaultSfmCameraCalibration("colmap_vggt"),
+    "shared_simple_radial_v1"
+  );
+  assert.equal(
+    formatSfmCameraCalibration(undefined, "project_3dgs"),
+    "Shared OPENCV v1"
+  );
+});
+
+
+test("camera calibration availability respects capability mode", () => {
+  const autoGrouped: SfmCameraCalibrationStatus = {
+    id: "auto_grouped_simple_radial_v1",
+    label: "Auto-grouped SIMPLE_RADIAL v1",
+    available: true,
+    reason: null,
+    experimental: true,
+    supported_modes: ["multi_image"]
+  };
+
+  assert.equal(
+    isSfmCameraCalibrationAvailable(
+      "auto_grouped_simple_radial_v1",
+      autoGrouped,
+      "multi_image",
+      "colmap"
+    ),
+    true
+  );
+  assert.equal(
+    isSfmCameraCalibrationAvailable(
+      "auto_grouped_simple_radial_v1",
+      autoGrouped,
+      "video",
+      "project_3dgs"
+    ),
+    false
+  );
+  assert.equal(
+    isSfmCameraCalibrationAvailable(
+      "shared_opencv_v1",
+      undefined,
+      "video",
+      "project_3dgs"
+    ),
+    true
+  );
+  assert.equal(
+    isSfmCameraCalibrationAvailable(
+      "shared_opencv_v1",
+      undefined,
+      "multi_image",
+      "colmap"
+    ),
+    false
+  );
+  assert.equal(
+    isSfmCameraCalibrationAvailable(
+      "auto_grouped_simple_radial_v1",
+      { ...autoGrouped, available: false },
+      "multi_image",
+      "colmap"
+    ),
     false
   );
 });

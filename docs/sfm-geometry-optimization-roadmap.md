@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略与 Phase 4 两视图几何/View Graph 均已接入代码；当前 8192 点配置的真实 geometry A/B 尚待运行证据
+> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph 与 Phase 5 相机标定均已接入代码；当前 8192 点配置及相机 profile 的真实 geometry A/B 尚待运行证据
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -18,7 +18,8 @@
    - `sfm_feature_profile`：提取什么特征；
    - `sfm_local_matcher`：已选择图像对内部如何匹配；
    - `sfm_pairing`：选择哪些图像对；
-   - `sfm_geometric_verification`：如何执行两视图几何验证。
+   - `sfm_geometric_verification`：如何执行两视图几何验证；
+   - `sfm_camera_calibration`：采用哪种相机模型与内参共享/分组策略。
 4. 实施顺序应严格沿 RGB→SfM 流水线推进：
    1. 特征提取：SIFT 与 ALIKED N16Rot；
    2. 局部匹配：Brute-force 与 LightGlue；
@@ -81,11 +82,12 @@
 
 1. **已解决（Phase 1）：** diagnostics 不再把 detector 固定写成 SIFT，feature profile 和模型 provenance 已独立记录。
 2. **已解决（Phase 2/3）：** local matcher 与 pairing 已拆成 `sfm_local_matcher` 和 `sfm_pairing`，不再用一个 `matcher` 名称混淆两层。
-3. **已解决（Phase 1–4）：** 普通 COLMAP、COLMAP+VGGT、Project ordinary geometry 与 VGGT-BA 最终 COLMAP database 共享稳定 feature/local-matcher/pairing/geometric-verification 控制。
-4. **已解决（Phase 1–4）：** 前端按 feature → local matcher → pairing → geometric verification capability 显示并提交四条独立控制轴。
-5. **已解决（Phase 4）：** diagnostics schema 3 现在区分 tentative candidates、候选保留内点、Guided 新增内点和最终 verified correspondences，并汇总 verified View Graph 的 degree/component/孤立节点与视频软 gap 桥接证据。
-6. **仍开放：** `--max-image-size` 当前用于 undistortion，但 `run_colmap_sparse.py` 没有把它传给 `FeatureExtraction.max_image_size`。对于未预缩放的多图输入，提取阶段可能仍按原图运行；这会改变历史基线，不能在首次算法 A/B 中静默修改。
-7. **仍开放（Phase 1.5）：** COLMAP database 尚未冻结“仅完成特征提取”的只读快照，每个 matcher A/B 仍会重复提取特征。
+3. **已解决（Phase 1–5）：** 普通 COLMAP、COLMAP+VGGT、Project ordinary geometry 与 VGGT-BA 最终 COLMAP database 共享稳定 feature/local-matcher/pairing/geometric-verification/camera-calibration 控制。
+4. **已解决（Phase 1–5）：** 前端按 feature → local matcher → pairing → geometric verification → camera calibration capability 显示并提交五条独立控制轴。
+5. **已解决（Phase 4）：** diagnostics schema 3 区分 tentative candidates、候选保留内点、Guided 新增内点和最终 verified correspondences，并汇总 verified View Graph 的 degree/component/孤立节点与视频软 gap 桥接证据。
+6. **已解决（Phase 5）：** diagnostics schema 4 增加 raw sparse camera profile/model/group provenance 与逐图 `camera_id`；完整焦距、主点、畸变、注册、track 和 reprojection 证据保存在独立相机诊断资产中，合理性 warning 保持 soft。
+7. **仍开放：** `--max-image-size` 当前用于 undistortion，但 `run_colmap_sparse.py` 没有把它传给 `FeatureExtraction.max_image_size`。对于未预缩放的多图输入，提取阶段可能仍按原图运行；这会改变历史基线，不能在首次算法 A/B 中静默修改。
+8. **仍开放（Phase 1.5）：** COLMAP database 尚未冻结“仅完成特征提取”的只读快照，每个 matcher A/B 仍会重复提取特征。
 
 ### 2.3 已具备但尚未产品化的能力
 
@@ -97,9 +99,13 @@ SiftMatching.lightglue_model_path
 AlikedMatching.lightglue_model_path
 FeatureMatching.guided_matching
 FeatureMatching.skip_geometric_verification
+image_list_path
+ImageReader.camera_model
+ImageReader.single_camera
+ImageReader.single_camera_per_image
 ```
 
-上述几何验证 marker 会在 `exhaustive_matcher`、`sequential_matcher`、`vocab_tree_matcher` 与 standard-v2 使用的 `matches_importer` 上分别检查。
+上述几何验证 marker 会在 `exhaustive_matcher`、`sequential_matcher`、`vocab_tree_matcher` 与 standard-v2 使用的 `matches_importer` 上分别检查；ImageReader marker 用于 Phase 5 共享/分组相机 capability。
 
 本机安装的 COLMAP 4.0.0 help 还显示以下模型与官方 SHA-256：
 
@@ -164,7 +170,8 @@ sfm_feature_profile       = sift_v1 | aliked_n16rot_v1 | ...
 sfm_local_matcher         = bruteforce | lightglue
 sfm_pairing               = exhaustive | sequential_loop | vocab_tree
 sfm_geometric_verification = default_v1 | guided_v1
-sfm_mapper                = incremental | global
+sfm_camera_calibration     = shared_opencv_v1 | shared_simple_radial_v1 | auto_grouped_simple_radial_v1
+sfm_mapper                 = incremental | global
 ```
 
 现有 `colmap_matcher=exhaustive|sequential` 暂时保留为兼容字段，但前端标签应写成“图像对策略”，不能再称为“关键点匹配算法”。在完成兼容迁移前，不删除旧字段，也不改变历史 Job 解释。
@@ -188,14 +195,15 @@ sfm_mapper                = incremental | global
 1. 上传图片可能来自不同设备或变焦状态，强制单相机会错误共享内参。
 2. 对普通镜头，`OPENCV` 的自由度高于 `SIMPLE_RADIAL`；在视图较少或弱纹理时可能自标定不稳。
 
-COLMAP 官方建议普通相机先从 `SIMPLE_RADIAL` 开始，只有明确存在更复杂畸变时才使用 OPENCV/FISHEYE；同一实体相机和固定设置应共享内参。建议在特征/匹配实验稳定后，再增加冻结 profile：
+Phase 5 已冻结为三个高层 profile：
 
-- `camera_calibration=current_shared_opencv`：历史基线；
-- `camera_calibration=shared_simple_radial`：同一视频/同一相机的低自由度 A/B；
-- `camera_calibration=auto_grouped`：根据可靠 EXIF/device/size 分组，无证据时不错误共享；
-- 不向前端公开 focal、principal point 和 distortion 的每个原始数值。
+- `shared_opencv_v1`：一个共享 `OPENCV` camera；这是 `project_3dgs` ordinary COLMAP 与 VGGT-BA 的历史默认；
+- `shared_simple_radial_v1`：一个共享 `SIMPLE_RADIAL` camera；这是 direct `colmap` 与 `colmap_vggt` 的历史默认；
+- `auto_grouped_simple_radial_v1`：仅 multi-image，以归一化 Make + Model + 可选 LensModel + FocalLength/35mm equivalent + 解码宽高 + EXIF Orientation 做项目自有确定性分组；设备/焦距/方向证据缺失或 EXIF 无效时每图独立。
 
-主点默认继续固定；只有注册完成且共享视图足够时，才把“最终 global BA refine principal point”作为单独实验。
+自动分组不使用 COLMAP 原生 Auto，因为同一设备不同变焦状态可能被错误合并；也不使用文件名、上传顺序或目录结构推断相机。只读取分组所需标签，不读取/持久化 GPS、序列号或完整 EXIF。重复共享组分别用 `image_list_path + single_camera=1` 提取，singleton 合并为一次 `single_camera_per_image=1` 提取；随后严格校验数据库 image→camera 分区。
+
+`colmap_vggt` 当前 dense unprojection 不支持 OPENCV 切向畸变，因此明确拒绝 `shared_opencv_v1`，不静默降级。VGGT-BA 是视频共享相机路径，可在 OPENCV 与 SIMPLE_RADIAL 间 A/B，但拒绝 auto-grouped；standard-v2 恢复帧用 `existing_camera_id` 继承共享相机。主点默认继续固定；只有注册完成且共享视图足够时，才把“最终 global BA refine principal point”作为后续独立实验。焦距、主点和畸变原始数值只进入诊断资产，不成为前端调参控件。
 
 ### 5.2 incremental Mapper 与 Global Mapper
 
@@ -279,9 +287,9 @@ Global Mapper 是最有潜力降低当前 Mapping 耗时的选项。历史远端
 
 ## 7. 诊断与消融合同
 
-### 7.1 SfM diagnostics schema 3
+### 7.1 SfM diagnostics schema 4
 
-Phase 1–3 的 schema 2 已拆开 feature、local matcher 与 pairing。Phase 4 因 Guided Matching 可能在原始 tentative set 之外增加 verified correspondences，升级到 schema 3，并把几何验证与 View Graph 作为明确的 run provenance：
+Phase 1–3 的 schema 2 已拆开 feature、local matcher 与 pairing；Phase 4 的 schema 3 增加 geometric verification 与 View Graph。Phase 5 升级到 schema 4，把相机 profile/模型/分组摘要和逐图 `camera_id` 纳入 run provenance 与 run ID：
 
 ```json
 {
@@ -295,6 +303,15 @@ Phase 1–3 的 schema 2 已拆开 feature、local matcher 与 pairing。Phase 4
     "raw_parameter_policy": "colmap_build_defaults",
     "implementation": "colmap"
   },
+  "camera_calibration": {
+    "profile": "auto_grouped_simple_radial_v1",
+    "camera_model": "SIMPLE_RADIAL",
+    "sharing_policy": "focal_aware_groups",
+    "initial_camera_count": 3,
+    "final_camera_count": 2,
+    "warning_count": 0,
+    "diagnostics_path": "diagnostics/sfm_camera_calibration.json"
+  },
   "view_graph": {
     "profile": "sfm_verified_view_graph_v1",
     "edge_definition": "nonempty_two_view_geometry"
@@ -303,7 +320,9 @@ Phase 1–3 的 schema 2 已拆开 feature、local matcher 与 pairing。Phase 4
 }
 ```
 
-Pair shard schema 2 分别记录 tentative candidates、其中通过验证的 candidates、Guided 新增 correspondence、最终 verified count 和 rejected candidates，避免出现“最终内点数大于候选数”时的错误内点率。schema 1/2 仍可读并推断 `default_v1`；`scripts/analyze_sfm_view_graph.py` 可只读汇总历史 pair index，不修改 accepted Job。
+Pair shard schema 2 继续分别记录 tentative candidates、其中通过验证的 candidates、Guided 新增 correspondence、最终 verified count 和 rejected candidates，避免出现“最终内点数大于候选数”时的错误内点率。feature shard 仍为 schema 1，pair shard 仍为 schema 2，因为相机分组不改变其语义。主 schema 1/2/3 继续可读：历史 Project Gaussian Job 推断为 shared OPENCV；`scripts/analyze_sfm_view_graph.py` 接受 schema 4 但仍只读 pair index，不修改 accepted Job。
+
+独立 `diagnostics/sfm_camera_calibration.json` 来自 `image_undistorter` 前的 raw sparse model，记录初始/最终 camera groups、EXIF focal prior、注册率、具名 focal/principal-point/distortion、初始到最终焦距变化、track/reprojection 汇总与软合理性 warning。Gaussian undistorted PINHOLE camera 不得冒充原始标定结果。
 
 前端现有关键点和 pair canvas 本身不依赖 descriptor 内容，因此继续复用同一 Viewer；run provenance 增加 geometric verification，匹配页增加紧凑 View Graph 摘要，不另建图形系统。
 
@@ -401,6 +420,14 @@ sfm_geometric_verification = default_v1 | guided_v1
 
 两者都显式保持几何验证开启；Guided 只切换 `FeatureMatching.guided_matching=1`，其余 RANSAC/`TwoViewGeometry` raw 参数沿用同一 COLMAP build 默认值且不对外开放。
 
+第五批已新增：
+
+```text
+sfm_camera_calibration = shared_opencv_v1 | shared_simple_radial_v1 | auto_grouped_simple_radial_v1
+```
+
+缺省由 JobStore 按 backend 保持真实历史行为；`auto_grouped_simple_radial_v1` 只允许 multi-image，`colmap_vggt + shared_opencv_v1` 明确不可用。request/queued manifest 记录 requested，completed effective 来自严格校验的 raw-camera 诊断，不以请求值臆测。
+
 ### 8.2 前端
 
 在“几何实验”折叠区按流水线显示，而不是把所有参数平铺：
@@ -410,14 +437,15 @@ sfm_geometric_verification = default_v1 | guided_v1
 2 局部匹配      Brute-force（默认） / LightGlue（实验）
 3 图像对策略    Exhaustive / Sequential + Loop / Vocab Tree
 4 两视图几何    Default v1（默认） / Guided v1（实验）
-5 SfM 求解       Incremental / Global（后续）
+5 相机标定      Shared OPENCV / Shared SIMPLE_RADIAL / Auto-grouped
+6 SfM 求解       Incremental / Global（后续）
 ```
 
 要求：
 
-- 当前已启用第 1、2、3、4 项；SfM 求解仍保持 incremental；
+- 当前已启用第 1、2、3、4、5 项；SfM 求解仍保持 incremental；
 - 每个实验项显示服务器 availability、缺失模型和 setup command；
-- 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + default verification + incremental；
+- 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + default verification + 当时 Project shared OPENCV + incremental；
 - SfM inspector 的关键点/pair canvas 继续复用，不新增第二套 Viewer；
 - 进度显示阶段、计数和 elapsed，不把固定百分比当作真实内部进度。
 
@@ -431,10 +459,11 @@ uv run python scripts/run_colmap_sparse.py \
   --output-dir OUTPUT \
   --feature-profile aliked_n16rot_v1 \
   --local-matcher lightglue \
-  --geometric-verification guided_v1
+  --geometric-verification guided_v1 \
+  --camera-calibration auto_grouped_simple_radial_v1
 ```
 
-内部再展开为固定 COLMAP 参数和本地模型路径。`run_vggt_ba_sparse.py`、`run_colmap_vggt_dense.py` 使用同一组 resolver，避免三处命令漂移。dense runner 在 `--colmap-model-dir` 复用既有文本模型时不允许声称切换 Guided，因为该路径不会执行 matching。
+内部再展开为固定 COLMAP 参数和本地模型路径。`run_vggt_ba_sparse.py`、`run_colmap_vggt_dense.py` 使用同一组 resolver，避免三处命令漂移。dense runner 在 `--colmap-model-dir` 复用既有文本模型时不允许声称切换 Guided 或 camera profile，因为该路径不会执行 matching/ImageReader；VGGT-BA 明确拒绝 auto-grouped。
 
 ---
 
@@ -516,18 +545,21 @@ aliked_n16rot_v1:
 
 实现状态（2026-09-03）：稳定字段 `sfm_geometric_verification=default_v1|guided_v1` 已接入共享 resolver/capability、三个 COLMAP runner、standard-v2 `matches_importer` recovery、API/JobStore、前端和 manifest。两者均显式设置 `skip_geometric_verification=0`；`guided_v1` 唯一算法差异是 `guided_matching=1`，未开放或修改 RANSAC raw 阈值。默认仍为 `default_v1`。
 
-SfM diagnostics 已升级为 schema 3；verified edge 严格来自非空 `two_view_geometries`，View Graph 汇总 degree/component/孤立节点、候选保留/Guided 新增 correspondence 与视频 soft-gap bridge evidence。schema 1/2 继续可读，已有 Job 可用只读 analyzer 汇总，不写回 immutable attempt。
+Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语义并增加相机 provenance。verified edge 严格来自非空 `two_view_geometries`，View Graph 汇总 degree/component/孤立节点、候选保留/Guided 新增 correspondence 与视频 soft-gap bridge evidence。schema 1/2/3 继续可读，已有 Job 可用只读 analyzer 汇总，不写回 immutable attempt。
 
 - 真实 A/B 固定 feature、local matcher、pairing、相机、Mapper、BA 和输入，只改变 `default_v1 ↔ guided_v1`；
 - matching wall time 是 local matching + geometric verification 合计，不能伪称独立 RANSAC 耗时；
 - 代码接入不构成质量提升或默认推广证据。
 
-### Phase 5：相机标定 profile
+### Phase 5：相机标定 profile（代码已接入，待真实证据）
 
-- shared OPENCV 历史基线；
-- shared SIMPLE_RADIAL；
-- multi-image auto-grouped；
-- 对每 arm 审核 focal/distortion 合理性和注册，而不只看 sparse point 数。
+实现状态（2026-09-03）：稳定字段 `sfm_camera_calibration=shared_opencv_v1|shared_simple_radial_v1|auto_grouped_simple_radial_v1` 已接入共享 resolver、三个 COLMAP runner、API/JobStore、backend 顶层 capability、前端、manifest 和 SfM diagnostics schema 4。默认按 backend 保留历史行为：Project ordinary/VGGT-BA 为 shared OPENCV，direct COLMAP/COLMAP+VGGT 为 shared SIMPLE_RADIAL；没有默认推广。
+
+- auto-grouped 采用项目自有焦距感知分组，而不是 COLMAP 原生 Auto；可靠完整证据相同才共享，缺失/无效证据每图独立；
+- 分组只使用 Make/Model、可选 LensModel、焦距/35mm equivalent、解码尺寸和 Orientation，不读取/保存 GPS、序列号或完整 EXIF；
+- `colmap_vggt` 拒绝 OPENCV，VGGT-BA/video 拒绝 auto-grouped，standard-v2 新帧继承 existing camera；
+- raw sparse camera sidecar 记录 focal/distortion/registration/track/reprojection；COLMAP 默认 focal ratio/extra-param边界只产生 soft warning，provenance/model/assignment 漂移才是合同错误；
+- 真实 A/B 固定 feature、local matcher、pairing、geometric verification、Mapper/BA、输入和 trainer/split，只改变 camera profile；代码接入不构成质量提升或默认推广证据。
 
 ### Phase 6：SfM 求解器
 
@@ -586,6 +618,8 @@ Phase 1 完成必须满足：
 - [COLMAP 4.0.0 release：ALIKED、LightGlue、Global Mapper、性能改进](https://github.com/colmap/colmap/releases/tag/4.0.0)
 - [COLMAP CLI：feature/pairing/mapper 命令与大规模重建建议](https://colmap.github.io/cli.html)
 - [COLMAP FAQ：相机模型、自标定、guided matching、global mapper 注意事项](https://colmap.github.io/faq.html)
+- [COLMAP 相机模型与自标定建议](https://colmap.github.io/cameras.html)
+- [COLMAP 4.0.0 ImageReader 相机共享实现](https://github.com/colmap/colmap/blob/4.0.0/src/colmap/controllers/image_reader.cc)
 - [GLOMAP repository：global SfM 与 COLMAP database 接口](https://github.com/colmap/glomap)
 
 ### 局部特征与匹配

@@ -35,6 +35,28 @@ from image3d_scenegraph.geometry.vggt_ba import (
 )
 
 
+def test_runner_rejects_auto_grouped_video_cameras(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_vggt_ba_sparse.py",
+            "--image-dir",
+            str(tmp_path / "images"),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--camera-calibration",
+            "auto_grouped_simple_radial_v1",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        run_vggt_ba_sparse.main()
+    assert "does not support auto-grouped cameras" in capsys.readouterr().err
+
+
 def test_local_ba_inlier_gate_uses_bounded_per_frame_counts():
     mask = np.array(
         [
@@ -195,6 +217,7 @@ def test_initial_model_and_supported_camera_parser(tmp_path):
         names.append(f"{index}.jpg")
     record = write_initial_colmap_model(tmp_path / "model", names, cameras, sizes)
     assert record["camera_model"] == "OPENCV"
+    assert "f" not in record
     assert (tmp_path / "model" / "images.txt").is_file()
 
     partial = write_initial_colmap_model(
@@ -218,6 +241,31 @@ def test_initial_model_and_supported_camera_parser(tmp_path):
         encoding="utf-8",
     )
     assert supported_image_ids(tmp_path / "images.txt", minimum_observations=32) == {1}
+
+
+def test_initial_model_supports_shared_simple_radial(tmp_path):
+    cameras = {
+        0: {
+            "extrinsic": np.column_stack((np.eye(3), np.zeros(3))),
+            "intrinsic": np.array(
+                [[120.0, 0.0, 50.0], [0.0, 100.0, 40.0], [0.0, 0.0, 1.0]]
+            ),
+        }
+    }
+
+    record = write_initial_colmap_model(
+        tmp_path / "model",
+        ["0.jpg"],
+        cameras,
+        {0: (100, 80)},
+        camera_model="SIMPLE_RADIAL",
+    )
+
+    assert record["camera_model"] == "SIMPLE_RADIAL"
+    assert record["f"] == 110.0
+    assert "1 SIMPLE_RADIAL 100 80 110 50 40 0" in (
+        tmp_path / "model" / "cameras.txt"
+    ).read_text(encoding="utf-8")
 
 
 def test_train_supported_points_are_recolored_only_from_train(tmp_path):

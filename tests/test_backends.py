@@ -136,6 +136,55 @@ def test_backend_specs_report_aliked_without_disabling_sift(
     assert specs["colmap"].available is True
 
 
+def test_backend_specs_report_camera_calibration_capabilities(
+    tmp_path, monkeypatch
+):
+    external_root = tmp_path / "external"
+    colmap = external_root / "colmap-4-cuda" / "install" / "bin" / "colmap"
+    colmap.parent.mkdir(parents=True)
+    colmap.write_text("#!/bin/sh\n", encoding="utf-8")
+    colmap.chmod(0o755)
+    monkeypatch.setenv("IMAGE3D_EXTERNAL_ROOT", str(external_root))
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(
+        backends,
+        "colmap_camera_calibration_support_reasons",
+        lambda _path: {
+            "shared_opencv_v1": None,
+            "shared_simple_radial_v1": None,
+            "auto_grouped_simple_radial_v1": None,
+        },
+    )
+
+    specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
+    colmap_profiles = {
+        item["id"]: item
+        for item in specs["colmap"].options["sfm_camera_calibrations"]
+    }
+    dense_profiles = {
+        item["id"]: item
+        for item in specs["colmap_vggt"].options["sfm_camera_calibrations"]
+    }
+    project_profiles = {
+        item["id"]: item
+        for item in specs["project_3dgs"].options["sfm_camera_calibrations"]
+    }
+
+    assert colmap_profiles["shared_simple_radial_v1"]["is_default"] is True
+    assert project_profiles["shared_opencv_v1"]["is_default"] is True
+    assert project_profiles["shared_opencv_v1"]["supported_modes"] == [
+        "multi_image",
+        "video",
+    ]
+    assert project_profiles["auto_grouped_simple_radial_v1"][
+        "supported_modes"
+    ] == ["multi_image"]
+    assert dense_profiles["shared_opencv_v1"]["available"] is False
+    assert "does not support OPENCV" in dense_profiles["shared_opencv_v1"][
+        "reason"
+    ]
+
+
 def test_backend_specs_keep_vggt_disabled_until_checkpoint_exists(tmp_path, monkeypatch):
     external_root = tmp_path / "external"
     checkpoint_root = tmp_path / "checkpoints"

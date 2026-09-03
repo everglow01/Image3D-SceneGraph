@@ -40,15 +40,18 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LEGACY_MATCHER_TO_PAIRING,
     ColmapFeatureError,
+    colmap_camera_calibration_support_reason,
     colmap_geometric_verification_support_reason,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reason,
     colmap_pairing_support_reason,
     resolve_colmap_executable,
+    resolve_colmap_camera_calibration,
     resolve_colmap_feature_profile,
     resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
+    validate_colmap_camera_calibration,
     validate_colmap_feature_profile,
     validate_colmap_geometric_verification,
     validate_colmap_local_matcher,
@@ -70,6 +73,11 @@ GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
 GAUSSIAN_RECOVERY_PRUNE_SETTINGS = {"on", "off"}
 COLMAP_FEATURE_BACKENDS = {"colmap", "colmap_vggt", "project_3dgs"}
+COLMAP_CAMERA_CALIBRATION_DEFAULTS = {
+    "colmap": "shared_simple_radial_v1",
+    "colmap_vggt": "shared_simple_radial_v1",
+    "project_3dgs": "shared_opencv_v1",
+}
 NAVIGATION_SCHEMA_VERSION = 1
 NAVIGATION_ASSET_ROLES = {
     "collision_mesh": "navigation/collision.glb",
@@ -186,6 +194,28 @@ class JobStore:
                         )
                     )
                 )
+                camera_calibration = validate_colmap_camera_calibration(
+                    str(
+                        normalized_options.get(
+                            "sfm_camera_calibration",
+                            COLMAP_CAMERA_CALIBRATION_DEFAULTS[geometry_backend],
+                        )
+                    )
+                )
+                if (
+                    camera_calibration == "auto_grouped_simple_radial_v1"
+                    and mode != "multi_image"
+                ):
+                    raise JobError(
+                        "auto-grouped camera calibration requires multi_image mode"
+                    )
+                if (
+                    geometry_backend == "colmap_vggt"
+                    and camera_calibration == "shared_opencv_v1"
+                ):
+                    raise JobError(
+                        "COLMAP+VGGT dense fusion does not support OPENCV distortion"
+                    )
                 requested_pairing = normalized_options.get("sfm_pairing")
                 legacy_matcher = normalized_options.get("colmap_matcher")
                 legacy_pairing = None
@@ -247,6 +277,8 @@ class JobStore:
                     or local_matcher == "lightglue"
                     or pairing != "exhaustive"
                     or geometric_verification != "default_v1"
+                    or camera_calibration
+                    != COLMAP_CAMERA_CALIBRATION_DEFAULTS[geometry_backend]
                 ):
                     colmap = resolve_colmap_executable(project_root)
                     if colmap is None:
@@ -281,6 +313,15 @@ class JobStore:
                         )
                         if support_reason is not None:
                             raise JobError(support_reason)
+                    if (
+                        camera_calibration
+                        != COLMAP_CAMERA_CALIBRATION_DEFAULTS[geometry_backend]
+                    ):
+                        support_reason = colmap_camera_calibration_support_reason(
+                            colmap, camera_calibration
+                        )
+                        if support_reason is not None:
+                            raise JobError(support_reason)
                 resolved_feature = resolve_colmap_feature_profile(
                     feature_profile, project_root
                 )
@@ -291,11 +332,13 @@ class JobStore:
                     resolved_feature, pairing, project_root
                 )
                 resolve_colmap_geometric_verification(geometric_verification)
+                resolve_colmap_camera_calibration(camera_calibration)
                 normalized_options.update(
                     sfm_feature_profile=feature_profile,
                     sfm_local_matcher=local_matcher,
                     sfm_pairing=pairing,
                     sfm_geometric_verification=geometric_verification,
+                    sfm_camera_calibration=camera_calibration,
                 )
             except ColmapFeatureError as exc:
                 raise JobError(str(exc)) from exc
@@ -304,6 +347,7 @@ class JobStore:
             normalized_options.pop("sfm_local_matcher", None)
             normalized_options.pop("sfm_pairing", None)
             normalized_options.pop("sfm_geometric_verification", None)
+            normalized_options.pop("sfm_camera_calibration", None)
             normalized_options.pop("colmap_matcher", None)
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
@@ -438,6 +482,10 @@ class JobStore:
                     normalized_options["sfm_geometric_verification"]
                 ),
                 sfm_geometric_verification_effective=None,
+                sfm_camera_calibration=str(
+                    normalized_options["sfm_camera_calibration"]
+                ),
+                sfm_camera_calibration_effective=None,
             )
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
@@ -1070,6 +1118,25 @@ class JobStore:
                         "sfm_geometric_verification_profile",
                         requested_geometric_verification,
                     )
+                ),
+            )
+            requested_camera_calibration = str(
+                options.get(
+                    "sfm_camera_calibration",
+                    COLMAP_CAMERA_CALIBRATION_DEFAULTS[geometry_backend],
+                )
+            )
+            effective_camera_calibration = metrics.get(
+                "sfm_camera_calibration_profile"
+            )
+            if effective_camera_calibration != requested_camera_calibration:
+                raise JobError(
+                    "effective SfM camera calibration does not match the request"
+                )
+            result.update(
+                sfm_camera_calibration=requested_camera_calibration,
+                sfm_camera_calibration_effective=str(
+                    effective_camera_calibration
                 ),
             )
         if self._is_gaussian_job(result):

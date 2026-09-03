@@ -21,6 +21,29 @@ from image3d_scenegraph.jobs import JobCancelled, JobError, JobStore, UploadedIn
 from image3d_scenegraph.video.registration import analyze_registration_timeline
 
 
+def _camera_diagnostics(profile: str) -> dict:
+    model = "OPENCV" if profile == "shared_opencv_v1" else "SIMPLE_RADIAL"
+    return {
+        "schema_version": 1,
+        "profile": "sfm_camera_calibration_diagnostics_v1",
+        "calibration": {
+            "profile": profile,
+            "camera_model": model,
+            "sharing_policy": "single_camera",
+            "grouping_key_policy": "all_images",
+            "initial_focal_policy": "colmap_exif_or_default",
+        },
+        "grouping": {"planned_camera_count": 1},
+        "initial": {"camera_count": 1, "prior_focal_camera_count": 0},
+        "final": {"camera_count": 1, "median_focal_length_ratio": 1.0},
+        "sparse": {
+            "median_reprojection_error_pixels": None,
+            "median_track_length": None,
+        },
+        "plausibility": {"warning_count": 0},
+    }
+
+
 def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_path):
     progress_path = tmp_path / "progress.json"
     updates = []
@@ -108,8 +131,24 @@ def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallbac
 def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypatch):
     diagnostics = tmp_path / "diagnostics"
     diagnostics.mkdir()
+    camera_record = {
+        "profile": "shared_opencv_v1",
+        "camera_model": "OPENCV",
+        "sharing_policy": "single_camera",
+        "grouping_key_policy": "all_images",
+        "initial_focal_policy": "colmap_exif_or_default",
+    }
     (diagnostics / "colmap_timing.json").write_text(
-        json.dumps({"colmap_build": "COLMAP 4.0.0"}), encoding="utf-8"
+        json.dumps(
+            {
+                "colmap_build": "COLMAP 4.0.0",
+                "camera_calibration": camera_record,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (diagnostics / "sfm_camera_calibration.json").write_text(
+        json.dumps({"calibration": camera_record}), encoding="utf-8"
     )
     exported = diagnostics / "sfm" / "manifest.json"
     exported.parent.mkdir()
@@ -147,6 +186,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
         local_matcher="bruteforce",
         pairing="exhaustive",
         geometric_verification="default_v1",
+        camera_calibration="shared_opencv_v1",
         geometry_source="colmap",
         video_selection_path=None,
     )
@@ -154,6 +194,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
     assert assets == {"sfm_diagnostics": "diagnostics/sfm/manifest.json"}
     assert metrics["sfm_diagnostics_status"] == "available"
     assert captured["colmap_build"] == "COLMAP 4.0.0"
+    assert captured["camera_calibration"] == camera_record
     assert captured["cancel_requested"] is None
     assert "sfm_diagnostics_status=available" in logs
 
@@ -177,6 +218,7 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
         local_matcher="bruteforce",
         pairing="exhaustive",
         geometric_verification="default_v1",
+        camera_calibration="shared_opencv_v1",
         geometry_source="colmap",
         video_selection_path=None,
     )
@@ -215,6 +257,7 @@ def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monke
             local_matcher="bruteforce",
             pairing="exhaustive",
             geometric_verification="default_v1",
+            camera_calibration="shared_opencv_v1",
             geometry_source="colmap",
             video_selection_path=None,
         )
@@ -288,6 +331,9 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     assert command[command.index("--max-image-size") + 1] == "1280"
     assert command[command.index("--num-threads") + 1] == "8"
     assert command[command.index("--matcher") + 1] == "exhaustive"
+    assert command[command.index("--camera-calibration") + 1] == (
+        "shared_opencv_v1"
+    )
     assert "--vocab-tree-path" not in command
     assert "--gaussian-baseline" in command
 
@@ -1291,6 +1337,94 @@ def test_job_store_validates_geometric_verification_profile(tmp_path, monkeypatc
     assert manifest["sfm_geometric_verification_effective"] is None
 
 
+def test_job_store_validates_camera_calibration_profile(tmp_path, monkeypatch):
+    store = JobStore(output_root=tmp_path / "jobs")
+    images = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(2)
+    ]
+
+    with pytest.raises(JobError, match="unsupported COLMAP camera calibration"):
+        store.enqueue_job(
+            "multi_image",
+            images,
+            geometry_backend="colmap",
+            output_type="point_cloud",
+            options={"sfm_camera_calibration": "unknown"},
+        )
+    with pytest.raises(JobError, match="requires multi_image mode"):
+        store.enqueue_job(
+            "video",
+            [UploadedInput(filename="room.mp4", content=b"video")],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={
+                "sfm_camera_calibration": "auto_grouped_simple_radial_v1"
+            },
+        )
+    with pytest.raises(JobError, match="does not support OPENCV distortion"):
+        store.enqueue_job(
+            "multi_image",
+            images,
+            geometry_backend="colmap_vggt",
+            output_type="point_cloud",
+            options={"sfm_camera_calibration": "shared_opencv_v1"},
+        )
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_executable",
+        lambda _root: tmp_path / "colmap",
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_camera_calibration_support_reason",
+        lambda _colmap, _profile: None,
+    )
+    manifest = store.enqueue_job(
+        "multi_image",
+        images,
+        geometry_backend="colmap",
+        output_type="point_cloud",
+        options={
+            "sfm_camera_calibration": "auto_grouped_simple_radial_v1"
+        },
+    )
+    request = json.loads(
+        (store.job_dir(manifest["job_id"]) / "request.json").read_text()
+    )
+
+    assert request["options"]["sfm_camera_calibration"] == (
+        "auto_grouped_simple_radial_v1"
+    )
+    assert manifest["sfm_camera_calibration"] == (
+        "auto_grouped_simple_radial_v1"
+    )
+    assert manifest["sfm_camera_calibration_effective"] is None
+
+
+def test_camera_calibration_defaults_preserve_backend_history(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+    images = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    colmap = store.enqueue_job(
+        "multi_image",
+        images[:2],
+        geometry_backend="colmap",
+        output_type="point_cloud",
+    )
+    project = store.enqueue_job(
+        "multi_image",
+        images,
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+    )
+
+    assert colmap["sfm_camera_calibration"] == "shared_simple_radial_v1"
+    assert project["sfm_camera_calibration"] == "shared_opencv_v1"
+
+
 def test_sequential_colmap_matcher_rejects_non_video_input(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 
@@ -1550,6 +1684,7 @@ def test_create_colmap_point_cloud_job_uses_adapter_contract(tmp_path, monkeypat
                 break
         job_dir = Path(output_dir)
         (job_dir / "geometry").mkdir(parents=True, exist_ok=True)
+        (job_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
         (job_dir / "logs").mkdir(parents=True, exist_ok=True)
         (job_dir / "geometry" / "points.ply").write_text(
             "\n".join(
@@ -1567,6 +1702,10 @@ def test_create_colmap_point_cloud_job_uses_adapter_contract(tmp_path, monkeypat
             encoding="utf-8",
         )
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "diagnostics" / "sfm_camera_calibration.json").write_text(
+            json.dumps(_camera_diagnostics("shared_simple_radial_v1")),
+            encoding="utf-8",
+        )
         (job_dir / "logs" / "run.log").write_text(
             "\n".join(
                 [
@@ -1598,9 +1737,20 @@ def test_create_colmap_point_cloud_job_uses_adapter_contract(tmp_path, monkeypat
     assert manifest["stage"] == "colmap_sparse_reconstruction"
     assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
     assert manifest["assets"]["cameras"] == "geometry/cameras.json"
+    assert manifest["assets"]["sfm_camera_calibration_diagnostics"] == (
+        "diagnostics/sfm_camera_calibration.json"
+    )
+    assert manifest["sfm_camera_calibration"] == "shared_simple_radial_v1"
+    assert manifest["sfm_camera_calibration_effective"] == (
+        "shared_simple_radial_v1"
+    )
+    assert manifest["metrics"]["sfm_camera_model"] == "SIMPLE_RADIAL"
     assert manifest["metrics"]["registered_images"] == 2
     assert manifest["metrics"]["num_points"] == 9
     assert captured_command[captured_command.index("--pairing") + 1] == "exhaustive"
+    assert captured_command[captured_command.index("--camera-calibration") + 1] == (
+        "shared_simple_radial_v1"
+    )
 
 
 def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monkeypatch):
@@ -1619,6 +1769,10 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
         (job_dir / "logs").mkdir(parents=True, exist_ok=True)
         (job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "diagnostics" / "sfm_camera_calibration.json").write_text(
+            json.dumps(_camera_diagnostics("shared_simple_radial_v1")),
+            encoding="utf-8",
+        )
         (job_dir / "diagnostics" / "fusion.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "visibility_graph.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "scale_disagreement.json").write_text("{}\n", encoding="utf-8")
@@ -1681,6 +1835,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["stage"] == "colmap_vggt_dense_reconstruction"
     assert manifest["assets"]["point_cloud"] == "geometry/points.ply"
     assert manifest["assets"]["cameras"] == "geometry/cameras.json"
+    assert manifest["assets"]["sfm_camera_calibration_diagnostics"] == (
+        "diagnostics/sfm_camera_calibration.json"
+    )
     assert manifest["assets"]["fusion_diagnostics"] == "diagnostics/fusion.json"
     assert manifest["assets"]["visibility_graph"] == "diagnostics/visibility_graph.json"
     assert manifest["assets"]["scale_disagreement_diagnostics"] == "diagnostics/scale_disagreement.json"
@@ -1703,6 +1860,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert manifest["metrics"]["factorial_output_count"] == 0
     assert manifest["metrics"]["conf_percentile"] == 45.0
     assert captured_command[captured_command.index("--pairing") + 1] == "exhaustive"
+    assert captured_command[captured_command.index("--camera-calibration") + 1] == (
+        "shared_simple_radial_v1"
+    )
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"
     assert captured_command[captured_command.index("--vggt-overlap-size") + 1] == "1"
     assert captured_command[captured_command.index("--vggt-grouping") + 1] == "covisibility"
@@ -1771,6 +1931,10 @@ def test_create_colmap_vggt_mesh_job_runs_mesh_postprocess(tmp_path, monkeypatch
         (job_dir / "logs").mkdir(parents=True, exist_ok=True)
         (job_dir / "geometry" / "points.ply").write_text("ply\n", encoding="utf-8")
         (job_dir / "geometry" / "cameras.json").write_text('{"images": []}\n', encoding="utf-8")
+        (job_dir / "diagnostics" / "sfm_camera_calibration.json").write_text(
+            json.dumps(_camera_diagnostics("shared_simple_radial_v1")),
+            encoding="utf-8",
+        )
         (job_dir / "diagnostics" / "fusion.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "visibility_graph.json").write_text("{}\n", encoding="utf-8")
         (job_dir / "diagnostics" / "scale_disagreement.json").write_text("{}\n", encoding="utf-8")

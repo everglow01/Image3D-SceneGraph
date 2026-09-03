@@ -27,19 +27,25 @@ import {
 } from "./reconstructionEvidence";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
+  defaultSfmCameraCalibration,
+  formatSfmCameraCalibration,
   formatSfmFeatureProfile,
   formatSfmGeometricVerification,
   formatSfmLocalMatcher,
   formatSfmPairing,
+  isSfmCameraCalibrationAvailable,
   isSfmGeometricVerificationAvailable,
   isSfmPairingAvailable,
   isSfmPairingModeSupported,
+  sfmCameraCalibrationOptions,
   sfmFeatureOptions,
   sfmGeometricVerificationOptions,
   sfmLocalMatcherOptions,
   sfmPairingOptions
 } from "./sfmOptions";
 import type {
+  SfmCameraCalibration,
+  SfmCameraCalibrationStatus,
   SfmFeatureProfile,
   SfmFeatureStatus,
   SfmGeometricVerification,
@@ -118,6 +124,7 @@ type Manifest = {
     point_cloud_aligned?: string;
     sfm_sparse_point_cloud?: string;
     sfm_diagnostics?: string;
+    sfm_camera_calibration_diagnostics?: string;
     cameras?: string;
     alignment_diagnostics?: string;
     fusion_diagnostics?: string;
@@ -173,6 +180,8 @@ type Manifest = {
   sfm_pairing_effective?: SfmPairing;
   sfm_geometric_verification?: SfmGeometricVerification;
   sfm_geometric_verification_effective?: SfmGeometricVerification;
+  sfm_camera_calibration?: SfmCameraCalibration;
+  sfm_camera_calibration_effective?: SfmCameraCalibration;
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -245,6 +254,16 @@ type Manifest = {
     sfm_local_matcher?: string;
     sfm_pairing?: SfmPairing | "sequential";
     sfm_geometric_verification_profile?: SfmGeometricVerification;
+    sfm_camera_calibration_profile?: SfmCameraCalibration;
+    sfm_camera_model?: string;
+    sfm_camera_planned_count?: number;
+    sfm_camera_initial_count?: number;
+    sfm_camera_final_count?: number;
+    sfm_camera_prior_focal_count?: number;
+    sfm_camera_warning_count?: number;
+    sfm_camera_median_focal_length_ratio?: number;
+    sfm_median_reprojection_error_pixels?: number;
+    sfm_median_track_length?: number;
     sfm_view_graph_verified_edge_count?: number;
     sfm_view_graph_component_count?: number;
     sfm_view_graph_largest_component_ratio?: number;
@@ -337,6 +356,7 @@ type BackendStatus = {
   setup_command: string | null;
   gaussian_trainers?: GaussianTrainerStatus[];
   sfm_feature_profiles?: SfmFeatureStatus[];
+  sfm_camera_calibrations?: SfmCameraCalibrationStatus[];
   gaussian_geometry_sources?: ExperimentalOptionStatus<GaussianGeometrySource>[];
   gaussian_postprocessors?: ExperimentalOptionStatus<GaussianPostprocess>[];
   video_ingestion?: {
@@ -407,6 +427,8 @@ export function App() {
   const [sfmPairing, setSfmPairing] = useState<SfmPairing>("exhaustive");
   const [sfmGeometricVerification, setSfmGeometricVerification] =
     useState<SfmGeometricVerification>("default_v1");
+  const [sfmCameraCalibration, setSfmCameraCalibration] =
+    useState<SfmCameraCalibration>("shared_simple_radial_v1");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -489,6 +511,18 @@ export function App() {
     selectedSfmGeometricVerificationStatus?.reason
       ? selectedSfmGeometricVerificationStatus
       : sfmGeometricVerificationStatuses.find(
+          (option) => option.available === false
+        );
+  const sfmCameraCalibrationStatuses =
+    selectedBackendStatus?.sfm_camera_calibrations ?? [];
+  const selectedSfmCameraCalibrationStatus =
+    sfmCameraCalibrationStatuses.find(
+      (option) => option.id === sfmCameraCalibration
+    );
+  const sfmCameraCalibrationNotice =
+    selectedSfmCameraCalibrationStatus?.reason
+      ? selectedSfmCameraCalibrationStatus
+      : sfmCameraCalibrationStatuses.find(
           (option) => option.available === false
         );
   const usesColmapFeatureStage = ["colmap", "colmap_vggt", "project_3dgs"].includes(
@@ -804,10 +838,19 @@ export function App() {
     if (nextMode === "video") {
       setGeometryBackend("project_3dgs");
       setOutputType("gaussian_splat");
+      setSfmCameraCalibration(
+        defaultSfmCameraCalibration("project_3dgs")
+      );
     } else if (gaussianGeometrySource === "vggt_ba") {
       setGaussianGeometrySource("colmap");
     }
     setFiles([]);
+    setError(null);
+  }
+
+  function onGeometryBackendChange(nextBackend: GeometryBackend) {
+    setGeometryBackend(nextBackend);
+    setSfmCameraCalibration(defaultSfmCameraCalibration(nextBackend));
     setError(null);
   }
 
@@ -869,6 +912,21 @@ export function App() {
       setError(
         selectedSfmGeometricVerificationStatus?.reason ??
           "服务器不支持所选两视图几何验证配置。"
+      );
+      return;
+    }
+    if (
+      usesColmapFeatureStage &&
+      !isSfmCameraCalibrationAvailable(
+        sfmCameraCalibration,
+        selectedSfmCameraCalibrationStatus,
+        mode,
+        geometryBackend
+      )
+    ) {
+      setError(
+        selectedSfmCameraCalibrationStatus?.reason ??
+          "服务器或当前输入模式不支持所选相机标定配置。"
       );
       return;
     }
@@ -935,6 +993,7 @@ export function App() {
         form.append("sfm_local_matcher", sfmLocalMatcher);
         form.append("sfm_pairing", sfmPairing);
         form.append("sfm_geometric_verification", sfmGeometricVerification);
+        form.append("sfm_camera_calibration", sfmCameraCalibration);
       }
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
@@ -1167,7 +1226,11 @@ export function App() {
               <span>几何重建后端</span>
               <select
                 value={geometryBackend}
-                onChange={(event) => setGeometryBackend(event.target.value as GeometryBackend)}
+                onChange={(event) =>
+                  onGeometryBackendChange(
+                    event.target.value as GeometryBackend
+                  )
+                }
               >
                 {backendOptions.map((option) => (
                   <option
@@ -1368,6 +1431,53 @@ export function App() {
                   )}
                   {sfmGeometricVerificationNotice?.setup_command && (
                     <small>{sfmGeometricVerificationNotice.setup_command}</small>
+                  )}
+                </label>
+
+                <label>
+                  <span>相机标定</span>
+                  <select
+                    value={sfmCameraCalibration}
+                    onChange={(event) =>
+                      setSfmCameraCalibration(
+                        event.target.value as SfmCameraCalibration
+                      )
+                    }
+                  >
+                    {sfmCameraCalibrationOptions.map((option) => {
+                      const status = sfmCameraCalibrationStatuses.find(
+                        (candidate) => candidate.id === option.id
+                      );
+                      const unavailable = !isSfmCameraCalibrationAvailable(
+                        option.id,
+                        status,
+                        mode,
+                        geometryBackend
+                      );
+                      const label = status?.is_default
+                        ? `${option.label}（默认）`
+                        : status?.experimental
+                          ? `${option.label}（实验）`
+                          : option.label;
+                      return (
+                        <option
+                          disabled={unavailable}
+                          key={option.id}
+                          value={option.id}
+                        >
+                          {unavailable ? `${label}（不可用）` : label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <small>
+                    Shared 固定一组内参；Auto-grouped 按设备、镜头/焦距、尺寸和方向分组，证据不足时每图独立。
+                  </small>
+                  {sfmCameraCalibrationNotice?.reason && (
+                    <small>{sfmCameraCalibrationNotice.reason}</small>
+                  )}
+                  {sfmCameraCalibrationNotice?.setup_command && (
+                    <small>{sfmCameraCalibrationNotice.setup_command}</small>
                   )}
                 </label>
               </>
@@ -2040,6 +2150,27 @@ export function App() {
                 </dd>
               </div>
             )}
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
+              <div>
+                <dt>SfM 相机标定</dt>
+                <dd>
+                  {formatSfmCameraCalibration(
+                    manifest.sfm_camera_calibration_effective ??
+                      manifest.sfm_camera_calibration ??
+                      currentStatus?.metrics.sfm_camera_calibration_profile,
+                    manifest.geometry_backend
+                  )}
+                </dd>
+              </div>
+            )}
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
+              <div>
+                <dt>SfM 相机组 / 警告</dt>
+                <dd>
+                  {currentStatus?.metrics.sfm_camera_final_count ?? "-"} / {currentStatus?.metrics.sfm_camera_warning_count ?? "-"}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>训练器</dt>
               <dd>{formatTrainer(manifest?.gaussian_trainer)}</dd>
@@ -2455,6 +2586,11 @@ export function App() {
               <summary>结果资产</summary>
               <div className="asset-links">
               <AssetLink manifest={manifest} assetKey="sfm_diagnostics" label="SfM 前端诊断" />
+              <AssetLink
+                manifest={manifest}
+                assetKey="sfm_camera_calibration_diagnostics"
+                label="SfM 相机标定诊断"
+              />
               <AssetLink manifest={manifest} assetKey="sfm_sparse_point_cloud" label="SfM 稀疏点云" />
               <AssetLink manifest={manifest} assetKey="cameras" label="SfM 相机位姿" />
               <AssetLink manifest={manifest} assetKey="point_cloud" label="点云（Point Cloud）" />

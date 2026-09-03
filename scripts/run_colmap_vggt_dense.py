@@ -15,17 +15,27 @@ import numpy as np
 import open3d as o3d
 import torch
 
+from image3d_scenegraph.geometry.camera_calibration import (
+    CameraExtractionPlan,
+    build_camera_calibration_diagnostics,
+    camera_calibration_metrics,
+    prepare_camera_extraction,
+    write_camera_calibration_diagnostics,
+)
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_CAMERA_CALIBRATION_IDS,
     COLMAP_FEATURE_PROFILE_IDS,
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
+    ResolvedColmapCameraCalibration,
     ResolvedColmapFeatureProfile,
     ResolvedColmapGeometricVerification,
     ResolvedColmapLocalMatcher,
     ResolvedColmapPairing,
+    resolve_colmap_camera_calibration,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_geometric_verification,
@@ -43,7 +53,12 @@ from image3d_scenegraph.geometry.grouping import (
     parse_colmap_points3d,
     qvec_to_rotmat,
 )
-from run_colmap_sparse import build_camera_payload, discover_images, parse_colmap_cameras, run_command
+from run_colmap_sparse import (
+    build_camera_payload,
+    colmap_version,
+    discover_images,
+    run_command,
+)
 from run_vggt_pointcloud import (
     DEFAULT_CHECKPOINT_DIR,
     DEFAULT_VGGT_REPO_DIR,
@@ -233,11 +248,15 @@ def main() -> None:
         default="default_v1",
     )
     parser.add_argument(
+        "--camera-calibration",
+        choices=COLMAP_CAMERA_CALIBRATION_IDS,
+    )
+    parser.add_argument(
         "--colmap-model-dir",
         type=Path,
         help="Reuse an existing COLMAP text model instead of rerunning sparse reconstruction.",
     )
-    parser.add_argument("--colmap-single-camera", type=int, choices=[0, 1], default=1)
+    parser.add_argument("--colmap-single-camera", type=int, choices=[0, 1])
     parser.add_argument("--mapper-abs-pose-min-num-inliers", type=int, default=30)
     parser.add_argument("--mapper-abs-pose-min-inlier-ratio", type=float, default=0.25)
     parser.add_argument("--vggt-batch-size", type=int, default=4)
@@ -302,6 +321,22 @@ def main() -> None:
     if args.pairing == "sequential_loop":
         parser.error("COLMAP+VGGT multi-image geometry does not support sequential_loop")
     if (
+        args.camera_calibration is not None
+        and args.colmap_single_camera is not None
+    ):
+        parser.error(
+            "--camera-calibration cannot be combined with --colmap-single-camera"
+        )
+    if args.camera_calibration == "shared_opencv_v1":
+        parser.error("COLMAP+VGGT dense fusion does not support OPENCV distortion")
+    if (
+        args.colmap_model_dir is not None
+        and args.camera_calibration is not None
+    ):
+        parser.error(
+            "--camera-calibration cannot be changed when reusing --colmap-model-dir"
+        )
+    if (
         args.colmap_model_dir is not None
         and args.geometric_verification != "default_v1"
     ):
@@ -352,6 +387,7 @@ def main() -> None:
             "or install COLMAP on PATH."
         )
     colmap = str(colmap_path)
+    colmap_build = colmap_version(colmap)
     try:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
         local_matcher = resolve_colmap_local_matcher(
@@ -359,6 +395,11 @@ def main() -> None:
         )
         geometric_verification = resolve_colmap_geometric_verification(
             args.geometric_verification
+        )
+        camera_calibration = (
+            resolve_colmap_camera_calibration(args.camera_calibration)
+            if args.camera_calibration is not None
+            else None
         )
         pairing = (
             resolve_colmap_pairing(feature_profile, args.pairing)
@@ -395,6 +436,16 @@ def main() -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
     text_dir.mkdir(parents=True, exist_ok=True)
+    camera_plan = (
+        prepare_camera_extraction(
+            camera_calibration,
+            args.image_dir,
+            image_paths,
+            work_dir / "camera_groups",
+        )
+        if camera_calibration is not None and args.colmap_model_dir is None
+        else None
+    )
 
     colmap_started_at = time.perf_counter()
     try:
@@ -411,7 +462,13 @@ def main() -> None:
                 feature_profile=feature_profile,
                 local_matcher=local_matcher,
                 geometric_verification=geometric_verification,
-                single_camera=bool(args.colmap_single_camera),
+                single_camera=(
+                    True
+                    if args.colmap_single_camera is None
+                    else bool(args.colmap_single_camera)
+                ),
+                camera_calibration=camera_calibration,
+                camera_plan=camera_plan,
                 mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
                 mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
             ),
@@ -422,13 +479,29 @@ def main() -> None:
 
     colmap_images = parse_colmap_images_with_points(text_dir / "images.txt")
     points3d = parse_colmap_points3d(text_dir / "points3D.txt")
+    camera_payload = build_camera_payload(text_dir)
     colmap_cameras = {
-        camera["camera_id"]: camera for camera in parse_colmap_cameras(text_dir / "cameras.txt")
+        camera["camera_id"]: camera for camera in camera_payload["cameras"]
     }
     registered_by_name = {image.name: image for image in colmap_images}
     registered_paths = [path for path in image_paths if path.name in registered_by_name]
     if not registered_paths:
         raise RuntimeError("COLMAP did not register any input images")
+    camera_diagnostics: dict[str, Any] | None = None
+    camera_metrics: dict[str, int | float | str] = {}
+    camera_diagnostics_path = diagnostics_dir / "sfm_camera_calibration.json"
+    if camera_plan is not None:
+        camera_diagnostics = build_camera_calibration_diagnostics(
+            database_path=database_path,
+            final_camera_payload=camera_payload,
+            points3d_path=text_dir / "points3D.txt",
+            plan=camera_plan,
+            colmap_build=colmap_build,
+        )
+        write_camera_calibration_diagnostics(
+            camera_diagnostics_path, camera_diagnostics
+        )
+        camera_metrics = camera_calibration_metrics(camera_diagnostics)
 
     device = select_device(args.device)
     if device == "cuda":
@@ -953,7 +1026,7 @@ def main() -> None:
                 window_predictions_path if window_prediction_capture is not None else None
             ),
         )
-    write_json(geometry_dir / "cameras.json", build_camera_payload(text_dir))
+    write_json(geometry_dir / "cameras.json", camera_payload)
     visibility_graph_path = diagnostics_dir / "visibility_graph.json"
     consistency_path = diagnostics_dir / "consistency.json"
     fusion_diagnostics_path = diagnostics_dir / "fusion.json"
@@ -1112,9 +1185,22 @@ def main() -> None:
         f"sfm_pairing_vocab_tree_sha256={pairing.vocab_tree_sha256 or 'none'}",
         f"sfm_geometric_verification_profile={geometric_verification.profile_id}",
         f"sfm_geometric_verification_guided_matching={str(geometric_verification.guided_matching).lower()}",
+        *(
+            [f"{key}={value}" for key, value in camera_metrics.items()]
+            if camera_diagnostics is not None
+            else ["sfm_camera_calibration_profile=reused_or_legacy_model"]
+        ),
+        *(
+            [
+                f"sfm_camera_calibration_diagnostics={camera_diagnostics_path.relative_to(output_dir).as_posix()}"
+            ]
+            if camera_diagnostics is not None
+            else []
+        ),
         "sfm_mapper=incremental",
         f"matcher={pairing.command.removesuffix('_matcher')}",
         f"colmap_executable={colmap}",
+        f"colmap_build={colmap_build}",
         f"colmap_source={colmap_source}",
         f"vggt_batch_size={args.vggt_batch_size}",
         f"vggt_overlap_size={args.vggt_overlap_size}",
@@ -1166,6 +1252,8 @@ def main() -> None:
 
     print(f"wrote {geometry_dir / 'points.ply'}")
     print(f"wrote {geometry_dir / 'cameras.json'}")
+    if camera_diagnostics is not None:
+        print(f"wrote {camera_diagnostics_path}")
     print(f"wrote {fusion_diagnostics_path}")
     print(f"wrote {visibility_graph_path}")
     print(f"wrote {vggt_groups_path}")
@@ -1190,62 +1278,111 @@ def run_colmap_pipeline(
     single_camera: bool,
     mapper_abs_pose_min_num_inliers: int,
     mapper_abs_pose_min_inlier_ratio: float,
+    camera_calibration: ResolvedColmapCameraCalibration | None = None,
+    camera_plan: CameraExtractionPlan | None = None,
 ) -> list[str]:
-    commands = [
-        [
+    if (camera_calibration is None) != (camera_plan is None):
+        raise ValueError("camera calibration and extraction plan must be provided together")
+    if (
+        camera_calibration is not None
+        and camera_plan is not None
+        and camera_plan.calibration != camera_calibration
+    ):
+        raise ValueError("camera extraction plan does not match its calibration profile")
+
+    def feature_command(
+        *,
+        image_list_path: Path | None,
+        image_reader_options: tuple[str, ...],
+    ) -> list[str]:
+        command = [
             colmap,
             "feature_extractor",
             "--database_path",
             str(database_path),
             "--image_path",
             str(image_dir),
-            "--ImageReader.single_camera",
-            str(int(single_camera)),
-            "--FeatureExtraction.use_gpu",
-            "1",
-            "--FeatureExtraction.gpu_index",
-            "0",
-            *feature_profile.extraction_options,
-        ],
-        [
-            colmap,
-            pairing.command,
-            "--database_path",
-            str(database_path),
-            "--FeatureMatching.use_gpu",
-            "1",
-            "--FeatureMatching.gpu_index",
-            "0",
-            *local_matcher.matching_options,
-            *geometric_verification.matching_options,
-            *pairing.pairing_options,
-        ],
-        [
-            colmap,
-            "mapper",
-            "--database_path",
-            str(database_path),
-            "--image_path",
-            str(image_dir),
-            "--output_path",
-            str(sparse_dir),
-            "--Mapper.abs_pose_min_num_inliers",
-            str(mapper_abs_pose_min_num_inliers),
-            "--Mapper.abs_pose_min_inlier_ratio",
-            str(mapper_abs_pose_min_inlier_ratio),
-        ],
+        ]
+        if image_list_path is not None:
+            command.extend(("--image_list_path", str(image_list_path)))
+        command.extend(
+            (
+                *image_reader_options,
+                "--FeatureExtraction.use_gpu",
+                "1",
+                "--FeatureExtraction.gpu_index",
+                "0",
+                *feature_profile.extraction_options,
+            )
+        )
+        return command
+
+    if camera_plan is None:
+        feature_commands = [
+            feature_command(
+                image_list_path=None,
+                image_reader_options=(
+                    "--ImageReader.single_camera",
+                    str(int(single_camera)),
+                ),
+            )
+        ]
+    else:
+        feature_commands = [
+            feature_command(
+                image_list_path=batch.image_list_path,
+                image_reader_options=batch.image_reader_options,
+            )
+            for batch in camera_plan.batches
+        ]
+    commands = [
+        *[("feature_extraction", command) for command in feature_commands],
+        (
+            "feature_matching",
+            [
+                colmap,
+                pairing.command,
+                "--database_path",
+                str(database_path),
+                "--FeatureMatching.use_gpu",
+                "1",
+                "--FeatureMatching.gpu_index",
+                "0",
+                *local_matcher.matching_options,
+                *geometric_verification.matching_options,
+                *pairing.pairing_options,
+            ],
+        ),
+        (
+            "mapping",
+            [
+                colmap,
+                "mapper",
+                "--database_path",
+                str(database_path),
+                "--image_path",
+                str(image_dir),
+                "--output_path",
+                str(sparse_dir),
+                "--Mapper.abs_pose_min_num_inliers",
+                str(mapper_abs_pose_min_num_inliers),
+                "--Mapper.abs_pose_min_inlier_ratio",
+                str(mapper_abs_pose_min_inlier_ratio),
+            ],
+        ),
     ]
     command_logs: list[str] = []
-    for stage, command in zip(
-        ("feature_extraction", "feature_matching", "mapping"),
-        commands,
-        strict=True,
-    ):
+    stage_elapsed: dict[str, float] = {}
+    for stage, command in commands:
         stage_started_at = time.perf_counter()
         command_logs.append(run_command(command))
-        command_logs.append(
-            f"colmap_{stage}_seconds={time.perf_counter() - stage_started_at:.3f}"
+        stage_elapsed[stage] = stage_elapsed.get(stage, 0.0) + (
+            time.perf_counter() - stage_started_at
         )
+    command_logs.extend(
+        f"colmap_{stage}_seconds={elapsed:.3f}"
+        for stage, elapsed in stage_elapsed.items()
+    )
     model_dir, selection_logs = convert_best_sparse_model(colmap, sparse_dir, text_dir)
     command_logs.extend(selection_logs)
     command_logs.append(f"selected_model={model_dir}")

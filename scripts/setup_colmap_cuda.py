@@ -188,6 +188,10 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
         importer_help = capture([str(executable), "matches_importer", "-h"])
         markers = (
             (extractor_help, "AlikedExtraction.max_num_features"),
+            (extractor_help, "image_list_path"),
+            (extractor_help, "ImageReader.camera_model"),
+            (extractor_help, "ImageReader.single_camera"),
+            (extractor_help, "ImageReader.single_camera_per_image"),
             (matcher_help, "AlikedMatching.bruteforce_model_path"),
             (matcher_help, "SiftMatching.lightglue_model_path"),
             (matcher_help, "AlikedMatching.lightglue_model_path"),

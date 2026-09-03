@@ -19,7 +19,7 @@ class ViewGraphAnalysisError(ValueError):
 def analyze_job(job_dir: Path, run_id: str | None = None) -> dict[str, Any]:
     root = job_dir.resolve()
     manifest = _read_json(root / "diagnostics" / "sfm" / "manifest.json")
-    if manifest.get("schema_version") not in {1, 2, 3}:
+    if manifest.get("schema_version") not in {1, 2, 3, 4}:
         raise ViewGraphAnalysisError("SfM diagnostics schema is unsupported")
     images = manifest.get("images")
     runs = manifest.get("runs")

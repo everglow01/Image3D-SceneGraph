@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from image3d_scenegraph.geometry.colmap import (
     ResolvedColmapFeatureProfile,
@@ -195,6 +196,126 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert "use_gpu=False\n" in log
     assert "gpu_index=0\n" in log
     assert "num_threads=4\n" in log
+
+
+def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    image_dir.mkdir()
+    exif = Image.Exif()
+    exif[271] = "Maker"
+    exif[272] = "Body"
+    exif[37386] = 24.0
+    for name in ("a.jpg", "b.jpg"):
+        Image.new("RGB", (64, 48)).save(image_dir / name, exif=exif)
+    Image.new("RGB", (64, 48)).save(image_dir / "c.jpg")
+    commands = []
+    diagnostics_call = {}
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "mapper":
+            model = output_dir / "colmap" / "sparse" / "0"
+            model.mkdir(parents=True)
+            _write_binary_count(model / "images.bin", 3)
+            _write_binary_count(model / "points3D.bin", 1)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            (output_dir / "geometry" / "points.ply").write_text(
+                "ply\nelement vertex 1\nend_header\n", encoding="utf-8"
+            )
+        return "ok"
+
+    camera_payload = {
+        "cameras": [
+            {
+                "camera_id": 1,
+                "model": "SIMPLE_RADIAL",
+                "width": 64,
+                "height": 48,
+                "params": [50.0, 32.0, 24.0, 0.0],
+            },
+            {
+                "camera_id": 2,
+                "model": "SIMPLE_RADIAL",
+                "width": 64,
+                "height": 48,
+                "params": [50.0, 32.0, 24.0, 0.0],
+            },
+        ],
+        "images": [
+            {"image_id": 1, "name": "a.jpg", "camera_id": 1},
+            {"image_id": 2, "name": "b.jpg", "camera_id": 1},
+            {"image_id": 3, "name": "c.jpg", "camera_id": 2},
+        ],
+    }
+
+    def fake_diagnostics(**kwargs):
+        diagnostics_call.update(kwargs)
+        plan = kwargs["plan"]
+        return {
+            "schema_version": 1,
+            "profile": "sfm_camera_calibration_diagnostics_v1",
+            "calibration": plan.calibration.provenance(),
+            "grouping": {"planned_camera_count": 2},
+            "initial": {"camera_count": 2, "prior_focal_camera_count": 1},
+            "final": {
+                "camera_count": 2,
+                "median_focal_length_ratio": 0.8,
+            },
+            "sparse": {
+                "median_reprojection_error_pixels": 0.5,
+                "median_track_length": 2.0,
+            },
+            "plausibility": {"warning_count": 0},
+        }
+
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0")
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        run_colmap_sparse, "build_camera_payload", lambda _: camera_payload
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "build_camera_calibration_diagnostics",
+        fake_diagnostics,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--camera-calibration",
+            "auto_grouped_simple_radial_v1",
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    feature_commands = [command for command in commands if command[1] == "feature_extractor"]
+    assert len(feature_commands) == 2
+    assert [
+        Path(command[command.index("--image_list_path") + 1]).read_text().splitlines()
+        for command in feature_commands
+    ] == [["a.jpg", "b.jpg"], ["c.jpg"]]
+    assert feature_commands[0][
+        feature_commands[0].index("--ImageReader.single_camera") + 1
+    ] == "1"
+    assert feature_commands[1][
+        feature_commands[1].index("--ImageReader.single_camera_per_image") + 1
+    ] == "1"
+    assert diagnostics_call["plan"].calibration.profile_id == (
+        "auto_grouped_simple_radial_v1"
+    )
+    assert (
+        output_dir / "diagnostics" / "sfm_camera_calibration.json"
+    ).is_file()
 
 
 def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(

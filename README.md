@@ -87,6 +87,7 @@ Current mock API:
 - `sfm_local_matcher`: `bruteforce` (default) or experimental `lightglue`; selects descriptor matching inside each chosen image pair
 - `sfm_pairing`: `exhaustive` (default), video-only `sequential_loop`, or multi-image-only `vocab_tree`
 - `sfm_geometric_verification`: `default_v1` (default) or experimental `guided_v1`; both keep COLMAP geometric verification enabled, and Guided changes only `FeatureMatching.guided_matching`
+- `sfm_camera_calibration`: `shared_opencv_v1`, `shared_simple_radial_v1`, or multi-image-only experimental `auto_grouped_simple_radial_v1`; omitted requests preserve each backend's historical default (`project_3dgs` uses shared OPENCV, while `colmap` and `colmap_vggt` use shared SIMPLE_RADIAL)
 - `gaussian_geometry_source`: `colmap` (default) or video-only `vggt_ba` (experimental/research-only)
 - `gaussian_postprocess`: `none` (default) or `vggt_visibility_v1` (experimental/research-only)
 - `gaussian_longest_edge`: 1280–3072px; used only with `project_3dgs + gaussian_splat`
@@ -216,6 +217,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F sfm_local_matcher=lightglue \
   -F sfm_pairing=exhaustive \
   -F sfm_geometric_verification=guided_v1 \
+  -F sfm_camera_calibration=auto_grouped_simple_radial_v1 \
   -F files=@view-01.jpg \
   -F files=@view-02.jpg
 ```
@@ -227,11 +229,15 @@ uv run python scripts/setup_colmap_vocab_tree.py
 uv run python scripts/setup_colmap_vocab_tree.py --install
 ```
 
-The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production defaults remain `sift_v1 + bruteforce + exhaustive + default_v1 + incremental`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper remains unexposed pending Phase 6; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production frontend defaults remain `sift_v1 + bruteforce + exhaustive + default_v1 + incremental`, while camera defaults preserve the historical backend path: shared OPENCV for `project_3dgs` and shared SIMPLE_RADIAL for direct `colmap`/`colmap_vggt`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper remains unexposed pending Phase 6; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Phase 4 exposes `sfm_geometric_verification=default_v1|guided_v1` after pairing. Both profiles explicitly keep COLMAP geometric verification enabled and retain the selected build's default `TwoViewGeometry`/RANSAC parameters; `guided_v1` changes only `FeatureMatching.guided_matching=1`. The same profile reaches standard-v2 `matches_importer` recovery. Matching timing remains the combined local-matching + geometric-verification wall time because COLMAP does not publish a stable separate duration. Guided is experimental and has no promotion-grade real A/B yet.
 
-New Gaussian jobs publish SfM diagnostics schema 3 with a verified View Graph summary: non-empty `two_view_geometries` rows define edges, and the asset records edge/component/degree distributions, isolated nodes, candidate-surviving versus Guided-added correspondences, and optional video edge-span/soft-gap bridge evidence. This is diagnostic evidence, not a new hard gate. Analyze retained schema 1/2/3 diagnostics without rewriting the accepted Job:
+Phase 5 exposes `sfm_camera_calibration=shared_opencv_v1|shared_simple_radial_v1|auto_grouped_simple_radial_v1` after geometric verification. Shared profiles create one camera with the named COLMAP model. Auto-grouped is limited to multi-image input and deterministically groups only complete normalized device + optional lens + focal-length + decoded-size + EXIF-orientation evidence; missing or invalid device/focal/orientation evidence leaves that image in its own camera group. It never uses filename, upload order, directory layout, GPS, or serial-number metadata. `colmap_vggt` rejects OPENCV because its current dense unprojection supports only pinhole/radial distortion. VGGT-BA remains a shared-camera video path and rejects auto-grouping; standard-v2 recovery frames inherit its existing shared camera. Camera plausibility warnings use COLMAP Mapper's focal-ratio/extra-parameter bounds as diagnostics only and do not become job gates. No profile has promotion-grade real A/B evidence.
+
+Every current COLMAP-backed API/adapter job publishes `sfm_camera_calibration_diagnostics=diagnostics/sfm_camera_calibration.json` from the raw sparse model before Gaussian undistortion. It records planned/initial/final camera groups, prior-focal flags, registration, named focal/principal-point/distortion values, focal change, sparse track/reprojection summaries, COLMAP build, and soft warnings. The compact manifest/UI expose only profile, model, group count, and warning count; raw parameters are not controls. Gaussian `sfm_diagnostics` is schema 4 and adds the validated camera summary plus each database image's `camera_id`; schemas 1–3 remain readable as the historical shared-OPENCV path.
+
+New Gaussian jobs publish SfM diagnostics schema 4 with a verified View Graph summary: non-empty `two_view_geometries` rows define edges, and the asset records edge/component/degree distributions, isolated nodes, candidate-surviving versus Guided-added correspondences, camera-calibration provenance, and optional video edge-span/soft-gap bridge evidence. This is diagnostic evidence, not a new hard gate. Analyze retained schema 1/2/3/4 diagnostics without rewriting the accepted Job:
 
 ```bash
 uv run python scripts/analyze_sfm_view_graph.py --job-dir outputs/jobs/JOB
@@ -245,7 +251,8 @@ Run COLMAP sparse SfM directly for a local image folder:
   --output-dir outputs/colmap_run \
   --local-matcher bruteforce \
   --pairing exhaustive \
-  --geometric-verification default_v1
+  --geometric-verification default_v1 \
+  --camera-calibration shared_simple_radial_v1
 ```
 
 COLMAP output is a sparse SfM reference: it estimates a global camera graph and sparse point cloud. Use it to compare whether VGGT multi-image drift is caused by windowed model inference or by weak image overlap / texture. Video extraction writes `diagnostics/video_keyframe_timing.json`; explicit ordinary-COLMAP v2 also writes `diagnostics/video_initial_registration_expansion.json` and `diagnostics/colmap_timing.json`. After same-source v1/v2 geometry-only runs and a second deterministic v2 extraction, `scripts/evaluate_video_v2_promotion.py` evaluates the frozen 95% registration, zero `>2s` gap, camera/point retention, recovery-budget, determinism, and `≤2×` time gates; a failed gate exits nonzero and never changes defaults.
@@ -258,6 +265,7 @@ env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_colmap_vggt_dense.py \
   --output-dir outputs/colmap_vggt_run \
   --pairing exhaustive \
   --geometric-verification default_v1 \
+  --camera-calibration shared_simple_radial_v1 \
   --vggt-batch-size 4 \
   --vggt-overlap-size 2 \
   --vggt-grouping sequential \
@@ -370,6 +378,7 @@ env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
   --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
   --pairing exhaustive \
   --geometric-verification default_v1 \
+  --camera-calibration shared_simple_radial_v1 \
   --vggt-batch-size 4 \
   --vggt-grouping sequential \
   --fusion-mode points \

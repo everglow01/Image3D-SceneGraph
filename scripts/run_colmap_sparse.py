@@ -9,7 +9,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from image3d_scenegraph.geometry.camera_calibration import (
+    build_camera_calibration_diagnostics,
+    camera_calibration_metrics,
+    prepare_camera_extraction,
+    write_camera_calibration_diagnostics,
+)
 from image3d_scenegraph.geometry.colmap import (
+    COLMAP_CAMERA_CALIBRATION_IDS,
     COLMAP_FEATURE_PROFILE_IDS,
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
@@ -17,6 +24,7 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
     colmap_frontend_provenance,
+    resolve_colmap_camera_calibration,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
     resolve_colmap_geometric_verification,
@@ -60,7 +68,15 @@ def main() -> None:
         choices=COLMAP_GEOMETRIC_VERIFICATION_IDS,
         default="default_v1",
     )
-    parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--camera-calibration",
+        choices=COLMAP_CAMERA_CALIBRATION_IDS,
+    )
+    parser.add_argument(
+        "--single-camera",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--gpu-index", type=parse_gpu_indices)
     parser.add_argument("--num-threads", type=int)
@@ -71,6 +87,11 @@ def main() -> None:
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
     args = parser.parse_args()
+    if args.camera_calibration is not None and args.single_camera is not None:
+        parser.error("--camera-calibration cannot be combined with --single-camera")
+    legacy_single_camera = (
+        True if args.single_camera is None else bool(args.single_camera)
+    )
     if args.num_threads is not None and args.num_threads < 1:
         parser.error("--num-threads must be at least 1")
     if args.max_image_size is not None and args.max_image_size < 1:
@@ -125,6 +146,19 @@ def main() -> None:
         geometric_verification = resolve_colmap_geometric_verification(
             args.geometric_verification
         )
+        camera_calibration = (
+            resolve_colmap_camera_calibration(args.camera_calibration)
+            if args.camera_calibration is not None
+            else None
+        )
+        if (
+            camera_calibration is not None
+            and camera_calibration.sharing_policy != "single_camera"
+            and video_selection is not None
+        ):
+            raise ColmapFeatureError(
+                "auto-grouped camera calibration is not supported for video"
+            )
         if args.pairing is not None:
             pairing = resolve_colmap_pairing(feature_profile, args.pairing)
             pairing_profile = pairing.profile_id
@@ -161,6 +195,16 @@ def main() -> None:
     geometry_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
+    camera_plan = (
+        prepare_camera_extraction(
+            camera_calibration,
+            args.image_dir,
+            image_paths,
+            work_dir / "camera_groups",
+        )
+        if camera_calibration is not None
+        else None
+    )
     mapper_seed_names: list[str] = []
     mapper_seed_path: Path | None = None
     mapper_seed_option: str | None = None
@@ -176,25 +220,54 @@ def main() -> None:
         )
         mapper_seed_option = mapper_image_list_option(colmap)
 
-    feature_command = [
-        colmap,
-        "feature_extractor",
-        "--database_path",
-        str(work_dir / "database.db"),
-        "--image_path",
-        str(args.image_dir),
-        "--ImageReader.single_camera",
-        "1" if args.single_camera else "0",
-        "--FeatureExtraction.use_gpu",
-        "1" if args.use_gpu else "0",
-        *feature_profile.extraction_options,
-    ]
-    if args.gpu_index is not None:
-        feature_command.extend(("--FeatureExtraction.gpu_index", args.gpu_index))
-    if args.gaussian_baseline:
-        feature_command.extend(("--ImageReader.camera_model", "OPENCV"))
-    if args.num_threads is not None:
-        feature_command.extend(("--FeatureExtraction.num_threads", str(args.num_threads)))
+    def build_feature_command(
+        image_list_path: Path | None,
+        image_reader_options: tuple[str, ...],
+    ) -> list[str]:
+        command = [
+            colmap,
+            "feature_extractor",
+            "--database_path",
+            str(work_dir / "database.db"),
+            "--image_path",
+            str(args.image_dir),
+        ]
+        if image_list_path is not None:
+            command.extend(("--image_list_path", str(image_list_path)))
+        command.extend(
+            (
+                *image_reader_options,
+                "--FeatureExtraction.use_gpu",
+                "1" if args.use_gpu else "0",
+                *feature_profile.extraction_options,
+            )
+        )
+        if args.gpu_index is not None:
+            command.extend(("--FeatureExtraction.gpu_index", args.gpu_index))
+        if args.num_threads is not None:
+            command.extend(
+                ("--FeatureExtraction.num_threads", str(args.num_threads))
+            )
+        return command
+
+    if camera_plan is not None:
+        feature_commands = [
+            build_feature_command(
+                batch.image_list_path,
+                batch.image_reader_options,
+            )
+            for batch in camera_plan.batches
+        ]
+    else:
+        legacy_reader_options = [
+            "--ImageReader.single_camera",
+            "1" if legacy_single_camera else "0",
+        ]
+        if args.gaussian_baseline:
+            legacy_reader_options.extend(("--ImageReader.camera_model", "OPENCV"))
+        feature_commands = [
+            build_feature_command(None, tuple(legacy_reader_options))
+        ]
     mapper_command = [
         colmap,
         "mapper",
@@ -244,7 +317,10 @@ def main() -> None:
     if args.num_threads is not None:
         matcher_command.extend(("--FeatureMatching.num_threads", str(args.num_threads)))
     commands = [
-        ("feature_extraction", "colmap_feature_extraction", feature_command),
+        *[
+            ("feature_extraction", "colmap_feature_extraction", command)
+            for command in feature_commands
+        ],
         ("feature_matching", "colmap_feature_matching", matcher_command),
         ("mapping", "colmap_mapping", mapper_command),
     ]
@@ -254,7 +330,9 @@ def main() -> None:
         write_progress(args.progress_file, progress_stage)
         command_started_at = time.perf_counter()
         command_logs.append(run_command(command))
-        stage_elapsed_seconds[timing_stage] = time.perf_counter() - command_started_at
+        stage_elapsed_seconds[timing_stage] = stage_elapsed_seconds.get(
+            timing_stage, 0.0
+        ) + (time.perf_counter() - command_started_at)
 
     model_dir, registered_images, sparse_points = find_largest_sparse_model(sparse_dir)
     initial_registered_images = registered_images
@@ -323,6 +401,50 @@ def main() -> None:
         )
         command_logs.extend(recovery_logs)
         registered_images, sparse_points = read_sparse_model_counts(model_dir)
+    camera_diagnostics: dict[str, Any] | None = None
+    camera_metrics: dict[str, int | float | str] = {}
+    camera_diagnostics_path = (
+        output_dir / "diagnostics" / "sfm_camera_calibration.json"
+    )
+    if camera_plan is not None:
+        if camera_plan.calibration.sharing_policy == "single_camera":
+            camera_plan = prepare_camera_extraction(
+                camera_plan.calibration,
+                args.image_dir,
+                discover_images(args.image_dir),
+                work_dir / "camera_groups",
+            )
+        raw_text_dir = work_dir / "sparse_raw_txt"
+        raw_text_dir.mkdir(parents=True, exist_ok=False)
+        conversion_started_at = time.perf_counter()
+        command_logs.append(
+            run_command(
+                [
+                    colmap,
+                    "model_converter",
+                    "--input_path",
+                    str(model_dir),
+                    "--output_path",
+                    str(raw_text_dir),
+                    "--output_type",
+                    "TXT",
+                ]
+            )
+        )
+        stage_elapsed_seconds["raw_model_conversion"] = (
+            time.perf_counter() - conversion_started_at
+        )
+        camera_diagnostics = build_camera_calibration_diagnostics(
+            database_path=work_dir / "database.db",
+            final_camera_payload=build_camera_payload(raw_text_dir),
+            points3d_path=raw_text_dir / "points3D.txt",
+            plan=camera_plan,
+            colmap_build=colmap_build,
+        )
+        write_camera_calibration_diagnostics(
+            camera_diagnostics_path, camera_diagnostics
+        )
+        camera_metrics = camera_calibration_metrics(camera_diagnostics)
     model_source = model_dir
     text_dir = work_dir / "sparse_txt"
     training_image_dir = args.image_dir
@@ -420,6 +542,11 @@ def main() -> None:
         "pairing_command": pairing_command,
         "vocab_tree_sha256": vocab_tree_sha256,
         "geometric_verification": geometric_verification.provenance(),
+        "camera_calibration": (
+            camera_diagnostics["calibration"]
+            if camera_diagnostics is not None
+            else None
+        ),
         "mapper": "incremental",
         "matcher": pairing_command.removesuffix("_matcher"),
         "video_profile": (
@@ -470,11 +597,19 @@ def main() -> None:
         f"sfm_pairing_vocab_tree_sha256={vocab_tree_sha256 or 'none'}",
         f"sfm_geometric_verification_profile={geometric_verification.profile_id}",
         f"sfm_geometric_verification_guided_matching={str(geometric_verification.guided_matching).lower()}",
+        *(
+            [
+                f"{key}={value}"
+                for key, value in camera_metrics.items()
+            ]
+            if camera_diagnostics is not None
+            else ["sfm_camera_calibration_profile=legacy_cli"]
+        ),
         "sfm_mapper=incremental",
         f"matcher={pairing_command.removesuffix('_matcher')}",
         f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
         f"vocab_tree={vocab_tree_path if vocab_tree_path is not None else 'none'}",
-        f"single_camera={args.single_camera}",
+        f"single_camera={legacy_single_camera if camera_plan is None else camera_plan.calibration.sharing_policy == 'single_camera'}",
         f"colmap_executable={colmap}",
         f"colmap_build={colmap_build}",
         f"use_gpu={args.use_gpu}",
@@ -482,6 +617,14 @@ def main() -> None:
         f"num_threads={args.num_threads if args.num_threads is not None else 'auto'}",
         f"max_image_size={args.max_image_size if args.max_image_size is not None else 'original'}",
         f"gaussian_baseline={args.gaussian_baseline}",
+        *(
+            [
+                "sfm_camera_calibration_diagnostics="
+                + camera_diagnostics_path.relative_to(output_dir).as_posix()
+            ]
+            if camera_diagnostics is not None
+            else []
+        ),
         f"stage_elapsed_seconds={json.dumps(stage_elapsed_seconds, sort_keys=True)}",
         f"timing_diagnostics={timing_path}",
         f"elapsed_seconds={elapsed_seconds:.3f}",
@@ -491,6 +634,8 @@ def main() -> None:
 
     print(f"wrote {point_cloud_path}")
     print(f"wrote {geometry_dir / 'cameras.json'}")
+    if camera_diagnostics is not None:
+        print(f"wrote {camera_diagnostics_path}")
     print(f"registered_images={len(camera_payload['images'])}")
     print(f"num_points={num_points}")
 

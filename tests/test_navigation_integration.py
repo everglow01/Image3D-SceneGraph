@@ -256,7 +256,7 @@ def test_navigation_failure_is_fail_soft_for_new_gaussian_job(tmp_path, monkeypa
             return ReconstructionResult(
                 "gaussian_export",
                 {"scene_splat": "gaussian/export/train-001/scene.ply"},
-                {},
+                {"sfm_camera_calibration_profile": "shared_opencv_v1"},
                 [],
             )
 

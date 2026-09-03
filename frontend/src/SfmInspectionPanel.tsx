@@ -286,6 +286,12 @@ export function SfmInspectionPanel({
         </span>
         <span>图像对: {run.pairing.name}</span>
         <span>几何验证: {run.geometric_verification.profile}</span>
+        <span>
+          相机标定: {run.camera_calibration.profile} / {run.camera_calibration.camera_model}
+          {run.camera_calibration.final_camera_count === null
+            ? " · 历史未记录相机数与警告"
+            : ` · ${run.camera_calibration.final_camera_count.toLocaleString()} 组 · ${run.camera_calibration.warning_count?.toLocaleString() ?? "未知"} 条警告`}
+        </span>
         <span>求解器: {run.mapper.name}</span>
       </div>
 

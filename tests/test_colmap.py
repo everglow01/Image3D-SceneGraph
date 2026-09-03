@@ -10,10 +10,12 @@ from image3d_scenegraph.geometry.colmap import (
     ColmapFeatureAsset,
     ColmapFeatureError,
     ResolvedColmapFeatureProfile,
+    colmap_camera_calibration_support_reason,
     colmap_geometric_verification_support_reason,
     colmap_local_matcher_support_reason,
     colmap_pairing_support_reason,
     resolve_colmap_executable,
+    resolve_colmap_camera_calibration,
     resolve_colmap_feature_profile,
     resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
@@ -334,6 +336,46 @@ def test_pairing_capability_probe_is_profile_specific(tmp_path, monkeypatch):
         )
         is None
     )
+
+
+def test_camera_calibration_profiles_freeze_model_and_sharing() -> None:
+    opencv = resolve_colmap_camera_calibration("shared_opencv_v1")
+    radial = resolve_colmap_camera_calibration("shared_simple_radial_v1")
+    grouped = resolve_colmap_camera_calibration("auto_grouped_simple_radial_v1")
+
+    assert opencv.camera_model == "OPENCV"
+    assert radial.camera_model == "SIMPLE_RADIAL"
+    assert opencv.sharing_policy == radial.sharing_policy == "single_camera"
+    assert opencv.image_reader_options[1] == "OPENCV"
+    assert radial.image_reader_options[1] == "SIMPLE_RADIAL"
+    assert grouped.provenance() == {
+        "profile": "auto_grouped_simple_radial_v1",
+        "camera_model": "SIMPLE_RADIAL",
+        "sharing_policy": "focal_aware_groups",
+        "grouping_key_policy": "exif_device_lens_focal_size_orientation_v1",
+        "initial_focal_policy": "colmap_exif_or_default",
+    }
+
+
+def test_camera_calibration_capability_checks_grouped_batch_options(
+    tmp_path, monkeypatch
+) -> None:
+    executable = _make_executable(tmp_path / "colmap")
+    common = "ImageReader.camera_model ImageReader.single_camera"
+    monkeypatch.setattr(colmap, "_capture_help", lambda _executable, _command: common)
+
+    assert (
+        colmap_camera_calibration_support_reason(
+            executable, "shared_simple_radial_v1"
+        )
+        is None
+    )
+    reason = colmap_camera_calibration_support_reason(
+        executable, "auto_grouped_simple_radial_v1"
+    )
+    assert reason is not None
+    assert "image_list_path" in reason
+    assert "ImageReader.single_camera_per_image" in reason
 
 
 def test_geometric_verification_profiles_only_change_guided_matching() -> None:

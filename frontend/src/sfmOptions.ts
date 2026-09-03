@@ -4,6 +4,13 @@ export type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
 export type SfmLocalMatcher = "bruteforce" | "lightglue";
 export type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree";
 export type SfmGeometricVerification = "default_v1" | "guided_v1";
+export type SfmCameraCalibration =
+  | "shared_opencv_v1"
+  | "shared_simple_radial_v1"
+  | "auto_grouped_simple_radial_v1";
+
+export type SfmCameraCalibrationStatus =
+  ExperimentalOptionStatus<SfmCameraCalibration> & { is_default?: boolean };
 
 export type SfmGeometricVerificationStatus =
   ExperimentalOptionStatus<SfmGeometricVerification>;
@@ -50,6 +57,21 @@ export const sfmGeometricVerificationOptions: Array<{
   { id: "guided_v1", label: "Guided v1（实验）" }
 ];
 
+export const sfmCameraCalibrationOptions: Array<{
+  id: SfmCameraCalibration;
+  label: string;
+}> = [
+  { id: "shared_opencv_v1", label: "Shared OPENCV v1" },
+  {
+    id: "shared_simple_radial_v1",
+    label: "Shared SIMPLE_RADIAL v1"
+  },
+  {
+    id: "auto_grouped_simple_radial_v1",
+    label: "Auto-grouped SIMPLE_RADIAL v1"
+  }
+];
+
 export function isSfmPairingModeSupported(
   status: ExperimentalOptionStatus<SfmPairing> | undefined,
   mode: string
@@ -78,6 +100,29 @@ export function isSfmGeometricVerificationAvailable(
   return (
     status?.available !== false &&
     (profile === "default_v1" || status?.available === true)
+  );
+}
+
+export function defaultSfmCameraCalibration(
+  backend: string
+): SfmCameraCalibration {
+  return backend === "project_3dgs"
+    ? "shared_opencv_v1"
+    : "shared_simple_radial_v1";
+}
+
+export function isSfmCameraCalibrationAvailable(
+  profile: SfmCameraCalibration,
+  status: SfmCameraCalibrationStatus | undefined,
+  mode: string,
+  backend: string
+): boolean {
+  if (status === undefined) {
+    return profile === defaultSfmCameraCalibration(backend);
+  }
+  return (
+    status.available !== false &&
+    (status.supported_modes?.includes(mode) ?? false)
   );
 }
 
@@ -113,5 +158,16 @@ export function formatSfmGeometricVerification(
   return (
     sfmGeometricVerificationOptions.find((option) => option.id === profile)
       ?.label ?? `未知几何验证（${profile}）`
+  );
+}
+
+export function formatSfmCameraCalibration(
+  value: string | undefined,
+  backend: string
+): string {
+  const profile = value ?? defaultSfmCameraCalibration(backend);
+  return (
+    sfmCameraCalibrationOptions.find((option) => option.id === profile)?.label ??
+    `未知相机标定（${profile}）`
   );
 }

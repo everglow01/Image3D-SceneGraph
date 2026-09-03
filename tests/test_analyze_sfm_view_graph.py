@@ -4,10 +4,15 @@ import gzip
 import hashlib
 import json
 
+import pytest
+
 from scripts.analyze_sfm_view_graph import analyze_job
 
 
-def test_analyze_job_reads_legacy_diagnostics_without_writing(tmp_path) -> None:
+@pytest.mark.parametrize("schema_version", [2, 4])
+def test_analyze_job_reads_diagnostics_without_writing(
+    tmp_path, schema_version
+) -> None:
     job = tmp_path / "job"
     diagnostics = job / "diagnostics" / "sfm"
     diagnostics.mkdir(parents=True)
@@ -35,7 +40,7 @@ def test_analyze_job_reads_legacy_diagnostics_without_writing(tmp_path) -> None:
     (diagnostics / "manifest.json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": schema_version,
                 "default_run_id": "run-1",
                 "runs": [
                     {

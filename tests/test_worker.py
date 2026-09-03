@@ -152,6 +152,7 @@ def test_completed_gaussian_manifest_publishes_geometry_fallback_provenance(
                     "gaussian_geometry_fallback_reason": (
                         "vggt_graph_unusable_after_recovery"
                     ),
+                    "sfm_camera_calibration_profile": "shared_opencv_v1",
                 },
                 [],
             )
@@ -209,6 +210,7 @@ def test_completed_colmap_manifest_publishes_effective_geometric_profile(
                     "sfm_local_matcher_profile": "bruteforce",
                     "sfm_pairing": "exhaustive",
                     "sfm_geometric_verification_profile": "guided_v1",
+                    "sfm_camera_calibration_profile": "shared_simple_radial_v1",
                 },
                 [],
             )
@@ -223,6 +225,10 @@ def test_completed_colmap_manifest_publishes_effective_geometric_profile(
     assert done["status"] == "done"
     assert done["sfm_geometric_verification"] == "guided_v1"
     assert done["sfm_geometric_verification_effective"] == "guided_v1"
+    assert done["sfm_camera_calibration"] == "shared_simple_radial_v1"
+    assert done["sfm_camera_calibration_effective"] == (
+        "shared_simple_radial_v1"
+    )
 
 
 def test_running_cancellation_preserves_partial_workspace(tmp_path, monkeypatch):

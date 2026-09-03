@@ -108,6 +108,11 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "guided_v1",
     ]
     assert properties["sfm_geometric_verification"]["default"] == "default_v1"
+    assert properties["sfm_camera_calibration"]["anyOf"][0]["enum"] == [
+        "shared_opencv_v1",
+        "shared_simple_radial_v1",
+        "auto_grouped_simple_radial_v1",
+    ]
     assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
     assert properties["gaussian_geometry_source"]["default"] == "colmap"
     assert properties["gaussian_postprocess"]["enum"] == [
@@ -208,6 +213,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
             "sfm_feature_profile": "aliked_n16rot_v1",
             "sfm_local_matcher": "lightglue",
             "sfm_geometric_verification": "guided_v1",
+            "sfm_camera_calibration": "auto_grouped_simple_radial_v1",
         },
         files=[
             ("files", (f"{index}.jpg", b"image", "image/jpeg"))
@@ -220,6 +226,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
         "sfm_feature_profile": "aliked_n16rot_v1",
         "sfm_local_matcher": "lightglue",
         "sfm_geometric_verification": "guided_v1",
+        "sfm_camera_calibration": "auto_grouped_simple_radial_v1",
     }
 
 

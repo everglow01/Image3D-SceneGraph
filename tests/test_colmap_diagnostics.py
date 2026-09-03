@@ -13,6 +13,7 @@ import pytest
 from image3d_scenegraph.geometry.colmap_diagnostics import (
     MAX_IMAGE_ID,
     ColmapDiagnosticsError,
+    _run_id,
     export_colmap_diagnostics,
 )
 
@@ -38,6 +39,45 @@ GUIDED_GEOMETRIC_VERIFICATION = {
     "profile": "guided_v1",
     "guided_matching": True,
 }
+SHARED_OPENCV_CALIBRATION = {
+    "profile": "shared_opencv_v1",
+    "camera_model": "OPENCV",
+    "sharing_policy": "single_camera",
+    "grouping_key_policy": "all_images",
+    "initial_focal_policy": "colmap_exif_or_default",
+}
+
+
+def test_run_id_tracks_camera_profile_not_diagnostic_outcomes() -> None:
+    camera = {
+        **SHARED_OPENCV_CALIBRATION,
+        "planned_camera_count": 1,
+        "initial_camera_count": 1,
+        "final_camera_count": 1,
+        "prior_focal_camera_count": 0,
+        "warning_count": 0,
+    }
+
+    def run_id(value):
+        return _run_id(
+            "image-set",
+            SIFT_FEATURE,
+            "exhaustive",
+            None,
+            DEFAULT_GEOMETRIC_VERIFICATION,
+            value,
+            "incremental",
+            "COLMAP 4.0.0",
+        )
+
+    assert run_id({**camera, "warning_count": 2}) == run_id(camera)
+    assert run_id(
+        {
+            **camera,
+            "profile": "shared_simple_radial_v1",
+            "camera_model": "SIMPLE_RADIAL",
+        }
+    ) != run_id(camera)
 
 
 def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: Path) -> None:
@@ -54,12 +94,16 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
         geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        camera_calibration=SHARED_OPENCV_CALIBRATION,
+        camera_calibration_diagnostics_path=(
+            job / "diagnostics" / "sfm_camera_calibration.json"
+        ),
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["profile"] == "sfm_frontend_diagnostics_v3"
+    assert manifest["profile"] == "sfm_frontend_diagnostics_v4"
     assert manifest["counts"] == {
         "images": 3,
         "registered_images": 2,
@@ -80,6 +124,7 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
 
     images = {image["colmap_image_id"]: image for image in manifest["images"]}
     assert images[1]["registered"] is True
+    assert images[1]["camera_id"] == 1
     assert images[1]["split"] == "train"
     assert images[1]["source_time_seconds"] == pytest.approx(0.1)
     assert images[1]["center_normalized"] == pytest.approx([0.0, 0.0, 0.0])
@@ -99,6 +144,9 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert run["pairing"]["vocab_tree_sha256"] == "b" * 64
     assert run["geometric_verification"]["profile"] == "default_v1"
     assert run["geometric_verification"]["guided_matching"] is False
+    assert run["camera_calibration"]["profile"] == "shared_opencv_v1"
+    assert run["camera_calibration"]["camera_model"] == "OPENCV"
+    assert run["camera_calibration"]["initial_camera_count"] == 1
     assert run["mapper"]["name"] == "incremental"
     assert run["view_graph"]["verified_edge_count"] == 1
     assert run["view_graph"]["connected_component_count"] == 2
@@ -144,6 +192,10 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
         geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        camera_calibration=SHARED_OPENCV_CALIBRATION,
+        camera_calibration_diagnostics_path=(
+            job / "diagnostics" / "sfm_camera_calibration.json"
+        ),
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -169,6 +221,10 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
         geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        camera_calibration=SHARED_OPENCV_CALIBRATION,
+        camera_calibration_diagnostics_path=(
+            job / "diagnostics" / "sfm_camera_calibration.json"
+        ),
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -193,6 +249,10 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
         pairing="sequential_loop",
         pairing_vocab_tree_sha256="b" * 64,
         geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        camera_calibration=SHARED_OPENCV_CALIBRATION,
+        camera_calibration_diagnostics_path=(
+            job / "diagnostics" / "sfm_camera_calibration.json"
+        ),
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
     )
@@ -204,6 +264,56 @@ def test_export_colmap_diagnostics_writes_final_sharded_frontend_data(tmp_path: 
     assert lightglue["runs"][0]["local_matcher"]["profile"] == "lightglue"
     assert lightglue["runs"][0]["local_matcher"]["name"] == "SIFT_LIGHTGLUE"
     assert lightglue_metrics["sfm_local_matcher_profile"] == "lightglue"
+
+
+def test_export_colmap_diagnostics_rejects_camera_mapping_drift(
+    tmp_path: Path,
+) -> None:
+    job = _fixture_job(tmp_path)
+    calibration = {
+        "profile": "auto_grouped_simple_radial_v1",
+        "camera_model": "SIMPLE_RADIAL",
+        "sharing_policy": "focal_aware_groups",
+        "grouping_key_policy": "exif_device_lens_focal_size_orientation_v1",
+        "initial_focal_policy": "colmap_exif_or_default",
+    }
+    camera_path = job / "diagnostics" / "sfm_camera_calibration.json"
+    camera_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "profile": "sfm_camera_calibration_diagnostics_v1",
+                "calibration": calibration,
+                "grouping": {"planned_camera_count": 2},
+                "initial": {
+                    "camera_count": 2,
+                    "prior_focal_camera_count": 0,
+                },
+                "final": {"camera_count": 1},
+                "plausibility": {
+                    "warning_count": 0,
+                    "warnings_are_job_gates": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ColmapDiagnosticsError, match="image mapping"):
+        export_colmap_diagnostics(
+            job_dir=job,
+            database_path=job / "colmap" / "database.db",
+            source_image_root=job / "frames" / "selected",
+            dataset_contract_path=job / "dataset.json",
+            output_dir=job / "diagnostics" / "sfm",
+            feature=SIFT_FEATURE,
+            pairing="sequential",
+            geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+            camera_calibration=calibration,
+            camera_calibration_diagnostics_path=camera_path,
+            colmap_build="COLMAP 4.0.0",
+            video_selection_path=job / "frames" / "selection.json",
+        )
 
 
 def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(
@@ -231,7 +341,11 @@ def test_export_colmap_diagnostics_rejects_verified_match_not_in_candidates(
             feature=SIFT_FEATURE,
             pairing="sequential",
             geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
-        colmap_build="COLMAP 4.0.0",
+            camera_calibration=SHARED_OPENCV_CALIBRATION,
+            camera_calibration_diagnostics_path=(
+                job / "diagnostics" / "sfm_camera_calibration.json"
+            ),
+            colmap_build="COLMAP 4.0.0",
             video_selection_path=job / "frames" / "selection.json",
         )
 
@@ -261,6 +375,10 @@ def test_export_colmap_diagnostics_records_guided_matches_outside_candidates(
         feature=SIFT_FEATURE,
         pairing="sequential_loop",
         geometric_verification=GUIDED_GEOMETRIC_VERIFICATION,
+        camera_calibration=SHARED_OPENCV_CALIBRATION,
+        camera_calibration_diagnostics_path=(
+            job / "diagnostics" / "sfm_camera_calibration.json"
+        ),
         pairing_vocab_tree_sha256="b" * 64,
         colmap_build="COLMAP 4.0.0",
         video_selection_path=job / "frames" / "selection.json",
@@ -307,6 +425,26 @@ def _fixture_job(tmp_path: Path) -> Path:
         json.dumps({"selected": selected}), encoding="utf-8"
     )
     (job / "diagnostics").mkdir()
+    (job / "diagnostics" / "sfm_camera_calibration.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "profile": "sfm_camera_calibration_diagnostics_v1",
+                "calibration": SHARED_OPENCV_CALIBRATION,
+                "grouping": {"planned_camera_count": 1},
+                "initial": {
+                    "camera_count": 1,
+                    "prior_focal_camera_count": 0,
+                },
+                "final": {"camera_count": 1},
+                "plausibility": {
+                    "warning_count": 0,
+                    "warnings_are_job_gates": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (job / "colmap").mkdir()
     _write_database(job / "colmap" / "database.db")
     identity = np.eye(4).tolist()

@@ -4,6 +4,7 @@ export type SfmInspectionTab = "nearest" | "keypoints" | "matches";
 export type SfmImage = {
   frame_uid: string;
   colmap_image_id: number;
+  camera_id: number | null;
   name: string;
   path: string;
   sha256: string;
@@ -45,6 +46,23 @@ export type SfmGeometricVerification = {
   version: string;
 };
 
+export type SfmCameraCalibration = {
+  profile:
+    | "shared_opencv_v1"
+    | "shared_simple_radial_v1"
+    | "auto_grouped_simple_radial_v1";
+  camera_model: "OPENCV" | "SIMPLE_RADIAL";
+  sharing_policy: "single_camera" | "focal_aware_groups";
+  planned_camera_count: number | null;
+  initial_camera_count: number | null;
+  final_camera_count: number | null;
+  prior_focal_camera_count: number | null;
+  warning_count: number | null;
+  implementation: string;
+  version: string;
+  diagnostics_path: string | null;
+};
+
 export type SfmDistributionMiddle = {
   p50: number;
   p90: number;
@@ -79,6 +97,7 @@ export type SfmRun = {
     vocab_tree_sha256: string | null;
   };
   geometric_verification: SfmGeometricVerification;
+  camera_calibration: SfmCameraCalibration;
   view_graph: SfmViewGraphSummary | null;
   mapper: SfmAlgorithm;
   feature_index_path: string;
@@ -137,7 +156,10 @@ export function parseSfmDiagnostics(value: unknown): SfmDiagnostics {
   const record = object(value, "SfM diagnostics");
   const schemaVersion = record.schema_version;
   if (
-    (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3) ||
+    (schemaVersion !== 1 &&
+      schemaVersion !== 2 &&
+      schemaVersion !== 3 &&
+      schemaVersion !== 4) ||
     record.profile !== `sfm_frontend_diagnostics_v${schemaVersion}` ||
     record.coordinate_frame !== "normalized" ||
     record.camera_convention !== "opencv" ||
@@ -152,10 +174,31 @@ export function parseSfmDiagnostics(value: unknown): SfmDiagnostics {
   if (!runs.some((run) => run.run_id === defaultRunId)) {
     throw new Error("SfM default run is missing");
   }
-  const images = array(record.images, "SfM images").map(parseImage);
+  const images = array(record.images, "SfM images").map((value) =>
+    parseImage(value, schemaVersion)
+  );
   const ids = new Set(images.map((image) => image.colmap_image_id));
   if (ids.size !== images.length) {
     throw new Error("SfM image IDs are not unique");
+  }
+  if (schemaVersion === 4) {
+    const cameraIds = new Set(images.map((image) => image.camera_id));
+    const registeredCameraIds = new Set(
+      images
+        .filter((image) => image.registered)
+        .map((image) => image.camera_id)
+    );
+    if (
+      cameraIds.has(null) ||
+      runs.some(
+        (run) =>
+          run.camera_calibration.initial_camera_count !== cameraIds.size ||
+          run.camera_calibration.final_camera_count !==
+            registeredCameraIds.size
+      )
+    ) {
+      throw new Error("SfM camera calibration image mapping is inconsistent");
+    }
   }
   if (
     runs.some(
@@ -509,7 +552,7 @@ export function assetUrl(jobId: string, path: string): string {
     .join("/")}`;
 }
 
-function parseRun(value: unknown, schemaVersion: 1 | 2 | 3): SfmRun {
+function parseRun(value: unknown, schemaVersion: 1 | 2 | 3 | 4): SfmRun {
   const run = object(value, "SfM run");
   const featureIndexPath = assetPath(run.feature_index_path);
   const pairIndexPath = assetPath(run.pair_index_path);
@@ -538,6 +581,7 @@ function parseRun(value: unknown, schemaVersion: 1 | 2 | 3): SfmRun {
       geometric_verification: defaultGeometricVerification(
         detector.version
       ),
+      camera_calibration: defaultCameraCalibration(detector.version),
       view_graph: null,
       mapper: {
         name: "incremental",
@@ -580,11 +624,15 @@ function parseRun(value: unknown, schemaVersion: 1 | 2 | 3): SfmRun {
     throw new Error("exhaustive pairing has a vocabulary tree");
   }
   const geometricVerification =
-    schemaVersion === 3
+    schemaVersion >= 3
       ? parseGeometricVerification(run.geometric_verification)
       : defaultGeometricVerification(parsedLocalMatcher.version);
+  const cameraCalibration =
+    schemaVersion === 4
+      ? parseCameraCalibration(run.camera_calibration)
+      : defaultCameraCalibration(parsedLocalMatcher.version);
   const viewGraph =
-    schemaVersion === 3 ? parseViewGraphSummary(run.view_graph) : null;
+    schemaVersion >= 3 ? parseViewGraphSummary(run.view_graph) : null;
   return {
     run_id: text(run.run_id, "run ID"),
     feature: {
@@ -612,6 +660,7 @@ function parseRun(value: unknown, schemaVersion: 1 | 2 | 3): SfmRun {
       vocab_tree_sha256: pairingVocabTreeSha256
     },
     geometric_verification: geometricVerification,
+    camera_calibration: cameraCalibration,
     view_graph: viewGraph,
     mapper: parseAlgorithm(run.mapper, "mapper"),
     feature_index_path: featureIndexPath,
@@ -663,6 +712,94 @@ function defaultGeometricVerification(
     raw_parameter_policy: "colmap_build_defaults",
     implementation: "colmap",
     version
+  };
+}
+
+function parseCameraCalibration(value: unknown): SfmCameraCalibration {
+  const record = object(value, "camera calibration");
+  const profile = record.profile;
+  const expected = {
+    shared_opencv_v1: ["OPENCV", "single_camera", "all_images"],
+    shared_simple_radial_v1: [
+      "SIMPLE_RADIAL",
+      "single_camera",
+      "all_images"
+    ],
+    auto_grouped_simple_radial_v1: [
+      "SIMPLE_RADIAL",
+      "focal_aware_groups",
+      "exif_device_lens_focal_size_orientation_v1"
+    ]
+  } as const;
+  if (typeof profile !== "string" || !(profile in expected)) {
+    throw new Error("camera calibration profile is invalid");
+  }
+  const typedProfile = profile as keyof typeof expected;
+  const [cameraModel, sharingPolicy, groupingPolicy] = expected[typedProfile];
+  if (
+    record.camera_model !== cameraModel ||
+    record.sharing_policy !== sharingPolicy ||
+    record.grouping_key_policy !== groupingPolicy ||
+    record.initial_focal_policy !== "colmap_exif_or_default"
+  ) {
+    throw new Error("camera calibration profile is inconsistent");
+  }
+  const planned = positiveInteger(
+    record.planned_camera_count,
+    "planned camera count"
+  );
+  const initial = positiveInteger(
+    record.initial_camera_count,
+    "initial camera count"
+  );
+  const final = positiveInteger(record.final_camera_count, "final camera count");
+  const prior = nonNegativeInteger(
+    record.prior_focal_camera_count,
+    "prior focal camera count"
+  );
+  const warnings = nonNegativeInteger(
+    record.warning_count,
+    "camera warning count"
+  );
+  if (
+    planned !== initial ||
+    final > initial ||
+    prior > initial ||
+    (sharingPolicy === "single_camera" && (planned !== 1 || final !== 1))
+  ) {
+    throw new Error("camera calibration counts are inconsistent");
+  }
+  return {
+    profile: typedProfile,
+    camera_model: cameraModel,
+    sharing_policy: sharingPolicy,
+    planned_camera_count: planned,
+    initial_camera_count: initial,
+    final_camera_count: final,
+    prior_focal_camera_count: prior,
+    warning_count: warnings,
+    implementation: text(
+      record.implementation,
+      "camera calibration implementation"
+    ),
+    version: text(record.version, "camera calibration version"),
+    diagnostics_path: assetPath(record.diagnostics_path)
+  };
+}
+
+function defaultCameraCalibration(version: string): SfmCameraCalibration {
+  return {
+    profile: "shared_opencv_v1",
+    camera_model: "OPENCV",
+    sharing_policy: "single_camera",
+    planned_camera_count: null,
+    initial_camera_count: null,
+    final_camera_count: null,
+    prior_focal_camera_count: null,
+    warning_count: null,
+    implementation: "colmap",
+    version,
+    diagnostics_path: null
   };
 }
 
@@ -800,7 +937,10 @@ function parseAlgorithm(value: unknown, label: string) {
   };
 }
 
-function parseImage(value: unknown): SfmImage {
+function parseImage(
+  value: unknown,
+  schemaVersion: 1 | 2 | 3 | 4
+): SfmImage {
   const image = object(value, "SfM image");
   const registered = boolean(image.registered, "registered");
   const split = image.split;
@@ -818,6 +958,10 @@ function parseImage(value: unknown): SfmImage {
   return {
     frame_uid: sha256(image.frame_uid, "frame UID"),
     colmap_image_id: positiveInteger(image.colmap_image_id, "COLMAP image ID"),
+    camera_id:
+      schemaVersion === 4
+        ? positiveInteger(image.camera_id, "COLMAP camera ID")
+        : null,
     name: text(image.name, "image name"),
     path: assetPath(image.path),
     sha256: sha256(image.sha256, "image SHA-256"),
