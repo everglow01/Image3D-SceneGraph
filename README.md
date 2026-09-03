@@ -84,6 +84,9 @@ Current mock API:
 - `output_type`: `point_cloud`, `mesh`, or `gaussian_splat`
 - `gaussian_trainer`: `graphdeco` (default), `project`, or experimental `mcmc`; used only with `project_3dgs + gaussian_splat`
 - `sfm_feature_profile`: `sift_v1` (default) or experimental `aliked_n16rot_v1`; used by `colmap`, `colmap_vggt`, and the final COLMAP feature stage of `project_3dgs`
+- `sfm_local_matcher`: `bruteforce` (default) or experimental `lightglue`; selects descriptor matching inside each chosen image pair
+- `sfm_pairing`: `exhaustive` (default), video-only `sequential_loop`, or multi-image-only `vocab_tree`
+- `sfm_geometric_verification`: `default_v1` (default) or experimental `guided_v1`; both keep COLMAP geometric verification enabled, and Guided changes only `FeatureMatching.guided_matching`
 - `gaussian_geometry_source`: `colmap` (default) or video-only `vggt_ba` (experimental/research-only)
 - `gaussian_postprocess`: `none` (default) or `vggt_visibility_v1` (experimental/research-only)
 - `gaussian_longest_edge`: 1280–3072px; used only with `project_3dgs + gaussian_splat`
@@ -198,7 +201,8 @@ uv run python scripts/run_colmap_sparse.py \
   --output-dir OUTPUT \
   --feature-profile aliked_n16rot_v1 \
   --local-matcher lightglue \
-  --pairing exhaustive
+  --pairing exhaustive \
+  --geometric-verification guided_v1
 ```
 
 The same controls are available through the asynchronous API:
@@ -211,6 +215,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs \
   -F sfm_feature_profile=aliked_n16rot_v1 \
   -F sfm_local_matcher=lightglue \
   -F sfm_pairing=exhaustive \
+  -F sfm_geometric_verification=guided_v1 \
   -F files=@view-01.jpg \
   -F files=@view-02.jpg
 ```
@@ -222,7 +227,15 @@ uv run python scripts/setup_colmap_vocab_tree.py
 uv run python scripts/setup_colmap_vocab_tree.py --install
 ```
 
-The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production defaults remain `sift_v1 + bruteforce + exhaustive + incremental`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper remains unexposed pending Phase 6; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production defaults remain `sift_v1 + bruteforce + exhaustive + default_v1 + incremental`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper remains unexposed pending Phase 6; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+
+Phase 4 exposes `sfm_geometric_verification=default_v1|guided_v1` after pairing. Both profiles explicitly keep COLMAP geometric verification enabled and retain the selected build's default `TwoViewGeometry`/RANSAC parameters; `guided_v1` changes only `FeatureMatching.guided_matching=1`. The same profile reaches standard-v2 `matches_importer` recovery. Matching timing remains the combined local-matching + geometric-verification wall time because COLMAP does not publish a stable separate duration. Guided is experimental and has no promotion-grade real A/B yet.
+
+New Gaussian jobs publish SfM diagnostics schema 3 with a verified View Graph summary: non-empty `two_view_geometries` rows define edges, and the asset records edge/component/degree distributions, isolated nodes, candidate-surviving versus Guided-added correspondences, and optional video edge-span/soft-gap bridge evidence. This is diagnostic evidence, not a new hard gate. Analyze retained schema 1/2/3 diagnostics without rewriting the accepted Job:
+
+```bash
+uv run python scripts/analyze_sfm_view_graph.py --job-dir outputs/jobs/JOB
+```
 
 Run COLMAP sparse SfM directly for a local image folder:
 
@@ -231,7 +244,8 @@ Run COLMAP sparse SfM directly for a local image folder:
   --image-dir path/to/images \
   --output-dir outputs/colmap_run \
   --local-matcher bruteforce \
-  --pairing exhaustive
+  --pairing exhaustive \
+  --geometric-verification default_v1
 ```
 
 COLMAP output is a sparse SfM reference: it estimates a global camera graph and sparse point cloud. Use it to compare whether VGGT multi-image drift is caused by windowed model inference or by weak image overlap / texture. Video extraction writes `diagnostics/video_keyframe_timing.json`; explicit ordinary-COLMAP v2 also writes `diagnostics/video_initial_registration_expansion.json` and `diagnostics/colmap_timing.json`. After same-source v1/v2 geometry-only runs and a second deterministic v2 extraction, `scripts/evaluate_video_v2_promotion.py` evaluates the frozen 95% registration, zero `>2s` gap, camera/point retention, recovery-budget, determinism, and `≤2×` time gates; a failed gate exits nonzero and never changes defaults.
@@ -243,6 +257,7 @@ env -u LD_LIBRARY_PATH .venv/bin/python scripts/run_colmap_vggt_dense.py \
   --image-dir path/to/images \
   --output-dir outputs/colmap_vggt_run \
   --pairing exhaustive \
+  --geometric-verification default_v1 \
   --vggt-batch-size 4 \
   --vggt-overlap-size 2 \
   --vggt-grouping sequential \
@@ -354,6 +369,7 @@ env -u LD_LIBRARY_PATH uv run python scripts/run_colmap_vggt_dense.py \
   --image-dir data/benchmarks/eth3d/pipes/images/dslr_images_undistorted \
   --output-dir outputs/benchmarks/eth3d-v1/pipes/colmap_vggt_points/reconstruction \
   --pairing exhaustive \
+  --geometric-verification default_v1 \
   --vggt-batch-size 4 \
   --vggt-grouping sequential \
   --fusion-mode points \
