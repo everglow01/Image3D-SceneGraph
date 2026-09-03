@@ -386,10 +386,13 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
             (frames / "selection.json").write_text(
                 json.dumps(
                     {
-                        "profile": "video_keyframes_standard_v1",
+                        "schema_version": 2,
+                        "profile": "video_keyframes_standard_v2",
                         "duration_seconds": 60.0,
                         "candidate_count": 24,
                         "selected_count": 24,
+                        "base_selected_count": 20,
+                        "adaptive_selected_count": 4,
                         "selected": [],
                     }
                 ),
@@ -451,16 +454,33 @@ def test_project_gaussian_vggt_ba_threads_sequential_matcher(
     assert command[command.index("--local-matcher") + 1] == "lightglue"
     assert command[command.index("--matcher") + 1] == "sequential"
     assert command[command.index("--vocab-tree-path") + 1] == str(vocab_tree)
-    assert "--video-source" not in command
-    assert "--video-selection" not in command
+    assert command[command.index("--video-source") + 1] == str(
+        tmp_path / "input" / "video.mp4"
+    )
+    assert command[command.index("--video-selection") + 1] == str(
+        tmp_path / "frames" / "selection.json"
+    )
 
 
 @pytest.mark.parametrize(
     ("geometry_source", "runner_name"),
     (("colmap", "run_colmap_sparse.py"), ("vggt_ba", "run_vggt_ba_sparse.py")),
 )
-def test_project_gaussian_standard_v2_threads_source_and_selection(
-    tmp_path, monkeypatch, geometry_source, runner_name
+@pytest.mark.parametrize(
+    ("requested_profile", "selection_profile", "uses_v2_inputs"),
+    (
+        (None, "video_keyframes_standard_v2", True),
+        ("standard_v1", "video_keyframes_standard_v1", False),
+    ),
+)
+def test_project_gaussian_video_profile_threads_geometry_inputs(
+    tmp_path,
+    monkeypatch,
+    geometry_source,
+    runner_name,
+    requested_profile,
+    selection_profile,
+    uses_v2_inputs,
 ):
     commands = []
 
@@ -475,7 +495,7 @@ def test_project_gaussian_standard_v2_threads_source_and_selection(
                 json.dumps(
                     {
                         "schema_version": 2,
-                        "profile": "video_keyframes_standard_v2",
+                        "profile": selection_profile,
                         "duration_seconds": 60.0,
                         "candidate_count": 360,
                         "selected_count": 240,
@@ -519,31 +539,37 @@ def test_project_gaussian_standard_v2_threads_source_and_selection(
     monkeypatch.setattr(
         "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
     )
+    options = {"gaussian_geometry_source": geometry_source}
+    if requested_profile is not None:
+        options["video_keyframe_profile"] = requested_profile
     context = ReconstructionContext(
         job_id="job",
         job_dir=tmp_path,
         mode="video",
         input_assets=[{"path": "input/video.mp4"}],
-        options={
-            "gaussian_geometry_source": geometry_source,
-            "video_keyframe_profile": "standard_v2",
-        },
+        options=options,
     )
 
     with pytest.raises(ReconstructionError, match="stop after geometry"):
         ProjectGaussianAdapter().run(context)
 
     extraction_command, geometry_command = commands
-    assert extraction_command[extraction_command.index("--profile") + 1] == "standard_v2"
+    assert extraction_command[extraction_command.index("--profile") + 1] == (
+        requested_profile or "standard_v2"
+    )
     assert geometry_command[1].endswith(runner_name)
     assert geometry_command[geometry_command.index("--feature-profile") + 1] == "sift_v1"
     assert geometry_command[geometry_command.index("--local-matcher") + 1] == "bruteforce"
-    assert geometry_command[geometry_command.index("--video-source") + 1] == str(
-        tmp_path / "input" / "video.mp4"
-    )
-    assert geometry_command[
-        geometry_command.index("--video-selection") + 1
-    ] == str(tmp_path / "frames" / "selection.json")
+    if uses_v2_inputs:
+        assert geometry_command[geometry_command.index("--video-source") + 1] == str(
+            tmp_path / "input" / "video.mp4"
+        )
+        assert geometry_command[
+            geometry_command.index("--video-selection") + 1
+        ] == str(tmp_path / "frames" / "selection.json")
+    else:
+        assert "--video-source" not in geometry_command
+        assert "--video-selection" not in geometry_command
 
 
 def test_project_gaussian_sequential_matcher_without_vocab_tree_fails(
@@ -988,11 +1014,11 @@ def test_project_video_job_stages_source_and_persists_profile(tmp_path):
     assert (job_dir / "input" / "portrait.mp4").read_bytes() == b"video-bytes"
     assert manifest["inputs"][0]["sha256"] == "a" * 64
     assert request["video_source"] == manifest["inputs"][0]
-    assert request["options"]["video_keyframe_profile"] == "standard_v1"
+    assert request["options"]["video_keyframe_profile"] == "standard_v2"
     assert request["options"]["video_rotation"] == "clockwise_90"
 
 
-def test_project_video_job_accepts_explicit_standard_v2(tmp_path):
+def test_project_video_job_accepts_explicit_standard_v1(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
 
     manifest = store.enqueue_job(
@@ -1000,13 +1026,13 @@ def test_project_video_job_accepts_explicit_standard_v2(tmp_path):
         [UploadedInput(filename="room.mp4", content=b"video")],
         geometry_backend="project_3dgs",
         output_type="gaussian_splat",
-        options={"video_keyframe_profile": "standard_v2"},
+        options={"video_keyframe_profile": "standard_v1"},
     )
     request = json.loads(
         (store.job_dir(manifest["job_id"]) / "request.json").read_text()
     )
 
-    assert request["options"]["video_keyframe_profile"] == "standard_v2"
+    assert request["options"]["video_keyframe_profile"] == "standard_v1"
 
 
 def test_project_video_job_rejects_unknown_keyframe_profile(tmp_path):

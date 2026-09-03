@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from image3d_scenegraph.video.keyframes import (
-    STANDARD_V1,
+    DEFAULT_VIDEO_PROFILE,
     VIDEO_PROFILES,
     VideoKeyframeError,
     extract_video_keyframes,
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         choices=tuple(sorted(VIDEO_PROFILES)),
-        default=STANDARD_V1,
+        default=DEFAULT_VIDEO_PROFILE,
     )
     parser.add_argument(
         "--rotation",

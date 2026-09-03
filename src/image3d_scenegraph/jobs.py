@@ -57,6 +57,10 @@ from image3d_scenegraph.geometry.colmap import (
     validate_colmap_local_matcher,
     validate_colmap_pairing,
 )
+from image3d_scenegraph.video.keyframes import (
+    DEFAULT_VIDEO_PROFILE,
+    VIDEO_PROFILES,
+)
 
 
 VALID_MODES = {"image", "multi_image", "video", "panorama"}
@@ -67,7 +71,6 @@ MAX_ATTEMPTS = 3
 MAX_VIDEO_BYTES = 2 * 1024**3
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
-VIDEO_PROFILES = {"standard_v1", "standard_v2"}
 GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
@@ -169,7 +172,11 @@ class JobStore:
                 raise JobError(
                     "video mode currently requires project_3dgs + gaussian_splat"
                 )
-            profile = str(normalized_options.get("video_keyframe_profile", "standard_v1"))
+            profile = str(
+                normalized_options.get(
+                    "video_keyframe_profile", DEFAULT_VIDEO_PROFILE
+                )
+            )
             rotation = str(normalized_options.get("video_rotation", "auto"))
             if profile not in VIDEO_PROFILES:
                 raise JobError(f"unsupported video keyframe profile: {profile}")

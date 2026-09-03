@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph 与 Phase 5 相机标定均已接入代码；当前 8192 点配置及相机 profile 的真实 geometry A/B 尚待运行证据
+> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph 与 Phase 5 相机标定均已接入代码；当前 8192 点配置及相机 profile 的真实 geometry A/B 尚待运行证据。2026-09-03 的独立产品决策已将视频 `standard_v2` 设为新 Job 默认，历史 v1 仍可显式选择
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -603,7 +603,7 @@ Phase 1 完成必须满足：
 
 - 不同时接入 SuperPoint、DISK、XFeat、LoFTR、RoMa 和 MASt3R-SfM。
 - 不新增一套 HLoc Job pipeline。
-- 不改变 standard_v1/v2 默认或恢复已关闭的视频 promotion goal。
+- 第一批 SfM Profile 接入本身不改变视频默认；其后独立的 2026-09-03 用户决策已将 `standard_v2` 设为新视频 Job 默认，并保留显式 v1。
 - 不开放几十个 SIFT/ALIKED/LightGlue/RANSAC/BA raw 参数。
 - 不根据 sparse point 数单指标推广算法。
 - 不运行时下载模型，不静默 fallback，不使用 Test 调参。

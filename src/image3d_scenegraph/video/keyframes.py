@@ -22,9 +22,10 @@ from image3d_scenegraph.file_integrity import sha256_file
 
 STANDARD_V1 = "standard_v1"
 STANDARD_V2 = "standard_v2"
+DEFAULT_VIDEO_PROFILE = STANDARD_V2
 V1_PROFILE_ID = "video_keyframes_standard_v1"
 V2_PROFILE_ID = "video_keyframes_standard_v2"
-PROFILE_ID = V1_PROFILE_ID
+PROFILE_ID = V2_PROFILE_ID
 VIDEO_PROFILES = {STANDARD_V1, STANDARD_V2}
 MIN_DURATION_SECONDS = 10.0
 MAX_DURATION_SECONDS = 606.0
@@ -45,7 +46,7 @@ class VideoKeyframeError(ValueError):
     """Raised when video input or selected keyframes violate the profile."""
 
 
-def target_keyframe_count(duration_seconds: float, profile: str = STANDARD_V1) -> int:
+def target_keyframe_count(duration_seconds: float, profile: str = DEFAULT_VIDEO_PROFILE) -> int:
     if not math.isfinite(duration_seconds):
         raise VideoKeyframeError("video duration must be finite")
     if profile == STANDARD_V1:
@@ -55,7 +56,7 @@ def target_keyframe_count(duration_seconds: float, profile: str = STANDARD_V1) -
     raise VideoKeyframeError(f"unsupported video keyframe profile: {profile}")
 
 
-def base_keyframe_count(duration_seconds: float, profile: str = STANDARD_V1) -> int:
+def base_keyframe_count(duration_seconds: float, profile: str = DEFAULT_VIDEO_PROFILE) -> int:
     if not math.isfinite(duration_seconds):
         raise VideoKeyframeError("video duration must be finite")
     if profile == STANDARD_V1:
@@ -88,7 +89,7 @@ def probe_video(
     *,
     rotation_override: str = "auto",
     ffprobe: str | None = None,
-    profile: str = STANDARD_V1,
+    profile: str = DEFAULT_VIDEO_PROFILE,
 ) -> dict[str, Any]:
     profile_id = _profile_id(profile)
     if rotation_override not in VALID_ROTATIONS:
@@ -205,7 +206,7 @@ def extract_video_keyframes(
     *,
     longest_edge: int,
     rotation_override: str = "auto",
-    profile: str = STANDARD_V1,
+    profile: str = DEFAULT_VIDEO_PROFILE,
     progress: Callable[[str, float], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -511,7 +512,7 @@ def select_keyframes(
     candidates: list[dict[str, Any]],
     duration_seconds: float,
     *,
-    profile: str = STANDARD_V1,
+    profile: str = DEFAULT_VIDEO_PROFILE,
 ) -> list[dict[str, Any]]:
     _profile_id(profile)
     if not candidates:
@@ -557,7 +558,7 @@ def select_keyframes(
     if profile == STANDARD_V1:
         selected = _select_uniform_keyframes(
             viable,
-            min(target_keyframe_count(duration_seconds), len(viable)),
+            min(target_keyframe_count(duration_seconds, profile), len(viable)),
             duration_seconds,
         )
     else:

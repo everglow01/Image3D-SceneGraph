@@ -6,6 +6,7 @@ import math
 import re
 import shutil
 import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -14,10 +15,12 @@ import pytest
 from PIL import Image
 
 from image3d_scenegraph.video.keyframes import (
+    DEFAULT_VIDEO_PROFILE,
     MAX_CANDIDATES,
     MAX_KEYFRAMES,
     STANDARD_V1,
     STANDARD_V2,
+    V1_PROFILE_ID,
     V2_PROFILE_ID,
     VideoKeyframeError,
     _estimate_sparse_motion,
@@ -27,16 +30,43 @@ from image3d_scenegraph.video.keyframes import (
     select_keyframes,
     target_keyframe_count,
 )
+from scripts.extract_video_keyframes import parse_args
 
 
-def test_ten_minute_video_limits() -> None:
-    assert target_keyframe_count(10) == 60
-    assert target_keyframe_count(60) == 360
-    assert target_keyframe_count(240) == MAX_KEYFRAMES == 1_000
-    assert target_keyframe_count(360) == 1_000
-    assert target_keyframe_count(600) == 1_000
-    assert target_keyframe_count(606) == 1_000
+def test_keyframe_cli_defaults_to_standard_v2(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "extract_video_keyframes.py",
+            "--input",
+            "video.mp4",
+            "--output-dir",
+            "output",
+            "--longest-edge",
+            "1280",
+        ],
+    )
+
+    assert parse_args().profile == STANDARD_V2
+
+
+def test_default_video_profile_uses_standard_v2_budgets() -> None:
+    assert DEFAULT_VIDEO_PROFILE == STANDARD_V2
+    assert target_keyframe_count(10) == 50
+    assert target_keyframe_count(60) == 300
+    assert target_keyframe_count(240) == 1_200
+    assert target_keyframe_count(360) == 1_800
+    assert target_keyframe_count(600) == 3_000
+    assert target_keyframe_count(606) == 3_030
     assert MAX_CANDIDATES == 3_636
+
+
+def test_historical_standard_v1_duration_budgets() -> None:
+    assert target_keyframe_count(10, STANDARD_V1) == 60
+    assert target_keyframe_count(60, STANDARD_V1) == 360
+    assert target_keyframe_count(240, STANDARD_V1) == MAX_KEYFRAMES == 1_000
+    assert target_keyframe_count(600, STANDARD_V1) == 1_000
 
 
 def test_standard_v2_duration_budgets() -> None:
@@ -240,55 +270,64 @@ def test_extracts_upright_video_with_truthful_exif(tmp_path: Path) -> None:
         check=True,
     )
     result = extract_video_keyframes(source, tmp_path / "out", longest_edge=1280)
-    assert result["selection"]["selected_count"] == target_keyframe_count(10.2)
+    selection = result["selection"]
+    assert selection["schema_version"] == 2
+    assert selection["profile"] == V2_PROFILE_ID
+    assert selection["base_selected_count"] == base_keyframe_count(10.2)
+    assert selection["selected_count"] <= target_keyframe_count(10.2)
+    assert selection["selected_count"] == (
+        selection["base_selected_count"] + selection["adaptive_selected_count"]
+    )
+    assert {item["selection_reason"] for item in selection["selected"]} <= {
+        "base",
+        "adaptive_motion",
+    }
     timing = json.loads(
         (tmp_path / "out" / "diagnostics" / "video_keyframe_timing.json").read_text()
     )
     assert timing["profile"] == "video_keyframe_timing_v1"
-    assert timing["video_profile"] == "video_keyframes_standard_v1"
+    assert timing["video_profile"] == V2_PROFILE_ID
     assert timing["elapsed_seconds"] > 0
     assert result["metrics"]["video_keyframe_elapsed_seconds"] == timing[
         "elapsed_seconds"
     ]
     selected = sorted((tmp_path / "out" / "frames" / "selected").glob("*.jpg"))
-    assert len(selected) == target_keyframe_count(10.2)
+    assert len(selected) == selection["selected_count"]
+    assert all(
+        re.fullmatch(r"frame_c\d{6}_pts-?\d+\.jpg", path.name)
+        for path in selected
+    )
     with Image.open(selected[0]) as image:
         assert image.height > image.width
         assert image.getexif().get(274) == 1
-        assert "video_keyframes_standard_v1" in image.getexif().get(305)
+        assert V2_PROFILE_ID in image.getexif().get(305)
 
-    v2_result = extract_video_keyframes(
+    v1_result = extract_video_keyframes(
         source,
-        tmp_path / "out-v2",
+        tmp_path / "out-v1",
         longest_edge=1280,
-        profile=STANDARD_V2,
+        profile=STANDARD_V1,
     )
-    v2_selection = v2_result["selection"]
-    assert v2_selection["schema_version"] == 2
-    assert v2_selection["profile"] == V2_PROFILE_ID
-    assert v2_selection["base_selected_count"] == base_keyframe_count(10.2, STANDARD_V2)
-    assert v2_selection["selected_count"] <= target_keyframe_count(10.2, STANDARD_V2)
-    assert v2_selection["selected_count"] == (
-        v2_selection["base_selected_count"] + v2_selection["adaptive_selected_count"]
+    v1_selection = v1_result["selection"]
+    assert v1_selection["profile"] == V1_PROFILE_ID
+    assert v1_selection["selected_count"] == target_keyframe_count(
+        10.2, STANDARD_V1
     )
-    v2_paths = sorted((tmp_path / "out-v2" / "frames" / "selected").glob("*.jpg"))
-    assert all(re.fullmatch(r"frame_c\d{6}_pts-?\d+\.jpg", path.name) for path in v2_paths)
-    assert {item["selection_reason"] for item in v2_selection["selected"]} <= {
-        "base",
-        "adaptive_motion",
-    }
+    v1_paths = sorted(
+        (tmp_path / "out-v1" / "frames" / "selected").glob("*.jpg")
+    )
+    with Image.open(v1_paths[0]) as image:
+        assert image.getexif().get(274) == 1
+        assert V1_PROFILE_ID in image.getexif().get(305)
+
     v2_repeat = extract_video_keyframes(
         source,
         tmp_path / "out-v2-repeat",
         longest_edge=1280,
-        profile=STANDARD_V2,
     )["selection"]
-    assert [item["pts"] for item in v2_selection["selected"]] == [
+    assert [item["pts"] for item in selection["selected"]] == [
         item["pts"] for item in v2_repeat["selected"]
     ]
-    assert [item["sha256"] for item in v2_selection["selected"]] == [
+    assert [item["sha256"] for item in selection["selected"]] == [
         item["sha256"] for item in v2_repeat["selected"]
     ]
-    with Image.open(v2_paths[0]) as image:
-        assert image.getexif().get(274) == 1
-        assert V2_PROFILE_ID in image.getexif().get(305)

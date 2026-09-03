@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from image3d_scenegraph.geometry.backends import get_backend_status_payload
 from image3d_scenegraph.jobs import (
     COLMAP_FEATURE_BACKENDS,
+    DEFAULT_VIDEO_PROFILE,
     MAX_VIDEO_BYTES,
     VIDEO_SUFFIXES,
     JobError,
@@ -140,7 +141,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         ] = None,
         video_keyframe_profile: Annotated[
             Literal["standard_v1", "standard_v2"], Form()
-        ] = "standard_v1",
+        ] = DEFAULT_VIDEO_PROFILE,
         video_rotation: Annotated[
             Literal["auto", "clockwise_90", "counterclockwise_90", "180"], Form()
         ] = "auto",

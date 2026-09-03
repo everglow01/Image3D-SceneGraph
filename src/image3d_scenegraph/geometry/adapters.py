@@ -21,6 +21,7 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_camera_calibration,
     resolve_colmap_vocab_tree,
 )
+from image3d_scenegraph.video.keyframes import DEFAULT_VIDEO_PROFILE
 from image3d_scenegraph.video.registration import (
     MIN_VIDEO_REGISTERED_COUNT,
     MIN_VIDEO_REGISTRATION_RATE,
@@ -222,7 +223,9 @@ class ProjectGaussianAdapter:
         video_source_path: Path | None = None
         video_recovery_log_lines: list[str] = []
         video_profile = str(
-            context.options.get("video_keyframe_profile", "standard_v1")
+            context.options.get(
+                "video_keyframe_profile", DEFAULT_VIDEO_PROFILE
+            )
         )
         if video_profile not in {"standard_v1", "standard_v2"}:
             raise ReconstructionError(

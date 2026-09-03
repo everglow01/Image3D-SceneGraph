@@ -126,7 +126,7 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "standard_v1",
         "standard_v2",
     ]
-    assert properties["video_keyframe_profile"]["default"] == "standard_v1"
+    assert properties["video_keyframe_profile"]["default"] == "standard_v2"
     gaussian_names = {name for name in properties if "gaussian" in name}
     assert gaussian_names == {
         "gaussian_trainer",
@@ -433,12 +433,12 @@ def test_create_video_job_streams_to_persisted_input(tmp_path):
     job_id = response.json()["job_id"]
     request = json.loads((root / job_id / "request.json").read_text())
     assert (root / job_id / "input" / "portrait.mp4").read_bytes() == b"video-content"
-    assert request["options"]["video_keyframe_profile"] == "standard_v1"
+    assert request["options"]["video_keyframe_profile"] == "standard_v2"
     assert request["options"]["video_rotation"] == "counterclockwise_90"
     assert not list((root / ".uploads").glob("*.upload"))
 
 
-def test_create_video_job_accepts_explicit_standard_v2(tmp_path):
+def test_create_video_job_accepts_explicit_standard_v1(tmp_path):
     root = tmp_path / "jobs"
     app = create_app(root, start_worker=False)
     response = TestClient(app).post(
@@ -447,7 +447,7 @@ def test_create_video_job_accepts_explicit_standard_v2(tmp_path):
             "mode": "video",
             "geometry_backend": "project_3dgs",
             "output_type": "gaussian_splat",
-            "video_keyframe_profile": "standard_v2",
+            "video_keyframe_profile": "standard_v1",
         },
         files=[("files", ("room.mp4", b"video", "video/mp4"))],
     )
@@ -456,7 +456,7 @@ def test_create_video_job_accepts_explicit_standard_v2(tmp_path):
     request = json.loads(
         (root / response.json()["job_id"] / "request.json").read_text()
     )
-    assert request["options"]["video_keyframe_profile"] == "standard_v2"
+    assert request["options"]["video_keyframe_profile"] == "standard_v1"
 
 
 def test_create_video_job_rejects_unknown_keyframe_profile(tmp_path):

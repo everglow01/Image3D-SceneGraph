@@ -1003,7 +1003,7 @@ export function App() {
         form.append("gaussian_longest_edge", String(gaussianLongestEdge));
       }
       if (mode === "video") {
-        form.append("video_keyframe_profile", "standard_v1");
+        form.append("video_keyframe_profile", "standard_v2");
         form.append("video_rotation", videoRotation);
       }
       if (geometryBackend === "vggt") {

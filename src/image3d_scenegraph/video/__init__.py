@@ -1,6 +1,7 @@
 """Bounded, deterministic keyframe extraction for video reconstruction."""
 
 from .keyframes import (
+    DEFAULT_VIDEO_PROFILE,
     MAX_CANDIDATES,
     MAX_DURATION_SECONDS,
     MAX_KEYFRAMES,
@@ -18,6 +19,7 @@ from .keyframes import (
 )
 
 __all__ = [
+    "DEFAULT_VIDEO_PROFILE",
     "MAX_CANDIDATES",
     "MAX_DURATION_SECONDS",
     "MAX_KEYFRAMES",
