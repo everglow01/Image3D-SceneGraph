@@ -16,6 +16,7 @@ from image3d_scenegraph.gaussian.readiness import (
     project_initialization_keep_mask,
     require_geometry_readiness,
 )
+from scripts.run_gaussian_training import _print_readiness_summary
 
 
 def _image(image_id: int, center: np.ndarray) -> dict:
@@ -63,7 +64,7 @@ def _initialization(scales: np.ndarray) -> InitializationResult:
     )
 
 
-def test_readiness_rejects_isolated_camera_and_scale_floor_collapse():
+def test_readiness_rejects_isolated_camera_and_scale_floor_collapse(capsys):
     angles = np.linspace(0.0, 2.0 * np.pi, 999, endpoint=False)
     body = np.column_stack((np.cos(angles), np.sin(angles), np.zeros(999)))
     centers = np.vstack((body, [1_000.0, 0.0, 0.0]))
@@ -84,6 +85,10 @@ def test_readiness_rejects_isolated_camera_and_scale_floor_collapse():
         "initialization_scale_floor_collapse",
     ]
     assert record["camera_centers"]["farthest_image_id"] == "999"
+    assert record["camera_centers"]["largest_distances"][0]["image_id"] == "999"
+    assert record["camera_centers"]["largest_distances"][0][
+        "distance_to_median_ratio"
+    ] > 900
     assert record["camera_centers"]["max_to_median"] > 900
     assert record["camera_centers"]["max_to_p99"] > 900
     assert record["initialization"]["scale_floor_fraction"] == 1.0
@@ -95,6 +100,10 @@ def test_readiness_rejects_isolated_camera_and_scale_floor_collapse():
         match="unusable_camera_pose_outlier,initialization_scale_floor_collapse",
     ):
         require_geometry_readiness(record)
+    _print_readiness_summary(record)
+    output = capsys.readouterr().out
+    assert "readiness_status=failed" in output
+    assert "camera_center_rank=01 image_id=999" in output
 
 
 def test_readiness_rejects_small_dataset_camera_outlier():

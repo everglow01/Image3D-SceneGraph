@@ -144,7 +144,7 @@ A retained failed workspace with one independently verified bad camera can be co
 
 ```bash
 uv run python scripts/derive_gaussian_pose_repair.py \
-  --dataset-contract WORKSPACE/geometry/dataset.json \
+  --dataset-contract WORKSPACE/dataset.json \
   --dataset-root WORKSPACE \
   --points WORKSPACE/colmap/undistorted/sparse_txt/points3D.txt \
   --exclude-image-id 61 \

@@ -140,7 +140,7 @@ def main() -> None:
         readiness,
     )
     if args.readiness_only:
-        print(json.dumps(readiness, allow_nan=False))
+        _print_readiness_summary(readiness)
     try:
         require_geometry_readiness(readiness)
     except GeometryReadinessError as exc:
@@ -231,6 +231,27 @@ def main() -> None:
     )
     result = trainer(**trainer_args)
     print(json.dumps({**result.__dict__, "trainer_id": args.trainer}, allow_nan=False))
+
+
+def _print_readiness_summary(record: dict) -> None:
+    reasons = ",".join(record["reason_codes"]) or "none"
+    print(f"readiness_status={record['status']}")
+    print(f"reason_codes={reasons}")
+    print(
+        "scale_floor_fraction="
+        f"{record['initialization']['scale_floor_fraction']:.9f}"
+    )
+    for rank, camera in enumerate(
+        record["camera_centers"]["largest_distances"], start=1
+    ):
+        median_ratio = camera["distance_to_median_ratio"]
+        p99_ratio = camera["distance_to_p99_ratio"]
+        print(
+            f"camera_center_rank={rank:02d} image_id={camera['image_id']} "
+            f"split={camera['split']} "
+            f"median_ratio={median_ratio if median_ratio is not None else 'undefined'} "
+            f"p99_ratio={p99_ratio if p99_ratio is not None else 'undefined'}"
+        )
 
 
 def _distributed_native_train(

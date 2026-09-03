@@ -21,6 +21,7 @@ INITIAL_SCALE_FLOOR = float(np.sqrt(1e-7))
 INITIAL_SCALE_FLOOR_FRACTION_LIMIT = 0.5
 PROJECTION_SAMPLE_LIMIT = 4096
 PROJECTION_VIEW_LIMIT = 5
+CAMERA_RANK_LIMIT = 32
 
 
 class GeometryReadinessError(ValueError):
@@ -83,6 +84,33 @@ def build_geometry_readiness(
 
     point_center = np.median(points.astype(np.float64), axis=0)
     point_distances = np.linalg.norm(points - point_center, axis=1)
+    split_by_id = {
+        str(image_id): split
+        for split, image_ids in contract["splits"].items()
+        for image_id in image_ids
+    }
+    ranked_center_indices = sorted(
+        range(len(images)),
+        key=lambda index: (
+            -float(center_distances[index]),
+            str(images[index]["image_id"]),
+        ),
+    )[:CAMERA_RANK_LIMIT]
+    largest_center_distances = [
+        {
+            "image_id": str(images[index]["image_id"]),
+            "path": str(images[index]["path"]),
+            "split": split_by_id[str(images[index]["image_id"])],
+            "distance_world": float(center_distances[index]),
+            "distance_to_median_ratio": _finite_ratio(
+                float(center_distances[index]), median
+            ),
+            "distance_to_p99_ratio": _finite_ratio(
+                float(center_distances[index]), p99
+            ),
+        }
+        for index in ranked_center_indices
+    ]
     record: dict[str, Any] = {
         "schema_version": 1,
         "profile": PROFILE_ID,
@@ -111,6 +139,7 @@ def build_geometry_readiness(
             "max_to_p99": max_to_p99,
             "farthest_image_id": str(images[maximum_index]["image_id"]),
             "farthest_image_path": str(images[maximum_index]["path"]),
+            "largest_distances": largest_center_distances,
         },
         "normalization": {
             "method": contract["normalization"].get("method"),
