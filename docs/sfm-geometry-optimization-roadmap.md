@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 特征提取、Phase 2 局部匹配与 Phase 3 图像对策略均已接入代码；当前 8192 点配置的真实 geometry A/B 尚待运行证据
+> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略与 Phase 4 两视图几何/View Graph 均已接入代码；当前 8192 点配置的真实 geometry A/B 尚待运行证据
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -14,10 +14,11 @@
    - `SIFT_BRUTEFORCE`、`SIFT_LIGHTGLUE`、`ALIKED_BRUTEFORCE`、`ALIKED_LIGHTGLUE` 局部匹配；
    - incremental `mapper` 与集成 GLOMAP 的 `global_mapper`。
 2. 因此第一批实验不需要新增 HLoc、Kornia 或另一套 PyTorch 环境，也不需要自定义 COLMAP 数据库导入器。这样改动最小、资产合同不变、现有 Mapper/恢复/诊断/3DGS 都能继续复用。
-3. **SIFT 不是当前 `colmap_matcher` 字段所表达的东西。** SIFT 是检测器/描述子；现有 `colmap_matcher=exhaustive|sequential` 实际控制“选择哪些图像对”，局部描述子仍隐式使用 `SIFT_BRUTEFORCE`。后续 API 必须把以下三维拆开：
+3. **SIFT 不是当前 `colmap_matcher` 字段所表达的东西。** SIFT 是检测器/描述子；旧 `colmap_matcher=exhaustive|sequential` 实际控制“选择哪些图像对”，局部描述子则使用 `SIFT_BRUTEFORCE`。当前 API 已把四层拆开：
    - `sfm_feature_profile`：提取什么特征；
    - `sfm_local_matcher`：已选择图像对内部如何匹配；
-   - `sfm_pairing`：选择哪些图像对。
+   - `sfm_pairing`：选择哪些图像对；
+   - `sfm_geometric_verification`：如何执行两视图几何验证。
 4. 实施顺序应严格沿 RGB→SfM 流水线推进：
    1. 特征提取：SIFT 与 ALIKED N16Rot；
    2. 局部匹配：Brute-force 与 LightGlue；
@@ -39,7 +40,7 @@
 
 ### 2.1 Phase 1 前普通 COLMAP / Project 3DGS 基线
 
-> 本节保留启动 Phase 1 时的基线，用于解释改动来源；Phase 1–3 完成后的有效实现见第 8 节实施记录。
+> 本节保留启动 Phase 1 时的基线，用于解释改动来源；Phase 1–4 完成后的有效实现见第 8 节实施记录。
 
 当时基线路径是：
 
@@ -80,10 +81,11 @@
 
 1. **已解决（Phase 1）：** diagnostics 不再把 detector 固定写成 SIFT，feature profile 和模型 provenance 已独立记录。
 2. **已解决（Phase 2/3）：** local matcher 与 pairing 已拆成 `sfm_local_matcher` 和 `sfm_pairing`，不再用一个 `matcher` 名称混淆两层。
-3. **已解决（Phase 1–3）：** 普通 COLMAP、COLMAP+VGGT、Project ordinary geometry 与 VGGT-BA 最终 COLMAP database 共享稳定产品控制。
-4. **已解决（Phase 1–3）：** 前端按 feature → local matcher → pairing capability 显示并提交三条独立控制轴。
-5. **仍开放：** `--max-image-size` 当前用于 undistortion，但 `run_colmap_sparse.py` 没有把它传给 `FeatureExtraction.max_image_size`。对于未预缩放的多图输入，提取阶段可能仍按原图运行；这会改变历史基线，不能在首次算法 A/B 中静默修改。
-6. **仍开放（Phase 1.5）：** COLMAP database 尚未冻结“仅完成特征提取”的只读快照，每个 matcher A/B 仍会重复提取特征。
+3. **已解决（Phase 1–4）：** 普通 COLMAP、COLMAP+VGGT、Project ordinary geometry 与 VGGT-BA 最终 COLMAP database 共享稳定 feature/local-matcher/pairing/geometric-verification 控制。
+4. **已解决（Phase 1–4）：** 前端按 feature → local matcher → pairing → geometric verification capability 显示并提交四条独立控制轴。
+5. **已解决（Phase 4）：** diagnostics schema 3 现在区分 tentative candidates、候选保留内点、Guided 新增内点和最终 verified correspondences，并汇总 verified View Graph 的 degree/component/孤立节点与视频软 gap 桥接证据。
+6. **仍开放：** `--max-image-size` 当前用于 undistortion，但 `run_colmap_sparse.py` 没有把它传给 `FeatureExtraction.max_image_size`。对于未预缩放的多图输入，提取阶段可能仍按原图运行；这会改变历史基线，不能在首次算法 A/B 中静默修改。
+7. **仍开放（Phase 1.5）：** COLMAP database 尚未冻结“仅完成特征提取”的只读快照，每个 matcher A/B 仍会重复提取特征。
 
 ### 2.3 已具备但尚未产品化的能力
 
@@ -93,7 +95,11 @@
 AlikedExtraction.max_num_features
 SiftMatching.lightglue_model_path
 AlikedMatching.lightglue_model_path
+FeatureMatching.guided_matching
+FeatureMatching.skip_geometric_verification
 ```
+
+上述几何验证 marker 会在 `exhaustive_matcher`、`sequential_matcher`、`vocab_tree_matcher` 与 standard-v2 使用的 `matches_importer` 上分别检查。
 
 本机安装的 COLMAP 4.0.0 help 还显示以下模型与官方 SHA-256：
 
@@ -154,10 +160,11 @@ mapper              = 从 verified view graph 求相机和稀疏点
 建议 API 最终使用：
 
 ```text
-sfm_feature_profile = sift_v1 | aliked_n16rot_v1 | ...
-sfm_local_matcher   = bruteforce | lightglue
-sfm_pairing         = exhaustive | sequential_loop | vocab_tree
-sfm_mapper          = incremental | global
+sfm_feature_profile       = sift_v1 | aliked_n16rot_v1 | ...
+sfm_local_matcher         = bruteforce | lightglue
+sfm_pairing               = exhaustive | sequential_loop | vocab_tree
+sfm_geometric_verification = default_v1 | guided_v1
+sfm_mapper                = incremental | global
 ```
 
 现有 `colmap_matcher=exhaustive|sequential` 暂时保留为兼容字段，但前端标签应写成“图像对策略”，不能再称为“关键点匹配算法”。在完成兼容迁移前，不删除旧字段，也不改变历史 Job 解释。
@@ -272,39 +279,33 @@ Global Mapper 是最有潜力降低当前 Mapping 耗时的选项。历史远端
 
 ## 7. 诊断与消融合同
 
-### 7.1 SfM diagnostics schema 2
+### 7.1 SfM diagnostics schema 3
 
-现有 schema 1 结构不足以区分 local matcher 与 pairing。建议新 run provenance：
+Phase 1–3 的 schema 2 已拆开 feature、local matcher 与 pairing。Phase 4 因 Guided Matching 可能在原始 tentative set 之外增加 verified correspondences，升级到 schema 3，并把几何验证与 View Graph 作为明确的 run provenance：
 
 ```json
 {
-  "feature": {
-    "profile": "aliked_n16rot_v1",
-    "extractor": "ALIKED_N16ROT",
-    "descriptor": "ALIKED",
-    "max_features": 8192,
-    "model_sha256": "...",
+  "feature": {"profile": "aliked_n16rot_v1", "extractor": "ALIKED_N16ROT"},
+  "local_matcher": {"profile": "lightglue", "name": "ALIKED_LIGHTGLUE"},
+  "pairing": {"name": "exhaustive"},
+  "geometric_verification": {
+    "profile": "guided_v1",
+    "guided_matching": true,
+    "skip_geometric_verification": false,
+    "raw_parameter_policy": "colmap_build_defaults",
     "implementation": "colmap"
   },
-  "local_matcher": {
-    "name": "ALIKED_BRUTEFORCE",
-    "model_sha256": "..."
+  "view_graph": {
+    "profile": "sfm_verified_view_graph_v1",
+    "edge_definition": "nonempty_two_view_geometry"
   },
-  "pairing": {
-    "name": "exhaustive"
-  },
-  "geometric_verification": {
-    "implementation": "colmap",
-    "max_error": 4.0
-  },
-  "mapper": {
-    "name": "incremental"
-  },
-  "colmap_build": "..."
+  "mapper": {"name": "incremental"}
 }
 ```
 
-前端现有关键点和 pair canvas 本身不依赖 descriptor 内容，因此可以直接显示 SIFT 或 ALIKED keypoint；descriptor 仍不发布。Viewer 需要在 run selector、证据 rail 和结果摘要中显示 feature/local matcher/pairing/mapper 四段 provenance。
+Pair shard schema 2 分别记录 tentative candidates、其中通过验证的 candidates、Guided 新增 correspondence、最终 verified count 和 rejected candidates，避免出现“最终内点数大于候选数”时的错误内点率。schema 1/2 仍可读并推断 `default_v1`；`scripts/analyze_sfm_view_graph.py` 可只读汇总历史 pair index，不修改 accepted Job。
+
+前端现有关键点和 pair canvas 本身不依赖 descriptor 内容，因此继续复用同一 Viewer；run provenance 增加 geometric verification，匹配页增加紧凑 View Graph 摘要，不另建图形系统。
 
 ### 7.2 每个 geometry arm 必须记录的指标
 
@@ -392,6 +393,14 @@ aliked_n16rot_v1 + lightglue  → ALIKED_LIGHTGLUE
 
 第三批已将现有 `colmap_matcher` 的产品语义迁移为 `sfm_pairing`，旧字段保留兼容期。
 
+第四批已新增：
+
+```text
+sfm_geometric_verification = default_v1 | guided_v1
+```
+
+两者都显式保持几何验证开启；Guided 只切换 `FeatureMatching.guided_matching=1`，其余 RANSAC/`TwoViewGeometry` raw 参数沿用同一 COLMAP build 默认值且不对外开放。
+
 ### 8.2 前端
 
 在“几何实验”折叠区按流水线显示，而不是把所有参数平铺：
@@ -400,14 +409,15 @@ aliked_n16rot_v1 + lightglue  → ALIKED_LIGHTGLUE
 1 特征提取      SIFT v1（默认） / ALIKED N16Rot（实验）
 2 局部匹配      Brute-force（默认） / LightGlue（实验）
 3 图像对策略    Exhaustive / Sequential + Loop / Vocab Tree
-4 SfM 求解       Incremental / Global（后续）
+4 两视图几何    Default v1（默认） / Guided v1（实验）
+5 SfM 求解       Incremental / Global（后续）
 ```
 
 要求：
 
-- 当前已启用第 1、2、3 项；SfM 求解仍保持 incremental；
+- 当前已启用第 1、2、3、4 项；SfM 求解仍保持 incremental；
 - 每个实验项显示服务器 availability、缺失模型和 setup command；
-- 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + incremental；
+- 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + default verification + incremental；
 - SfM inspector 的关键点/pair canvas 继续复用，不新增第二套 Viewer；
 - 进度显示阶段、计数和 elapsed，不把固定百分比当作真实内部进度。
 
@@ -420,10 +430,11 @@ uv run python scripts/run_colmap_sparse.py \
   --image-dir INPUT \
   --output-dir OUTPUT \
   --feature-profile aliked_n16rot_v1 \
-  --local-matcher lightglue
+  --local-matcher lightglue \
+  --geometric-verification guided_v1
 ```
 
-内部再展开为固定 COLMAP 参数和本地模型路径。`run_vggt_ba_sparse.py`、`run_colmap_vggt_dense.py` 应最终使用同一 profile resolver，避免三处命令逐渐漂移。
+内部再展开为固定 COLMAP 参数和本地模型路径。`run_vggt_ba_sparse.py`、`run_colmap_vggt_dense.py` 使用同一组 resolver，避免三处命令漂移。dense runner 在 `--colmap-model-dir` 复用既有文本模型时不允许声称切换 Guided，因为该路径不会执行 matching。
 
 ---
 
@@ -501,11 +512,15 @@ aliked_n16rot_v1:
 - standard_v2 recovery 继续使用独立、显式记录的 bounded temporal pair list，不伪装成重跑初始 pairing；
 - 如 COLMAP vocab 对无序大图不足，再评估 HLoc retrieval，不先引入。
 
-### Phase 4：两视图几何与 view graph
+### Phase 4：两视图几何与 view graph（代码已接入，待真实证据）
 
-- 先补 view graph diagnostics；
-- 再独立测试 guided matching；
-- 不先向 UI 暴露 RANSAC raw 阈值。
+实现状态（2026-09-03）：稳定字段 `sfm_geometric_verification=default_v1|guided_v1` 已接入共享 resolver/capability、三个 COLMAP runner、standard-v2 `matches_importer` recovery、API/JobStore、前端和 manifest。两者均显式设置 `skip_geometric_verification=0`；`guided_v1` 唯一算法差异是 `guided_matching=1`，未开放或修改 RANSAC raw 阈值。默认仍为 `default_v1`。
+
+SfM diagnostics 已升级为 schema 3；verified edge 严格来自非空 `two_view_geometries`，View Graph 汇总 degree/component/孤立节点、候选保留/Guided 新增 correspondence 与视频 soft-gap bridge evidence。schema 1/2 继续可读，已有 Job 可用只读 analyzer 汇总，不写回 immutable attempt。
+
+- 真实 A/B 固定 feature、local matcher、pairing、相机、Mapper、BA 和输入，只改变 `default_v1 ↔ guided_v1`；
+- matching wall time 是 local matching + geometric verification 合计，不能伪称独立 RANSAC 耗时；
+- 代码接入不构成质量提升或默认推广证据。
 
 ### Phase 5：相机标定 profile
 
