@@ -15,7 +15,11 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
 
-from image3d_scenegraph.gaussian.dataset import sha256_file, validate_contract
+from image3d_scenegraph.gaussian.dataset import (
+    camera_from_normalized_transform,
+    sha256_file,
+    validate_contract,
+)
 from image3d_scenegraph.gaussian.evaluation import load_model_snapshot
 from image3d_scenegraph.gaussian.render import RenderCamera, render_gaussians
 
@@ -180,9 +184,7 @@ def load_train_cameras(
     import torch
 
     selected = set(train_ids)
-    world_from_normalized = np.asarray(
-        contract["normalization"]["world_from_normalized"], dtype=np.float64
-    )
+    normalization = contract["normalization"]
     cameras: list[RenderCamera] = []
     for entry in contract["images"]:
         image_id = str(entry["image_id"])
@@ -195,9 +197,8 @@ def load_train_cameras(
         intrinsic = np.asarray(entry["intrinsic"], dtype=np.float64).copy()
         intrinsic[0] *= target_width / width
         intrinsic[1] *= target_height / height
-        camera_from_normalized = (
-            np.asarray(entry["camera_from_world"], dtype=np.float64)
-            @ world_from_normalized
+        camera_from_normalized = camera_from_normalized_transform(
+            entry["camera_from_world"], normalization
         )
         cameras.append(
             RenderCamera(

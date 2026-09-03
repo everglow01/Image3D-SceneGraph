@@ -28,6 +28,7 @@ from .config import ResolvedGaussianConfig, validate_effective_config
 from .evaluation import evaluate_model
 from .initialization import InitializationResult
 from .model import GaussianModel, GaussianModelError
+from .readiness import project_initialization_keep_mask
 from .render import render_gaussians
 from .runtime import TrainingView, load_training_views
 from .training_math import active_sh_degree, exponential_learning_rate, l1_ssim_loss
@@ -83,7 +84,9 @@ def training_provenance(
     source_root = Path(__file__).resolve().parent
     digest = hashlib.sha256()
     for name in (
+        "dataset.py",
         "model.py",
+        "readiness.py",
         "render.py",
         "runtime.py",
         "trainer.py",
@@ -192,7 +195,13 @@ def train_gaussians(
     if loaded_ids & test_ids:
         raise TrainingError("held-out test views entered the trainer runtime")
 
-    if len(initialization.points) < world_size:
+    keep_initial = project_initialization_keep_mask(initialization, config)
+    if not bool(keep_initial.any()):
+        raise TrainingError("pre-render world-scale pruning rejected every Gaussian")
+    initial_points = initialization.points[keep_initial]
+    initial_colors = initialization.colors[keep_initial]
+    initial_scales = initialization.scales[keep_initial]
+    if len(initial_points) < world_size:
         raise TrainingError("initial Gaussian count is smaller than distributed world size")
     shard = slice(world_rank, None, world_size)
     local_cap = (
@@ -201,10 +210,10 @@ def train_gaussians(
         else None
     )
     model = GaussianModel.from_points(
-        torch.from_numpy(initialization.points[shard]).to(device=device, dtype=torch.float32),
-        torch.from_numpy(initialization.colors[shard]).to(device=device, dtype=torch.float32)
+        torch.from_numpy(initial_points[shard]).to(device=device, dtype=torch.float32),
+        torch.from_numpy(initial_colors[shard]).to(device=device, dtype=torch.float32)
         / 255.0,
-        torch.from_numpy(initialization.scales[shard]).to(device=device, dtype=torch.float32)
+        torch.from_numpy(initial_scales[shard]).to(device=device, dtype=torch.float32)
         * float(config["initialization"]["scale_multiplier"]),
         initial_opacity=float(config["initialization"]["opacity"]),
         max_sh_degree=int(config["sh_schedule"]["max_degree"]),
@@ -580,7 +589,7 @@ def train_gaussians(
             )
         candidate_model.validate(max_count=global_cap)
         _validate_model_health(
-            candidate_model, len(initialization.points), best_validation_payload
+            candidate_model, len(initial_points), best_validation_payload
         )
         result = TrainingResult(
             iteration=total_iterations,

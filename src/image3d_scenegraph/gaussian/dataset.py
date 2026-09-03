@@ -173,6 +173,45 @@ def deterministic_spatial_split(images: list[dict[str, Any]], seed: int = SPLIT_
     }
 
 
+def camera_from_normalized_transform(
+    camera_from_world: Any,
+    normalization: dict[str, Any],
+) -> np.ndarray:
+    """Return a rigid world-to-camera transform in normalized camera units."""
+    camera = np.asarray(camera_from_world, dtype=np.float64)
+    normalized_from_world = np.asarray(
+        normalization.get("normalized_from_world"), dtype=np.float64
+    )
+    if camera.shape != (4, 4) or normalized_from_world.shape != (4, 4):
+        raise DatasetContractError("camera and normalization transforms must be 4 x 4")
+    if not np.isfinite(camera).all() or not np.isfinite(normalized_from_world).all():
+        raise DatasetContractError("camera and normalization transforms must be finite")
+    try:
+        world_from_normalized = np.linalg.inv(normalized_from_world)
+    except np.linalg.LinAlgError as exc:
+        raise DatasetContractError("normalization transform must be invertible") from exc
+    singular_values = np.linalg.svd(
+        world_from_normalized[:3, :3], compute_uv=False
+    )
+    scale = float(singular_values.mean())
+    if (
+        not np.isfinite(scale)
+        or scale <= 1e-12
+        or not np.allclose(singular_values, scale, rtol=1e-6, atol=1e-12)
+    ):
+        raise DatasetContractError("normalization must contain a uniform positive scale")
+    result = camera @ world_from_normalized
+    result[:3] /= scale
+    if not np.allclose(result[3], [0.0, 0.0, 0.0, 1.0], atol=1e-7):
+        raise DatasetContractError("camera transform must be affine")
+    rotation = result[:3, :3]
+    if not np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-6) or not np.isclose(
+        np.linalg.det(rotation), 1.0, atol=1e-6
+    ):
+        raise DatasetContractError("camera transform must contain a right-handed rotation")
+    return result
+
+
 def camera_normalization(images: list[dict[str, Any]]) -> dict[str, Any]:
     centers = np.stack([np.asarray(image["world_from_camera"], dtype=np.float64)[:3, 3] for image in images])
     center = centers.mean(axis=0)

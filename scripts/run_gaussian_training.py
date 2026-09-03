@@ -21,6 +21,12 @@ from image3d_scenegraph.gaussian.initialization import (
     sparse_initialization,
     write_initialization,
 )
+from image3d_scenegraph.gaussian.readiness import (
+    GeometryReadinessError,
+    build_geometry_readiness,
+    require_geometry_readiness,
+    write_geometry_readiness,
+)
 from image3d_scenegraph.gaussian.replay import (
     build_replay_bundle,
     validate_replay_bundle,
@@ -56,6 +62,7 @@ def main() -> None:
     parser.add_argument("--resume-iteration", type=int)
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--readiness-only", action="store_true")
     args = parser.parse_args()
 
     contract = json.loads(args.dataset_contract.read_text(encoding="utf-8"))
@@ -118,6 +125,28 @@ def main() -> None:
         asset_path = initialization_dir / f"{args.initialization}.npz"
         diagnostics_path = initialization_dir / f"{args.initialization}.json"
         write_initialization(asset_path, diagnostics_path, initialized)
+
+    readiness = build_geometry_readiness(
+        contract,
+        initialized,
+        resolved.effective_config,
+        trainer_id=args.trainer,
+    )
+    write_geometry_readiness(
+        args.run_dir
+        / "preparation"
+        / args.attempt_id
+        / "geometry_readiness.json",
+        readiness,
+    )
+    if args.readiness_only:
+        print(json.dumps(readiness, allow_nan=False))
+    try:
+        require_geometry_readiness(readiness)
+    except GeometryReadinessError as exc:
+        raise SystemExit(str(exc)) from exc
+    if args.readiness_only:
+        return
     if args.attempt_kind == "resume":
         if args.parent_attempt_id is None:
             raise SystemExit("resume requires --parent-attempt-id")

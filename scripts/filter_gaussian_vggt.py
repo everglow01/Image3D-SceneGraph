@@ -156,6 +156,8 @@ def main() -> None:
         trusted = valid & (confidence >= confidence_threshold)
         far_depth = float(np.quantile(depth[trusted], 0.99))
         camera_from_world = np.asarray(entry["camera_from_world"], dtype=np.float64)
+        # VGGT depth stays in raw COLMAP units; unlike RenderCamera, this
+        # evidence transform intentionally retains the similarity scale.
         evidence.append(
             DepthEvidence(
                 image_id=str(entry["image_id"]),

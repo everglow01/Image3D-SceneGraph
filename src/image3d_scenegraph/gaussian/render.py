@@ -10,8 +10,14 @@ import torch
 from .model import GaussianModel
 
 
+NEAR_PLANE_NORMALIZED = 0.01
+FAR_PLANE_NORMALIZED = 1e10
+
+
 @dataclass(frozen=True)
 class RenderCamera:
+    """Pinhole camera with rigid extrinsics in normalized camera units."""
+
     image_id: str
     camera_from_normalized: torch.Tensor
     intrinsic: torch.Tensor
@@ -60,6 +66,8 @@ def render_gaussians(
         render_mode=render_mode,
         absgrad=gradient_statistics,
         distributed=distributed,
+        near_plane=NEAR_PLANE_NORMALIZED,
+        far_plane=FAR_PLANE_NORMALIZED,
     )
     rendered = image[0]
     if render_mode == "RGB+ED":

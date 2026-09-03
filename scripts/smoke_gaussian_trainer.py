@@ -12,7 +12,11 @@ import torch
 from PIL import Image
 
 from image3d_scenegraph.gaussian.config import resolve_internal_config
-from image3d_scenegraph.gaussian.dataset import build_colmap_contract, write_contract
+from image3d_scenegraph.gaussian.dataset import (
+    build_colmap_contract,
+    camera_from_normalized_transform,
+    write_contract,
+)
 from image3d_scenegraph.gaussian.initialization import InitializationResult
 from image3d_scenegraph.gaussian.model import GaussianModel
 from image3d_scenegraph.gaussian.render import RenderCamera, render_gaussians
@@ -72,11 +76,20 @@ def generate_scene(root: Path) -> dict:
     )
     world_from_normalized = np.eye(4)
     world_from_normalized[:3, :3] *= np.linalg.norm(np.array([2.0, 0.0, 0.3]))
+    normalization = {
+        "normalized_from_world": np.linalg.inv(world_from_normalized).tolist()
+    }
     with torch.no_grad():
         for index, camera_from_world in enumerate(poses):
             camera = RenderCamera(
                 image_id=str(index + 1),
-                camera_from_normalized=torch.tensor(camera_from_world @ world_from_normalized, dtype=torch.float32, device=device),
+                camera_from_normalized=torch.tensor(
+                    camera_from_normalized_transform(
+                        camera_from_world, normalization
+                    ),
+                    dtype=torch.float32,
+                    device=device,
+                ),
                 intrinsic=torch.tensor(intrinsic, dtype=torch.float32, device=device),
                 width=width,
                 height=height,

@@ -11,7 +11,11 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from .dataset import DatasetContractError, validate_contract
+from .dataset import (
+    DatasetContractError,
+    camera_from_normalized_transform,
+    validate_contract,
+)
 from .render import RenderCamera
 
 
@@ -88,10 +92,7 @@ def load_views(
     if split not in contract["splits"]:
         raise DatasetContractError(f"unknown dataset split: {split}")
     selected_ids = set(contract["splits"][split])
-    normalized_from_world = np.asarray(
-        contract["normalization"]["normalized_from_world"], dtype=np.float64
-    )
-    world_from_normalized = np.linalg.inv(normalized_from_world)
+    normalization = contract["normalization"]
     views = []
     for entry in contract["images"]:
         image_id = str(entry["image_id"])
@@ -117,7 +118,9 @@ def load_views(
             image = image.to(device)
         image = _undistort_image(image, intrinsic, distortion)
         camera_from_world = np.asarray(entry["camera_from_world"], dtype=np.float64)
-        camera_from_normalized = camera_from_world @ world_from_normalized
+        camera_from_normalized = camera_from_normalized_transform(
+            camera_from_world, normalization
+        )
         camera = RenderCamera(
             image_id=image_id,
             camera_from_normalized=torch.tensor(
