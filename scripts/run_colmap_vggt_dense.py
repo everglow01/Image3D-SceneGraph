@@ -17,15 +17,18 @@ import torch
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
     ResolvedColmapFeatureProfile,
+    ResolvedColmapGeometricVerification,
     ResolvedColmapLocalMatcher,
     ResolvedColmapPairing,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
 )
@@ -225,6 +228,11 @@ def main() -> None:
         default="bruteforce",
     )
     parser.add_argument(
+        "--geometric-verification",
+        choices=COLMAP_GEOMETRIC_VERIFICATION_IDS,
+        default="default_v1",
+    )
+    parser.add_argument(
         "--colmap-model-dir",
         type=Path,
         help="Reuse an existing COLMAP text model instead of rerunning sparse reconstruction.",
@@ -293,6 +301,13 @@ def main() -> None:
         parser.error("--pairing and legacy --matcher cannot be combined")
     if args.pairing == "sequential_loop":
         parser.error("COLMAP+VGGT multi-image geometry does not support sequential_loop")
+    if (
+        args.colmap_model_dir is not None
+        and args.geometric_verification != "default_v1"
+    ):
+        parser.error(
+            "--geometric-verification cannot be changed when reusing --colmap-model-dir"
+        )
     legacy_matcher = args.matcher
     if args.pairing is None and legacy_matcher is None:
         legacy_matcher = "exhaustive"
@@ -341,6 +356,9 @@ def main() -> None:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
         local_matcher = resolve_colmap_local_matcher(
             feature_profile, args.local_matcher
+        )
+        geometric_verification = resolve_colmap_geometric_verification(
+            args.geometric_verification
         )
         pairing = (
             resolve_colmap_pairing(feature_profile, args.pairing)
@@ -392,6 +410,7 @@ def main() -> None:
                 pairing=pairing,
                 feature_profile=feature_profile,
                 local_matcher=local_matcher,
+                geometric_verification=geometric_verification,
                 single_camera=bool(args.colmap_single_camera),
                 mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
                 mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
@@ -1091,6 +1110,8 @@ def main() -> None:
         f"sfm_pairing={pairing.profile_id}",
         f"sfm_pairing_command={pairing.command}",
         f"sfm_pairing_vocab_tree_sha256={pairing.vocab_tree_sha256 or 'none'}",
+        f"sfm_geometric_verification_profile={geometric_verification.profile_id}",
+        f"sfm_geometric_verification_guided_matching={str(geometric_verification.guided_matching).lower()}",
         "sfm_mapper=incremental",
         f"matcher={pairing.command.removesuffix('_matcher')}",
         f"colmap_executable={colmap}",
@@ -1165,6 +1186,7 @@ def run_colmap_pipeline(
     pairing: ResolvedColmapPairing,
     feature_profile: ResolvedColmapFeatureProfile,
     local_matcher: ResolvedColmapLocalMatcher,
+    geometric_verification: ResolvedColmapGeometricVerification,
     single_camera: bool,
     mapper_abs_pose_min_num_inliers: int,
     mapper_abs_pose_min_inlier_ratio: float,
@@ -1195,6 +1217,7 @@ def run_colmap_pipeline(
             "--FeatureMatching.gpu_index",
             "0",
             *local_matcher.matching_options,
+            *geometric_verification.matching_options,
             *pairing.pairing_options,
         ],
         [

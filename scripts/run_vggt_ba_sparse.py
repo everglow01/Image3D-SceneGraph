@@ -15,6 +15,7 @@ from PIL import Image
 from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
@@ -22,6 +23,7 @@ from image3d_scenegraph.geometry.colmap import (
     colmap_frontend_provenance,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
 )
@@ -118,6 +120,11 @@ def main() -> None:
         choices=COLMAP_LOCAL_MATCHER_IDS,
         default="bruteforce",
     )
+    parser.add_argument(
+        "--geometric-verification",
+        choices=COLMAP_GEOMETRIC_VERIFICATION_IDS,
+        default="default_v1",
+    )
     parser.add_argument("--vocab-tree-path", type=Path)
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
@@ -170,6 +177,9 @@ def main() -> None:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
         local_matcher = resolve_colmap_local_matcher(
             feature_profile, args.local_matcher
+        )
+        geometric_verification = resolve_colmap_geometric_verification(
+            args.geometric_verification
         )
         if args.pairing is not None:
             pairing = resolve_colmap_pairing(feature_profile, args.pairing)
@@ -466,6 +476,7 @@ def main() -> None:
         "--FeatureMatching.num_threads",
         str(args.num_threads),
         *local_matcher.matching_options,
+        *geometric_verification.matching_options,
         *pairing_options,
     ]
     if legacy_matcher == "sequential":
@@ -667,8 +678,12 @@ def main() -> None:
             command_logs=command_logs,
             feature_extraction_options=feature_profile.extraction_options,
             local_matching_options=local_matcher.matching_options,
+            geometric_verification_options=(
+                geometric_verification.matching_options
+            ),
             sfm_feature_profile=feature_profile.profile_id,
             sfm_local_matcher=local_matcher.name,
+            sfm_geometric_verification=geometric_verification.profile_id,
             initial_sfm_pairing=pairing_profile,
         )
     )
@@ -771,6 +786,7 @@ def main() -> None:
         "colmap_pairing": pairing_profile,
         "colmap_pairing_command": pairing_command,
         "colmap_vocab_tree_sha256": vocab_tree_sha256,
+        "colmap_geometric_verification": geometric_verification.provenance(),
         "colmap_mapper": "incremental",
         "colmap_matcher": pairing_command.removesuffix("_matcher"),
         "colmap_stage_elapsed_seconds": colmap_stage_elapsed_seconds,
@@ -813,6 +829,8 @@ def main() -> None:
                 f"sfm_pairing={pairing_profile}",
                 f"sfm_pairing_command={pairing_command}",
                 f"sfm_pairing_vocab_tree_sha256={vocab_tree_sha256 or 'none'}",
+                f"sfm_geometric_verification_profile={geometric_verification.profile_id}",
+                f"sfm_geometric_verification_guided_matching={str(geometric_verification.guided_matching).lower()}",
                 "sfm_mapper=incremental",
                 f"colmap_feature_extraction_seconds={colmap_stage_elapsed_seconds['feature_extraction']:.3f}",
                 f"colmap_feature_matching_seconds={colmap_stage_elapsed_seconds['feature_matching']:.3f}",
@@ -884,8 +902,10 @@ def apply_video_registration_recovery(
     command_logs: list[str],
     feature_extraction_options: tuple[str, ...] = (),
     local_matching_options: tuple[str, ...] = (),
+    geometric_verification_options: tuple[str, ...] = (),
     sfm_feature_profile: str = "sift_v1",
     sfm_local_matcher: str = "SIFT_BRUTEFORCE",
+    sfm_geometric_verification: str = "default_v1",
     initial_sfm_pairing: str = "exhaustive",
 ) -> tuple[Path, dict[str, Any] | None, dict[str, Any] | None]:
     if (
@@ -908,8 +928,10 @@ def apply_video_registration_recovery(
         num_threads=num_threads,
         feature_extraction_options=feature_extraction_options,
         local_matching_options=local_matching_options,
+        geometric_verification_options=geometric_verification_options,
         sfm_feature_profile=sfm_feature_profile,
         sfm_local_matcher=sfm_local_matcher,
+        sfm_geometric_verification=sfm_geometric_verification,
         initial_sfm_pairing=initial_sfm_pairing,
         progress=lambda stage: write_progress(progress_file, stage),
     )

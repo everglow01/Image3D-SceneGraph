@@ -11,6 +11,7 @@ from typing import Any
 
 from image3d_scenegraph.geometry.colmap import (
     COLMAP_FEATURE_PROFILE_IDS,
+    COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
     COLMAP_PAIRING_IDS,
@@ -18,6 +19,7 @@ from image3d_scenegraph.geometry.colmap import (
     colmap_frontend_provenance,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
+    resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
     sha256_file,
@@ -52,6 +54,11 @@ def main() -> None:
         "--local-matcher",
         choices=COLMAP_LOCAL_MATCHER_IDS,
         default="bruteforce",
+    )
+    parser.add_argument(
+        "--geometric-verification",
+        choices=COLMAP_GEOMETRIC_VERIFICATION_IDS,
+        default="default_v1",
     )
     parser.add_argument("--single-camera", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-gpu", action=argparse.BooleanOptionalAction, default=True)
@@ -114,6 +121,9 @@ def main() -> None:
         feature_profile = resolve_colmap_feature_profile(args.feature_profile)
         local_matcher = resolve_colmap_local_matcher(
             feature_profile, args.local_matcher
+        )
+        geometric_verification = resolve_colmap_geometric_verification(
+            args.geometric_verification
         )
         if args.pairing is not None:
             pairing = resolve_colmap_pairing(feature_profile, args.pairing)
@@ -210,6 +220,7 @@ def main() -> None:
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
         *local_matcher.matching_options,
+        *geometric_verification.matching_options,
         *pairing_options,
     ]
     if legacy_matcher == "sequential" and vocab_tree_path is not None:
@@ -294,8 +305,12 @@ def main() -> None:
             num_threads=args.num_threads,
             feature_extraction_options=feature_profile.extraction_options,
             local_matching_options=local_matcher.matching_options,
+            geometric_verification_options=(
+                geometric_verification.matching_options
+            ),
             sfm_feature_profile=feature_profile.profile_id,
             sfm_local_matcher=local_matcher.name,
+            sfm_geometric_verification=geometric_verification.profile_id,
             initial_sfm_pairing=pairing_profile,
             progress=lambda stage: write_progress(args.progress_file, stage),
             force_final_bundle_adjustment=bool(
@@ -404,6 +419,7 @@ def main() -> None:
         "pairing": pairing_profile,
         "pairing_command": pairing_command,
         "vocab_tree_sha256": vocab_tree_sha256,
+        "geometric_verification": geometric_verification.provenance(),
         "mapper": "incremental",
         "matcher": pairing_command.removesuffix("_matcher"),
         "video_profile": (
@@ -452,6 +468,8 @@ def main() -> None:
         f"sfm_pairing={pairing_profile}",
         f"sfm_pairing_command={pairing_command}",
         f"sfm_pairing_vocab_tree_sha256={vocab_tree_sha256 or 'none'}",
+        f"sfm_geometric_verification_profile={geometric_verification.profile_id}",
+        f"sfm_geometric_verification_guided_matching={str(geometric_verification.guided_matching).lower()}",
         "sfm_mapper=incremental",
         f"matcher={pairing_command.removesuffix('_matcher')}",
         f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",

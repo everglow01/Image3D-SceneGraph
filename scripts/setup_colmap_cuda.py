@@ -202,11 +202,19 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
             (importer_help, "AlikedMatching.bruteforce_model_path"),
             (importer_help, "SiftMatching.lightglue_model_path"),
             (importer_help, "AlikedMatching.lightglue_model_path"),
+            (matcher_help, "FeatureMatching.guided_matching"),
+            (matcher_help, "FeatureMatching.skip_geometric_verification"),
+            (sequential_help, "FeatureMatching.guided_matching"),
+            (sequential_help, "FeatureMatching.skip_geometric_verification"),
+            (vocab_help, "FeatureMatching.guided_matching"),
+            (vocab_help, "FeatureMatching.skip_geometric_verification"),
+            (importer_help, "FeatureMatching.guided_matching"),
+            (importer_help, "FeatureMatching.skip_geometric_verification"),
         )
         missing = [marker for output, marker in markers if marker not in output]
         if missing:
             raise SystemExit(
-                "Installed COLMAP is missing learned feature options: "
+                "Installed COLMAP is missing required frontend options: "
                 + ", ".join(missing)
             )
     print(" ".join(line.strip() for line in version.splitlines()[:2]))
