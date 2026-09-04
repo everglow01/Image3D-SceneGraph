@@ -14,6 +14,7 @@ from image3d_scenegraph.geometry.adapters import (
     ReconstructionError,
     _read_video_registration_recovery,
     _try_export_sfm_diagnostics,
+    _validate_colmap_pose_evidence,
     _write_video_registration_diagnostics,
 )
 from image3d_scenegraph.geometry.colmap import ColmapFeatureError
@@ -128,6 +129,71 @@ def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallbac
     ]
 
 
+@pytest.mark.parametrize(
+    ("mapper", "status", "applied", "excluded", "expected_count"),
+    (
+        ("incremental", "not_needed", False, [], 0),
+        ("global_recovery_v1", "recovered", True, [], 0),
+        ("incremental_core_repair_v1", "recovered", True, [7, 9], 2),
+    ),
+)
+def test_colmap_pose_evidence_preserves_effective_solver_identity(
+    mapper, status, applied, excluded, expected_count
+):
+    health = {
+        "schema_version": 1,
+        "profile": "sfm_pose_health_v1",
+        "status": "passed",
+    }
+    recovery = {
+        "schema_version": 1,
+        "profile": "sfm_pose_recovery_v1",
+        "status": status,
+        "effective_mapper": mapper,
+        "effective_database_sha256": "a" * 64,
+        "recovery_applied": applied,
+        "selected": {
+            "kind": mapper,
+            "database_path": "colmap/database.db",
+            "excluded_image_ids": excluded,
+        },
+    }
+
+    assert _validate_colmap_pose_evidence(
+        mapper=mapper,
+        database_path=Path("colmap/database.db"),
+        database_sha256="a" * 64,
+        pose_health=health,
+        pose_recovery=recovery,
+    ) == expected_count
+
+
+def test_colmap_pose_evidence_rejects_database_provenance_mismatch():
+    with pytest.raises(ValueError, match="inconsistent COLMAP pose evidence"):
+        _validate_colmap_pose_evidence(
+            mapper="global_recovery_v1",
+            database_path=Path("colmap/expected.db"),
+            database_sha256="a" * 64,
+            pose_health={
+                "schema_version": 1,
+                "profile": "sfm_pose_health_v1",
+                "status": "passed",
+            },
+            pose_recovery={
+                "schema_version": 1,
+                "profile": "sfm_pose_recovery_v1",
+                "status": "recovered",
+                "effective_mapper": "global_recovery_v1",
+                "effective_database_sha256": "a" * 64,
+                "recovery_applied": True,
+                "selected": {
+                    "kind": "global_recovery_v1",
+                    "database_path": "colmap/wrong.db",
+                },
+            },
+        )
+
+
 def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypatch):
     diagnostics = tmp_path / "diagnostics"
     diagnostics.mkdir()
@@ -188,6 +254,7 @@ def test_project_gaussian_sfm_diagnostics_publish_stable_role(tmp_path, monkeypa
         geometric_verification="default_v1",
         camera_calibration="shared_opencv_v1",
         geometry_source="colmap",
+        mapper="incremental",
         video_selection_path=None,
     )
 
@@ -220,6 +287,7 @@ def test_project_gaussian_sfm_diagnostics_are_fail_soft(tmp_path):
         geometric_verification="default_v1",
         camera_calibration="shared_opencv_v1",
         geometry_source="colmap",
+        mapper="incremental",
         video_selection_path=None,
     )
 
@@ -259,6 +327,7 @@ def test_project_gaussian_sfm_diagnostics_propagate_cancellation(tmp_path, monke
             geometric_verification="default_v1",
             camera_calibration="shared_opencv_v1",
             geometry_source="colmap",
+            mapper="incremental",
             video_selection_path=None,
         )
 

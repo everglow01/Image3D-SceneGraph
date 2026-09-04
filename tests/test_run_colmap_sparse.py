@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -23,6 +24,27 @@ def _write_binary_count(path, count: int) -> None:
     path.write_bytes(struct.pack("<Q", count))
 
 
+def _accept_pose_health(monkeypatch) -> None:
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "build_sfm_pose_health_from_text",
+        lambda **_kwargs: {
+            "status": "passed",
+            "reason_codes": [],
+            "temporal": {
+                "registration_timeline": {
+                    "registration_rate": 1.0,
+                    "temporal_coverage": 1.0,
+                }
+            },
+            "automatic_repair": {
+                "eligible": False,
+                "reason": "pose_health_passed",
+            },
+        },
+    )
+
+
 def test_sparse_model_selection_prefers_registered_images_then_points(tmp_path):
     first = tmp_path / "0"
     second = tmp_path / "1"
@@ -39,6 +61,447 @@ def test_sparse_model_selection_prefers_registered_images_then_points(tmp_path):
 
     assert read_sparse_model_counts(first) == (12, 5_000)
     assert find_largest_sparse_model(tmp_path) == (third, 15, 2_000)
+
+
+def test_pose_selection_uses_healthy_primary_without_recovery(
+    tmp_path, monkeypatch
+):
+    sparse = tmp_path / "sparse"
+    model = sparse / "0"
+    model.mkdir(parents=True)
+    _write_binary_count(model / "images.bin", 20)
+    _write_binary_count(model / "points3D.bin", 100)
+    database = tmp_path / "database.db"
+    sqlite3.connect(database).close()
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_evaluate_pose_candidate",
+        lambda **kwargs: {
+            "kind": kwargs["kind"],
+            "status": "accepted",
+            "accepted": True,
+            "model_path": str(kwargs["model_dir"]),
+            "database_path": str(kwargs["database_path"]),
+            "registered_count": 20,
+            "point_count": 100,
+            "model_files_sha256": {
+                "images.bin": hashlib.sha256(
+                    (kwargs["model_dir"] / "images.bin").read_bytes()
+                ).hexdigest(),
+                "points3D.bin": hashlib.sha256(
+                    (kwargs["model_dir"] / "points3D.bin").read_bytes()
+                ).hexdigest(),
+            },
+            "pose_health": {"status": "passed", "reason_codes": []},
+        },
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_try_global_pose_recovery",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected Global")),
+    )
+
+    selected, registered, points, effective_database, record = (
+        run_colmap_sparse.select_or_recover_sparse_model(
+            colmap="colmap",
+            sparse_dir=sparse,
+            database_path=database,
+            image_dir=tmp_path,
+            work_dir=tmp_path / "work",
+            output_dir=tmp_path,
+            selected_timestamps=None,
+            mapper_seed_path=None,
+            use_gpu=False,
+            gpu_index=None,
+            num_threads=None,
+            command_logs=[],
+        )
+    )
+
+    assert (selected, registered, points, effective_database) == (
+        model,
+        20,
+        100,
+        database,
+    )
+    assert record["status"] == "not_needed"
+    assert record["effective_mapper"] == "incremental"
+    published = json.loads(
+        (tmp_path / "diagnostics" / "sfm_pose_recovery.json").read_text()
+    )
+    assert published["selected"]["model_path"] == "sparse/0"
+    assert published["selected"]["database_path"] == "database.db"
+    assert published["source_database_sha256"] == hashlib.sha256(b"").hexdigest()
+    assert published["effective_database_sha256"] == hashlib.sha256(b"").hexdigest()
+    assert published["primary_candidates"][0]["model_files_sha256"] == {
+        "images.bin": hashlib.sha256((model / "images.bin").read_bytes()).hexdigest(),
+        "points3D.bin": hashlib.sha256(
+            (model / "points3D.bin").read_bytes()
+        ).hexdigest(),
+    }
+    assert str(tmp_path) not in json.dumps(published)
+
+
+def test_pose_recovery_report_rejects_paths_outside_output(tmp_path):
+    outside = tmp_path.parent / "outside-model"
+    record = {
+        "primary_candidates": [{"model_path": str(outside)}],
+        "recovery_candidates": [],
+    }
+
+    with pytest.raises(RuntimeError, match="escapes the output directory"):
+        run_colmap_sparse._relativize_pose_recovery_paths(record, tmp_path)
+
+
+def test_pose_candidate_requires_video_registration_and_coverage_gates(
+    tmp_path, monkeypatch
+):
+    model = tmp_path / "model"
+    model.mkdir()
+    _write_binary_count(model / "images.bin", 12)
+    _write_binary_count(model / "points3D.bin", 100)
+
+    def fake_run(command):
+        output = Path(command[command.index("--output_path") + 1])
+        output.joinpath("images.txt").write_text(
+            "".join(
+                f"{index + 1} 1 0 0 0 0 0 0 1 frame-{index:04d}.jpg\n\n"
+                for index in range(12)
+            ),
+            encoding="utf-8",
+        )
+        return "ok"
+
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "build_sfm_pose_health_from_text",
+        lambda **_kwargs: {
+            "status": "passed",
+            "reason_codes": [],
+            "temporal": {
+                "registration_timeline": {
+                    "registration_rate": 0.6,
+                    "temporal_coverage": 11 / 19,
+                }
+            },
+        },
+    )
+    candidate = run_colmap_sparse._evaluate_pose_candidate(
+        colmap="colmap",
+        model_dir=model,
+        text_dir=tmp_path / "text",
+        database_path=tmp_path / "database.db",
+        selected_timestamps={
+            f"frame-{index:04d}.jpg": float(index) for index in range(20)
+        },
+        command_logs=[],
+        kind="global_recovery_v1",
+    )
+
+    assert candidate["accepted"] is False
+    assert candidate["gate_reason_codes"] == [
+        "registration_rate_below_gate",
+        "temporal_coverage_below_gate",
+    ]
+
+
+def test_pose_candidate_failure_is_portable_and_fail_soft(tmp_path, monkeypatch):
+    model = tmp_path / "model"
+    model.mkdir()
+    _write_binary_count(model / "images.bin", 20)
+    _write_binary_count(model / "points3D.bin", 100)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_evaluate_pose_candidate_unchecked",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError(f"failed at {tmp_path}")
+        ),
+    )
+
+    candidate = run_colmap_sparse._evaluate_pose_candidate(
+        colmap="colmap",
+        model_dir=model,
+        text_dir=tmp_path / "text",
+        database_path=tmp_path / "database.db",
+        selected_timestamps=None,
+        command_logs=[],
+        kind="incremental",
+    )
+
+    assert candidate["status"] == "failed"
+    assert candidate["registered_count"] == 20
+    assert candidate["reason"] == "candidate_evaluation_failed"
+    assert candidate["error_type"] == "RuntimeError"
+    record = {"primary_candidates": [candidate], "recovery_candidates": []}
+    run_colmap_sparse._relativize_pose_recovery_paths(record, tmp_path)
+    assert str(tmp_path) not in json.dumps(record)
+
+
+def test_pose_selection_stops_recovery_after_healthy_global(
+    tmp_path, monkeypatch
+):
+    sparse = tmp_path / "sparse"
+    model = sparse / "0"
+    model.mkdir(parents=True)
+    _write_binary_count(model / "images.bin", 20)
+    _write_binary_count(model / "points3D.bin", 100)
+    database = tmp_path / "database.db"
+    sqlite3.connect(database).close()
+    failed = {
+        "kind": "incremental",
+        "status": "rejected",
+        "accepted": False,
+        "model_path": str(model),
+        "database_path": str(database),
+        "registered_count": 20,
+        "point_count": 100,
+        "pose_health": {
+            "status": "failed",
+            "reason_codes": ["multiscale_camera_pose_branch"],
+            "automatic_repair": {"eligible": True, "excluded_image_ids": [7]},
+        },
+    }
+    global_model = tmp_path / "global"
+    global_database = tmp_path / "global.db"
+    monkeypatch.setattr(
+        run_colmap_sparse, "_evaluate_pose_candidate", lambda **_kwargs: failed
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_try_global_pose_recovery",
+        lambda **_kwargs: {
+            **failed,
+            "kind": "global_recovery_v1",
+            "accepted": True,
+            "status": "accepted",
+            "model_path": str(global_model),
+            "database_path": str(global_database),
+            "registered_count": 18,
+        },
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_try_core_pose_repair",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected core repair")),
+    )
+
+    selected, registered, _, effective_database, record = (
+        run_colmap_sparse.select_or_recover_sparse_model(
+            colmap="colmap",
+            sparse_dir=sparse,
+            database_path=database,
+            image_dir=tmp_path,
+            work_dir=tmp_path / "work",
+            output_dir=tmp_path,
+            selected_timestamps=None,
+            mapper_seed_path=None,
+            use_gpu=False,
+            gpu_index=None,
+            num_threads=None,
+            command_logs=[],
+        )
+    )
+
+    assert selected == global_model
+    assert registered == 18
+    assert effective_database == global_database
+    assert record["status"] == "recovered"
+    assert [item["kind"] for item in record["recovery_candidates"]] == [
+        "global_recovery_v1"
+    ]
+
+
+def test_pose_selection_repairs_eligible_primary_after_global_failure(
+    tmp_path, monkeypatch
+):
+    sparse = tmp_path / "sparse"
+    larger = sparse / "0"
+    repairable = sparse / "1"
+    larger.mkdir(parents=True)
+    repairable.mkdir()
+    for model, count in ((larger, 25), (repairable, 20)):
+        _write_binary_count(model / "images.bin", count)
+        _write_binary_count(model / "points3D.bin", 100)
+    database = tmp_path / "database.db"
+    sqlite3.connect(database).close()
+
+    def evaluate(**kwargs):
+        eligible = kwargs["model_dir"] == repairable
+        return {
+            "kind": "incremental",
+            "status": "rejected",
+            "accepted": False,
+            "model_path": str(kwargs["model_dir"]),
+            "database_path": str(database),
+            "registered_count": 20 if eligible else 25,
+            "point_count": 100,
+            "pose_health": {
+                "status": "failed",
+                "reason_codes": ["multiscale_camera_pose_branch"],
+                "automatic_repair": {"eligible": eligible},
+            },
+        }
+
+    selected_primary = {}
+    monkeypatch.setattr(run_colmap_sparse, "_evaluate_pose_candidate", evaluate)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_try_global_pose_recovery",
+        lambda **_kwargs: {
+            "kind": "global_recovery_v1",
+            "status": "failed",
+            "accepted": False,
+            "reason": "global_recovery_failed",
+        },
+    )
+
+    def repair(**kwargs):
+        selected_primary.update(kwargs["primary"])
+        return {
+            "kind": "incremental_core_repair_v1",
+            "status": "accepted",
+            "accepted": True,
+            "model_path": str(tmp_path / "core"),
+            "database_path": str(database),
+            "registered_count": 19,
+            "point_count": 90,
+            "excluded_image_ids": [7],
+        }
+
+    monkeypatch.setattr(run_colmap_sparse, "_try_core_pose_repair", repair)
+    selected, _, _, _, record = run_colmap_sparse.select_or_recover_sparse_model(
+        colmap="colmap",
+        sparse_dir=sparse,
+        database_path=database,
+        image_dir=tmp_path,
+        work_dir=tmp_path / "work",
+        output_dir=tmp_path,
+        selected_timestamps=None,
+        mapper_seed_path=None,
+        use_gpu=False,
+        gpu_index=None,
+        num_threads=None,
+        command_logs=[],
+    )
+
+    assert selected_primary["model_path"] == str(repairable)
+    assert selected == tmp_path / "core"
+    assert record["effective_mapper"] == "incremental_core_repair_v1"
+
+
+def test_global_pose_recovery_uses_database_copy_and_calibration(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "database.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE marker(value INTEGER)")
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "global_mapper":
+            output = Path(command[command.index("--output_path") + 1])
+            _write_binary_count(output / "images.bin", 15)
+            _write_binary_count(output / "points3D.bin", 100)
+        return "ok"
+
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_evaluate_pose_candidate",
+        lambda **kwargs: {
+            "kind": kwargs["kind"],
+            "status": "accepted",
+            "accepted": True,
+            "model_path": str(kwargs["model_dir"]),
+            "database_path": str(kwargs["database_path"]),
+            "registered_count": 15,
+            "point_count": 100,
+            "pose_health": {"status": "passed", "reason_codes": []},
+        },
+    )
+
+    candidate = run_colmap_sparse._try_global_pose_recovery(
+        colmap="colmap",
+        database_path=database,
+        image_dir=tmp_path / "images",
+        recovery_dir=tmp_path / "recovery",
+        selected_timestamps=None,
+        mapper_seed_path=None,
+        use_gpu=False,
+        gpu_index=None,
+        num_threads=4,
+        command_logs=[],
+    )
+
+    assert candidate["accepted"] is True
+    assert [command[1] for command in commands] == [
+        "view_graph_calibrator",
+        "global_mapper",
+    ]
+    assert all(
+        command[command.index("--random_seed") + 1] == "0"
+        for command in commands
+    )
+    copied = Path(commands[0][commands[0].index("--database_path") + 1])
+    assert copied != database
+    assert copied.is_file()
+
+
+def test_core_pose_repair_runs_delete_filter_and_bundle_adjustment(
+    tmp_path, monkeypatch
+):
+    commands = []
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "run_command",
+        lambda command: commands.append(command) or "ok",
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_evaluate_pose_candidate",
+        lambda **kwargs: {
+            "kind": kwargs["kind"],
+            "status": "accepted",
+            "accepted": True,
+            "model_path": str(kwargs["model_dir"]),
+            "database_path": str(kwargs["database_path"]),
+            "registered_count": 19,
+            "point_count": 90,
+            "pose_health": {"status": "passed", "reason_codes": []},
+        },
+    )
+    primary = {
+        "model_path": str(tmp_path / "primary"),
+        "pose_health": {
+            "automatic_repair": {
+                "eligible": True,
+                "reason": "eligible",
+                "excluded_image_ids": [7, 9],
+            }
+        },
+    }
+
+    candidate = run_colmap_sparse._try_core_pose_repair(
+        colmap="colmap",
+        primary=primary,
+        database_path=tmp_path / "database.db",
+        recovery_dir=tmp_path / "repair",
+        selected_timestamps=None,
+        use_gpu=False,
+        gpu_index=None,
+        command_logs=[],
+    )
+
+    assert candidate["accepted"] is True
+    assert candidate["excluded_image_ids"] == [7, 9]
+    assert [command[1] for command in commands] == [
+        "image_deleter",
+        "point_filtering",
+        "bundle_adjuster",
+    ]
+    assert (tmp_path / "repair" / "excluded-image-ids.txt").read_text() == "7\n9\n"
 
 
 def test_sparse_model_counts_support_text_models(tmp_path):
@@ -321,6 +784,7 @@ def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):
 def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
     tmp_path, monkeypatch
 ):
+    _accept_pose_health(monkeypatch)
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     image_dir.mkdir()
@@ -518,6 +982,7 @@ def test_aliked_profile_rejects_sift_vocab_tree(tmp_path, monkeypatch):
 def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
     tmp_path, monkeypatch
 ):
+    _accept_pose_health(monkeypatch)
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     vocab_tree = tmp_path / "vocab_tree.bin"
@@ -585,6 +1050,7 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
 def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     tmp_path, monkeypatch
 ):
+    _accept_pose_health(monkeypatch)
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     vocab_tree = tmp_path / "vocab_tree.bin"
@@ -741,12 +1207,25 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
         "mapping",
         "initial_registration_expansion",
         "registration_recovery",
+        "raw_model_conversion",
         "undistortion",
         "point_cloud_conversion",
         "text_conversion",
     }
     assert timing["v2_mapper_options"] == run_colmap_sparse.v2_mapper_options(
         json.loads(selection_path.read_text())
+    )
+    frontend_contract = json.loads(
+        (output_dir / "diagnostics" / "sfm_frontend_contract.json").read_text()
+    )
+    assert frontend_contract["profile"] == "sfm_frontend_contract_v1"
+    assert frontend_contract["feature"] == timing["feature"]
+    assert frontend_contract["pairing"] == timing["pairing"]
+    assert frontend_contract["initial_video_selection_sha256"] == hashlib.sha256(
+        selection_path.read_bytes()
+    ).hexdigest()
+    assert timing["sfm_frontend_contract_path"] == (
+        "diagnostics/sfm_frontend_contract.json"
     )
     assert timing["total_elapsed_seconds"] >= sum(
         timing["stage_elapsed_seconds"].values()

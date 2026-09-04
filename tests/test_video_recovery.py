@@ -121,7 +121,7 @@ def test_initial_registration_expansion_propagates_selected_frames(
     initial_model.mkdir()
     commands: list[list[str]] = []
 
-    def fake_inspect(_colmap, model_dir, _text_dir, _logs):
+    def fake_inspect(_colmap, model_dir, _text_dir, _logs, **_kwargs):
         model = str(model_dir)
         if model_dir == initial_model:
             count, points = 12, 100
@@ -236,6 +236,23 @@ def test_model_acceptance_rejects_camera_and_point_regressions() -> None:
         {"registered_names": ["a", "b", "c"], "point_count": 89},
         improved,
     ) == (False, "rejected_sparse_point_regression")
+    assert accept_recovered_model(
+        before_state,
+        before_timeline,
+        {
+            "registered_names": ["a", "b", "c"],
+            "point_count": 110,
+            "pose_health": {
+                "status": "failed",
+                "reason_codes": ["multiscale_camera_pose_branch"],
+            },
+        },
+        {
+            **improved,
+            "registration_rate": 1.0,
+            "temporal_coverage": 1.0,
+        },
+    ) == (False, "rejected_sfm_pose_health")
     weak_registration = {
         **improved,
         "registered_count": 12,
@@ -298,6 +315,7 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
     source.write_bytes(b"video")
     initial_names = _registered_names(selection)
     commands: list[list[str]] = []
+    inspected_timestamp_counts: list[int] = []
 
     def fake_materialize(_source, output_dir, candidates, _selection_payload):
         paths = []
@@ -307,7 +325,8 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
             paths.append(path)
         return paths
 
-    def fake_inspect(_colmap, model_dir, _text_dir, _logs):
+    def fake_inspect(_colmap, model_dir, _text_dir, _logs, **kwargs):
+        inspected_timestamp_counts.append(len(kwargs["selected_timestamps"]))
         if model_dir == initial_model:
             return {
                 "registered_names": initial_names,
@@ -390,6 +409,7 @@ def test_incremental_recovery_reuses_database_and_accepts_improved_model(
     assert diagnostics["final_bundle_adjustment"]["accepted"] is True
     assert diagnostics["final_bundle_adjustment"]["attempts"][0]["backend"] == "cuda"
     assert model.name == "final-adjusted-cuda"
+    assert inspected_timestamp_counts == [12, 15, 15, 15]
     assert [command[1] for command in commands] == [
         "feature_extractor",
         "matches_importer",
@@ -451,7 +471,7 @@ def test_incremental_recovery_command_failure_keeps_initial_model(
     monkeypatch.setattr(
         video_recovery,
         "inspect_sparse_model",
-        lambda *_args: {
+        lambda *_args, **_kwargs: {
             "registered_names": _registered_names(selection),
             "registered_count": 12,
             "point_count": 100,
@@ -543,7 +563,7 @@ def test_second_round_propagates_without_new_candidates(
             paths.append(path)
         return paths
 
-    def fake_inspect(_colmap, model_dir, _text_dir, _logs):
+    def fake_inspect(_colmap, model_dir, _text_dir, _logs, **_kwargs):
         model = str(model_dir)
         if model_dir == initial_model:
             names, points = initial_names, 100
@@ -628,7 +648,7 @@ def test_registration_without_gap_improvement_skips_expensive_stages(
     monkeypatch.setattr(
         video_recovery,
         "inspect_sparse_model",
-        lambda *_args: {
+        lambda *_args, **_kwargs: {
             "registered_names": initial_names,
             "registered_count": len(initial_names),
             "point_count": 100,
@@ -692,7 +712,7 @@ def test_no_gap_expansion_still_runs_one_final_bundle_adjustment(
         "point_count": 100,
     }
     commands: list[list[str]] = []
-    monkeypatch.setattr(video_recovery, "inspect_sparse_model", lambda *_args: state)
+    monkeypatch.setattr(video_recovery, "inspect_sparse_model", lambda *_args, **_kwargs: state)
     monkeypatch.setattr(
         video_recovery,
         "run_command",
@@ -748,7 +768,7 @@ def test_final_bundle_adjustment_falls_back_from_cuda_to_cpu(
     monkeypatch.setattr(
         video_recovery,
         "inspect_sparse_model",
-        lambda *_args: state,
+        lambda *_args, **_kwargs: state,
     )
 
     adjusted, adjusted_state, record = video_recovery._run_final_bundle_adjustment(

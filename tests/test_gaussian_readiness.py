@@ -122,6 +122,29 @@ def test_readiness_rejects_small_dataset_camera_outlier():
     assert record["camera_centers"]["max_to_p99"] > 100
 
 
+def test_readiness_rejects_multicamera_outlier_branch() -> None:
+    angles = np.linspace(0.0, 2.0 * np.pi, 980, endpoint=False)
+    body = np.column_stack((np.cos(angles), np.sin(angles), np.zeros(980)))
+    branch = np.column_stack(
+        (
+            np.linspace(1_000.0, 1_001.0, 20),
+            np.zeros(20),
+            np.zeros(20),
+        )
+    )
+
+    record = build_geometry_readiness(
+        _contract(np.vstack((body, branch))),
+        _initialization(np.full(32, 0.01, dtype=np.float32)),
+        resolve_internal_config().effective_config,
+        trainer_id="project",
+    )
+
+    assert record["reason_codes"] == ["unusable_camera_pose_outlier"]
+    assert record["camera_centers"]["p99_to_median"] > 900
+    assert record["camera_centers"]["max_to_p99"] < 2
+
+
 def test_readiness_accepts_ring_and_linear_camera_trajectories():
     angles = np.linspace(0.0, 2.0 * np.pi, 20, endpoint=False)
     ring = np.column_stack((np.cos(angles), np.sin(angles), np.zeros(20)))
