@@ -125,6 +125,8 @@ type Manifest = {
     sfm_sparse_point_cloud?: string;
     sfm_diagnostics?: string;
     sfm_camera_calibration_diagnostics?: string;
+    sfm_pose_health?: string;
+    sfm_pose_recovery?: string;
     cameras?: string;
     alignment_diagnostics?: string;
     fusion_diagnostics?: string;
@@ -262,6 +264,11 @@ type Manifest = {
     sfm_camera_prior_focal_count?: number;
     sfm_camera_warning_count?: number;
     sfm_camera_median_focal_length_ratio?: number;
+    sfm_pose_health_status?: string;
+    sfm_effective_mapper?: string;
+    sfm_pose_recovery_status?: string;
+    sfm_pose_recovery_applied?: boolean;
+    sfm_pose_recovery_removed_camera_count?: number;
     sfm_median_reprojection_error_pixels?: number;
     sfm_median_track_length?: number;
     sfm_view_graph_verified_edge_count?: number;
@@ -2064,6 +2071,9 @@ export function App() {
             <div><dt>候选 / 关键帧</dt><dd>{currentStatus?.metrics.video_candidate_count === undefined ? "-" : `${currentStatus.metrics.video_candidate_count} / ${currentStatus.metrics.video_selected_count ?? "-"}`}</dd></div>
             <div><dt>稀疏点</dt><dd>{formatInteger(currentStatus?.metrics.num_points)}</dd></div>
             <div><dt>SfM 诊断</dt><dd>{formatStatus(currentStatus?.metrics.sfm_diagnostics_status)}</dd></div>
+            <div><dt>位姿健康</dt><dd>{formatStatus(currentStatus?.metrics.sfm_pose_health_status)}</dd></div>
+            <div><dt>有效求解器</dt><dd>{formatPolicy(currentStatus?.metrics.sfm_effective_mapper)}</dd></div>
+            <div><dt>位姿恢复</dt><dd>{formatStatus(currentStatus?.metrics.sfm_pose_recovery_status)}</dd></div>
             <div><dt>已注册图片</dt><dd>{formatRatio(currentStatus?.metrics.sfm_diagnostics_registered_image_count, currentStatus?.metrics.sfm_diagnostics_image_count)}</dd></div>
             <div><dt>匹配内点</dt><dd>{formatInteger(currentStatus?.metrics.sfm_diagnostics_inlier_count)}</dd></div>
             <div><dt>高斯数量</dt><dd>{formatInteger(currentStatus?.metrics.gaussian_count)}</dd></div>
@@ -2168,6 +2178,28 @@ export function App() {
                 <dt>SfM 相机组 / 警告</dt>
                 <dd>
                   {currentStatus?.metrics.sfm_camera_final_count ?? "-"} / {currentStatus?.metrics.sfm_camera_warning_count ?? "-"}
+                </dd>
+              </div>
+            )}
+            {manifest?.geometry_backend === "project_3dgs" && (
+              <div>
+                <dt>SfM 位姿健康{currentStatus?.metrics.sfm_effective_mapper ? " / 求解器" : ""}</dt>
+                <dd>
+                  {formatStatus(currentStatus?.metrics.sfm_pose_health_status)}
+                  {currentStatus?.metrics.sfm_effective_mapper
+                    ? ` / ${formatPolicy(currentStatus.metrics.sfm_effective_mapper)}`
+                    : ""}
+                </dd>
+              </div>
+            )}
+            {manifest?.geometry_backend === "project_3dgs" && currentStatus?.metrics.sfm_pose_recovery_status !== undefined && (
+              <div>
+                <dt>SfM 有界恢复</dt>
+                <dd>
+                  {formatStatus(currentStatus?.metrics.sfm_pose_recovery_status)}
+                  {currentStatus?.metrics.sfm_pose_recovery_removed_camera_count
+                    ? ` · 删除 ${currentStatus.metrics.sfm_pose_recovery_removed_camera_count} 个异常相机`
+                    : ""}
                 </dd>
               </div>
             )}
@@ -2591,6 +2623,8 @@ export function App() {
                 assetKey="sfm_camera_calibration_diagnostics"
                 label="SfM 相机标定诊断"
               />
+              <AssetLink manifest={manifest} assetKey="sfm_pose_health" label="SfM 位姿健康" />
+              <AssetLink manifest={manifest} assetKey="sfm_pose_recovery" label="SfM 位姿恢复" />
               <AssetLink manifest={manifest} assetKey="sfm_sparse_point_cloud" label="SfM 稀疏点云" />
               <AssetLink manifest={manifest} assetKey="cameras" label="SfM 相机位姿" />
               <AssetLink manifest={manifest} assetKey="point_cloud" label="点云（Point Cloud）" />
@@ -2837,7 +2871,10 @@ function formatStatus(value: string | null | undefined) {
     not_generated: "未生成",
     generating: "正在生成",
     available: "可用",
-    unavailable: "不可用"
+    unavailable: "不可用",
+    passed: "通过",
+    recovered: "已恢复",
+    not_needed: "无需恢复"
   };
   return value ? (labels[value] ?? formatPolicy(value)) : "-";
 }
@@ -2907,6 +2944,9 @@ function formatPolicy(value: string | undefined) {
     random: "随机采样",
     spatial_balanced: "空间均衡采样",
     colmap: "COLMAP（默认）",
+    incremental: "增量式 Mapper",
+    global_recovery_v1: "Global Mapper 恢复",
+    incremental_core_repair_v1: "增量式 healthy-core 恢复",
     vggt_ba: "VGGT + BA（实验）",
     none: "关闭",
     vggt_visibility_v1: "VGGT Train-depth 清理（实验）",
