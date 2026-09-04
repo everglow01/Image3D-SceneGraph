@@ -106,6 +106,10 @@ Implemented geometry paths:
 
 Video support is bounded offline reconstruction, not realtime SLAM or evidence of drift-free multi-room mapping. Coordinates remain normalized arbitrary units. FFmpeg and ffprobe are external executable dependencies; their absence disables only video ingestion, not image-based Project jobs.
 
+Before Project Gaussian undistortion, normalization, splitting, initialization, or CUDA, every final raw sparse model must pass `sfm_pose_health_v1`. Ordinary COLMAP first selects only healthy incremental Mapper candidates. If none passes, it tries calibrated Global Mapper on a SQLite database copy without changing features or matches; only if that fails may a timestamped video remove one catastrophic pose branch (at most 10% of registered cameras), filter points, run bundle adjustment, and reapply pose plus 12/70%/80% gates. Expansion, gap-recovery, and final-BA candidates are rejected if they reintroduce an unhealthy branch. Gaps above two seconds remain soft warnings. Recovery never silently switches SIFT/ALIKED, Brute-force/LightGlue, pairing, camera calibration, or trainer, and a Global/core result is labeled recovered rather than treated as a clean frontend pass.
+
+Successful Project jobs publish `sfm_pose_health`; ordinary-COLMAP jobs also publish `sfm_pose_recovery` with effective Mapper/database provenance, hashes, and any removed image IDs. The frontend shows the compact health/solver/recovery status. `gaussian_geometry_readiness_v1` remains a separate pre-CUDA defense, so an upstream contract regression is still blocked even after SfM recovery.
+
 Two orthogonal research options are available for Gaussian jobs:
 
 - `gaussian_geometry_source=vggt_ba` is currently video-only. It runs fixed 8-frame/4-frame-overlap VGGT windows, classifies cameras with at least 32 reliable observations as strong, excludes weak cameras from local BA graph evidence, and makes one deterministic recovery-window attempt per adjacent disconnect (at most eight frames, with at least three reliable frames from each side). A surviving 12-camera/70%-support/80%-temporal-coverage component seeds COLMAP 4 SIFT/exhaustive triangulation, omitted-image registration, and global BA. Ordinary COLMAP Mapper runs only after one of three classified late quality failures: `vggt_graph_unusable_after_recovery`, `vggt_seed_geometry_insufficient`, or `vggt_registration_gate_failed`; CUDA/OOM, dependency, checkpoint, non-finite, I/O, cancellation, subprocess, and unexpected-code failures remain failed Jobs. Manifests separately record requested/effective source, fallback status, and reason. A fallback Job remains viewable but is not successful VGGT-BA A/B evidence. Missing verified nonlocal geometry remains `open_trajectory_unverified` and does not itself trigger fallback or support a loop-closure/bounded-drift claim.
@@ -244,7 +248,7 @@ uv run python scripts/setup_colmap_vocab_tree.py
 uv run python scripts/setup_colmap_vocab_tree.py --install
 ```
 
-The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production frontend defaults remain `sift_v1 + bruteforce + exhaustive + default_v1 + incremental`, while camera defaults preserve the historical backend path: shared OPENCV for `project_3dgs` and shared SIMPLE_RADIAL for direct `colmap`/`colmap_vggt`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper remains unexposed pending Phase 6; Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
+The legacy video field `colmap_matcher=exhaustive|sequential` remains accepted and maps to `exhaustive|sequential_loop`; conflicting old/new fields fail. The production frontend defaults remain `sift_v1 + bruteforce + exhaustive + default_v1 + incremental`, while camera defaults preserve the historical backend path: shared OPENCV for `project_3dgs` and shared SIMPLE_RADIAL for direct `colmap`/`colmap_vggt`. The 2026-08-13 2048-keypoint/1280px ETH3D run found SIFT-LightGlue nearly disconnected while ALIKED-LightGlue completed but cost substantially more matching time; those historical settings do not select the current 8192-keypoint default. Phase 3 pairing code is available but has no promotion-grade real A/B yet. Global Mapper is not a selectable product default; it is invoked only as an internal same-matches recovery after every incremental candidate fails pose health. Test cannot select these options. Graphdeco setup uses PyTorch `2.3.1+cu121` and compiles its extensions with `/usr/local/cuda-12.2`, while Project uses the existing `gsplat` cu121 wheel.
 
 Phase 4 exposes `sfm_geometric_verification=default_v1|guided_v1` after pairing. Both profiles explicitly keep COLMAP geometric verification enabled and retain the selected build's default `TwoViewGeometry`/RANSAC parameters; `guided_v1` changes only `FeatureMatching.guided_matching=1`. The same profile reaches standard-v2 `matches_importer` recovery. Matching timing remains the combined local-matching + geometric-verification wall time because COLMAP does not publish a stable separate duration. Guided is experimental and has no promotion-grade real A/B yet.
 
@@ -257,6 +261,29 @@ New Gaussian jobs publish SfM diagnostics schema 4 with a verified View Graph su
 ```bash
 uv run python scripts/analyze_sfm_view_graph.py --job-dir outputs/jobs/JOB
 ```
+
+Analyze an existing raw sparse text model without modifying the Job or starting training:
+
+```bash
+uv run python scripts/analyze_sfm_pose_health.py \
+  --model-dir outputs/jobs/JOB/colmap/sparse_raw_txt \
+  --database outputs/jobs/JOB/colmap/database.db \
+  --video-selection outputs/jobs/JOB/frames/selection.json \
+  --output outputs/analysis/JOB-sfm-pose-health.json
+```
+
+For an explicitly authorized geometry-only ALIKED/LightGlue attribution experiment, freeze the same video selection and all non-frontend fields across four standalone output roots, then evaluate only their retained JSON evidence:
+
+```bash
+uv run python scripts/evaluate_sfm_frontend_factorial.py \
+  --sift-bruteforce outputs/factorial/sift-bruteforce \
+  --sift-lightglue outputs/factorial/sift-lightglue \
+  --aliked-bruteforce outputs/factorial/aliked-bruteforce \
+  --aliked-lightglue outputs/factorial/aliked-lightglue \
+  --output outputs/factorial/report.json
+```
+
+The evaluator requires identical `sfm_frontend_contract_v1` evidence and compares primary, unrecovered outcomes. A same-matches Global success is solver-sensitivity evidence only; repaired/Global output cannot establish that ALIKED or LightGlue is clean.
 
 Run COLMAP sparse SfM directly for a local image folder:
 
