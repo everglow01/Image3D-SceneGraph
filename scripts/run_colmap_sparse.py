@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import struct
 import subprocess
 import time
@@ -32,6 +33,12 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_pairing,
     sha256_file,
 )
+from image3d_scenegraph.geometry.sfm_pose_health import (
+    build_sfm_pose_health_from_text,
+    require_sfm_pose_health,
+    selected_timestamps_from_payload,
+    write_sfm_pose_health,
+)
 from image3d_scenegraph.geometry.video_recovery import (
     expand_v2_initial_registration,
     recover_video_registration,
@@ -40,6 +47,11 @@ from image3d_scenegraph.geometry.video_recovery import (
     v2_mapper_seed_image_names,
 )
 from image3d_scenegraph.video.keyframes import V2_PROFILE_ID
+from image3d_scenegraph.video.registration import (
+    MIN_VIDEO_REGISTERED_COUNT,
+    MIN_VIDEO_REGISTRATION_RATE,
+    MIN_VIDEO_TEMPORAL_COVERAGE,
+)
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
@@ -119,10 +131,12 @@ def main() -> None:
     if (args.video_source is None) != (args.video_selection is None):
         parser.error("--video-source and --video-selection must be provided together")
     video_selection: dict[str, Any] | None = None
+    initial_video_selection_sha256: str | None = None
     if args.video_source is not None and args.video_selection is not None:
         if not args.video_source.is_file():
             raise SystemExit(f"Video source is missing: {args.video_source}")
         try:
+            initial_video_selection_sha256 = sha256_file(args.video_selection)
             video_selection = json.loads(
                 args.video_selection.read_text(encoding="utf-8")
             )
@@ -219,6 +233,16 @@ def main() -> None:
             encoding="utf-8",
         )
         mapper_seed_option = mapper_image_list_option(colmap)
+    all_video_timestamps = (
+        selected_timestamps_from_payload(video_selection)
+        if video_selection is not None
+        else None
+    )
+    mapper_pose_timestamps = all_video_timestamps
+    if all_video_timestamps is not None and mapper_seed_names:
+        mapper_pose_timestamps = {
+            name: all_video_timestamps[name] for name in mapper_seed_names
+        }
 
     def build_feature_command(
         image_list_path: Path | None,
@@ -277,6 +301,8 @@ def main() -> None:
         str(args.image_dir),
         "--output_path",
         str(sparse_dir),
+        "--random_seed",
+        "0",
     ]
     if args.gaussian_baseline:
         mapper_command.extend(("--Mapper.ba_global_function_tolerance", "0.000001"))
@@ -290,6 +316,8 @@ def main() -> None:
         pairing_command,
         "--database_path",
         str(work_dir / "database.db"),
+        "--random_seed",
+        "0",
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
         *local_matcher.matching_options,
@@ -316,6 +344,33 @@ def main() -> None:
         matcher_command.extend(("--FeatureMatching.gpu_index", args.gpu_index))
     if args.num_threads is not None:
         matcher_command.extend(("--FeatureMatching.num_threads", str(args.num_threads)))
+    frontend_contract_path = output_dir / "diagnostics" / "sfm_frontend_contract.json"
+    frontend_contract = {
+        "schema_version": 1,
+        "profile": "sfm_frontend_contract_v1",
+        "colmap_build": colmap_build,
+        "feature": colmap_frontend_provenance(feature_profile, local_matcher),
+        "pairing": pairing_profile,
+        "geometric_verification": geometric_verification.provenance(),
+        "camera_calibration": (
+            camera_plan.calibration.provenance()
+            if camera_plan is not None
+            else None
+        ),
+        "requested_mapper": "incremental",
+        "colmap_random_seed": 0,
+        "video_profile": (
+            str(video_selection.get("profile"))
+            if video_selection is not None
+            else None
+        ),
+        "initial_video_selection_sha256": initial_video_selection_sha256,
+        "v2_mapper_options": v2_mapper_options(video_selection),
+        "v2_mapper_seed_count": len(mapper_seed_names),
+        "test_rgb_loaded": False,
+    }
+    write_json(frontend_contract_path, frontend_contract)
+
     commands = [
         *[
             ("feature_extraction", "colmap_feature_extraction", command)
@@ -334,7 +389,33 @@ def main() -> None:
             timing_stage, 0.0
         ) + (time.perf_counter() - command_started_at)
 
-    model_dir, registered_images, sparse_points = find_largest_sparse_model(sparse_dir)
+    database_path = work_dir / "database.db"
+    pose_recovery: dict[str, Any] | None = None
+    if args.gaussian_baseline:
+        (
+            model_dir,
+            registered_images,
+            sparse_points,
+            database_path,
+            pose_recovery,
+        ) = select_or_recover_sparse_model(
+            colmap=colmap,
+            sparse_dir=sparse_dir,
+            database_path=database_path,
+            image_dir=args.image_dir,
+            work_dir=work_dir,
+            output_dir=output_dir,
+            selected_timestamps=mapper_pose_timestamps,
+            mapper_seed_path=mapper_seed_path,
+            use_gpu=args.use_gpu,
+            gpu_index=args.gpu_index,
+            num_threads=args.num_threads,
+            command_logs=command_logs,
+        )
+    else:
+        model_dir, registered_images, sparse_points = find_largest_sparse_model(
+            sparse_dir
+        )
     initial_registered_images = registered_images
     initial_sparse_points = sparse_points
     expansion_diagnostics: dict[str, Any] | None = None
@@ -343,7 +424,7 @@ def main() -> None:
         model_dir, expansion_diagnostics, expansion_logs = (
             expand_v2_initial_registration(
                 colmap=colmap,
-                database_path=work_dir / "database.db",
+                database_path=database_path,
                 image_dir=args.image_dir,
                 initial_model=model_dir,
                 selection=video_selection,
@@ -370,7 +451,7 @@ def main() -> None:
         recovery_started_at = time.perf_counter()
         model_dir, recovery_diagnostics, recovery_logs = recover_video_registration(
             colmap=colmap,
-            database_path=work_dir / "database.db",
+            database_path=database_path,
             image_dir=args.image_dir,
             initial_model=model_dir,
             selection_path=args.video_selection,
@@ -406,14 +487,8 @@ def main() -> None:
     camera_diagnostics_path = (
         output_dir / "diagnostics" / "sfm_camera_calibration.json"
     )
-    if camera_plan is not None:
-        if camera_plan.calibration.sharing_policy == "single_camera":
-            camera_plan = prepare_camera_extraction(
-                camera_plan.calibration,
-                args.image_dir,
-                discover_images(args.image_dir),
-                work_dir / "camera_groups",
-            )
+    raw_text_dir: Path | None = None
+    if camera_plan is not None or args.gaussian_baseline:
         raw_text_dir = work_dir / "sparse_raw_txt"
         raw_text_dir.mkdir(parents=True, exist_ok=False)
         conversion_started_at = time.perf_counter()
@@ -434,8 +509,30 @@ def main() -> None:
         stage_elapsed_seconds["raw_model_conversion"] = (
             time.perf_counter() - conversion_started_at
         )
+    pose_health: dict[str, Any] | None = None
+    pose_health_path = output_dir / "diagnostics" / "sfm_pose_health.json"
+    if args.gaussian_baseline:
+        if raw_text_dir is None:
+            raise RuntimeError("Gaussian SfM pose health has no raw text model")
+        pose_health = build_sfm_pose_health_from_text(
+            model_dir=raw_text_dir,
+            selected_timestamps=all_video_timestamps,
+            database_path=database_path,
+        )
+        write_sfm_pose_health(pose_health_path, pose_health)
+        require_sfm_pose_health(pose_health)
+    if camera_plan is not None:
+        if raw_text_dir is None:
+            raise RuntimeError("camera calibration has no raw text model")
+        if camera_plan.calibration.sharing_policy == "single_camera":
+            camera_plan = prepare_camera_extraction(
+                camera_plan.calibration,
+                args.image_dir,
+                discover_images(args.image_dir),
+                work_dir / "camera_groups",
+            )
         camera_diagnostics = build_camera_calibration_diagnostics(
-            database_path=work_dir / "database.db",
+            database_path=database_path,
             final_camera_payload=build_camera_payload(raw_text_dir),
             points3d_path=raw_text_dir / "points3D.txt",
             plan=camera_plan,
@@ -547,13 +644,49 @@ def main() -> None:
             if camera_diagnostics is not None
             else None
         ),
-        "mapper": "incremental",
+        "mapper": (
+            str(pose_recovery["effective_mapper"])
+            if pose_recovery is not None
+            else "incremental"
+        ),
+        "requested_mapper": "incremental",
+        "colmap_random_seed": 0,
+        "effective_database_path": database_path.resolve()
+        .relative_to(output_dir.resolve())
+        .as_posix(),
+        "source_database_sha256": (
+            pose_recovery["source_database_sha256"]
+            if pose_recovery is not None
+            else sha256_file(database_path) if database_path.is_file() else None
+        ),
+        "effective_database_sha256": (
+            pose_recovery["effective_database_sha256"]
+            if pose_recovery is not None
+            else sha256_file(database_path) if database_path.is_file() else None
+        ),
+        "sfm_pose_health_path": (
+            pose_health_path.resolve().relative_to(output_dir.resolve()).as_posix()
+            if pose_health is not None
+            else None
+        ),
+        "sfm_pose_recovery_path": (
+            (output_dir / "diagnostics" / "sfm_pose_recovery.json")
+            .resolve()
+            .relative_to(output_dir.resolve())
+            .as_posix()
+            if pose_recovery is not None
+            else None
+        ),
         "matcher": pairing_command.removesuffix("_matcher"),
         "video_profile": (
             str(video_selection.get("profile"))
             if video_selection is not None
             else None
         ),
+        "initial_video_selection_sha256": initial_video_selection_sha256,
+        "sfm_frontend_contract_path": frontend_contract_path.resolve()
+        .relative_to(output_dir.resolve())
+        .as_posix(),
         "stage_elapsed_seconds": stage_elapsed_seconds,
         "total_elapsed_seconds": elapsed_seconds,
         "v2_mapper_options": v2_mapper_options(video_selection),
@@ -605,7 +738,13 @@ def main() -> None:
             if camera_diagnostics is not None
             else ["sfm_camera_calibration_profile=legacy_cli"]
         ),
-        "sfm_mapper=incremental",
+        f"sfm_mapper={pose_recovery['effective_mapper'] if pose_recovery is not None else 'incremental'}",
+        f"sfm_pose_health_status={pose_health['status'] if pose_health is not None else 'not_run'}",
+        f"sfm_pose_health_reason_codes={','.join(pose_health['reason_codes']) if pose_health is not None else ''}",
+        f"sfm_pose_recovery_status={pose_recovery['status'] if pose_recovery is not None else 'not_run'}",
+        f"sfm_pose_recovery_applied={str(bool(pose_recovery and pose_recovery['recovery_applied'])).lower()}",
+        f"sfm_pose_recovery_removed_camera_count={len(pose_recovery.get('selected', {}).get('excluded_image_ids', [])) if pose_recovery is not None else 0}",
+        f"effective_colmap_database={database_path}",
         f"matcher={pairing_command.removesuffix('_matcher')}",
         f"sequential_overlap={sequential_overlap_value if sequential_overlap_value is not None else 'default'}",
         f"vocab_tree={vocab_tree_path if vocab_tree_path is not None else 'none'}",
@@ -636,6 +775,10 @@ def main() -> None:
     print(f"wrote {geometry_dir / 'cameras.json'}")
     if camera_diagnostics is not None:
         print(f"wrote {camera_diagnostics_path}")
+    if pose_health is not None:
+        print(f"wrote {pose_health_path}")
+        print(f"sfm_pose_health_status={pose_health['status']}")
+        print(f"sfm_pose_recovery_status={pose_recovery['status']}")
     print(f"registered_images={len(camera_payload['images'])}")
     print(f"num_points={num_points}")
 
@@ -700,6 +843,547 @@ def run_command(command: list[str]) -> str:
             + str(exc.stderr or "").strip()
         ) from exc
     return "command=" + " ".join(command) + "\nstdout=" + completed.stdout.strip() + "\nstderr=" + completed.stderr.strip()
+
+
+def select_or_recover_sparse_model(
+    *,
+    colmap: str,
+    sparse_dir: Path,
+    database_path: Path,
+    image_dir: Path,
+    work_dir: Path,
+    output_dir: Path,
+    selected_timestamps: dict[str, float] | None,
+    mapper_seed_path: Path | None,
+    use_gpu: bool,
+    gpu_index: str | None,
+    num_threads: int | None,
+    command_logs: list[str],
+) -> tuple[Path, int, int, Path, dict[str, Any]]:
+    recovery_path = output_dir / "diagnostics" / "sfm_pose_recovery.json"
+    recovery_path.parent.mkdir(parents=True, exist_ok=True)
+    candidates = [path for path in sparse_dir.iterdir() if path.is_dir()]
+    if not candidates:
+        raise RuntimeError("COLMAP mapper produced no sparse models")
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "profile": "sfm_pose_recovery_v1",
+        "status": "not_needed",
+        "requested_mapper": "incremental",
+        "effective_mapper": None,
+        "recovery_applied": False,
+        "primary_candidates": [],
+        "recovery_candidates": [],
+        "selected": None,
+        "source_database_sha256": (
+            sha256_file(database_path) if database_path.is_file() else None
+        ),
+        "test_rgb_loaded": False,
+    }
+    healthy: list[dict[str, Any]] = []
+    for candidate in sorted(candidates, key=lambda path: path.name):
+        evaluated = _evaluate_pose_candidate(
+            colmap=colmap,
+            model_dir=candidate,
+            text_dir=work_dir / "pose_health" / f"primary-{candidate.name}",
+            database_path=database_path,
+            selected_timestamps=selected_timestamps,
+            command_logs=command_logs,
+            kind="incremental",
+        )
+        record["primary_candidates"].append(evaluated)
+        if evaluated["accepted"]:
+            healthy.append(evaluated)
+    effective_database = database_path
+    if not healthy:
+        record["status"] = "recovery_attempted"
+        global_candidate = _try_global_pose_recovery(
+            colmap=colmap,
+            database_path=database_path,
+            image_dir=image_dir,
+            recovery_dir=work_dir / "pose_recovery" / "global",
+            selected_timestamps=selected_timestamps,
+            mapper_seed_path=mapper_seed_path,
+            use_gpu=use_gpu,
+            gpu_index=gpu_index,
+            num_threads=num_threads,
+            command_logs=command_logs,
+        )
+        record["recovery_candidates"].append(global_candidate)
+        if global_candidate.get("accepted"):
+            healthy.append(global_candidate)
+        else:
+            repairable_primary = [
+                candidate
+                for candidate in record["primary_candidates"]
+                if candidate.get("pose_health", {})
+                .get("automatic_repair", {})
+                .get("eligible")
+                is True
+            ]
+            primary = max(
+                repairable_primary or record["primary_candidates"],
+                key=lambda value: (
+                    int(value["registered_count"]),
+                    int(value["point_count"]),
+                    str(value["model_path"]),
+                ),
+            )
+            core_candidate = _try_core_pose_repair(
+                colmap=colmap,
+                primary=primary,
+                database_path=database_path,
+                recovery_dir=work_dir / "pose_recovery" / "core",
+                selected_timestamps=selected_timestamps,
+                use_gpu=use_gpu,
+                gpu_index=gpu_index,
+                command_logs=command_logs,
+            )
+            record["recovery_candidates"].append(core_candidate)
+            if core_candidate.get("accepted"):
+                healthy.append(core_candidate)
+    if not healthy:
+        record["status"] = "failed"
+        record["reason"] = "no_healthy_sfm_pose_candidate"
+        _relativize_pose_recovery_paths(record, output_dir)
+        write_json(recovery_path, record)
+        reasons = sorted(
+            {
+                str(reason)
+                for candidate in (
+                    record["primary_candidates"] + record["recovery_candidates"]
+                )
+                for reason in (
+                    candidate.get("gate_reason_codes", [])
+                    or candidate.get("pose_health", {}).get("reason_codes", [])
+                )
+            }
+        )
+        raise RuntimeError(
+            "SfM pose recovery produced no healthy model: "
+            + (",".join(reasons) or "no_candidate_completed")
+        )
+    selected = max(
+        healthy,
+        key=lambda value: (
+            int(value["registered_count"]),
+            float(
+                (value.get("registration_timeline") or {}).get(
+                    "temporal_coverage", -1.0
+                )
+            ),
+            int(value["point_count"]),
+            value["kind"] == "incremental",
+            str(value["model_path"]),
+        ),
+    )
+    if selected["kind"] != "incremental":
+        record["status"] = "recovered"
+        record["recovery_applied"] = True
+    record["effective_mapper"] = selected["kind"]
+    record["selected"] = {
+        **{
+            key: selected[key]
+            for key in (
+                "kind",
+                "model_path",
+                "database_path",
+                "registered_count",
+                "point_count",
+            )
+        },
+        **(
+            {"excluded_image_ids": selected["excluded_image_ids"]}
+            if "excluded_image_ids" in selected
+            else {}
+        ),
+    }
+    selected_model = Path(selected["model_path"])
+    effective_database = Path(selected["database_path"])
+    record["effective_database_sha256"] = (
+        record["source_database_sha256"]
+        if effective_database.resolve() == database_path.resolve()
+        else sha256_file(effective_database)
+        if effective_database.is_file()
+        else None
+    )
+    _relativize_pose_recovery_paths(record, output_dir)
+    write_json(recovery_path, record)
+    return (
+        selected_model,
+        int(selected["registered_count"]),
+        int(selected["point_count"]),
+        effective_database,
+        record,
+    )
+
+
+def _evaluate_pose_candidate(
+    *,
+    colmap: str,
+    model_dir: Path,
+    text_dir: Path,
+    database_path: Path,
+    selected_timestamps: dict[str, float] | None,
+    command_logs: list[str],
+    kind: str,
+) -> dict[str, Any]:
+    try:
+        return _evaluate_pose_candidate_unchecked(
+            colmap=colmap,
+            model_dir=model_dir,
+            text_dir=text_dir,
+            database_path=database_path,
+            selected_timestamps=selected_timestamps,
+            command_logs=command_logs,
+            kind=kind,
+        )
+    except Exception as exc:
+        try:
+            registered, points = read_sparse_model_counts(model_dir)
+        except Exception:
+            registered = points = 0
+        return {
+            "kind": kind,
+            "status": "failed",
+            "accepted": False,
+            "gate_reason_codes": ["candidate_evaluation_failed"],
+            "reason": "candidate_evaluation_failed",
+            "error_type": exc.__class__.__name__,
+            "model_path": str(model_dir),
+            "database_path": str(database_path),
+            "registered_count": registered,
+            "point_count": points,
+        }
+
+
+def _evaluate_pose_candidate_unchecked(
+    *,
+    colmap: str,
+    model_dir: Path,
+    text_dir: Path,
+    database_path: Path,
+    selected_timestamps: dict[str, float] | None,
+    command_logs: list[str],
+    kind: str,
+) -> dict[str, Any]:
+    text_dir.mkdir(parents=True, exist_ok=True)
+    command_logs.append(
+        run_command(
+            [
+                colmap,
+                "model_converter",
+                "--input_path",
+                str(model_dir),
+                "--output_path",
+                str(text_dir),
+                "--output_type",
+                "TXT",
+            ]
+        )
+    )
+    registered, points = read_sparse_model_counts(model_dir)
+    model_files_sha256 = {
+        name: sha256_file(model_dir / name)
+        for name in (
+            "cameras.bin",
+            "images.bin",
+            "points3D.bin",
+            "cameras.txt",
+            "images.txt",
+            "points3D.txt",
+        )
+        if (model_dir / name).is_file()
+    }
+    health = build_sfm_pose_health_from_text(
+        model_dir=text_dir,
+        selected_timestamps=selected_timestamps,
+        database_path=database_path,
+    )
+    timeline = (
+        health.get("temporal", {}).get("registration_timeline")
+        if selected_timestamps is not None
+        else None
+    )
+    gate_reasons = list(health.get("reason_codes", []))
+    if selected_timestamps is not None and timeline is None:
+        gate_reasons.append("video_registration_timeline_missing")
+    if registered < MIN_VIDEO_REGISTERED_COUNT:
+        gate_reasons.append("registered_count_below_gate")
+    if timeline is not None:
+        if float(timeline["registration_rate"]) < MIN_VIDEO_REGISTRATION_RATE:
+            gate_reasons.append("registration_rate_below_gate")
+        if float(timeline["temporal_coverage"]) < MIN_VIDEO_TEMPORAL_COVERAGE:
+            gate_reasons.append("temporal_coverage_below_gate")
+    accepted = not gate_reasons
+    return {
+        "kind": kind,
+        "status": "accepted" if accepted else "rejected",
+        "accepted": accepted,
+        "gate_reason_codes": gate_reasons,
+        "model_path": str(model_dir),
+        "database_path": str(database_path),
+        "registered_count": registered,
+        "point_count": points,
+        "model_files_sha256": model_files_sha256,
+        "registration_timeline": timeline,
+        "pose_health": health,
+    }
+
+
+def _try_global_pose_recovery(
+    *,
+    colmap: str,
+    database_path: Path,
+    image_dir: Path,
+    recovery_dir: Path,
+    selected_timestamps: dict[str, float] | None,
+    mapper_seed_path: Path | None,
+    use_gpu: bool,
+    gpu_index: str | None,
+    num_threads: int | None,
+    command_logs: list[str],
+) -> dict[str, Any]:
+    candidate: dict[str, Any] = {
+        "kind": "global_recovery_v1",
+        "status": "failed",
+        "accepted": False,
+    }
+    try:
+        recovery_dir.mkdir(parents=True, exist_ok=False)
+        copied_database = recovery_dir / "database.db"
+        _backup_sqlite_database(database_path, copied_database)
+        command_logs.append(
+            run_command(
+                [
+                    colmap,
+                    "view_graph_calibrator",
+                    "--database_path",
+                    str(copied_database),
+                    "--random_seed",
+                    "0",
+                ]
+            )
+        )
+        output = recovery_dir / "model"
+        output.mkdir()
+        command = [
+            colmap,
+            "global_mapper",
+            "--database_path",
+            str(copied_database),
+            "--image_path",
+            str(image_dir),
+            "--output_path",
+            str(output),
+            "--random_seed",
+            "0",
+            "--GlobalMapper.gp_use_gpu",
+            "1" if use_gpu else "0",
+            "--GlobalMapper.ba_ceres_use_gpu",
+            "1" if use_gpu else "0",
+        ]
+        if mapper_seed_path is not None:
+            command.extend(
+                ("--GlobalMapper.image_list_path", str(mapper_seed_path))
+            )
+        if num_threads is not None:
+            command.extend(("--GlobalMapper.num_threads", str(num_threads)))
+        if use_gpu and gpu_index is not None:
+            first_gpu = gpu_index.split(",")[0]
+            command.extend(
+                (
+                    "--GlobalMapper.gp_gpu_index",
+                    first_gpu,
+                    "--GlobalMapper.ba_ceres_gpu_index",
+                    first_gpu,
+                )
+            )
+        command_logs.append(run_command(command))
+        evaluated = [
+            _evaluate_pose_candidate(
+                colmap=colmap,
+                model_dir=model,
+                text_dir=recovery_dir / "text" / model.name,
+                database_path=copied_database,
+                selected_timestamps=selected_timestamps,
+                command_logs=command_logs,
+                kind="global_recovery_v1",
+            )
+            for model in _model_candidates(output)
+        ]
+        if not evaluated:
+            candidate["reason"] = "global_mapper_produced_no_model"
+            return candidate
+        return max(
+            evaluated,
+            key=lambda value: (
+                bool(value["accepted"]),
+                int(value["registered_count"]),
+                float(
+                    (value.get("registration_timeline") or {}).get(
+                        "temporal_coverage", -1.0
+                    )
+                ),
+                int(value["point_count"]),
+            ),
+        )
+    except Exception as exc:
+        candidate["reason"] = "global_recovery_failed"
+        candidate["error_type"] = exc.__class__.__name__
+        return candidate
+
+
+def _try_core_pose_repair(
+    *,
+    colmap: str,
+    primary: dict[str, Any],
+    database_path: Path,
+    recovery_dir: Path,
+    selected_timestamps: dict[str, float] | None,
+    use_gpu: bool,
+    gpu_index: str | None,
+    command_logs: list[str],
+) -> dict[str, Any]:
+    candidate: dict[str, Any] = {
+        "kind": "incremental_core_repair_v1",
+        "status": "not_eligible",
+        "accepted": False,
+    }
+    eligibility = primary["pose_health"].get("automatic_repair", {})
+    candidate["eligibility"] = eligibility
+    if eligibility.get("eligible") is not True:
+        candidate["reason"] = str(eligibility.get("reason", "not_eligible"))
+        return candidate
+    try:
+        recovery_dir.mkdir(parents=True, exist_ok=False)
+        image_ids_path = recovery_dir / "excluded-image-ids.txt"
+        image_ids = [int(value) for value in eligibility["excluded_image_ids"]]
+        image_ids_path.write_text(
+            "".join(f"{value}\n" for value in image_ids), encoding="utf-8"
+        )
+        deleted = recovery_dir / "deleted"
+        filtered = recovery_dir / "filtered"
+        adjusted = recovery_dir / "adjusted"
+        for path in (deleted, filtered, adjusted):
+            path.mkdir()
+        command_logs.append(
+            run_command(
+                [
+                    colmap,
+                    "image_deleter",
+                    "--input_path",
+                    str(primary["model_path"]),
+                    "--output_path",
+                    str(deleted),
+                    "--image_ids_path",
+                    str(image_ids_path),
+                ]
+            )
+        )
+        command_logs.append(
+            run_command(
+                [
+                    colmap,
+                    "point_filtering",
+                    "--input_path",
+                    str(deleted),
+                    "--output_path",
+                    str(filtered),
+                    "--min_track_len",
+                    "3",
+                ]
+            )
+        )
+        command = [
+            colmap,
+            "bundle_adjuster",
+            "--input_path",
+            str(filtered),
+            "--output_path",
+            str(adjusted),
+            "--random_seed",
+            "0",
+            "--BundleAdjustment.refine_focal_length",
+            "1",
+            "--BundleAdjustment.refine_principal_point",
+            "0",
+            "--BundleAdjustment.refine_extra_params",
+            "1",
+            "--BundleAdjustmentCeres.function_tolerance",
+            "0.000001",
+        ]
+        if use_gpu:
+            command.extend(("--BundleAdjustmentCeres.use_gpu", "1"))
+            if gpu_index is not None:
+                command.extend(
+                    ("--BundleAdjustmentCeres.gpu_index", gpu_index.split(",")[0])
+                )
+        command_logs.append(run_command(command))
+        evaluated = _evaluate_pose_candidate(
+            colmap=colmap,
+            model_dir=adjusted,
+            text_dir=recovery_dir / "text",
+            database_path=database_path,
+            selected_timestamps=selected_timestamps,
+            command_logs=command_logs,
+            kind="incremental_core_repair_v1",
+        )
+        evaluated["excluded_image_ids"] = image_ids
+        return evaluated
+    except Exception as exc:
+        candidate["status"] = "failed"
+        candidate["reason"] = "core_repair_failed"
+        candidate["error_type"] = exc.__class__.__name__
+        return candidate
+
+
+def _relativize_pose_recovery_paths(
+    record: dict[str, Any], output_dir: Path
+) -> None:
+    root = output_dir.resolve()
+    candidates = [
+        *record.get("primary_candidates", []),
+        *record.get("recovery_candidates", []),
+    ]
+    if isinstance(record.get("selected"), dict):
+        candidates.append(record["selected"])
+    for candidate in candidates:
+        for key in ("model_path", "database_path"):
+            if key not in candidate:
+                continue
+            path = Path(str(candidate[key])).resolve()
+            try:
+                candidate[key] = path.relative_to(root).as_posix()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"SfM pose recovery {key} escapes the output directory"
+                ) from exc
+
+
+def _backup_sqlite_database(source: Path, destination: Path) -> None:
+    with sqlite3.connect(f"file:{source.resolve()}?mode=ro", uri=True) as source_db:
+        with sqlite3.connect(destination) as destination_db:
+            source_db.backup(destination_db)
+
+
+def _model_candidates(root: Path) -> list[Path]:
+    if all((root / name).is_file() for name in ("images.bin", "points3D.bin")):
+        return [root]
+    if all((root / name).is_file() for name in ("images.txt", "points3D.txt")):
+        return [root]
+    return sorted(
+        (
+            path
+            for path in root.iterdir()
+            if path.is_dir()
+            and (
+                all((path / name).is_file() for name in ("images.bin", "points3D.bin"))
+                or all((path / name).is_file() for name in ("images.txt", "points3D.txt"))
+            )
+        ),
+        key=lambda path: path.name,
+    )
 
 
 def find_largest_sparse_model(sparse_dir: Path) -> tuple[Path, int, int]:
@@ -798,7 +1482,10 @@ def read_ply_vertex_count(path: Path) -> int:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
 if __name__ == "__main__":

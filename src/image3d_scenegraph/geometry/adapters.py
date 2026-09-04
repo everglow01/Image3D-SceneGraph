@@ -6,7 +6,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
 from image3d_scenegraph.geometry.camera_calibration import (
@@ -544,6 +544,73 @@ class ProjectGaussianAdapter:
             env=(None if geometry_source == "colmap" else env),
             poll_callback=progress_callback,
         )
+        sfm_database_path = context.job_dir / "colmap" / "database.db"
+        sfm_database_sha256: str | None = None
+        sfm_mapper = "incremental"
+        colmap_timing: dict[str, Any] | None = None
+        pose_health_path: Path | None = None
+        pose_recovery_path: Path | None = None
+        pose_log_lines: list[str] = []
+        if geometry_source == "colmap":
+            colmap_timing_path = context.job_dir / "diagnostics" / "colmap_timing.json"
+            try:
+                colmap_timing = json.loads(
+                    colmap_timing_path.read_text(encoding="utf-8")
+                )
+                if (
+                    colmap_timing.get("schema_version") != 1
+                    or colmap_timing.get("profile") != "colmap_timing_v1"
+                ):
+                    raise ValueError("unsupported COLMAP timing schema")
+                sfm_mapper = str(colmap_timing["mapper"])
+                if sfm_mapper not in {
+                    "incremental",
+                    "global_recovery_v1",
+                    "incremental_core_repair_v1",
+                }:
+                    raise ValueError("unsupported effective COLMAP mapper")
+                sfm_database_sha256 = str(
+                    colmap_timing["effective_database_sha256"]
+                )
+                if len(sfm_database_sha256) != 64 or any(
+                    character not in "0123456789abcdef"
+                    for character in sfm_database_sha256
+                ):
+                    raise ValueError("invalid effective COLMAP database hash")
+                database_relative = Path(
+                    str(colmap_timing["effective_database_path"])
+                )
+                pose_health_relative = Path(
+                    str(colmap_timing["sfm_pose_health_path"])
+                )
+                pose_recovery_relative = Path(
+                    str(colmap_timing["sfm_pose_recovery_path"])
+                )
+                if any(
+                    path.is_absolute() or ".." in path.parts
+                    for path in (
+                        database_relative,
+                        pose_health_relative,
+                        pose_recovery_relative,
+                    )
+                ):
+                    raise ValueError("COLMAP pose evidence path is unsafe")
+                sfm_database_path = context.job_dir / database_relative
+                pose_health_path = context.job_dir / pose_health_relative
+                pose_recovery_path = context.job_dir / pose_recovery_relative
+                if not all(
+                    path.is_file()
+                    for path in (
+                        sfm_database_path,
+                        pose_health_path,
+                        pose_recovery_path,
+                    )
+                ):
+                    raise ValueError("COLMAP pose evidence is incomplete")
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                raise ReconstructionError(
+                    "COLMAP pose health diagnostics are missing or invalid"
+                ) from exc
         cameras_path = context.job_dir / "geometry" / "cameras.json"
         sfm_points_path = context.job_dir / "geometry" / "points.ply"
         camera_calibration_path = (
@@ -567,6 +634,74 @@ class ProjectGaussianAdapter:
         geometry_assets["sfm_camera_calibration_diagnostics"] = (
             camera_calibration_path.relative_to(context.job_dir).as_posix()
         )
+        if geometry_source == "colmap":
+            assert (
+                pose_health_path is not None
+                and pose_recovery_path is not None
+                and sfm_database_sha256 is not None
+            )
+            try:
+                pose_health = json.loads(pose_health_path.read_text(encoding="utf-8"))
+                pose_recovery = json.loads(
+                    pose_recovery_path.read_text(encoding="utf-8")
+                )
+                removed_count = _validate_colmap_pose_evidence(
+                    mapper=sfm_mapper,
+                    database_path=database_relative,
+                    database_sha256=sfm_database_sha256,
+                    pose_health=pose_health,
+                    pose_recovery=pose_recovery,
+                )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise ReconstructionError(
+                    "COLMAP pose health diagnostics are inconsistent"
+                ) from exc
+            geometry_assets.update(
+                sfm_pose_health=pose_health_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
+                sfm_pose_recovery=pose_recovery_path.relative_to(
+                    context.job_dir
+                ).as_posix(),
+            )
+            geometry_metrics.update(
+                sfm_pose_health_status="passed",
+                sfm_effective_mapper=sfm_mapper,
+                sfm_pose_recovery_status=str(pose_recovery["status"]),
+                sfm_pose_recovery_applied=bool(
+                    pose_recovery["recovery_applied"]
+                ),
+                sfm_pose_recovery_removed_camera_count=removed_count,
+            )
+            pose_log_lines = [
+                "sfm_pose_health_status=passed",
+                f"sfm_effective_mapper={sfm_mapper}",
+                f"sfm_pose_recovery_status={pose_recovery['status']}",
+                "sfm_pose_recovery_applied="
+                + str(bool(pose_recovery["recovery_applied"])).lower(),
+                f"sfm_pose_recovery_removed_camera_count={removed_count}",
+            ]
+        else:
+            pose_health_path = context.job_dir / "diagnostics" / "sfm_pose_health.json"
+            try:
+                pose_health = json.loads(
+                    pose_health_path.read_text(encoding="utf-8")
+                )
+                if (
+                    pose_health.get("schema_version") != 1
+                    or pose_health.get("profile") != "sfm_pose_health_v1"
+                    or pose_health.get("status") != "passed"
+                ):
+                    raise ValueError("unsupported VGGT-BA pose health evidence")
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                raise ReconstructionError(
+                    "VGGT-BA pose health diagnostics are missing or invalid"
+                ) from exc
+            geometry_assets["sfm_pose_health"] = pose_health_path.relative_to(
+                context.job_dir
+            ).as_posix()
+            geometry_metrics["sfm_pose_health_status"] = "passed"
+            pose_log_lines = ["sfm_pose_health_status=passed"]
         if geometry_source == "colmap" and video_profile == "standard_v2":
             colmap_timing_path = (
                 context.job_dir / "diagnostics" / "colmap_timing.json"
@@ -778,7 +913,7 @@ class ProjectGaussianAdapter:
         write_contract(dataset_path, contract)
         sfm_assets, sfm_metrics, sfm_log_lines = _try_export_sfm_diagnostics(
             context=context,
-            database_path=context.job_dir / "colmap" / "database.db",
+            database_path=sfm_database_path,
             source_image_root=image_dir,
             dataset_path=dataset_path,
             output_dir=context.job_dir / "diagnostics" / "sfm",
@@ -788,6 +923,7 @@ class ProjectGaussianAdapter:
             geometric_verification=sfm_geometric_verification,
             camera_calibration=sfm_camera_calibration,
             geometry_source=geometry_source,
+            mapper=sfm_mapper,
             video_selection_path=video_selection_path,
         )
         geometry_assets.update(sfm_assets)
@@ -1057,6 +1193,7 @@ class ProjectGaussianAdapter:
                 if sor_reason
                 else []
             ),
+            *pose_log_lines,
             *video_recovery_log_lines,
             *registration_log_lines,
             *sfm_log_lines,
@@ -1150,6 +1287,43 @@ def _default_geometric_verification_provenance() -> dict[str, str | bool]:
     }
 
 
+def _validate_colmap_pose_evidence(
+    *,
+    mapper: str,
+    database_path: Path,
+    database_sha256: str,
+    pose_health: Mapping[str, Any],
+    pose_recovery: Mapping[str, Any],
+) -> int:
+    selected = pose_recovery.get("selected")
+    if not isinstance(selected, dict):
+        raise ValueError("COLMAP pose recovery has no selected model")
+    excluded_image_ids = selected.get("excluded_image_ids", [])
+    if not isinstance(excluded_image_ids, list) or any(
+        not isinstance(image_id, int) or image_id <= 0
+        for image_id in excluded_image_ids
+    ):
+        raise ValueError("invalid repaired COLMAP camera IDs")
+    expected_status = "not_needed" if mapper == "incremental" else "recovered"
+    if (
+        pose_health.get("schema_version") != 1
+        or pose_health.get("profile") != "sfm_pose_health_v1"
+        or pose_health.get("status") != "passed"
+        or pose_recovery.get("schema_version") != 1
+        or pose_recovery.get("profile") != "sfm_pose_recovery_v1"
+        or pose_recovery.get("status") != expected_status
+        or pose_recovery.get("effective_mapper") != mapper
+        or selected.get("kind") != mapper
+        or Path(str(selected.get("database_path", ""))) != database_path
+        or pose_recovery.get("effective_database_sha256") != database_sha256
+        or pose_recovery.get("recovery_applied") is not (mapper != "incremental")
+        or bool(excluded_image_ids)
+        is not (mapper == "incremental_core_repair_v1")
+    ):
+        raise ValueError("inconsistent COLMAP pose evidence")
+    return len(excluded_image_ids)
+
+
 def _try_export_sfm_diagnostics(
     *,
     context: ReconstructionContext,
@@ -1163,6 +1337,7 @@ def _try_export_sfm_diagnostics(
     geometric_verification: str,
     camera_calibration: str,
     geometry_source: str,
+    mapper: str,
     video_selection_path: Path | None,
 ) -> tuple[
     dict[str, str],
@@ -1268,7 +1443,7 @@ def _try_export_sfm_diagnostics(
             camera_calibration=camera_record,
             camera_calibration_diagnostics_path=camera_diagnostics_path,
             pairing_vocab_tree_sha256=pairing_vocab_tree_sha256,
-            mapper="incremental",
+            mapper=mapper,
             colmap_build=colmap_build,
             video_selection_path=video_selection_path,
             cancel_requested=context.cancel_requested,

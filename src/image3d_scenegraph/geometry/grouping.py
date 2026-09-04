@@ -39,10 +39,19 @@ class VggtGroupSelection:
 
 def parse_colmap_images_with_points(path: Path) -> list[ColmapImage]:
     images: list[ColmapImage] = []
-    data_lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
-    for index in range(0, len(data_lines), 2):
-        image_parts = data_lines[index].split(maxsplit=9)
-        point_parts = data_lines[index + 1].split()
+    lines = [
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.startswith("#")
+    ]
+    index = 0
+    while index < len(lines):
+        if not lines[index]:
+            index += 1
+            continue
+        image_parts = lines[index].split(maxsplit=9)
+        point_parts = lines[index + 1].split() if index + 1 < len(lines) else []
+        index += 2
         observations = [
             (float(point_parts[point_index]), float(point_parts[point_index + 1]), point3d_id)
             for point_index in range(0, len(point_parts), 3)

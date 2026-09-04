@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from image3d_scenegraph.file_integrity import sha256_file
+from image3d_scenegraph.geometry.sfm_pose_health import (
+    build_sfm_pose_health_from_text,
+    selected_timestamps_from_payload,
+)
 from image3d_scenegraph.video.keyframes import (
     V2_PROFILE_ID,
     materialize_video_candidates,
@@ -101,12 +105,14 @@ def expand_v2_initial_registration(
         raise ValueError("initial registration expansion requires standard_v2")
     started_at = time.perf_counter()
     command_logs: list[str] = []
+    selected_timestamps = selected_timestamps_from_payload(selection)
     current_model = initial_model
     current_state = inspect_sparse_model(
         colmap,
         current_model,
         work_dir / "initial_txt",
         command_logs,
+        selected_timestamps=selected_timestamps,
     )
     initial_state = current_state
     initial_timeline = _timeline(selection, current_state["registered_names"])
@@ -156,6 +162,7 @@ def expand_v2_initial_registration(
             registered_dir,
             pass_dir / "registered_txt",
             command_logs,
+            selected_timestamps=selected_timestamps,
         )
         registered_timeline = _timeline(
             selection,
@@ -168,6 +175,15 @@ def expand_v2_initial_registration(
         record["registered_gain"] = int(registered_state["registered_count"]) - int(
             current_state["registered_count"]
         )
+        registered_pose_health = registered_state.get("pose_health")
+        if (
+            isinstance(registered_pose_health, dict)
+            and registered_pose_health.get("status") != "passed"
+        ):
+            record["reason"] = "rejected_sfm_pose_health"
+            record["elapsed_seconds"] = time.perf_counter() - pass_started_at
+            diagnostics["reason"] = record["reason"]
+            break
         if not set(current_state["registered_names"]) <= set(
             registered_state["registered_names"]
         ):
@@ -206,13 +222,20 @@ def expand_v2_initial_registration(
             triangulated_dir,
             pass_dir / "triangulated_txt",
             command_logs,
+            selected_timestamps=selected_timestamps,
         )
         after_timeline = _timeline(selection, after_state["registered_names"])
         record["after"] = _timeline_payload(after_timeline, after_state)
         record["sparse_point_delta"] = int(after_state["point_count"]) - int(
             current_state["point_count"]
         )
-        if not set(current_state["registered_names"]) <= set(
+        after_pose_health = after_state.get("pose_health")
+        if (
+            isinstance(after_pose_health, dict)
+            and after_pose_health.get("status") != "passed"
+        ):
+            record["reason"] = "rejected_sfm_pose_health"
+        elif not set(current_state["registered_names"]) <= set(
             after_state["registered_names"]
         ):
             record["reason"] = "rejected_registered_camera_loss"
@@ -323,6 +346,7 @@ def recover_video_registration(
         selected = selection.get("selected")
         if not isinstance(selected, list) or not selected:
             raise ValueError("video selection metadata has no selected frames")
+        selected_timestamps = selected_timestamps_from_payload(selection)
         initial_selected_count = len(selected)
         round_limit = math.ceil(initial_selected_count * ROUND_BUDGET_FRACTION)
         total_limit = math.ceil(initial_selected_count * TOTAL_BUDGET_FRACTION)
@@ -338,6 +362,7 @@ def recover_video_registration(
             current_model,
             recovery_root / "initial_txt",
             command_logs,
+            selected_timestamps=selected_timestamps,
         )
         current_state = initial_state
         initial_timeline = _timeline(selection, current_state["registered_names"])
@@ -540,6 +565,9 @@ def recover_video_registration(
                 registered_dir,
                 round_dir / "registered_txt",
                 command_logs,
+                selected_timestamps=selected_timestamps_from_payload(
+                    proposed_selection
+                ),
             )
             registered_timeline = _timeline(
                 proposed_selection,
@@ -593,6 +621,9 @@ def recover_video_registration(
                 triangulated_dir,
                 round_dir / "triangulated_txt",
                 command_logs,
+                selected_timestamps=selected_timestamps_from_payload(
+                    proposed_selection
+                ),
             )
             after_timeline = _timeline(
                 proposed_selection,
@@ -789,6 +820,9 @@ def _validate_model_safety(
 ) -> tuple[bool, str]:
     before_names = set(before_state["registered_names"])
     after_names = set(after_state["registered_names"])
+    pose_health = after_state.get("pose_health")
+    if isinstance(pose_health, dict) and pose_health.get("status") != "passed":
+        return False, "rejected_sfm_pose_health"
     if not before_names <= after_names:
         return False, "rejected_registered_camera_loss"
     if int(after_state["point_count"]) < math.ceil(
@@ -894,6 +928,7 @@ def _run_final_bundle_adjustment(
             adjusted_dir,
             recovery_root / f"{adjusted_dir.name}-txt",
             command_logs,
+            selected_timestamps=selected_timestamps_from_payload(selection),
         )
         adjusted_timeline = _timeline(
             selection,
@@ -945,6 +980,8 @@ def inspect_sparse_model(
     model_dir: Path,
     text_dir: Path,
     command_logs: list[str],
+    *,
+    selected_timestamps: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     text_dir.mkdir(parents=True, exist_ok=True)
     command_logs.append(
@@ -983,11 +1020,17 @@ def inspect_sparse_model(
         except ValueError:
             continue
         names.append(parts[9])
-    return {
+    state: dict[str, Any] = {
         "registered_names": sorted(names),
         "registered_count": len(names),
         "point_count": len(point_lines),
     }
+    if selected_timestamps is not None:
+        state["pose_health"] = build_sfm_pose_health_from_text(
+            model_dir=text_dir,
+            selected_timestamps=selected_timestamps,
+        )
+    return state
 
 
 def read_unique_camera_id(database_path: Path) -> int:
@@ -1014,7 +1057,7 @@ def _selected_timestamps(selection: dict[str, Any]) -> dict[str, float]:
 
 def _timeline_payload(
     timeline: dict[str, Any], state: dict[str, Any]
-) -> dict[str, int | float]:
+) -> dict[str, int | float | str | list[str]]:
     return {
         "selected_count": int(timeline["selected_count"]),
         "registered_count": int(timeline["registered_count"]),
@@ -1027,6 +1070,17 @@ def _timeline_payload(
         "gap_violation_total_seconds": float(timeline["gap_violation_total_seconds"]),
         "gap_violation_excess_seconds": float(timeline["gap_violation_excess_seconds"]),
         "sparse_point_count": int(state["point_count"]),
+        **(
+            {
+                "sfm_pose_health_status": str(state["pose_health"]["status"]),
+                "sfm_pose_health_reason_codes": [
+                    str(value)
+                    for value in state["pose_health"]["reason_codes"]
+                ],
+            }
+            if "pose_health" in state
+            else {}
+        ),
     }
 
 

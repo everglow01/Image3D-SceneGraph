@@ -82,7 +82,11 @@ def export_colmap_diagnostics(
         raise ColmapDiagnosticsError(
             "exhaustive COLMAP pairing has a vocabulary tree"
         )
-    if mapper != "incremental":
+    if mapper not in {
+        "incremental",
+        "global_recovery_v1",
+        "incremental_core_repair_v1",
+    }:
         raise ColmapDiagnosticsError(f"unsupported COLMAP mapper: {mapper}")
     feature_record = _validate_feature_record(feature)
     geometric_record = _validate_geometric_verification_record(

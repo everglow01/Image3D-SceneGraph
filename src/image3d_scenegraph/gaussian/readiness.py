@@ -9,14 +9,18 @@ from typing import Any
 
 import numpy as np
 
+from image3d_scenegraph.geometry.sfm_pose_health import (
+    CENTER_MAX_TO_MEDIAN_LIMIT as CAMERA_MAX_TO_MEDIAN_LIMIT,
+    CENTER_MAX_TO_P99_LIMIT as CAMERA_MAX_TO_P99_LIMIT,
+    CENTER_P99_TO_MEDIAN_LIMIT as CAMERA_P99_TO_MEDIAN_LIMIT,
+)
+
 from .dataset import camera_from_normalized_transform
 from .initialization import InitializationResult
 from .render import NEAR_PLANE_NORMALIZED
 
 
 PROFILE_ID = "gaussian_geometry_readiness_v1"
-CAMERA_MAX_TO_MEDIAN_LIMIT = 100.0
-CAMERA_MAX_TO_P99_LIMIT = 10.0
 INITIAL_SCALE_FLOOR = float(np.sqrt(1e-7))
 INITIAL_SCALE_FLOOR_FRACTION_LIMIT = 0.5
 PROJECTION_SAMPLE_LIMIT = 4096
@@ -51,9 +55,13 @@ def build_geometry_readiness(
     p99 = center_distribution["p99"]
     max_to_median = _finite_ratio(maximum, median)
     max_to_p99 = _finite_ratio(maximum, p99)
+    p99_to_median = _finite_ratio(p99, median)
     camera_outlier = (
-        _at_least_ratio(maximum, median, CAMERA_MAX_TO_MEDIAN_LIMIT)
-        and _at_least_ratio(maximum, p99, CAMERA_MAX_TO_P99_LIMIT)
+        (
+            _at_least_ratio(maximum, median, CAMERA_MAX_TO_MEDIAN_LIMIT)
+            and _at_least_ratio(maximum, p99, CAMERA_MAX_TO_P99_LIMIT)
+        )
+        or _at_least_ratio(p99, median, CAMERA_P99_TO_MEDIAN_LIMIT)
     )
 
     points = np.asarray(initialization.points, dtype=np.float32)
@@ -121,6 +129,7 @@ def build_geometry_readiness(
             "camera_p99_method": "lower_order_statistic",
             "camera_max_to_median_limit": CAMERA_MAX_TO_MEDIAN_LIMIT,
             "camera_max_to_p99_limit": CAMERA_MAX_TO_P99_LIMIT,
+            "camera_p99_to_median_limit": CAMERA_P99_TO_MEDIAN_LIMIT,
             "initial_scale_floor": INITIAL_SCALE_FLOOR,
             "initial_scale_floor_fraction_limit": INITIAL_SCALE_FLOOR_FRACTION_LIMIT,
             "near_plane_normalized": NEAR_PLANE_NORMALIZED,
@@ -137,6 +146,7 @@ def build_geometry_readiness(
             "distance_world": center_distribution,
             "max_to_median": max_to_median,
             "max_to_p99": max_to_p99,
+            "p99_to_median": p99_to_median,
             "farthest_image_id": str(images[maximum_index]["image_id"]),
             "farthest_image_path": str(images[maximum_index]["path"]),
             "largest_distances": largest_center_distances,

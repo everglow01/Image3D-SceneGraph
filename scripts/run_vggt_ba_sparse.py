@@ -35,6 +35,12 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
 )
+from image3d_scenegraph.geometry.sfm_pose_health import (
+    build_sfm_pose_health_from_text,
+    require_sfm_pose_health,
+    selected_timestamps_from_payload,
+    write_sfm_pose_health,
+)
 from image3d_scenegraph.geometry.video_recovery import (
     recover_video_registration,
     sequential_overlap,
@@ -739,6 +745,18 @@ def main() -> None:
     colmap_stage_elapsed_seconds["raw_model_conversion"] = (
         time.perf_counter() - raw_conversion_started
     )
+    pose_health = build_sfm_pose_health_from_text(
+        model_dir=raw_text_dir,
+        selected_timestamps=(
+            selected_timestamps_from_payload(video_selection)
+            if video_selection is not None
+            else None
+        ),
+        database_path=database_path,
+    )
+    pose_health_path = diagnostics_dir / "sfm_pose_health.json"
+    write_sfm_pose_health(pose_health_path, pose_health)
+    require_sfm_pose_health(pose_health)
     camera_diagnostics = build_camera_calibration_diagnostics(
         database_path=database_path,
         final_camera_payload=build_camera_payload(raw_text_dir),
@@ -855,6 +873,8 @@ def main() -> None:
         "camera_calibration_diagnostics": camera_diagnostics_path.relative_to(
             output_dir
         ).as_posix(),
+        "sfm_pose_health": pose_health_path.relative_to(output_dir).as_posix(),
+        "sfm_pose_health_status": pose_health["status"],
         "colmap_mapper": "incremental",
         "colmap_matcher": pairing_command.removesuffix("_matcher"),
         "colmap_stage_elapsed_seconds": colmap_stage_elapsed_seconds,
@@ -904,6 +924,8 @@ def main() -> None:
                     for key, value in camera_metrics.items()
                 ],
                 f"sfm_camera_calibration_diagnostics={camera_diagnostics_path.relative_to(output_dir).as_posix()}",
+                f"sfm_pose_health_status={pose_health['status']}",
+                f"sfm_pose_health={pose_health_path.relative_to(output_dir).as_posix()}",
                 "sfm_mapper=incremental",
                 f"colmap_feature_extraction_seconds={colmap_stage_elapsed_seconds['feature_extraction']:.3f}",
                 f"colmap_feature_matching_seconds={colmap_stage_elapsed_seconds['feature_matching']:.3f}",

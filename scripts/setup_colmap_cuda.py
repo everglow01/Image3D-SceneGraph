@@ -186,6 +186,12 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
         sequential_help = capture([str(executable), "sequential_matcher", "-h"])
         vocab_help = capture([str(executable), "vocab_tree_matcher", "-h"])
         importer_help = capture([str(executable), "matches_importer", "-h"])
+        calibrator_help = capture(
+            [str(executable), "view_graph_calibrator", "-h"]
+        )
+        global_mapper_help = capture([str(executable), "global_mapper", "-h"])
+        image_deleter_help = capture([str(executable), "image_deleter", "-h"])
+        point_filtering_help = capture([str(executable), "point_filtering", "-h"])
         markers = (
             (extractor_help, "AlikedExtraction.max_num_features"),
             (extractor_help, "image_list_path"),
@@ -214,6 +220,13 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
             (vocab_help, "FeatureMatching.skip_geometric_verification"),
             (importer_help, "FeatureMatching.guided_matching"),
             (importer_help, "FeatureMatching.skip_geometric_verification"),
+            (calibrator_help, "relpose_min_num_inliers"),
+            (global_mapper_help, "GlobalMapper.image_list_path"),
+            (global_mapper_help, "GlobalMapper.gp_use_gpu"),
+            (global_mapper_help, "GlobalMapper.ba_ceres_use_gpu"),
+            (global_mapper_help, "--random_seed"),
+            (image_deleter_help, "image_ids_path"),
+            (point_filtering_help, "min_track_len"),
         )
         missing = [marker for output, marker in markers if marker not in output]
         if missing:
