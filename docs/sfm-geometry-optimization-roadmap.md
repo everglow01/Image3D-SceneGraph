@@ -340,6 +340,8 @@ Pair shard schema 2 继续分别记录 tentative candidates、其中通过验证
 
 - registered count/rate；
 - 视频 temporal coverage、最大 gap、gap 总超额；gap 继续是 soft warning；
+- raw camera-center p50/p90/p99/max 与 scale-invariant max/p50、max/p99、p99/p50，timestamp-normalized translation/rotation step，positive-depth/observed-depth、covisibility component、异常分支与 core↔outlier bridge pair 证据；
+- primary/recovery/final pose-health status/reasons、effective Mapper/database hash、自动删除相机数；
 - sparse point count、observation count、mean/median track length；
 - mean/median reprojection error；
 - 焦距比、畸变参数异常数、被拒绝相机数；
@@ -561,11 +563,15 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 - raw sparse camera sidecar 记录 focal/distortion/registration/track/reprojection；COLMAP 默认 focal ratio/extra-param边界只产生 soft warning，provenance/model/assignment 漂移才是合同错误；
 - 真实 A/B 固定 feature、local matcher、pairing、geometric verification、Mapper/BA、输入和 trainer/split，只改变 camera profile；代码接入不构成质量提升或默认推广证据。
 
-### Phase 6：SfM 求解器
+### Phase 6：SfM 求解器（根因防线已接入，真实实验待执行）
 
-- incremental ↔ `view_graph_calibrator + global_mapper`；
-- 先 still/短视频，再长视频；
-- standard_v2 expansion/recovery 仍由 incremental 路径拥有，Global 不静默套用或替代。
+实现状态（2026-09-04）：`sfm_pose_health_v1` 已前移到 raw sparse model，在 undistortion、dataset normalization/split、Gaussian initialization 和 CUDA 前识别孤立极端相机及多尺度相机分支。ordinary-COLMAP 对每个 incremental 候选做健康选择；全部失败时，先在 SQLite 副本上运行 `view_graph_calibrator + global_mapper`，只有 Global 仍失败时才允许一次视频 healthy-core repair（完整异常分支、最多 10%、point filtering、BA）。所有候选继续满足 12/70%/80% 产品门槛，v2 expansion/recovery/final BA 不能重新引入坏分支；`>2s` gaps 仍是 soft warning。
+
+- Global 是内部 same-features/matches recovery，不是可选默认，也不静默切换 SIFT/ALIKED、Brute-force/LightGlue、pairing、camera profile 或 trainer；
+- `sfm_pose_recovery_v1` 记录 requested/effective Mapper、job-relative model/database paths、模型文件/source-and-effective-database hashes、removed IDs 和候选 health；Global/core 结果明确标为 recovered，不冒充 clean incremental；
+- `sfm_frontend_contract_v1` 在 Mapper 前冻结，即使 bad-pose arm 提前失败也可用于 2×2 比较；`evaluate_sfm_frontend_factorial.py` 只消费既有 JSON，并严格拒绝非同源合同；
+- 独立 2×2 为 SIFT/ALIKED × Brute-force/LightGlue，比较 primary unrecovered health。仅 D 失败支持 interaction risk，B/D 支持 LightGlue path risk，C/D 支持 ALIKED path risk，四格失败指向 common pipeline/scene；同 matches Global 通过只支持 solver sensitivity；
+- 本地只做 CPU/mock 自动测试。原失败 Job 的 read-only analyzer、远端 geometry-only 恢复验证和四格真实运行仍等待用户分别明确启动，不能以代码接入代替实验结论。
 
 ### Phase 7：三角化与 BA 性能
 
