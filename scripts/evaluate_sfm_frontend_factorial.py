@@ -128,7 +128,18 @@ def load_arm(root: Path) -> dict[str, Any]:
         "v2_mapper_options": provenance.get("v2_mapper_options"),
         "v2_mapper_seed_count": provenance.get("v2_mapper_seed_count"),
         "primary_pose_health_passed": any(
+            candidate.get("pose_health", {}).get("status") == "passed"
+            for candidate in primary
+        ),
+        "primary_product_gate_passed": any(
             candidate.get("accepted") is True for candidate in primary
+        ),
+        "primary_gate_reason_codes": sorted(
+            {
+                str(reason)
+                for candidate in primary
+                for reason in candidate.get("gate_reason_codes", [])
+            }
         ),
         "primary_reason_codes": sorted(
             {
