@@ -139,7 +139,8 @@ def test_factorial_loads_failed_arm_without_final_timing(tmp_path) -> None:
             {
                 "accepted": False,
                 "pose_health": {
-                    "reason_codes": ["multiscale_camera_pose_branch"]
+                    "status": "failed",
+                    "reason_codes": ["multiscale_camera_pose_branch"],
                 },
             }
         ],
@@ -157,6 +158,53 @@ def test_factorial_loads_failed_arm_without_final_timing(tmp_path) -> None:
     assert arm["primary_pose_health_passed"] is False
     assert arm["primary_reason_codes"] == ["multiscale_camera_pose_branch"]
     assert arm["feature_profile"] == "aliked_n16rot_v1"
+
+
+def test_factorial_separates_pose_health_from_product_gates(tmp_path) -> None:
+    diagnostics = tmp_path / "diagnostics"
+    diagnostics.mkdir()
+    contract = {
+        "schema_version": 1,
+        "profile": "sfm_frontend_contract_v1",
+        "feature": {
+            "profile": "sift_v1",
+            "local_matcher_profile": "bruteforce",
+        },
+        "colmap_build": "COLMAP 4.0.0",
+        "pairing": "exhaustive",
+        "geometric_verification": {"profile": "default_v1"},
+        "camera_calibration": {"profile": "shared_opencv_v1"},
+        "requested_mapper": "incremental",
+        "colmap_random_seed": 0,
+        "video_profile": "video_keyframes_standard_v1",
+        "initial_video_selection_sha256": "a" * 64,
+        "v2_mapper_options": [],
+        "v2_mapper_seed_count": 0,
+    }
+    recovery = {
+        "schema_version": 1,
+        "profile": "sfm_pose_recovery_v1",
+        "primary_candidates": [
+            {
+                "accepted": False,
+                "gate_reason_codes": ["registration_rate_below_gate"],
+                "pose_health": {"status": "passed", "reason_codes": []},
+            }
+        ],
+        "recovery_candidates": [],
+    }
+    (diagnostics / "sfm_frontend_contract.json").write_text(
+        json.dumps(contract), encoding="utf-8"
+    )
+    (diagnostics / "sfm_pose_recovery.json").write_text(
+        json.dumps(recovery), encoding="utf-8"
+    )
+
+    arm = load_arm(tmp_path)
+
+    assert arm["primary_pose_health_passed"] is True
+    assert arm["primary_product_gate_passed"] is False
+    assert arm["primary_gate_reason_codes"] == ["registration_rate_below_gate"]
 
 
 def test_factorial_rejects_mislabeled_frontend_arm() -> None:
