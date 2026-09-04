@@ -301,7 +301,7 @@ def main() -> None:
         str(args.image_dir),
         "--output_path",
         str(sparse_dir),
-        "--random_seed",
+        "--default_random_seed",
         "0",
     ]
     if args.gaussian_baseline:
@@ -316,7 +316,7 @@ def main() -> None:
         pairing_command,
         "--database_path",
         str(work_dir / "database.db"),
-        "--random_seed",
+        "--default_random_seed",
         "0",
         "--FeatureMatching.use_gpu",
         "1" if args.use_gpu else "0",
@@ -1160,7 +1160,7 @@ def _try_global_pose_recovery(
                     "view_graph_calibrator",
                     "--database_path",
                     str(copied_database),
-                    "--random_seed",
+                    "--default_random_seed",
                     "0",
                 ]
             )
@@ -1176,7 +1176,7 @@ def _try_global_pose_recovery(
             str(image_dir),
             "--output_path",
             str(output),
-            "--random_seed",
+            "--default_random_seed",
             "0",
             "--GlobalMapper.gp_use_gpu",
             "1" if use_gpu else "0",
@@ -1302,7 +1302,7 @@ def _try_core_pose_repair(
             str(filtered),
             "--output_path",
             str(adjusted),
-            "--random_seed",
+            "--default_random_seed",
             "0",
             "--BundleAdjustment.refine_focal_length",
             "1",

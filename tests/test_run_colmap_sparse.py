@@ -441,7 +441,7 @@ def test_global_pose_recovery_uses_database_copy_and_calibration(
         "global_mapper",
     ]
     assert all(
-        command[command.index("--random_seed") + 1] == "0"
+        command[command.index("--default_random_seed") + 1] == "0"
         for command in commands
     )
     copied = Path(commands[0][commands[0].index("--database_path") + 1])
@@ -501,6 +501,11 @@ def test_core_pose_repair_runs_delete_filter_and_bundle_adjustment(
         "point_filtering",
         "bundle_adjuster",
     ]
+    bundle_adjuster = commands[-1]
+    assert bundle_adjuster[
+        bundle_adjuster.index("--default_random_seed") + 1
+    ] == "0"
+    assert "--random_seed" not in bundle_adjuster
     assert (tmp_path / "repair" / "excluded-image-ids.txt").read_text() == "7\n9\n"
 
 
@@ -648,7 +653,11 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert matcher[matcher.index("--FeatureMatching.gpu_index") + 1] == "0"
     assert matcher[matcher.index("--FeatureMatching.num_threads") + 1] == "4"
     assert matcher[matcher.index("--FeatureMatching.type") + 1] == "SIFT_BRUTEFORCE"
+    assert matcher[matcher.index("--default_random_seed") + 1] == "0"
+    assert "--random_seed" not in matcher
     assert mapper[mapper.index("--Mapper.num_threads") + 1] == "4"
+    assert mapper[mapper.index("--default_random_seed") + 1] == "0"
+    assert "--random_seed" not in mapper
     assert "--Mapper.ba_global_frames_ratio" not in mapper
     assert "--Mapper.image_list_path" not in mapper
     assert "--image_list_path" not in mapper

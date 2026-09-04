@@ -60,7 +60,7 @@ def test_install_verification_requires_geometry_flags_on_matches_importer(
         "view_graph_calibrator": "relpose_min_num_inliers",
         "global_mapper": (
             "GlobalMapper.image_list_path GlobalMapper.gp_use_gpu "
-            "GlobalMapper.ba_ceres_use_gpu --random_seed"
+            "GlobalMapper.ba_ceres_use_gpu --default_random_seed"
         ),
         "image_deleter": "image_ids_path",
         "point_filtering": "min_track_len",

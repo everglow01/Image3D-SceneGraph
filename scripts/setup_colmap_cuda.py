@@ -224,7 +224,7 @@ def verify_install(executable: Path, profile: SetupProfile) -> None:
             (global_mapper_help, "GlobalMapper.image_list_path"),
             (global_mapper_help, "GlobalMapper.gp_use_gpu"),
             (global_mapper_help, "GlobalMapper.ba_ceres_use_gpu"),
-            (global_mapper_help, "--random_seed"),
+            (global_mapper_help, "--default_random_seed"),
             (image_deleter_help, "image_ids_path"),
             (point_filtering_help, "min_track_len"),
         )
