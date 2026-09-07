@@ -80,3 +80,40 @@ int main() {
     binary = tmp_path / "check"
     subprocess.run([compiler, "-std=c++17", str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
+
+
+def test_experiment_detects_descriptor_index_corruption(tmp_path, monkeypatch):
+    import runpy
+    import sqlite3
+
+    import numpy as np
+
+    scripts = Path(__file__).parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    audit = runpy.run_path(str(scripts / "run_aliked_score_filter_experiment.py"))
+    for name, indices in (("old", [0, 1, 2]), ("new", [2, 1]), ("broken", [2, 1])):
+        with sqlite3.connect(tmp_path / f"{name}.db") as db:
+            db.executescript("""
+                CREATE TABLE images(image_id INTEGER, name TEXT, camera_id INTEGER);
+                CREATE TABLE cameras(camera_id INTEGER, width INTEGER, height INTEGER);
+                CREATE TABLE keypoints(image_id INTEGER, rows INTEGER, cols INTEGER, data BLOB);
+                CREATE TABLE descriptors(image_id INTEGER, rows INTEGER, cols INTEGER, data BLOB);
+                CREATE TABLE matches(rows INTEGER);
+                CREATE TABLE two_view_geometries(rows INTEGER);
+                INSERT INTO images VALUES (1, 'frame.jpg', 1);
+                INSERT INTO cameras VALUES (1, 100, 100);
+            """)
+            xy = np.array([[1, 2], [10, 20], [30, 40]], dtype="<f4")[indices]
+            desc = np.eye(3, dtype="<f4")[indices]
+            if name == "broken":
+                desc = desc[::-1].copy()
+            db.execute("INSERT INTO keypoints VALUES (1,?,2,?)", (len(indices), xy.tobytes()))
+            db.execute("INSERT INTO descriptors VALUES (1,?,12,?)", (len(indices), desc.tobytes()))
+    compare = audit["compare_databases"]
+    assert compare(tmp_path / "old.db", tmp_path / "new.db", ["frame.jpg"])[0]["numerical_subset_passed"]
+    assert not compare(tmp_path / "old.db", tmp_path / "broken.db", ["frame.jpg"])[0]["numerical_subset_passed"]
+    assert audit["database_summary"](tmp_path / "new.db")["feature_counts"] == {"frame.jpg": 2}
+    with sqlite3.connect(tmp_path / "new.db") as db:
+        db.execute("UPDATE descriptors SET rows=1")
+    with pytest.raises(ValueError, match="row mismatch"):
+        audit["database_summary"](tmp_path / "new.db")
