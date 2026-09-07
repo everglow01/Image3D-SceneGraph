@@ -158,6 +158,34 @@ def test_comparison_maps_filtered_indices_and_aligns_camera_gauges(tmp_path, mon
     assert alignment["residual_to_original_median_radius"]["max"] < 1e-12
 
 
+def test_bruteforce_database_copy_clears_matches_only(tmp_path, monkeypatch):
+    import runpy
+    import sqlite3
+
+    scripts = Path(__file__).parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    audit = runpy.run_path(str(scripts / "run_aliked_score_filter_experiment.py"))
+    source, destination = tmp_path / "source.db", tmp_path / "destination.db"
+    with sqlite3.connect(source) as db:
+        db.executescript("""
+            CREATE TABLE images(image_id INTEGER, name TEXT);
+            CREATE TABLE matches(pair_id INTEGER);
+            CREATE TABLE two_view_geometries(pair_id INTEGER);
+            INSERT INTO images VALUES (1, 'preserved.jpg');
+            INSERT INTO matches VALUES (12);
+            INSERT INTO two_view_geometries VALUES (12);
+        """)
+    audit["copy_feature_database"](source, destination)
+    with sqlite3.connect(source) as db:
+        assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 1
+    with sqlite3.connect(destination) as db:
+        assert db.execute("SELECT name FROM images").fetchone()[0] == "preserved.jpg"
+        assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM two_view_geometries").fetchone()[0] == 0
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        audit["copy_feature_database"](source, destination)
+
+
 def test_gpu_telemetry_is_fail_soft(monkeypatch):
     import runpy
 

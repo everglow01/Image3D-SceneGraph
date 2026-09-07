@@ -182,6 +182,54 @@ def smoke(project, root, binaries, selected, images):
         raise ValueError("extraction contract smoke failed; do not run geometry")
 
 
+def map_and_evaluate(root, cell, db, binary, images, timestamps, record):
+    sparse = cell / "sparse"
+    sparse.mkdir()
+    run_stage(cell, "mapping", [binary, "mapper", "--database_path", str(db),
+              "--image_path", str(images), "--output_path", str(sparse),
+              "--Mapper.num_threads", "4", "--Mapper.ba_global_function_tolerance", "0.000001",
+              "--default_random_seed", "0"])
+    for model in sorted(sparse.iterdir()):
+        if not (model / "images.bin").is_file():
+            continue
+        text = cell / f"model_{model.name}_txt"
+        text.mkdir()
+        run_stage(cell, f"convert_{model.name}", [binary, "model_converter", "--input_path", str(model),
+                  "--output_path", str(text), "--output_type", "TXT"])
+        health = build_sfm_pose_health_from_text(
+            model_dir=text, selected_timestamps=timestamps, database_path=db
+        )
+        write_json(text / "pose_health.json", health)
+        registered = [
+            image.name for image in parse_colmap_images_with_points(text / "images.txt")
+        ]
+        timeline = analyze_registration_timeline(timestamps, registered)
+        write_json(text / "registration.json", timeline)
+        point_count = sum(
+            1 for line in (text / "points3D.txt").read_text().splitlines()
+            if line and not line.startswith("#")
+        )
+        record["models"].append({
+            "path": str(text.relative_to(root)), "registered_count": len(registered),
+            "point_count": point_count, "pose_status": health["status"],
+            "reason_codes": health["reason_codes"], "timeline": timeline,
+        })
+    record["models"].sort(
+        key=lambda value: (-value["registered_count"], -value["point_count"], value["path"])
+    )
+    primary = record["models"][0] if record["models"] else None
+    record["primary"] = primary
+    record["product_gate_passed"] = bool(
+        primary and primary["registered_count"] >= MIN_VIDEO_REGISTERED_COUNT
+        and primary["timeline"]["registration_rate"] >= MIN_VIDEO_REGISTRATION_RATE
+        and primary["timeline"]["temporal_coverage"] >= MIN_VIDEO_TEMPORAL_COVERAGE
+    )
+    record["acceptance_passed"] = bool(
+        record["product_gate_passed"] and primary["pose_status"] == "passed"
+    )
+    record["status"] = "evaluated" if primary else "no_model"
+
+
 def geometry(project, root, binaries, selected, images):
     if not json.loads((root / "smoke/results.json").read_text())["passed"]:
         raise ValueError("geometry requires a passing extraction smoke")
@@ -219,39 +267,7 @@ def geometry(project, root, binaries, selected, images):
                 record["database"] = database_summary(db)
                 if set(record["database"]["feature_counts"]) != set(names):
                     raise ValueError("extracted image set mismatch")
-                sparse = cell / "sparse"
-                sparse.mkdir()
-                run_stage(cell, "mapping", [binary, "mapper", "--database_path", str(db),
-                          "--image_path", str(images), "--output_path", str(sparse),
-                          "--Mapper.num_threads", "4", "--Mapper.ba_global_function_tolerance", "0.000001",
-                          "--default_random_seed", "0"])
-                for model in sorted(sparse.iterdir()):
-                    if not (model / "images.bin").is_file():
-                        continue
-                    text = cell / f"model_{model.name}_txt"
-                    text.mkdir()
-                    run_stage(cell, f"convert_{model.name}", [binary, "model_converter", "--input_path", str(model),
-                              "--output_path", str(text), "--output_type", "TXT"])
-                    health = build_sfm_pose_health_from_text(model_dir=text, selected_timestamps=timestamps, database_path=db)
-                    write_json(text / "pose_health.json", health)
-                    registered = [image.name for image in parse_colmap_images_with_points(text / "images.txt")]
-                    timeline = analyze_registration_timeline(timestamps, registered)
-                    write_json(text / "registration.json", timeline)
-                    point_count = sum(1 for line in (text / "points3D.txt").read_text().splitlines() if line and not line.startswith("#"))
-                    record["models"].append({"path": str(text.relative_to(root)), "registered_count": len(registered),
-                                             "point_count": point_count, "pose_status": health["status"],
-                                             "reason_codes": health["reason_codes"], "timeline": timeline})
-                record["models"].sort(key=lambda x: (-x["registered_count"], -x["point_count"], x["path"]))
-                primary = record["models"][0] if record["models"] else None
-                record["primary"] = primary
-                record["product_gate_passed"] = bool(primary
-                    and primary["registered_count"] >= MIN_VIDEO_REGISTERED_COUNT
-                    and primary["timeline"]["registration_rate"] >= MIN_VIDEO_REGISTRATION_RATE
-                    and primary["timeline"]["temporal_coverage"] >= MIN_VIDEO_TEMPORAL_COVERAGE)
-                record["acceptance_passed"] = bool(
-                    record["product_gate_passed"] and primary["pose_status"] == "passed"
-                )
-                record["status"] = "evaluated" if primary else "no_model"
+                map_and_evaluate(root, cell, db, binary, images, timestamps, record)
             except (RuntimeError, ValueError) as exc:
                 record["error"] = str(exc)
             write_json(cell / "results.json", record)
@@ -259,6 +275,79 @@ def geometry(project, root, binaries, selected, images):
             print("CELL", json.dumps(record), flush=True)
     write_json(directory / "results.json", {"profile": "aliked_positive_geometry_v1", "cells": results,
                                             "recovery_applied": False, "training_started": False, "test_rgb_loaded": False})
+
+
+def copy_feature_database(source, destination):
+    if destination.exists():
+        raise ValueError(f"refusing to overwrite database: {destination}")
+    with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True) as old, sqlite3.connect(
+        destination
+    ) as new:
+        old.backup(new)
+        new.execute("DELETE FROM matches")
+        new.execute("DELETE FROM two_view_geometries")
+
+
+def brute_force_geometry(project, root, binaries, selected, images):
+    clip = "weak_696_743"
+    first, last = CLIPS[clip]
+    timestamps = {
+        Path(selected[index]["path"]).name: selected[index]["time_seconds"]
+        for index in range(first, last + 1)
+    }
+    names = sorted(timestamps)
+    directory = root / "bruteforce"
+    directory.mkdir()
+    binary = str(binaries["original"])
+    feature = resolve_colmap_feature_profile("aliked_n16rot_v1", project)
+    matcher = resolve_colmap_local_matcher(feature, "bruteforce", project)
+    results = []
+    for arm in ("original", "positive"):
+        cell = directory / arm
+        cell.mkdir()
+        source_db = root / "geometry" / clip / arm / "database.db"
+        db = cell / "database.db"
+        record = {
+            "clip": clip, "arm": arm, "feature_profile": "aliked_n16rot_v1",
+            "matcher": "bruteforce", "status": "failed", "models": [],
+            "feature_database_source": str(source_db.relative_to(root)),
+            "feature_database_source_sha256": sha256_file(source_db),
+        }
+        try:
+            copy_feature_database(source_db, db)
+            run_stage(cell, "matching", [
+                binary, "exhaustive_matcher", "--database_path", str(db),
+                *matcher.matching_options,
+                *resolve_colmap_geometric_verification("default_v1").matching_options,
+                "--FeatureMatching.use_gpu", "1", "--FeatureMatching.gpu_index", "0",
+                "--FeatureMatching.num_threads", "4", "--default_random_seed", "0",
+            ])
+            record["database"] = database_summary(db)
+            if set(record["database"]["feature_counts"]) != set(names):
+                raise ValueError("copied image set mismatch")
+            map_and_evaluate(root, cell, db, binary, images, timestamps, record)
+        except (RuntimeError, ValueError) as exc:
+            record["error"] = str(exc)
+        write_json(cell / "results.json", record)
+        results.append(record)
+        print("BRUTEFORCE_CELL", json.dumps(record), flush=True)
+    comparison = None
+    if all(record["status"] == "evaluated" for record in results):
+        by_arm = {record["arm"]: record for record in results}
+        comparison = {
+            "matches": compare_match_databases(
+                directory / "original/database.db", directory / "positive/database.db", names
+            ),
+            "camera_centers": align_camera_centers(
+                root / by_arm["original"]["primary"]["path"],
+                root / by_arm["positive"]["primary"]["path"],
+            ),
+        }
+    write_json(directory / "results.json", {
+        "profile": "aliked_positive_bruteforce_v1", "cells": results,
+        "comparison": comparison, "recovery_applied": False,
+        "training_started": False, "test_rgb_loaded": False,
+    })
 
 
 def map_positive_feature_indices(original, positive):
@@ -443,7 +532,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--stage", choices=("smoke", "geometry", "compare"), required=True)
+    parser.add_argument(
+        "--stage", choices=("smoke", "geometry", "compare", "bruteforce"), required=True
+    )
     args = parser.parse_args()
     project, root = args.project.resolve(), args.output.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -464,7 +555,7 @@ def main():
         raise ValueError("binary hash mismatch")
     if subprocess.check_output(["git", "-C", str(project), "status", "--porcelain", "--untracked-files=no"], text=True).strip():
         raise ValueError("project tracked files must be clean")
-    if args.stage in {"geometry", "compare"}:
+    if args.stage in {"geometry", "compare", "bruteforce"}:
         previous = json.loads((root / "smoke-request.json").read_text())
         if previous["build"] != build or previous["source_selection_sha256"] != SOURCE_SELECTION_SHA:
             raise ValueError("geometry and extraction smoke provenance mismatch")
@@ -477,8 +568,10 @@ def main():
         smoke(project, root, binaries, selected, source / "input")
     elif args.stage == "geometry":
         geometry(project, root, binaries, selected, source / "input")
-    else:
+    elif args.stage == "compare":
         compare_geometry(root)
+    else:
+        brute_force_geometry(project, root, binaries, selected, source / "input")
 
 
 if __name__ == "__main__":
