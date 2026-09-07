@@ -1,0 +1,29 @@
+diff --git a/src/colmap/feature/aliked.cc b/src/colmap/feature/aliked.cc
+--- a/src/colmap/feature/aliked.cc
++++ b/src/colmap/feature/aliked.cc
+@@ -35,2 +35,3 @@
+ #include <algorithm>
++#include <cmath>
+ #include <memory>
+@@ -240,3 +241,4 @@
+     const float* keypoints_data = output_tensors[0].GetTensorData<float>();
+     const float* descriptors_data = output_tensors[1].GetTensorData<float>();
++    const float* scores_data = output_tensors[2].GetTensorData<float>();
+
+@@ -258,3 +260,10 @@
+     valid_keypoints.reserve(num_keypoints);
++    int num_nonpositive = 0;
+     for (int i = 0; i < num_keypoints; ++i) {
++      THROW_CHECK(std::isfinite(scores_data[i]));
++      // Fixed TopK can return zero-score placeholders below the detection mask.
++      if (scores_data[i] <= 0.0f) {
++        ++num_nonpositive;
++        continue;
++      }
+       const float norm_x = keypoints_data[2 * i + 0];
+@@ -273,2 +282,5 @@
+     const int num_valid = static_cast<int>(valid_keypoints.size());
++    LOG(INFO) << "ALIKED positive_scores_v1: candidates=" << num_keypoints
++              << " nonpositive=" << num_nonpositive
++              << " retained=" << num_valid;
+     keypoints->resize(num_valid);

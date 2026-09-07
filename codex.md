@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- On 2026-09-07, the user authorized the next bounded ALIKED score-contract round. Reuse the single `sfm-small-match-audit` work branch and Git-only remote synchronization. Build `aliked_positive_scores_v1` in the separate `external/colmap-4-aliked-positive-v1` root from the unchanged pinned COLMAP commit: reject nonfinite scores, discard nonpositive TopK placeholders, retain positive scores below the requested detector threshold, and preserve the existing coordinate/descriptor-index conversion. Keep the installed ONNX weights, effective 4096 cap, production binary/defaults and historical artifacts unchanged. Validate extraction on weak/healthy controls, then compare fresh small contiguous-clip databases using identical incremental Mapper, camera, pairing and verification settings, with SIFT-Brute-force controls. Score filtering correctness and geometry improvement are separate outcomes; failure to reproduce the old geometry on the subset is inconclusive, not a fix claim. No full thousand-frame exhaustive run, independent Phase 6 selector, Gaussian training or Test evaluation is authorized by this round.
+
 - New workspace: `/home/owen/Image3D-SceneGraph`.
 - Old workspace `/home/owen/3d_demo` remains an exploration repo.
 - Project direction: a static image/multi-image company-portal reconstruction product first; semantic static scenes next; video, long-horizon mapping, and panorama remain later gated extensions.
