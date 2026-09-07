@@ -689,7 +689,7 @@ class ProjectGaussianAdapter:
                 )
                 if (
                     pose_health.get("schema_version") != 1
-                    or pose_health.get("profile") != "sfm_pose_health_v1"
+                    or pose_health.get("profile") != "sfm_pose_health_v2"
                     or pose_health.get("status") != "passed"
                 ):
                     raise ValueError("unsupported VGGT-BA pose health evidence")
@@ -1307,7 +1307,7 @@ def _validate_colmap_pose_evidence(
     expected_status = "not_needed" if mapper == "incremental" else "recovered"
     if (
         pose_health.get("schema_version") != 1
-        or pose_health.get("profile") != "sfm_pose_health_v1"
+        or pose_health.get("profile") != "sfm_pose_health_v2"
         or pose_health.get("status") != "passed"
         or pose_recovery.get("schema_version") != 1
         or pose_recovery.get("profile") != "sfm_pose_recovery_v1"

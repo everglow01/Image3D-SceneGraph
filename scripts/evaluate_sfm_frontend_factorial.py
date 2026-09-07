@@ -27,6 +27,7 @@ COMMON_FIELDS = (
     "initial_video_selection_sha256",
     "v2_mapper_options",
     "v2_mapper_seed_count",
+    "primary_pose_health_profile",
 )
 
 
@@ -45,7 +46,7 @@ def evaluate_factorial(arms: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     if mismatches:
         return {
             "schema_version": 1,
-            "profile": "sfm_frontend_factorial_v1",
+            "profile": "sfm_frontend_factorial_v2",
             "status": "inconclusive",
             "conclusion": "incomparable_arm_contracts",
             "contract_mismatches": mismatches,
@@ -53,7 +54,16 @@ def evaluate_factorial(arms: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
             "test_rgb_loaded": False,
         }
 
-    passed = {name: bool(arm["primary_pose_health_passed"]) for name, arm in normalized.items()}
+    if any(type(arm.get("primary_pose_health_passed")) is not bool for arm in normalized.values()):
+        return {
+            "schema_version": 1,
+            "profile": "sfm_frontend_factorial_v2",
+            "status": "inconclusive",
+            "conclusion": "primary_pose_evidence_missing",
+            "arms": normalized,
+            "test_rgb_loaded": False,
+        }
+    passed = {name: arm["primary_pose_health_passed"] for name, arm in normalized.items()}
     a = passed["sift_bruteforce"]
     b = passed["sift_lightglue"]
     c = passed["aliked_bruteforce"]
@@ -75,7 +85,7 @@ def evaluate_factorial(arms: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     )
     return {
         "schema_version": 1,
-        "profile": "sfm_frontend_factorial_v1",
+        "profile": "sfm_frontend_factorial_v2",
         "status": "complete",
         "conclusion": conclusion,
         "solver_sensitivity_evidence": (
@@ -112,6 +122,16 @@ def load_arm(root: Path) -> dict[str, Any]:
     recovered = recovery.get("recovery_candidates")
     if not isinstance(primary, list) or not isinstance(recovered, list):
         raise ValueError(f"arm pose recovery record is invalid: {root}")
+    representative = min(
+        primary,
+        key=lambda candidate: (
+            -int(candidate.get("registered_count", 0)),
+            -int(candidate.get("point_count", 0)),
+            str(candidate.get("model_path", "")),
+        ),
+        default={},
+    )
+    pose_status = representative.get("pose_health", {}).get("status")
     return {
         "feature_profile": feature.get("profile"),
         "local_matcher_profile": feature.get("local_matcher_profile"),
@@ -127,9 +147,12 @@ def load_arm(root: Path) -> dict[str, Any]:
         ),
         "v2_mapper_options": provenance.get("v2_mapper_options"),
         "v2_mapper_seed_count": provenance.get("v2_mapper_seed_count"),
-        "primary_pose_health_passed": any(
-            candidate.get("pose_health", {}).get("status") == "passed"
-            for candidate in primary
+        "primary_pose_health_profile": representative.get("pose_health", {}).get("profile"),
+        "primary_model_policy": "largest_registered_then_points_then_path_v1",
+        "primary_model_path": representative.get("model_path"),
+        "primary_registered_count": representative.get("registered_count"),
+        "primary_pose_health_passed": (
+            pose_status == "passed" if pose_status in {"passed", "failed"} else None
         ),
         "primary_product_gate_passed": any(
             candidate.get("accepted") is True for candidate in primary
@@ -142,13 +165,7 @@ def load_arm(root: Path) -> dict[str, Any]:
             }
         ),
         "primary_reason_codes": sorted(
-            {
-                str(reason)
-                for candidate in primary
-                for reason in candidate.get("pose_health", {}).get(
-                    "reason_codes", []
-                )
-            }
+            representative.get("pose_health", {}).get("reason_codes", [])
         ),
         "global_recovery_passed": any(
             candidate.get("kind") == "global_recovery_v1"

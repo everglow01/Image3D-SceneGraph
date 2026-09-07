@@ -142,7 +142,7 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
 ):
     health = {
         "schema_version": 1,
-        "profile": "sfm_pose_health_v1",
+        "profile": "sfm_pose_health_v2",
         "status": "passed",
     }
     recovery = {
@@ -166,6 +166,15 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
         pose_health=health,
         pose_recovery=recovery,
     ) == expected_count
+    health["profile"] = "sfm_pose_health_v1"
+    with pytest.raises(ValueError, match="inconsistent COLMAP pose evidence"):
+        _validate_colmap_pose_evidence(
+            mapper=mapper,
+            database_path=Path("colmap/database.db"),
+            database_sha256="a" * 64,
+            pose_health=health,
+            pose_recovery=recovery,
+        )
 
 
 def test_colmap_pose_evidence_rejects_database_provenance_mismatch():
@@ -176,7 +185,7 @@ def test_colmap_pose_evidence_rejects_database_provenance_mismatch():
             database_sha256="a" * 64,
             pose_health={
                 "schema_version": 1,
-                "profile": "sfm_pose_health_v1",
+                "profile": "sfm_pose_health_v2",
                 "status": "passed",
             },
             pose_recovery={

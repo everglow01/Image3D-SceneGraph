@@ -28,6 +28,7 @@ def _arms(statuses: dict[str, bool]) -> dict[str, dict]:
         "v2_mapper_options": [],
         "v2_mapper_seed_count": 0,
         "primary_reason_codes": [],
+        "primary_pose_health_profile": "sfm_pose_health_v2",
         "global_recovery_passed": False,
     }
     return {
@@ -205,6 +206,43 @@ def test_factorial_separates_pose_health_from_product_gates(tmp_path) -> None:
     assert arm["primary_pose_health_passed"] is True
     assert arm["primary_product_gate_passed"] is False
     assert arm["primary_gate_reason_codes"] == ["registration_rate_below_gate"]
+
+    recovery["primary_candidates"][0]["registered_count"] = 2
+    recovery["primary_candidates"].append({
+        "registered_count": 992,
+        "point_count": 208279,
+        "model_path": "colmap/sparse/1",
+        "accepted": False,
+        "gate_reason_codes": ["multiscale_camera_pose_branch"],
+        "pose_health": {
+            "status": "failed",
+            "reason_codes": ["multiscale_camera_pose_branch"],
+        },
+    })
+    (diagnostics / "sfm_pose_recovery.json").write_text(json.dumps(recovery))
+    arm = load_arm(tmp_path)
+    assert arm["primary_pose_health_passed"] is False
+    assert arm["primary_model_path"] == "colmap/sparse/1"
+    assert arm["primary_reason_codes"] == ["multiscale_camera_pose_branch"]
+
+
+def test_factorial_missing_pose_evidence_is_not_a_failed_pose() -> None:
+    arms = _arms({name: True for name in ARM_FRONTENDS})
+    arms["sift_lightglue"]["primary_pose_health_passed"] = None
+    report = evaluate_factorial(arms)
+    assert report["status"] == "inconclusive"
+    assert report["conclusion"] == "primary_pose_evidence_missing"
+
+
+
+def test_factorial_rejects_mixed_pose_health_policies() -> None:
+    arms = _arms({name: True for name in ARM_FRONTENDS})
+    arms["aliked_lightglue"]["primary_pose_health_profile"] = "sfm_pose_health_v1"
+    report = evaluate_factorial(arms)
+    assert report["conclusion"] == "incomparable_arm_contracts"
+    assert report["contract_mismatches"] == [
+        {"arm": "aliked_lightglue", "field": "primary_pose_health_profile"}
+    ]
 
 
 def test_factorial_rejects_mislabeled_frontend_arm() -> None:

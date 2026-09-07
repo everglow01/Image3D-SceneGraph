@@ -26,7 +26,7 @@ from image3d_scenegraph.video.registration import (
 )
 
 
-PROFILE_ID = "sfm_pose_health_v1"
+PROFILE_ID = "sfm_pose_health_v2"
 CENTER_MAX_TO_MEDIAN_LIMIT = 100.0
 CENTER_MAX_TO_P99_LIMIT = 10.0
 CENTER_P99_TO_MEDIAN_LIMIT = 100.0
@@ -86,6 +86,10 @@ def build_sfm_pose_health(
     outlier_ids = {images[index].image_id for index in outlier_indices}
     timestamps = _validated_timestamps(selected_timestamps)
     temporal = _temporal_health(images, centers, outlier_ids, timestamps)
+    if temporal.get("discontinuity_count", 0):
+        reasons.append("temporal_pose_discontinuity")
+    if not points3d:
+        reasons.append("empty_sfm_point_cloud")
     support = _image_support(images, points3d)
     bridges = _bridge_pairs(
         images,
@@ -131,6 +135,10 @@ def build_sfm_pose_health(
             "temporal_boundary_speed_to_p90_limit": (
                 TEMPORAL_BOUNDARY_SPEED_TO_P90_LIMIT
             ),
+            "temporal_discontinuity_policy": "independent_speed_and_extent_v1",
+            "temporal_discontinuity_speed_baseline": "positive_step_speed_p90",
+            "temporal_discontinuity_minimum_positive_steps": MIN_VIDEO_REGISTERED_COUNT,
+            "temporal_discontinuity_minimum_displacement_to_median": 1.0,
             "maximum_automatic_repair_fraction": MAX_AUTOMATIC_REPAIR_FRACTION,
             "test_rgb_loaded": False,
             "world_units": "arbitrary",
@@ -247,7 +255,8 @@ def _temporal_health(
         elapsed = right_time - left_time
         if elapsed <= 0:
             continue
-        speed = float(np.linalg.norm(right_center - left_center) / elapsed)
+        displacement = float(np.linalg.norm(right_center - left_center))
+        speed = displacement / elapsed
         relative_rotation = qvec_to_rotmat(right.qvec) @ qvec_to_rotmat(
             left.qvec
         ).T
@@ -267,6 +276,7 @@ def _temporal_health(
                 "right_name": right.name,
                 "left_time_seconds": left_time,
                 "right_time_seconds": right_time,
+                "translation_displacement_world": displacement,
                 "translation_speed_world_per_second": speed,
                 "rotation_jump_degrees": rotation_jump,
                 "outlier_boundary": boundary,
@@ -291,8 +301,32 @@ def _temporal_health(
             TEMPORAL_BOUNDARY_SPEED_TO_P90_LIMIT,
         ):
             catastrophic.append(step)
+    moving_speeds = [
+        step["translation_speed_world_per_second"]
+        for step in steps
+        if step["translation_speed_world_per_second"] > 1e-12
+    ]
+    moving_p90 = (
+        float(np.quantile(moving_speeds, 0.9, method="lower"))
+        if moving_speeds else 0.0
+    )
+    extent = float(np.median(np.linalg.norm(centers - np.median(centers, axis=0), axis=1)))
+    discontinuities = []
+    if len(moving_speeds) >= MIN_VIDEO_REGISTERED_COUNT and moving_p90 > 1e-12:
+        for step in steps:
+            speed_ratio = step["translation_speed_world_per_second"] / moving_p90
+            if (
+                speed_ratio >= TEMPORAL_BOUNDARY_SPEED_TO_P90_LIMIT
+                and _at_least_ratio(step["translation_displacement_world"], extent, 1.0)
+            ):
+                discontinuities.append({**step, "speed_to_moving_p90_ratio": speed_ratio})
     return {
         "status": "available",
+        "discontinuity_count": len(discontinuities),
+        "discontinuities": sorted(
+            discontinuities, key=lambda step: -step["speed_to_moving_p90_ratio"]
+        )[:BRIDGE_PAIR_LIMIT],
+        "moving_translation_speed_p90_world_per_second": moving_p90,
         "registered_timestamp_count": len(indexed),
         "registration_timeline": {
             key: timeline[key]

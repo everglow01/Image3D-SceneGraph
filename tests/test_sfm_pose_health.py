@@ -111,7 +111,7 @@ def test_isolated_camera_pose_is_detected() -> None:
         selected_timestamps=_timestamps(images),
     )
 
-    assert record["reason_codes"] == ["isolated_camera_pose_outlier"]
+    assert "isolated_camera_pose_outlier" in record["reason_codes"]
     assert [item["image_id"] for item in record["outlier_candidates"]] == [51]
     assert record["outlier_candidates"][0]["observed_depth_world"]["p50"] == 10.0
     assert record["automatic_repair"]["eligible"] is True
@@ -131,7 +131,7 @@ def test_multiscale_branch_is_detected_with_bridge_evidence(tmp_path: Path) -> N
         database_path=database,
     )
 
-    assert record["reason_codes"] == ["multiscale_camera_pose_branch"]
+    assert "multiscale_camera_pose_branch" in record["reason_codes"]
     assert {item["image_id"] for item in record["outlier_candidates"]} == {
         51,
         52,
@@ -170,3 +170,65 @@ def test_automatic_repair_requires_video_and_at_most_ten_percent() -> None:
     assert with_video["automatic_repair"]["reason"] == (
         "outlier_fraction_exceeds_limit"
     )
+
+
+def test_temporal_discontinuity_below_spatial_cutoff_is_rejected() -> None:
+    centers = [float(index) for index in range(100)]
+    centers[50] = 2_000.0
+    images = _images(centers)
+    record = build_sfm_pose_health(
+        images=images,
+        points3d={1: np.array([0.0, 0.0, 10.0])},
+        selected_timestamps=_timestamps(images),
+    )
+    assert record["profile"] == "sfm_pose_health_v2"
+    assert record["camera_centers"]["max_to_median"] < 100
+    assert record["reason_codes"] == ["temporal_pose_discontinuity"]
+    assert record["temporal"]["discontinuity_count"] == 2
+    assert record["outlier_candidates"] == []
+    assert record["automatic_repair"]["eligible"] is False
+
+
+def test_stationary_majority_and_fast_rotation_are_not_translation_failures() -> None:
+    images = _images([0.0] * 95 + [float(i) for i in range(5)])
+    images[50].qvec[:] = [0.0, 0.0, 1.0, 0.0]
+    record = build_sfm_pose_health(
+        images=images,
+        points3d={1: np.array([0.0, 0.0, 10.0])},
+        selected_timestamps=_timestamps(images),
+    )
+    assert "temporal_pose_discontinuity" not in record["reason_codes"]
+    assert record["temporal"]["rotation_jump_degrees"]["max"] == 180
+    assert record["temporal"]["discontinuity_count"] == 0
+
+
+def test_unequal_sampling_and_world_scale_do_not_create_discontinuities() -> None:
+    times = [float(i * i) for i in range(100)]
+    for scale in (0.001, 1.0, 1000.0):
+        images = _images([t * scale for t in times])
+        record = build_sfm_pose_health(
+            images=images,
+            points3d={1: np.array([0.0, 0.0, 10.0])},
+            selected_timestamps={image.name: t for image, t in zip(images, times)},
+        )
+        assert record["status"] == "passed"
+        assert record["temporal"]["discontinuity_count"] == 0
+
+
+def test_empty_sparse_geometry_cannot_pass_with_healthy_cameras() -> None:
+    record = build_sfm_pose_health(images=_images(list(range(100))), points3d={})
+    assert record["status"] == "failed"
+    assert "empty_sfm_point_cloud" in record["reason_codes"]
+
+
+def test_fast_local_step_without_scene_scale_jump_stays_diagnostic() -> None:
+    images = _images([float(i) for i in range(100)])
+    times = _timestamps(images)
+    times[images[50].name] = 49.0001
+    record = build_sfm_pose_health(
+        images=images,
+        points3d={1: np.array([0.0, 0.0, 10.0])},
+        selected_timestamps=times,
+    )
+    assert record["status"] == "passed"
+    assert record["temporal"]["discontinuity_count"] == 0

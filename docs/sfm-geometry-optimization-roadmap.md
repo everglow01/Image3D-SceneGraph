@@ -563,7 +563,12 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 - raw sparse camera sidecar 记录 focal/distortion/registration/track/reprojection；COLMAP 默认 focal ratio/extra-param边界只产生 soft warning，provenance/model/assignment 漂移才是合同错误；
 - 真实 A/B 固定 feature、local matcher、pairing、geometric verification、Mapper/BA、输入和 trainer/split，只改变 camera profile；代码接入不构成质量提升或默认推广证据。
 
-### Phase 6：SfM 求解器（根因防线已接入，真实实验待执行）
+### Phase 6：SfM 求解器（根因防线已接入，独立求解器选择仍待实现）
+
+2026-09-07 核验更新：同源视频四格已经执行，SIFT+Brute-force 原始模型健康；SIFT+LightGlue 匹配 OOM；ALIKED+Brute-force 主模型与 Global 均不健康；ALIKED+LightGlue 主模型失败，删除 36 台相机后的 v1 报告虽通过，却残留九台约 20–100× 相机。四格归因仍不完整，不能把两相机碎片或 OOM 当作整格几何结论。
+
+本地修复使用 `sfm_pose_health_v2`（独立时间跳变、空点云拒绝，原空间阈值和一次/10% 恢复边界不变）与 `sfm_frontend_factorial_v2`（按主体模型归因，健康版本不可混用）。详细合同见 `docs/manifest-schema.md`。新增只读 `scripts/analyze_sfm_small_matches.py --experiment <四格目录> --output <新报告>`，固定八对坏帧/健康对照，SIFT 位姿只作估计参考而非真值。新代码 CPU 远端回归与八对已有匹配审计已完成，SIFT 基线保持通过、旧 D 修复模型因 13 段独立时间跳变被拒绝；官方参考实现对照任务尚未获工具层执行许可，没有启动新 GPU 推理或训练。完整证据、版本边界及待验证项见 `docs/sfm-small-match-audit-20260907.md`。后续新代码只能经 Git push/pull 同步，不再上传源码包。
+
 
 实现状态（2026-09-04）：`sfm_pose_health_v1` 已前移到 raw sparse model，在 undistortion、dataset normalization/split、Gaussian initialization 和 CUDA 前识别孤立极端相机及多尺度相机分支。ordinary-COLMAP 对每个 incremental 候选做健康选择；全部失败时，先在 SQLite 副本上运行 `view_graph_calibrator + global_mapper`，只有 Global 仍失败时才允许一次视频 healthy-core repair（完整异常分支、最多 10%、point filtering、BA）。所有候选继续满足 12/70%/80% 产品门槛，v2 expansion/recovery/final BA 不能重新引入坏分支；`>2s` gaps 仍是 soft warning。
 
@@ -571,7 +576,7 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 - `sfm_pose_recovery_v1` 记录 requested/effective Mapper、job-relative model/database paths、模型文件/source-and-effective-database hashes、removed IDs 和候选 health；Global/core 结果明确标为 recovered，不冒充 clean incremental；
 - `sfm_frontend_contract_v1` 在 Mapper 前冻结，即使 bad-pose arm 提前失败也可用于 2×2 比较；`evaluate_sfm_frontend_factorial.py` 只消费既有 JSON，并严格拒绝非同源合同；
 - 独立 2×2 为 SIFT/ALIKED × Brute-force/LightGlue，比较 primary unrecovered health。仅 D 失败支持 interaction risk，B/D 支持 LightGlue path risk，C/D 支持 ALIKED path risk，四格失败指向 common pipeline/scene；同 matches Global 通过只支持 solver sensitivity；
-- 本地只做 CPU/mock 自动测试。原失败 Job 的 read-only analyzer、远端 geometry-only 恢复验证和四格真实运行仍等待用户分别明确启动，不能以代码接入代替实验结论。
+- 本地只做 CPU/mock 自动测试。原失败 Job 的 read-only analyzer、远端恢复路径和同源四格已运行，结果与未完成项见本节 2026-09-07 更新；后续实验不得以代码接入代替真实结论。
 
 ### Phase 7：三角化与 BA 性能
 
