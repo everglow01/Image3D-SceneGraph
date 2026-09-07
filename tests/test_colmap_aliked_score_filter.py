@@ -117,3 +117,22 @@ def test_experiment_detects_descriptor_index_corruption(tmp_path, monkeypatch):
         db.execute("UPDATE descriptors SET rows=1")
     with pytest.raises(ValueError, match="row mismatch"):
         audit["database_summary"](tmp_path / "new.db")
+
+
+def test_candidate_runtime_copy_preserves_soname_links(tmp_path, monkeypatch):
+    import runpy
+
+    scripts = Path(__file__).parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    build = runpy.run_path(str(scripts / "build_colmap_aliked_score_filter.py"))
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    source.mkdir()
+    (source / "libonnxruntime.so.1.2.3").write_bytes(b"runtime")
+    (source / "libonnxruntime.so.1").symlink_to("libonnxruntime.so.1.2.3")
+    (source / "libonnxruntime.so").symlink_to("libonnxruntime.so.1")
+    records = build["copy_runtime_libraries"](source, destination)
+    assert records["libonnxruntime.so"] == {"symlink": "libonnxruntime.so.1"}
+    assert (destination / "libonnxruntime.so").resolve().read_bytes() == b"runtime"
+    (destination / "libonnxruntime.so.1.2.3").write_bytes(b"wrong")
+    with pytest.raises(ValueError, match="runtime library mismatch"):
+        build["copy_runtime_libraries"](source, destination)
