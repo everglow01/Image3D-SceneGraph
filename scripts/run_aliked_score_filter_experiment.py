@@ -39,6 +39,7 @@ from run_sfm_reference_audit import compare_pairs, database_features
 SOURCE = "outputs/experiments/20260902_030611_a94e38dd-sfm-frontend-2x2-v2/aliked-lightglue"
 SOURCE_SELECTION_SHA = "9c877d158c3b87051f09ca72d04c86a50cf18add59969d53483dba1a10ba8151"
 CLIPS = {"weak_696_743": (696, 743), "healthy_448_495": (448, 495)}
+EXPANDED_CLIP = {"expanded_672_863": (672, 863)}
 SMOKE_FRAMES = (468, 469, 710, 713)
 
 
@@ -358,6 +359,78 @@ def write_bruteforce_summary(root):
     })
 
 
+def expanded_bruteforce_geometry(project, root, binaries, selected, images):
+    clip, (first, last) = next(iter(EXPANDED_CLIP.items()))
+    timestamps = {
+        Path(selected[index]["path"]).name: selected[index]["time_seconds"]
+        for index in range(first, last + 1)
+    }
+    names = sorted(timestamps)
+    directory = root / "expanded-bruteforce"
+    directory.mkdir()
+    image_list = directory / "images.txt"
+    image_list.write_text("\n".join(names) + "\n")
+    write_json(directory / "selection.json", {
+        "scope": "expanded_clip_only_not_full_video",
+        "selected": [selected[index] for index in range(first, last + 1)],
+    })
+    binary = str(binaries["original"])
+    feature = resolve_colmap_feature_profile("aliked_n16rot_v1", project)
+    matcher = resolve_colmap_local_matcher(feature, "bruteforce", project)
+    results = []
+    for arm in ("original", "positive"):
+        cell = directory / arm
+        cell.mkdir()
+        record = {
+            "clip": clip, "arm": arm, "feature_profile": "aliked_n16rot_v1",
+            "matcher": "bruteforce", "status": "failed", "models": [],
+        }
+        try:
+            extraction(
+                project, binaries[arm], cell, images, image_list,
+                "aliked_n16rot_v1", True,
+            )
+            db = cell / "database.db"
+            run_stage(cell, "matching", [
+                binary, "exhaustive_matcher", "--database_path", str(db),
+                *matcher.matching_options,
+                *resolve_colmap_geometric_verification("default_v1").matching_options,
+                "--FeatureMatching.use_gpu", "1", "--FeatureMatching.gpu_index", "0",
+                "--FeatureMatching.num_threads", "4", "--default_random_seed", "0",
+            ])
+            record["database"] = database_summary(db)
+            if set(record["database"]["feature_counts"]) != set(names):
+                raise ValueError("expanded image set mismatch")
+            map_and_evaluate(root, cell, db, binary, images, timestamps, record)
+        except (RuntimeError, ValueError) as exc:
+            record["error"] = str(exc)
+        write_json(cell / "results.json", record)
+        results.append(record)
+        print("EXPANDED_BRUTEFORCE_CELL", json.dumps(record), flush=True)
+    by_arm = {record["arm"]: record for record in results}
+    comparison = None
+    if all("database" in record for record in results):
+        comparison = {
+            "matches": compare_match_databases(
+                directory / "original/database.db", directory / "positive/database.db", names
+            ),
+            "camera_centers": None,
+        }
+        if all(record["status"] == "evaluated" for record in results):
+            try:
+                comparison["camera_centers"] = align_camera_centers(
+                    root / by_arm["original"]["primary"]["path"],
+                    root / by_arm["positive"]["primary"]["path"],
+                )
+            except ValueError as exc:
+                comparison["camera_center_error"] = str(exc)
+    write_json(directory / "results.json", {
+        "profile": "aliked_positive_expanded_bruteforce_v1", "cells": results,
+        "comparison": comparison, "stage_timeout_seconds": 1200,
+        "recovery_applied": False, "training_started": False, "test_rgb_loaded": False,
+    })
+
+
 def map_positive_feature_indices(original, positive):
     old_xy, old_desc = original["keypoints"][0], original["descriptors"][0]
     new_xy, new_desc = positive["keypoints"][0], positive["descriptors"][0]
@@ -549,7 +622,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--stage",
-        choices=("smoke", "geometry", "compare", "bruteforce", "bruteforce-compare"),
+        choices=(
+            "smoke", "geometry", "compare", "bruteforce", "bruteforce-compare",
+            "expanded-bruteforce",
+        ),
         required=True,
     )
     args = parser.parse_args()
@@ -560,7 +636,11 @@ def main():
         raise ValueError("frozen source selection changed")
     selected = {int(Path(item["path"]).name.split("_")[1]): item
                 for item in json.loads((source / "selection.json").read_text())["selected"]}
-    used = set(SMOKE_FRAMES) | {i for first, last in CLIPS.values() for i in range(first, last + 1)}
+    used = (
+        set(SMOKE_FRAMES)
+        | {i for first, last in CLIPS.values() for i in range(first, last + 1)}
+        | {i for first, last in EXPANDED_CLIP.values() for i in range(first, last + 1)}
+    )
     for i in used:
         if sha256_file(source / "input" / Path(selected[i]["path"]).name) != selected[i]["sha256"]:
             raise ValueError(f"image hash mismatch at frame {i}")
@@ -572,13 +652,17 @@ def main():
         raise ValueError("binary hash mismatch")
     if subprocess.check_output(["git", "-C", str(project), "status", "--porcelain", "--untracked-files=no"], text=True).strip():
         raise ValueError("project tracked files must be clean")
-    if args.stage in {"geometry", "compare", "bruteforce", "bruteforce-compare"}:
+    if args.stage in {
+        "geometry", "compare", "bruteforce", "bruteforce-compare",
+        "expanded-bruteforce",
+    }:
         previous = json.loads((root / "smoke-request.json").read_text())
         if previous["build"] != build or previous["source_selection_sha256"] != SOURCE_SELECTION_SHA:
             raise ValueError("geometry and extraction smoke provenance mismatch")
     write_json(root / f"{args.stage}-request.json", {
         "project_commit": subprocess.check_output(["git", "-C", str(project), "rev-parse", "HEAD"], text=True).strip(),
-        "source_selection_sha256": SOURCE_SELECTION_SHA, "build": build, "clips": CLIPS,
+        "source_selection_sha256": SOURCE_SELECTION_SHA, "build": build,
+        "clips": CLIPS, "expanded_clip": EXPANDED_CLIP,
         "smoke_frames": SMOKE_FRAMES, "gpu": "0", "production_default_changed": False,
     })
     if args.stage == "smoke":
@@ -589,8 +673,12 @@ def main():
         compare_geometry(root)
     elif args.stage == "bruteforce":
         brute_force_geometry(project, root, binaries, selected, source / "input")
-    else:
+    elif args.stage == "bruteforce-compare":
         write_bruteforce_summary(root)
+    else:
+        expanded_bruteforce_geometry(
+            project, root, binaries, selected, source / "input"
+        )
 
 
 if __name__ == "__main__":
