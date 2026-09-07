@@ -157,6 +157,16 @@ def test_comparison_maps_filtered_indices_and_aligns_camera_gauges(tmp_path, mon
     assert alignment["similarity_scale"] == pytest.approx(0.5)
     assert alignment["residual_to_original_median_radius"]["max"] < 1e-12
 
+    lines = ["# images"]
+    for name, center in zip(("1.jpg", "2.jpg", "3.jpg", "5.jpg"), np.vstack((centers[:3], [9, 9, 9]))):
+        translation = -(center * 2 + 5)
+        lines.extend((f"{name[0]} 1 0 0 0 {translation[0]} {translation[1]} {translation[2]} 1 {name}", ""))
+    (positive_dir / "images.txt").write_text("\n".join(lines) + "\n")
+    alignment = audit["align_camera_centers"](original_dir, positive_dir)
+    assert alignment["common_camera_count"] == 3
+    assert alignment["original_only_names"] == ["4.jpg"]
+    assert alignment["positive_only_names"] == ["5.jpg"]
+
 
 def test_bruteforce_database_copy_clears_matches_only(tmp_path, monkeypatch):
     import runpy

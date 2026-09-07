@@ -301,7 +301,6 @@ def brute_force_geometry(project, root, binaries, selected, images):
     binary = str(binaries["original"])
     feature = resolve_colmap_feature_profile("aliked_n16rot_v1", project)
     matcher = resolve_colmap_local_matcher(feature, "bruteforce", project)
-    results = []
     for arm in ("original", "positive"):
         cell = directory / arm
         cell.mkdir()
@@ -329,11 +328,20 @@ def brute_force_geometry(project, root, binaries, selected, images):
         except (RuntimeError, ValueError) as exc:
             record["error"] = str(exc)
         write_json(cell / "results.json", record)
-        results.append(record)
         print("BRUTEFORCE_CELL", json.dumps(record), flush=True)
+    write_bruteforce_summary(root)
+
+
+def write_bruteforce_summary(root):
+    directory = root / "bruteforce"
+    results = [
+        json.loads((directory / arm / "results.json").read_text())
+        for arm in ("original", "positive")
+    ]
     comparison = None
     if all(record["status"] == "evaluated" for record in results):
         by_arm = {record["arm"]: record for record in results}
+        names = sorted(by_arm["original"]["database"]["feature_counts"])
         comparison = {
             "matches": compare_match_databases(
                 directory / "original/database.db", directory / "positive/database.db", names
@@ -472,9 +480,11 @@ def align_camera_centers(original_path, positive_path):
         image.name: colmap_camera_center(image)
         for image in parse_colmap_images_with_points(positive_path / "images.txt")
     }
-    if set(originals) != set(positives):
-        raise ValueError("primary models do not register the same images")
-    names = sorted(originals)
+    original_names = set(originals)
+    positive_names = set(positives)
+    names = sorted(original_names & positive_names)
+    if len(names) < 3:
+        raise ValueError("camera alignment requires at least three common images")
     reference = np.stack([originals[name] for name in names])
     candidate = np.stack([positives[name] for name in names])
     reference_centered = reference - reference.mean(axis=0)
@@ -491,7 +501,12 @@ def align_camera_centers(original_path, positive_path):
         raise ValueError("original model has degenerate camera extent")
     worst = int(np.argmax(residuals))
     return {
-        "common_camera_count": len(names), "similarity_scale": scale,
+        "original_camera_count": len(original_names),
+        "positive_camera_count": len(positive_names),
+        "common_camera_count": len(names),
+        "original_only_names": sorted(original_names - positive_names),
+        "positive_only_names": sorted(positive_names - original_names),
+        "similarity_scale": scale,
         "reflection_used": bool(correction[-1] < 0), "world_units": "arbitrary",
         "residual_world": summarize_values(residuals),
         "residual_to_original_median_radius": summarize_values(residuals / radius),
@@ -533,7 +548,9 @@ def main():
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--stage", choices=("smoke", "geometry", "compare", "bruteforce"), required=True
+        "--stage",
+        choices=("smoke", "geometry", "compare", "bruteforce", "bruteforce-compare"),
+        required=True,
     )
     args = parser.parse_args()
     project, root = args.project.resolve(), args.output.resolve()
@@ -555,7 +572,7 @@ def main():
         raise ValueError("binary hash mismatch")
     if subprocess.check_output(["git", "-C", str(project), "status", "--porcelain", "--untracked-files=no"], text=True).strip():
         raise ValueError("project tracked files must be clean")
-    if args.stage in {"geometry", "compare", "bruteforce"}:
+    if args.stage in {"geometry", "compare", "bruteforce", "bruteforce-compare"}:
         previous = json.loads((root / "smoke-request.json").read_text())
         if previous["build"] != build or previous["source_selection_sha256"] != SOURCE_SELECTION_SHA:
             raise ValueError("geometry and extraction smoke provenance mismatch")
@@ -570,8 +587,10 @@ def main():
         geometry(project, root, binaries, selected, source / "input")
     elif args.stage == "compare":
         compare_geometry(root)
-    else:
+    elif args.stage == "bruteforce":
         brute_force_geometry(project, root, binaries, selected, source / "input")
+    else:
+        write_bruteforce_summary(root)
 
 
 if __name__ == "__main__":
