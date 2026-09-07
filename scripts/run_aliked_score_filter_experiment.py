@@ -43,20 +43,30 @@ def write_json(path, value):
         stream.write("\n")
 
 
+def sample_gpu_memory_mib():
+    try:
+        completed = subprocess.run(
+            ["nvidia-smi", "-i", "0", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=2,
+        )
+        return int(completed.stdout.strip()) if completed.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
 def run_stage(directory, stage, command, timeout=1200):
     write_json(directory / f"{stage}.request.json", {"command": command, "timeout_seconds": timeout})
     start = time.monotonic()
-    peak, timed_out = None, False
+    peak, telemetry_failures, timed_out = None, 0, False
     with (directory / f"{stage}.log").open("x") as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             while process.poll() is None:
-                memory = subprocess.run(
-                    ["nvidia-smi", "-i", "0", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=10,
-                )
-                if memory.returncode == 0 and memory.stdout.strip().isdigit():
-                    peak = max(peak or 0, int(memory.stdout.strip()))
+                memory = sample_gpu_memory_mib()
+                if memory is None:
+                    telemetry_failures += 1
+                else:
+                    peak = max(peak or 0, memory)
                 if time.monotonic() - start > timeout:
                     timed_out = True
                     break
@@ -72,7 +82,9 @@ def run_stage(directory, stage, command, timeout=1200):
     result = {
         "exit_code": process.returncode, "timed_out": timed_out,
         "elapsed_seconds": time.monotonic() - start,
-        "gpu_total_memory_peak_sampled_mib": peak, "gpu_sample_interval_seconds": 2,
+        "gpu_total_memory_peak_sampled_mib": peak,
+        "gpu_sample_failures": telemetry_failures,
+        "gpu_sample_interval_seconds": 2,
     }
     write_json(directory / f"{stage}.result.json", result)
     print(stage, json.dumps(result), flush=True)

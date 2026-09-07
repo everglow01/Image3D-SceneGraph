@@ -119,6 +119,20 @@ def test_experiment_detects_descriptor_index_corruption(tmp_path, monkeypatch):
         audit["database_summary"](tmp_path / "new.db")
 
 
+def test_gpu_telemetry_is_fail_soft(monkeypatch):
+    import runpy
+
+    scripts = Path(__file__).parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    audit = runpy.run_path(str(scripts / "run_aliked_score_filter_experiment.py"))
+
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("nvidia-smi", 2)
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    assert audit["sample_gpu_memory_mib"]() is None
+
+
 def test_candidate_runtime_copy_preserves_soname_links(tmp_path, monkeypatch):
     import runpy
 
