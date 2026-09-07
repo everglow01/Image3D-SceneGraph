@@ -76,7 +76,7 @@ def build(project: Path, *, resume_install: bool) -> None:
             raise ValueError("candidate build is already complete")
         if capture(["git", "-C", str(source), "rev-parse", "HEAD"]).strip() != COLMAP_COMMIT:
             raise ValueError("candidate source revision mismatch")
-        if capture(["git", "-C", str(source), "status", "--porcelain"]).strip() != f" M {PATCHED_SOURCE}":
+        if capture(["git", "-C", str(source), "status", "--porcelain"]).strip() != f"M {PATCHED_SOURCE}":
             raise ValueError("candidate source has unexpected changes")
         run(["git", "-C", str(source), "diff", "--check"])
         run(["git", "-C", str(source), "apply", "--reverse", "--check", str(patch)])
