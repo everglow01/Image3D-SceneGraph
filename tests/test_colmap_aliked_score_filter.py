@@ -168,6 +168,24 @@ def test_comparison_maps_filtered_indices_and_aligns_camera_gauges(tmp_path, mon
     assert alignment["positive_only_names"] == ["5.jpg"]
 
 
+def test_dense_candidate_selection_keeps_only_viable_interval(monkeypatch):
+    import runpy
+
+    scripts = Path(__file__).parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    audit = runpy.run_path(str(scripts / "run_aliked_score_filter_experiment.py"))
+    selection = {"candidates": [
+        {"candidate_index": 1, "time_seconds": 9.9},
+        {"candidate_index": 2, "time_seconds": 10.0},
+        {"candidate_index": 3, "time_seconds": 11.0, "rejection_reason": "duplicate"},
+        {"candidate_index": 4, "time_seconds": 12.0, "rejection_reason": None},
+        {"candidate_index": 5, "time_seconds": 12.1},
+    ]}
+    assert [item["candidate_index"] for item in audit["select_dense_candidates"](
+        selection, 10.0, 12.0
+    )] == [2, 4]
+
+
 def test_bruteforce_database_copy_clears_matches_only(tmp_path, monkeypatch):
     import runpy
     import sqlite3

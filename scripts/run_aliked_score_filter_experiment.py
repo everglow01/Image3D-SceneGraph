@@ -29,6 +29,10 @@ from image3d_scenegraph.geometry.grouping import (
     parse_colmap_images_with_points,
 )
 from image3d_scenegraph.geometry.sfm_pose_health import build_sfm_pose_health_from_text
+from image3d_scenegraph.video.keyframes import (
+    V2_PROFILE_ID,
+    materialize_video_candidates,
+)
 from image3d_scenegraph.video.registration import (
     MIN_VIDEO_REGISTERED_COUNT, MIN_VIDEO_REGISTRATION_RATE, MIN_VIDEO_TEMPORAL_COVERAGE,
     analyze_registration_timeline,
@@ -40,6 +44,8 @@ SOURCE = "outputs/experiments/20260902_030611_a94e38dd-sfm-frontend-2x2-v2/alike
 SOURCE_SELECTION_SHA = "9c877d158c3b87051f09ca72d04c86a50cf18add59969d53483dba1a10ba8151"
 CLIPS = {"weak_696_743": (696, 743), "healthy_448_495": (448, 495)}
 EXPANDED_CLIP = {"expanded_672_863": (672, 863)}
+DENSE_CANDIDATE_COUNT = 446
+SOURCE_VIDEO = "outputs/jobs/20260902_030611_a94e38dd/input/num4_room.mp4"
 SMOKE_FRAMES = (468, 469, 710, 713)
 
 
@@ -431,6 +437,99 @@ def expanded_bruteforce_geometry(project, root, binaries, selected, images):
     })
 
 
+def select_dense_candidates(selection, start, end):
+    return [
+        item for item in selection["candidates"]
+        if start <= item["time_seconds"] <= end and not item.get("rejection_reason")
+    ]
+
+
+def dense_candidate_bruteforce(project, root, binaries, selected, source):
+    clip, (first, last) = next(iter(EXPANDED_CLIP.items()))
+    source_selection = json.loads((source / "selection.json").read_text())
+    video = project / SOURCE_VIDEO
+    if sha256_file(video) != source_selection["source_sha256"]:
+        raise ValueError("source video hash mismatch")
+    start = selected[first]["time_seconds"]
+    end = selected[last]["time_seconds"]
+    candidates = select_dense_candidates(source_selection, start, end)
+    if len(candidates) != DENSE_CANDIDATE_COUNT:
+        raise ValueError("dense viable candidate count changed")
+    directory = root / "dense-bruteforce"
+    directory.mkdir()
+    images = directory / "images"
+    started = time.monotonic()
+    paths = materialize_video_candidates(
+        video,
+        images,
+        candidates,
+        {
+            "profile": V2_PROFILE_ID,
+            "selected": source_selection["selected"],
+            "rotation": source_selection["rotation"],
+        },
+    )
+    materialization = {
+        "elapsed_seconds": time.monotonic() - started,
+        "candidate_count": len(paths), "source_video_sha256": source_selection["source_sha256"],
+        "source_selection_profile": source_selection["profile"],
+        "selection_policy": "all_nonrejected_6fps_candidates_in_expanded_time_range_v1",
+    }
+    timestamps = {
+        path.name: float(candidate["time_seconds"])
+        for path, candidate in zip(paths, candidates)
+    }
+    image_list = directory / "images.txt"
+    image_list.write_text("\n".join(timestamps) + "\n")
+    write_json(directory / "selection.json", {
+        **materialization, "scope": "dense_clip_only_not_full_video",
+        "start_time_seconds": start, "end_time_seconds": end,
+        "selected": [
+            {
+                "candidate_index": int(candidate["candidate_index"]),
+                "pts": int(candidate["pts"]), "time_seconds": float(candidate["time_seconds"]),
+                "path": path.name, "sha256": sha256_file(path),
+            }
+            for path, candidate in zip(paths, candidates)
+        ],
+    })
+    cell = directory / "positive"
+    cell.mkdir()
+    record = {
+        "clip": clip, "arm": "positive_dense_6fps", "feature_profile": "aliked_n16rot_v1",
+        "matcher": "bruteforce", "status": "failed", "models": [],
+        "materialization": materialization,
+    }
+    try:
+        extraction(
+            project, binaries["positive"], cell, images, image_list,
+            "aliked_n16rot_v1", True,
+        )
+        db = cell / "database.db"
+        binary = str(binaries["original"])
+        feature = resolve_colmap_feature_profile("aliked_n16rot_v1", project)
+        matcher = resolve_colmap_local_matcher(feature, "bruteforce", project)
+        run_stage(cell, "matching", [
+            binary, "exhaustive_matcher", "--database_path", str(db),
+            *matcher.matching_options,
+            *resolve_colmap_geometric_verification("default_v1").matching_options,
+            "--FeatureMatching.use_gpu", "1", "--FeatureMatching.gpu_index", "0",
+            "--FeatureMatching.num_threads", "4", "--default_random_seed", "0",
+        ])
+        record["database"] = database_summary(db)
+        if set(record["database"]["feature_counts"]) != set(timestamps):
+            raise ValueError("dense image set mismatch")
+        map_and_evaluate(root, cell, db, binary, images, timestamps, record)
+    except (RuntimeError, ValueError) as exc:
+        record["error"] = str(exc)
+    write_json(cell / "results.json", record)
+    write_json(directory / "results.json", {
+        "profile": "aliked_positive_dense_bruteforce_v1", "cell": record,
+        "stage_timeout_seconds": 1200, "recovery_applied": False,
+        "training_started": False, "test_rgb_loaded": False,
+    })
+
+
 def map_positive_feature_indices(original, positive):
     old_xy, old_desc = original["keypoints"][0], original["descriptors"][0]
     new_xy, new_desc = positive["keypoints"][0], positive["descriptors"][0]
@@ -624,7 +723,7 @@ def main():
         "--stage",
         choices=(
             "smoke", "geometry", "compare", "bruteforce", "bruteforce-compare",
-            "expanded-bruteforce",
+            "expanded-bruteforce", "dense-bruteforce",
         ),
         required=True,
     )
@@ -654,7 +753,7 @@ def main():
         raise ValueError("project tracked files must be clean")
     if args.stage in {
         "geometry", "compare", "bruteforce", "bruteforce-compare",
-        "expanded-bruteforce",
+        "expanded-bruteforce", "dense-bruteforce",
     }:
         previous = json.loads((root / "smoke-request.json").read_text())
         if previous["build"] != build or previous["source_selection_sha256"] != SOURCE_SELECTION_SHA:
@@ -675,10 +774,12 @@ def main():
         brute_force_geometry(project, root, binaries, selected, source / "input")
     elif args.stage == "bruteforce-compare":
         write_bruteforce_summary(root)
-    else:
+    elif args.stage == "expanded-bruteforce":
         expanded_bruteforce_geometry(
             project, root, binaries, selected, source / "input"
         )
+    else:
+        dense_candidate_bruteforce(project, root, binaries, selected, source)
 
 
 if __name__ == "__main__":
