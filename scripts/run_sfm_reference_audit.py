@@ -145,7 +145,7 @@ def run(project: Path, experiment: Path, output: Path) -> None:
                     record["reference_vs_onnx_cpu"] = compare_pairs(actual, onnx_pairs)
                 report["matcher_records"].append(record)
                 print("MATCHER", json.dumps(record), flush=True)
-        del session, matcher, state, graph, result
+        del session, state, graph, result
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -159,6 +159,7 @@ def run(project: Path, experiment: Path, output: Path) -> None:
             extractor = ALIKED(model_name="aliked-n16rot", max_num_keypoints=8192,
                                detection_threshold=0.2).eval().cuda()
         session = ort.InferenceSession(str(aliked_path), sess_options=options, providers=["CPUExecutionProvider"])
+        feature_cache = {}
         with torch.inference_mode():
             for frame in (710, 468):
                 name = names[frame]
@@ -183,6 +184,8 @@ def run(project: Path, experiment: Path, output: Path) -> None:
                     valid &= (xy[:, 0] >= -0.5) & (xy[:, 1] >= -0.5)
                     xy, desc = xy[valid], desc[valid]
                     selected_scores = scores.reshape(-1)[valid]
+                    if budget == 8192:
+                        feature_cache[frame] = (xy, desc, selected_scores, width, height)
                     positive = selected_scores > 0
                     record = {
                         "score_counts": {
@@ -205,6 +208,40 @@ def run(project: Path, experiment: Path, output: Path) -> None:
                     }
                     report["extractor_records"].append(record)
                     print("EXTRACTOR", json.dumps(record), flush=True)
+            report["score_filter_controls"] = []
+            for first, second in ((710, 713), (468, 469)):
+                image = cv2.cvtColor(cv2.imread(str(arm / "input" / names[second])), cv2.COLOR_BGR2RGB)
+                height, width = image.shape[:2]
+                padded = np.pad(image, ((0, -height % 32), (0, -width % 32), (0, 0)), mode="edge")
+                pixels = padded.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
+                xy, desc, scores = session.run(None, {"image": pixels, "max_keypoints": np.array(8192, dtype=np.int64),
+                                                     "min_score": np.array(0.2, dtype=np.float32)})
+                xy = (xy[0] + 1) * np.array([padded.shape[1] - 1, padded.shape[0] - 1]) / 2
+                valid = (xy[:, 0] < width - 0.5) & (xy[:, 1] < height - 0.5)
+                valid &= (xy[:, 0] >= -0.5) & (xy[:, 1] >= -0.5)
+                feature_cache[second] = (xy[valid], desc[0][valid], scores.reshape(-1)[valid], width, height)
+                for filtered in (False, True):
+                    data, used_scores = {}, []
+                    for index, frame in enumerate((first, second)):
+                        xy, desc, scores, width, height = feature_cache[frame]
+                        keep = scores > 0.2 if filtered else np.ones(len(scores), dtype=bool)
+                        data[f"image{index}"] = {
+                            "keypoints": torch.tensor(xy[keep][None], dtype=torch.float32, device="cuda"),
+                            "descriptors": torch.tensor(desc[keep][None], dtype=torch.float32, device="cuda"),
+                            "image_size": torch.tensor([[width, height]], dtype=torch.float32, device="cuda"),
+                        }
+                        used_scores.append(scores[keep])
+                    matches = matcher(data)["matches"][0].cpu().numpy()
+                    zero = (used_scores[0][matches[:, 0]] == 0) | (used_scores[1][matches[:, 1]] == 0)
+                    below = (used_scores[0][matches[:, 0]] <= 0.2) | (used_scores[1][matches[:, 1]] <= 0.2)
+                    record = {
+                        "frames": [first, second], "score_filter_enabled": filtered,
+                        "input_counts": [len(s) for s in used_scores], "match_count": len(matches),
+                        "matches_with_zero_score_endpoint": int(zero.sum()),
+                        "matches_with_endpoint_not_above_threshold": int(below.sum()),
+                    }
+                    report["score_filter_controls"].append(record)
+                    print("SCORE_FILTER_CONTROL", json.dumps(record), flush=True)
     with output.open("x") as stream:
         json.dump(report, stream, indent=2, allow_nan=False)
     print("report=" + str(output), flush=True)
