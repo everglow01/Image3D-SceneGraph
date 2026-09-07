@@ -182,7 +182,20 @@ def run(project: Path, experiment: Path, output: Path) -> None:
                     valid = (xy[:, 0] < width - 0.5) & (xy[:, 1] < height - 0.5)
                     valid &= (xy[:, 0] >= -0.5) & (xy[:, 1] >= -0.5)
                     xy, desc = xy[valid], desc[valid]
+                    selected_scores = scores.reshape(-1)[valid]
+                    positive = selected_scores > 0
                     record = {
+                        "score_counts": {
+                            "zero": int(np.count_nonzero(selected_scores == 0)),
+                            "positive": int(np.count_nonzero(positive)),
+                            "above_requested_threshold": int(np.count_nonzero(selected_scores > 0.2)),
+                            "minimum": float(selected_scores.min()),
+                            "median": float(np.median(selected_scores)),
+                            "maximum": float(selected_scores.max()),
+                        },
+                        "positive_score_vs_reference": compare_features(
+                            xy[positive], desc[positive], ref_xy, ref_desc
+                        ),
                         "frame": frame, "name": name, "requested_budget": budget,
                         "reference_requested_budget": 8192, "reference_count": len(ref_xy),
                         "onnx_count": len(xy), "onnx_cpu_seconds": time.monotonic() - start,
