@@ -141,4 +141,4 @@ ONNX 把固定 TopK 选出的零分位置也返回，而 pinned COLMAP `src/colm
 1. 判断漏洞修复通过真实模型回归，旧修复模型不再被误放行。
 2. 已确认 ALIKED ONNX 输出/包装层需要修正的零分点问题与 4096 上限；LightGlue 对当前同一特征的参考输出高度一致。
 3. 尚未修改 pinned COLMAP 二进制或发布修正版 ONNX；生产算法、特征 profile、默认配置均未更换。
-4. 下一阶段应先以版本化修正过滤契约，再从新提取的同源数据库做小规模 geometry 回归；不能给旧数据库追加一个成功标签，也不直接重跑整段千帧/3DGS。
+4. 该下一阶段已在独立候选中完成：正分输出契约通过 CPU/CUDA 数值 smoke，但 48 帧问题片段的原版没有复现长视频灾难，修正版反而出现 `max/median=40.21` 的软位姿不稳定，不能推广。生产 COLMAP、ONNX 与默认 profile 仍未修改；完整结果见 `docs/aliked-positive-score-experiment-20260907.md`。

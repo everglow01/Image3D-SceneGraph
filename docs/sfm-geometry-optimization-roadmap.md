@@ -567,10 +567,12 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 
 2026-09-07 核验更新：同源视频四格已经执行，SIFT+Brute-force 原始模型健康；SIFT+LightGlue 匹配 OOM；ALIKED+Brute-force 主模型与 Global 均不健康；ALIKED+LightGlue 主模型失败，删除 36 台相机后的 v1 报告虽通过，却残留九台约 20–100× 相机。四格归因仍不完整，不能把两相机碎片或 OOM 当作整格几何结论。
 
-本地修复使用 `sfm_pose_health_v2`（独立时间跳变、空点云拒绝，原空间阈值和一次/10% 恢复边界不变）与 `sfm_frontend_factorial_v2`（按主体模型归因，健康版本不可混用）。详细合同见 `docs/manifest-schema.md`。新增只读 `scripts/analyze_sfm_small_matches.py --experiment <四格目录> --output <新报告>`，固定八对坏帧/健康对照，SIFT 位姿只作估计参考而非真值。新代码 CPU 远端回归与八对已有匹配审计已完成，SIFT 基线保持通过、旧 D 修复模型因 13 段独立时间跳变被拒绝；官方 LightGlue/ALIKED 参考推理与两对分数过滤控制也已在单张 L2 完成，代码均经 Git 同步：LightGlue 同特征对应高度一致，ALIKED ONNX 固定 TopK 的零分点未被 C++ 包装过滤。过滤控制尚未证明几何收益，没有运行整段新 SfM 或训练。完整证据、版本边界及待验证项见 `docs/sfm-small-match-audit-20260907.md`。后续新代码只能经 Git push/pull 同步，不再上传源码包。
+本地修复使用 `sfm_pose_health_v2`（独立时间跳变、空点云拒绝，原空间阈值和一次/10% 恢复边界不变）与 `sfm_frontend_factorial_v2`（按主体模型归因，健康版本不可混用）。详细合同见 `docs/manifest-schema.md`。新增只读 `scripts/analyze_sfm_small_matches.py --experiment <四格目录> --output <新报告>`，固定八对坏帧/健康对照，SIFT 位姿只作估计参考而非真值。新代码 CPU 远端回归与八对已有匹配审计已完成，SIFT 基线保持通过、旧 D 修复模型因 13 段独立时间跳变被拒绝；官方 LightGlue/ALIKED 参考推理与两对分数过滤控制也已在单张 L2 完成，代码均经 Git 同步：LightGlue 同特征对应高度一致，ALIKED ONNX 固定 TopK 的零分点未被 C++ 包装过滤。完整证据见 `docs/sfm-small-match-audit-20260907.md`。后续新代码只能经 Git push/pull 同步，不再上传源码包。
+
+后续 `aliked_positive_scores_v1` 独立候选和两段各 48 帧的三格回归也已完成；production binary、ONNX 和默认 profile 未修改。正分过滤保持保留点的坐标/描述子一致，并在问题段把特征输入减少 50.84%、matching wall time 减少 55.74%，但原 48 帧格本身没有复现千帧灾难，修正版主体的 scale-invariant camera max/median 反而从 3.05 增至 40.21（仍低于冻结 hard limit 100）。因此不能认定几何获益或推广过滤候选，也不据此降低健康阈值；完整证据见 `docs/aliked-positive-score-experiment-20260907.md`。没有运行整段新 SfM、Gaussian 或 Test 评估。
 
 
-实现状态（2026-09-04）：`sfm_pose_health_v1` 已前移到 raw sparse model，在 undistortion、dataset normalization/split、Gaussian initialization 和 CUDA 前识别孤立极端相机及多尺度相机分支。ordinary-COLMAP 对每个 incremental 候选做健康选择；全部失败时，先在 SQLite 副本上运行 `view_graph_calibrator + global_mapper`，只有 Global 仍失败时才允许一次视频 healthy-core repair（完整异常分支、最多 10%、point filtering、BA）。所有候选继续满足 12/70%/80% 产品门槛，v2 expansion/recovery/final BA 不能重新引入坏分支；`>2s` gaps 仍是 soft warning。
+实现状态（2026-09-07）：`sfm_pose_health_v2` 已前移到 raw sparse model，在 undistortion、dataset normalization/split、Gaussian initialization 和 CUDA 前识别孤立极端相机、多尺度相机分支、独立灾难性时间跳变与空点云；历史 v1 报告保持不可变。ordinary-COLMAP 对每个 incremental 候选做健康选择；全部失败时，先在 SQLite 副本上运行 `view_graph_calibrator + global_mapper`，只有 Global 仍失败时才允许一次视频 healthy-core repair（完整异常分支、最多 10%、point filtering、BA）。所有候选继续满足 12/70%/80% 产品门槛，v2 expansion/recovery/final BA 不能重新引入坏分支；`>2s` gaps 仍是 soft warning。
 
 - Global 是内部 same-features/matches recovery，不是可选默认，也不静默切换 SIFT/ALIKED、Brute-force/LightGlue、pairing、camera profile 或 trainer；
 - `sfm_pose_recovery_v1` 记录 requested/effective Mapper、job-relative model/database paths、模型文件/source-and-effective-database hashes、removed IDs 和候选 health；Global/core 结果明确标为 recovered，不冒充 clean incremental；
