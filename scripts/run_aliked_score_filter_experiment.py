@@ -239,10 +239,13 @@ def geometry(project, root, binaries, selected, images):
                 record["models"].sort(key=lambda x: (-x["registered_count"], -x["point_count"], x["path"]))
                 primary = record["models"][0] if record["models"] else None
                 record["primary"] = primary
-                record["clip_product_passed"] = bool(primary and primary["pose_status"] == "passed"
+                record["product_gate_passed"] = bool(primary
                     and primary["registered_count"] >= MIN_VIDEO_REGISTERED_COUNT
                     and primary["timeline"]["registration_rate"] >= MIN_VIDEO_REGISTRATION_RATE
                     and primary["timeline"]["temporal_coverage"] >= MIN_VIDEO_TEMPORAL_COVERAGE)
+                record["acceptance_passed"] = bool(
+                    record["product_gate_passed"] and primary["pose_status"] == "passed"
+                )
                 record["status"] = "evaluated" if primary else "no_model"
             except (RuntimeError, ValueError) as exc:
                 record["error"] = str(exc)
