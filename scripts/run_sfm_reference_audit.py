@@ -92,6 +92,8 @@ def run(project: Path, experiment: Path, output: Path) -> None:
             state = {k.replace(f"{kind}.{i}", f"transformers.{i}.{kind}"): v for k, v in state.items()}
     matcher = LightGlue(features=None, input_dim=128, flash=False, depth_confidence=-1,
                         width_confidence=-1, filter_threshold=0.1).eval().cuda()
+    # Older official checkpoints omit this deterministic, non-learned buffer.
+    state.setdefault("confidence_thresholds", matcher.confidence_thresholds.detach().cpu())
     matcher.load_state_dict(state, strict=True)
     lg_path = project / "external/colmap-features/aliked-lightglue.onnx"
     aliked_path = project / "external/colmap-features/aliked-n16rot.onnx"
