@@ -119,6 +119,45 @@ def test_experiment_detects_descriptor_index_corruption(tmp_path, monkeypatch):
         audit["database_summary"](tmp_path / "new.db")
 
 
+def test_comparison_maps_filtered_indices_and_aligns_camera_gauges(tmp_path, monkeypatch):
+    import runpy
+
+    import numpy as np
+
+    scripts = Path(__file__).parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    audit = runpy.run_path(str(scripts / "run_aliked_score_filter_experiment.py"))
+    original = {
+        "keypoints": np.array([[[1, 2], [3, 4], [5, 6]]], dtype=np.float32),
+        "descriptors": np.array([np.eye(3)], dtype=np.float32),
+    }
+    positive = {key: value[:, [0, 2]] for key, value in original.items()}
+    mapping, record = audit["map_positive_feature_indices"](original, positive)
+    assert mapping.tolist() == [0, 2]
+    assert record["removed_count"] == 1
+    positive["descriptors"] = positive["descriptors"].copy()
+    positive["descriptors"][0, 1] = 1
+    with pytest.raises(ValueError, match="ordered subset"):
+        audit["map_positive_feature_indices"](original, positive)
+
+    original_dir, positive_dir = tmp_path / "original", tmp_path / "positive"
+    original_dir.mkdir()
+    positive_dir.mkdir()
+    centers = np.array([[0, 0, 0], [1, 0, 0], [0, 2, 0], [0, 0, 3]])
+    for directory, values in ((original_dir, centers), (positive_dir, centers * 2 + 5)):
+        lines = ["# images"]
+        for index, center in enumerate(values, 1):
+            translation = -center
+            lines.extend((
+                f"{index} 1 0 0 0 {translation[0]} {translation[1]} {translation[2]} 1 {index}.jpg",
+                "",
+            ))
+        (directory / "images.txt").write_text("\n".join(lines) + "\n")
+    alignment = audit["align_camera_centers"](original_dir, positive_dir)
+    assert alignment["similarity_scale"] == pytest.approx(0.5)
+    assert alignment["residual_to_original_median_radius"]["max"] < 1e-12
+
+
 def test_gpu_telemetry_is_fail_soft(monkeypatch):
     import runpy
 

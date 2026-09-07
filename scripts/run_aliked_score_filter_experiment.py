@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from itertools import combinations
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ import time
 
 import numpy as np
 
+from analyze_sfm_small_matches import read_pair
 from build_colmap_aliked_score_filter import CANDIDATE_ROOT
 from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_camera_calibration,
@@ -22,13 +24,16 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_local_matcher,
     sha256_file,
 )
-from image3d_scenegraph.geometry.grouping import parse_colmap_images_with_points
+from image3d_scenegraph.geometry.grouping import (
+    colmap_camera_center,
+    parse_colmap_images_with_points,
+)
 from image3d_scenegraph.geometry.sfm_pose_health import build_sfm_pose_health_from_text
 from image3d_scenegraph.video.registration import (
     MIN_VIDEO_REGISTERED_COUNT, MIN_VIDEO_REGISTRATION_RATE, MIN_VIDEO_TEMPORAL_COVERAGE,
     analyze_registration_timeline,
 )
-from run_sfm_reference_audit import database_features
+from run_sfm_reference_audit import compare_pairs, database_features
 
 
 SOURCE = "outputs/experiments/20260902_030611_a94e38dd-sfm-frontend-2x2-v2/aliked-lightglue"
@@ -256,11 +261,189 @@ def geometry(project, root, binaries, selected, images):
                                             "recovery_applied": False, "training_started": False, "test_rgb_loaded": False})
 
 
+def map_positive_feature_indices(original, positive):
+    old_xy, old_desc = original["keypoints"][0], original["descriptors"][0]
+    new_xy, new_desc = positive["keypoints"][0], positive["descriptors"][0]
+    mapping = np.empty(len(new_xy), dtype=np.int64)
+    cursor = 0
+    max_coordinate_error = 0.0
+    max_descriptor_error = 0.0
+    for index, (xy, descriptor) in enumerate(zip(new_xy, new_desc)):
+        while cursor < len(old_xy):
+            coordinate_error = float(np.linalg.norm(xy - old_xy[cursor]))
+            descriptor_error = float(np.max(np.abs(descriptor - old_desc[cursor])))
+            if coordinate_error < 0.01 and descriptor_error < 1e-4:
+                break
+            cursor += 1
+        if cursor == len(old_xy):
+            raise ValueError("positive-score features are not an ordered subset")
+        mapping[index] = cursor
+        max_coordinate_error = max(max_coordinate_error, coordinate_error)
+        max_descriptor_error = max(max_descriptor_error, descriptor_error)
+        cursor += 1
+    return mapping, {
+        "original_count": len(old_xy), "positive_count": len(new_xy),
+        "removed_count": len(old_xy) - len(new_xy),
+        "max_coordinate_error_px": max_coordinate_error,
+        "max_descriptor_component_error": max_descriptor_error,
+    }
+
+
+def summarize_values(values):
+    values = np.asarray(values, dtype=np.float64)
+    return {
+        "count": len(values), "min": float(values.min()),
+        "p50": float(np.median(values)), "p90": float(np.quantile(values, 0.9)),
+        "max": float(values.max()),
+    }
+
+
+def compare_match_databases(original_path, positive_path, names):
+    feature_records = []
+    mappings = {}
+    retained = {}
+    with sqlite3.connect(original_path.as_uri() + "?mode=ro", uri=True) as old, sqlite3.connect(
+        positive_path.as_uri() + "?mode=ro", uri=True
+    ) as new:
+        for name in names:
+            mapping, record = map_positive_feature_indices(
+                database_features(old, name), database_features(new, name)
+            )
+            mappings[name] = mapping
+            retained[name] = set(mapping.tolist())
+            feature_records.append({"name": name, **record})
+        table_reports = {}
+        for table in ("matches", "two_view_geometries"):
+            totals = {
+                "original_count": 0, "original_retained_count": 0,
+                "positive_count": 0, "common_count": 0,
+                "original_with_removed_endpoint_count": 0,
+                "original_retained_only_count": 0, "positive_only_count": 0,
+            }
+            pair_records = []
+            for left, right in combinations(names, 2):
+                old_pairs = read_pair(old, left, right, table)
+                new_pairs = read_pair(new, left, right, table)
+                if old_pairs is None or new_pairs is None:
+                    raise ValueError(f"missing exhaustive {table} pair")
+                old_set = set(map(tuple, old_pairs.tolist()))
+                old_retained = {
+                    pair for pair in old_set
+                    if pair[0] in retained[left] and pair[1] in retained[right]
+                }
+                mapped_new = {
+                    (int(mappings[left][pair[0]]), int(mappings[right][pair[1]]))
+                    for pair in new_pairs
+                }
+                common = old_retained & mapped_new
+                pair_records.append({
+                    "names": [left, right],
+                    "retained_jaccard": compare_pairs(old_retained, mapped_new)["jaccard"],
+                    "original_count": len(old_set),
+                    "original_with_removed_endpoint_count": len(old_set) - len(old_retained),
+                    "positive_count": len(mapped_new), "common_count": len(common),
+                })
+                totals["original_count"] += len(old_set)
+                totals["original_retained_count"] += len(old_retained)
+                totals["positive_count"] += len(mapped_new)
+                totals["common_count"] += len(common)
+                totals["original_with_removed_endpoint_count"] += len(old_set) - len(old_retained)
+                totals["original_retained_only_count"] += len(old_retained - mapped_new)
+                totals["positive_only_count"] += len(mapped_new - old_retained)
+            union = (
+                totals["original_retained_count"] + totals["positive_count"]
+                - totals["common_count"]
+            )
+            totals["retained_jaccard"] = totals["common_count"] / union if union else 1.0
+            jaccards = [record["retained_jaccard"] for record in pair_records]
+            table_reports[table] = {
+                **totals,
+                "pair_retained_jaccard": summarize_values(jaccards),
+                "lowest_pair_retained_jaccard": sorted(
+                    pair_records, key=lambda value: (value["retained_jaccard"], value["names"])
+                )[:10],
+            }
+    return {
+        "features": {
+            "original_count": sum(record["original_count"] for record in feature_records),
+            "positive_count": sum(record["positive_count"] for record in feature_records),
+            "removed_count": sum(record["removed_count"] for record in feature_records),
+            "records": feature_records,
+        },
+        "tables": table_reports,
+    }
+
+
+def align_camera_centers(original_path, positive_path):
+    originals = {
+        image.name: colmap_camera_center(image)
+        for image in parse_colmap_images_with_points(original_path / "images.txt")
+    }
+    positives = {
+        image.name: colmap_camera_center(image)
+        for image in parse_colmap_images_with_points(positive_path / "images.txt")
+    }
+    if set(originals) != set(positives):
+        raise ValueError("primary models do not register the same images")
+    names = sorted(originals)
+    reference = np.stack([originals[name] for name in names])
+    candidate = np.stack([positives[name] for name in names])
+    reference_centered = reference - reference.mean(axis=0)
+    candidate_centered = candidate - candidate.mean(axis=0)
+    left, singular, right = np.linalg.svd(candidate_centered.T @ reference_centered)
+    correction = np.ones(3)
+    correction[-1] = np.sign(np.linalg.det(left @ right))
+    rotation = (left * correction) @ right
+    scale = float(np.sum(singular * correction) / np.sum(candidate_centered ** 2))
+    aligned = scale * candidate_centered @ rotation + reference.mean(axis=0)
+    residuals = np.linalg.norm(aligned - reference, axis=1)
+    radius = float(np.median(np.linalg.norm(reference - np.median(reference, axis=0), axis=1)))
+    if radius <= 1e-12:
+        raise ValueError("original model has degenerate camera extent")
+    worst = int(np.argmax(residuals))
+    return {
+        "common_camera_count": len(names), "similarity_scale": scale,
+        "reflection_used": bool(correction[-1] < 0), "world_units": "arbitrary",
+        "residual_world": summarize_values(residuals),
+        "residual_to_original_median_radius": summarize_values(residuals / radius),
+        "maximum_residual_name": names[worst],
+    }
+
+
+def compare_geometry(root):
+    output = root / "comparison.json"
+    geometry_result = root / "geometry/results.json"
+    cells = json.loads(geometry_result.read_text())["cells"]
+    report = {
+        "profile": "aliked_positive_comparison_v1",
+        "geometry_results_sha256": sha256_file(geometry_result),
+        "clips": {}, "training_started": False, "test_rgb_loaded": False,
+    }
+    for clip in CLIPS:
+        arms = {cell["arm"]: cell for cell in cells if cell["clip"] == clip}
+        original = arms["original"]
+        positive = arms["positive"]
+        if original["status"] != "evaluated" or positive["status"] != "evaluated":
+            raise ValueError("comparison requires evaluated ALIKED arms")
+        names = sorted(original["database"]["feature_counts"])
+        clip_root = root / "geometry" / clip
+        report["clips"][clip] = {
+            "matches": compare_match_databases(
+                clip_root / "original/database.db", clip_root / "positive/database.db", names
+            ),
+            "camera_centers": align_camera_centers(
+                root / original["primary"]["path"], root / positive["primary"]["path"]
+            ),
+        }
+    write_json(output, report)
+    print(json.dumps(report, indent=2), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--stage", choices=("smoke", "geometry"), required=True)
+    parser.add_argument("--stage", choices=("smoke", "geometry", "compare"), required=True)
     args = parser.parse_args()
     project, root = args.project.resolve(), args.output.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -281,7 +464,7 @@ def main():
         raise ValueError("binary hash mismatch")
     if subprocess.check_output(["git", "-C", str(project), "status", "--porcelain", "--untracked-files=no"], text=True).strip():
         raise ValueError("project tracked files must be clean")
-    if args.stage == "geometry":
+    if args.stage in {"geometry", "compare"}:
         previous = json.loads((root / "smoke-request.json").read_text())
         if previous["build"] != build or previous["source_selection_sha256"] != SOURCE_SELECTION_SHA:
             raise ValueError("geometry and extraction smoke provenance mismatch")
@@ -290,7 +473,12 @@ def main():
         "source_selection_sha256": SOURCE_SELECTION_SHA, "build": build, "clips": CLIPS,
         "smoke_frames": SMOKE_FRAMES, "gpu": "0", "production_default_changed": False,
     })
-    (smoke if args.stage == "smoke" else geometry)(project, root, binaries, selected, source / "input")
+    if args.stage == "smoke":
+        smoke(project, root, binaries, selected, source / "input")
+    elif args.stage == "geometry":
+        geometry(project, root, binaries, selected, source / "input")
+    else:
+        compare_geometry(root)
 
 
 if __name__ == "__main__":
