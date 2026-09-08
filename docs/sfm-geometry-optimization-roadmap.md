@@ -571,6 +571,8 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 
 后续 `aliked_positive_scores_v1` 独立候选和两段各 48 帧的三格回归也已完成；production binary、ONNX 和默认 profile 未修改。正分过滤保持保留点的坐标/描述子一致，并在问题段把特征输入减少 50.84%、matching wall time 减少 55.74%，但原 48 帧格本身没有复现千帧灾难，修正版主体的 scale-invariant camera max/median 反而从 3.05 增至 40.21（仍低于冻结 hard limit 100）。因此不能认定几何获益或推广过滤候选，也不据此降低健康阈值；完整证据见 `docs/aliked-positive-score-experiment-20260907.md`。后续全片段索引映射发现问题段原版 43.17% verified 对应涉及非正分端点，过滤后 retained verified Jaccard 为 77.16%，而健康段分别仅 2.57% 与 97.28%；这确认弱场景 view graph 污染及 matcher/input interaction，但仍无物理真值。追加的同特征 ALIKED brute-force 控制进一步隔离 matcher：原版 61.54% verified 对应涉及非正分端点且 47/48 注册模型的 max/median=176.48；正分版 retained verified Jaccard=91.17%、max/median=1.77，却只注册 29/48、覆盖 58.19%，产品门槛失败。旧高覆盖依赖无效点，过滤则暴露支持不足；两者均不可推广。192 帧扩展继续确认这一点：原版 70.99% verified 对应涉及非正分端点，Mapper 去注册至 0 台后在 Global BA 检查 SIGABRT，无 pose 结果；正分版正常求解且 max/median=3.82，但代表模型仅 76/192 注册、78.86% 覆盖，产品门槛失败。没有运行整段新 SfM、Gaussian 或 Test 评估。
 
+446 帧高密正分 Brute-force 对照也已完成（Job `20260907-170855-bd8d`，`c037180`）。代表模型 247/446 注册、55.38% 注册率、79.49% 覆盖，pose v2 通过但产品失败，仍有 13.843s / 7.820s 软间隙。共同的 192 帧 RGB、关键点和描述子逐字节一致；高密主体保留原 76 帧并新增注册 29 帧，证明加密有局部注册收益，却不能完成统一重建。用户要求固化后暂停新实验；不推广生产候选、不调整健康阈值、不自动启动后续求解器或训练评估。非正分端点占比不是具有真值的误匹配率。
+
 
 实现状态（2026-09-07）：`sfm_pose_health_v2` 已前移到 raw sparse model，在 undistortion、dataset normalization/split、Gaussian initialization 和 CUDA 前识别孤立极端相机、多尺度相机分支、独立灾难性时间跳变与空点云；历史 v1 报告保持不可变。ordinary-COLMAP 对每个 incremental 候选做健康选择；全部失败时，先在 SQLite 副本上运行 `view_graph_calibrator + global_mapper`，只有 Global 仍失败时才允许一次视频 healthy-core repair（完整异常分支、最多 10%、point filtering、BA）。所有候选继续满足 12/70%/80% 产品门槛，v2 expansion/recovery/final BA 不能重新引入坏分支；`>2s` gaps 仍是 soft warning。
 
