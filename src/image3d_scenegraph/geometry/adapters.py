@@ -399,7 +399,7 @@ class ProjectGaussianAdapter:
                 context,
                 "colmap_matcher",
                 "IMAGE3D_GAUSSIAN_COLMAP_MATCHER",
-                "exhaustive",
+                "sequential" if context.mode == "video" else "exhaustive",
                 set(COLMAP_LEGACY_MATCHER_IDS),
             )
             sfm_pairing = COLMAP_LEGACY_MATCHER_TO_PAIRING[colmap_matcher]
@@ -968,7 +968,7 @@ class ProjectGaussianAdapter:
         config_record = context.options.get("gaussian_config_record")
         if not isinstance(config_record, str):
             raise ReconstructionError("project 3DGS requires a resolved Gaussian config record")
-        trainer_id = str(context.options.get("gaussian_trainer", "graphdeco"))
+        trainer_id = str(context.options.get("gaussian_trainer", "project"))
         try:
             from image3d_scenegraph.gaussian.trainers import (
                 get_gaussian_trainer_specs,

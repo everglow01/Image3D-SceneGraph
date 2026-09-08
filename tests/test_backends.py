@@ -126,6 +126,12 @@ def test_backend_specs_report_aliked_without_disabling_sift(
         for matcher in profile["local_matchers"]
         for pairing in matcher["pairings"]
     )
+    sift_pairings = {
+        pairing["id"]: pairing
+        for pairing in profiles["sift_v1"]["local_matchers"][0]["pairings"]
+    }
+    assert sift_pairings["sequential_loop"]["experimental"] is False
+    assert sift_pairings["vocab_tree"]["experimental"] is True
     assert all(
         geometric["available"]
         for profile in profiles.values()

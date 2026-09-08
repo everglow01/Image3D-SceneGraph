@@ -265,7 +265,10 @@ class JobStore:
                             legacy_environment
                         ]
                 pairing = validate_colmap_pairing(
-                    str(requested_pairing or "exhaustive")
+                    str(
+                        requested_pairing
+                        or ("sequential_loop" if mode == "video" else "exhaustive")
+                    )
                 )
                 if pairing == "sequential_loop" and mode != "video":
                     raise JobError(
@@ -360,7 +363,7 @@ class JobStore:
         try:
             if geometry_backend == "project_3dgs":
                 gaussian_trainer = validate_trainer_id(
-                    str(normalized_options.get("gaussian_trainer", "graphdeco"))
+                    str(normalized_options.get("gaussian_trainer", "project"))
                 )
                 geometry_source = str(
                     normalized_options.get("gaussian_geometry_source", "colmap")
@@ -393,7 +396,10 @@ class JobStore:
                 recovery_prune = str(
                     normalized_options.get(
                         "gaussian_recovery_prune",
-                        os.environ.get("IMAGE3D_GAUSSIAN_RECOVERY_PRUNE", "off"),
+                        os.environ.get(
+                            "IMAGE3D_GAUSSIAN_RECOVERY_PRUNE",
+                            "on" if gaussian_trainer == "project" else "off",
+                        ),
                     )
                 )
                 if recovery_prune not in GAUSSIAN_RECOVERY_PRUNE_SETTINGS:
@@ -945,7 +951,7 @@ class JobStore:
                 "gaussian_config_record": json.dumps(
                     gaussian_config_record, sort_keys=True, separators=(",", ":")
                 ),
-                "gaussian_trainer": str(options.get("gaussian_trainer", "graphdeco")),
+                "gaussian_trainer": str(options.get("gaussian_trainer", "project")),
                 "gaussian_longest_edge": int(
                     gaussian_config_record["effective_config"]["resolution"]["longest_edge"]
                 ),

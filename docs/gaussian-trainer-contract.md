@@ -53,7 +53,7 @@ Fresh/retry/resume remain distinct. Each attempt keeps its model/result/progress
 
 ## Worker and assets
 
-`project_3dgs + gaussian_splat` owns the common Gaussian job lifecycle. The adapter runs COLMAP preparation and `scripts/run_gaussian_training.py` as cancellable subprocesses under the R2.6 serial worker. Trainer dispatch accepts isolated `graphdeco`, native `project`, or native experimental `mcmc`; Graphdeco remains the default. Project and MCMC use the same Torch/CUDA/gsplat availability probe and distributed execution path. Raw Gaussian hyperparameters are not exposed by the public job form.
+`project_3dgs + gaussian_splat` owns the common Gaussian job lifecycle. The adapter runs COLMAP preparation and `scripts/run_gaussian_training.py` as cancellable subprocesses under the R2.6 serial worker. Trainer dispatch accepts default native `project`, isolated Official comparison `graphdeco`, or native experimental `mcmc`. Project and MCMC use the same Torch/CUDA/gsplat availability probe and distributed execution path. Omitted Project requests enable the existing recovery-gated prune; explicit/environment `off` remains a kill switch, while Graphdeco/MCMC default off and MCMC rejects `on`. Raw Gaussian hyperparameters are not exposed by the public job form.
 
 Complete jobs may publish:
 

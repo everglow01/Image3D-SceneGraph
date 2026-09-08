@@ -92,7 +92,7 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     assert "quality_profile" not in properties
     assert "gaussian_trainer" in properties
     assert properties["gaussian_trainer"]["enum"] == ["project", "graphdeco", "mcmc"]
-    assert properties["gaussian_trainer"]["default"] == "graphdeco"
+    assert properties["gaussian_trainer"]["default"] == "project"
     assert properties["sfm_feature_profile"]["enum"] == [
         "sift_v1",
         "aliked_n16rot_v1",

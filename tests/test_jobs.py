@@ -1035,6 +1035,8 @@ def test_project_gaussian_job_persists_selected_trainer_before_execution(tmp_pat
     assert request["gaussian_trainer"] == manifest["gaussian_trainer"]
     assert manifest["gaussian_config"]["schema_version"] == 10
     assert manifest["gaussian_config"]["effective_config"]["resolution"]["longest_edge"] == 3072
+    assert request["options"]["gaussian_recovery_prune"] == "off"
+    assert manifest["gaussian_recovery_prune"] == "off"
 
 
 def test_project_gaussian_job_persists_mcmc_method_package(tmp_path):
@@ -1062,6 +1064,7 @@ def test_project_gaussian_job_persists_mcmc_method_package(tmp_path):
     assert config["resolution"]["longest_edge"] == 3072
     assert config["opacity_reset"]["enabled"] is False
     assert config["opacity_reset"]["recovery_prune"]["enabled"] is False
+    assert request["options"]["gaussian_recovery_prune"] == "off"
     assert request["options"]["gaussian_sor_filter"] == "on"
 
 
@@ -1094,6 +1097,9 @@ def test_project_video_job_stages_source_and_persists_profile(tmp_path):
     assert request["video_source"] == manifest["inputs"][0]
     assert request["options"]["video_keyframe_profile"] == "standard_v2"
     assert request["options"]["video_rotation"] == "clockwise_90"
+    assert request["options"]["sfm_pairing"] == "sequential_loop"
+    assert request["options"]["gaussian_trainer"] == "project"
+    assert request["options"]["gaussian_recovery_prune"] == "on"
 
 
 def test_project_video_job_accepts_explicit_standard_v1(tmp_path):
@@ -1157,7 +1163,7 @@ def test_video_job_rejects_non_project_pipeline(tmp_path):
     )
 
 
-def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
+def test_project_gaussian_job_defaults_to_project_with_recovery_prune(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
     files = [
         UploadedInput(filename=f"{index}.jpg", content=b"image")
@@ -1172,8 +1178,8 @@ def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
     )
     request = json.loads((store.job_dir(manifest["job_id"]) / "request.json").read_text())
 
-    assert manifest["gaussian_trainer"]["id"] == "graphdeco"
-    assert request["options"]["gaussian_trainer"] == "graphdeco"
+    assert manifest["gaussian_trainer"]["id"] == "project"
+    assert request["options"]["gaussian_trainer"] == "project"
     assert request["options"]["gaussian_geometry_source"] == "colmap"
     assert request["options"]["gaussian_postprocess"] == "none"
     assert manifest["gaussian_geometry_source"] == "colmap"
@@ -1185,12 +1191,12 @@ def test_project_gaussian_job_defaults_to_graphdeco(tmp_path):
     assert request["options"]["gaussian_sor_filter"] == "on"
     assert manifest["gaussian_sor_filter"] == "on"
     assert manifest["gaussian_sor_filter_status"] == "pending"
-    assert request["options"]["gaussian_recovery_prune"] == "off"
-    assert manifest["gaussian_recovery_prune"] == "off"
+    assert request["options"]["gaussian_recovery_prune"] == "on"
+    assert manifest["gaussian_recovery_prune"] == "on"
     recovery_prune_leaf = manifest["gaussian_config"]["effective_config"][
         "opacity_reset"
     ]["recovery_prune"]
-    assert recovery_prune_leaf["enabled"] is False
+    assert recovery_prune_leaf["enabled"] is True
 
 
 def test_project_gaussian_job_persists_experimental_options(tmp_path):
@@ -1229,8 +1235,8 @@ def test_project_gaussian_job_persists_experimental_options(tmp_path):
     assert recovery_prune_leaf["enabled"] is True
 
 
-def test_project_gaussian_job_env_enables_recovery_prune(tmp_path, monkeypatch):
-    monkeypatch.setenv("IMAGE3D_GAUSSIAN_RECOVERY_PRUNE", "on")
+def test_project_gaussian_job_env_disables_recovery_prune(tmp_path, monkeypatch):
+    monkeypatch.setenv("IMAGE3D_GAUSSIAN_RECOVERY_PRUNE", "off")
     store = JobStore(output_root=tmp_path / "jobs")
 
     manifest = store.enqueue_job(
@@ -1241,11 +1247,11 @@ def test_project_gaussian_job_env_enables_recovery_prune(tmp_path, monkeypatch):
         options={},
     )
 
-    assert manifest["gaussian_recovery_prune"] == "on"
+    assert manifest["gaussian_recovery_prune"] == "off"
     recovery_prune_leaf = manifest["gaussian_config"]["effective_config"][
         "opacity_reset"
     ]["recovery_prune"]
-    assert recovery_prune_leaf["enabled"] is True
+    assert recovery_prune_leaf["enabled"] is False
 
 
 def test_project_gaussian_job_env_disables_sor_filter(tmp_path, monkeypatch):

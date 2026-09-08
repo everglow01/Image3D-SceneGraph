@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph 与 Phase 5 相机标定均已接入代码；当前 8192 点配置及相机 profile 的真实 geometry A/B 尚待运行证据。2026-09-03 的独立产品决策已将视频 `standard_v2` 设为新 Job 默认，历史 v1 仍可显式选择
+> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph 与 Phase 5 相机标定均已接入代码；2026-09-08 用户将 SIFT + Brute-force + `sequential_loop` 设为视频基线，multi-image 仍默认 `exhaustive`。视频 `standard_v2` 继续为新 Job 默认，历史 v1 仍可显式选择
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -535,7 +535,7 @@ aliked_n16rot_v1:
 
 ### Phase 3：pairing / retrieval（代码已接入，待真实证据）
 
-实现状态（2026-09-02）：稳定字段 `sfm_pairing=exhaustive|sequential_loop|vocab_tree` 已接入共享 resolver、三个 COLMAP runner、API/JobStore、backend nested capability、前端、manifest 与 SfM diagnostics schema 2。新产品 Job 默认仍为 `exhaustive`；旧 `colmap_matcher=exhaustive|sequential` 保留并映射到 `exhaustive|sequential_loop`，冲突请求失败。video 支持 exhaustive ↔ sequential+loop，still/multi-image 支持 exhaustive ↔ descriptor-compatible vocab-tree。官方 SIFT 256K tree 与 ALIKED N16Rot 64K tree 已按 URL/大小/SHA 固定在 dry-run setup 中，但代码任务不自动安装 ALIKED tree，也尚无当前 feature/local-matcher profile 的真实 pairing A/B 结论。
+实现状态（2026-09-08）：稳定字段 `sfm_pairing=exhaustive|sequential_loop|vocab_tree` 已接入共享 resolver、三个 COLMAP runner、API/JobStore、backend nested capability、前端、manifest 与 SfM diagnostics schema 2。用户将 video 默认切换为 `sequential_loop`，still/multi-image 仍默认 `exhaustive`，`vocab_tree` 保持 multi-image 实验项；这是面向有序长视频的产品决策，不把尚未完成的当前代码严格 pairing A/B 写成通过。旧 `colmap_matcher=exhaustive|sequential` 继续映射到 `exhaustive|sequential_loop`，冲突请求失败。官方 SIFT 256K tree 与 ALIKED N16Rot 64K tree 仍按 URL/大小/SHA 固定，缺少描述子兼容 tree 时不静默回退。
 
 - `sequential_loop` 固定为有序视频的 temporal overlap + descriptor-compatible vocab-tree loop detection；
 - `vocab_tree` 固定为无序多图 retrieval；
@@ -612,7 +612,7 @@ Phase 1 完成必须满足：
 7. stage timing、keypoint/match/inlier/registration 指标可比较；不添加伪精确进度。
 8. 自动测试覆盖默认保持、ALIKED 命令、缺模型、非法 profile、API forwarding、旧 manifest fallback 和前端 selector。
 9. 只运行 geometry-only 小 smoke；未经用户明确授权，不自动启动远端 Job 或完整 3DGS 训练。
-10. 没有证据前，SIFT、incremental Mapper、现有 pairing 和 Graphdeco 默认全部保持不变。
+10. Phase 1 当时保持 SIFT、incremental Mapper、exhaustive pairing 和 Graphdeco 默认不变；2026-09-08 用户主导的视频 `sequential_loop` 与 Project v7 默认切换仅覆盖当前产品默认，不把早期实验重写为通过。
 
 ---
 

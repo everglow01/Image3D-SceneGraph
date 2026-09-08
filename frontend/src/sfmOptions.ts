@@ -44,10 +44,14 @@ export const sfmLocalMatcherOptions: Array<{
 ];
 
 export const sfmPairingOptions: Array<{ id: SfmPairing; label: string }> = [
-  { id: "exhaustive", label: "Exhaustive（默认）" },
-  { id: "sequential_loop", label: "Sequential + Loop（实验）" },
+  { id: "exhaustive", label: "Exhaustive（多图默认）" },
+  { id: "sequential_loop", label: "Sequential + Loop（视频默认）" },
   { id: "vocab_tree", label: "Vocab Tree（实验）" }
 ];
+
+export function defaultSfmPairing(mode: string): SfmPairing {
+  return mode === "video" ? "sequential_loop" : "exhaustive";
+}
 
 export const sfmGeometricVerificationOptions: Array<{
   id: SfmGeometricVerification;
@@ -86,7 +90,7 @@ export function isSfmPairingAvailable(
 ): boolean {
   if (
     status?.available === false ||
-    (pairing !== "exhaustive" && status?.available !== true)
+    (pairing !== defaultSfmPairing(mode) && status?.available !== true)
   ) {
     return false;
   }

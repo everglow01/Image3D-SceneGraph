@@ -283,7 +283,7 @@ def _colmap_feature_profiles(
                         "label": pairing_label,
                         "available": pairing_reason is None,
                         "reason": pairing_reason,
-                        "experimental": pairing_id != "exhaustive",
+                        "experimental": pairing_id == "vocab_tree",
                         "supported_modes": pairing_modes,
                         "setup_command": pairing_setup_command,
                         "geometric_verifications": geometric_verifications,

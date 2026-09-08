@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   defaultSfmCameraCalibration,
+  defaultSfmPairing,
   formatSfmCameraCalibration,
   formatSfmGeometricVerification,
   formatSfmPairing,
@@ -24,14 +25,19 @@ function status(
     label: id,
     available,
     reason: null,
-    experimental: id !== "exhaustive",
+    experimental: id === "vocab_tree",
     supported_modes: supportedModes
   };
 }
 
-test("legacy capability payload permits only the default pairing", () => {
+test("pairing defaults follow the input mode", () => {
+  assert.equal(defaultSfmPairing("video"), "sequential_loop");
+  assert.equal(defaultSfmPairing("multi_image"), "exhaustive");
+});
+
+test("legacy capability payload permits the mode default pairing", () => {
   assert.equal(isSfmPairingAvailable("exhaustive", undefined, "multi_image"), true);
-  assert.equal(isSfmPairingAvailable("sequential_loop", undefined, "video"), false);
+  assert.equal(isSfmPairingAvailable("sequential_loop", undefined, "video"), true);
   assert.equal(isSfmPairingAvailable("vocab_tree", undefined, "multi_image"), false);
 });
 

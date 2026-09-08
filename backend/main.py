@@ -100,7 +100,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         output_type: Annotated[str, Form()] = "point_cloud",
         gaussian_trainer: Annotated[
             Literal["project", "graphdeco", "mcmc"], Form()
-        ] = "graphdeco",
+        ] = "project",
         gaussian_geometry_source: Annotated[
             Literal["colmap", "vggt_ba"], Form()
         ] = "colmap",

@@ -28,6 +28,7 @@ import {
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
   defaultSfmCameraCalibration,
+  defaultSfmPairing,
   formatSfmCameraCalibration,
   formatSfmFeatureProfile,
   formatSfmGeometricVerification,
@@ -431,12 +432,12 @@ export function App() {
     useState<SfmFeatureProfile>("sift_v1");
   const [sfmLocalMatcher, setSfmLocalMatcher] =
     useState<SfmLocalMatcher>("bruteforce");
-  const [sfmPairing, setSfmPairing] = useState<SfmPairing>("exhaustive");
+  const [sfmPairing, setSfmPairing] = useState<SfmPairing>(defaultSfmPairing("image"));
   const [sfmGeometricVerification, setSfmGeometricVerification] =
     useState<SfmGeometricVerification>("default_v1");
   const [sfmCameraCalibration, setSfmCameraCalibration] =
     useState<SfmCameraCalibration>("shared_simple_radial_v1");
-  const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("graphdeco");
+  const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("project");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
   const [gaussianPostprocess, setGaussianPostprocess] =
@@ -842,6 +843,7 @@ export function App() {
 
   function onModeChange(nextMode: Mode) {
     setMode(nextMode);
+    setSfmPairing(defaultSfmPairing(nextMode));
     if (nextMode === "video") {
       setGeometryBackend("project_3dgs");
       setOutputType("gaussian_splat");
