@@ -62,7 +62,7 @@ def compare_cameras(reference, candidate):
     }
 
 
-def compare_points(reference_observations, candidate_observations, reference_xyz, candidate_xyz, transform, radius):
+def shared_point_groups(reference_observations, candidate_observations):
     shared = defaultdict(set)
     shared_observations = 0
     for image_id in sorted(set(reference_observations) & set(candidate_observations)):
@@ -80,6 +80,15 @@ def compare_points(reference_observations, candidate_observations, reference_xyz
         "mutually_unique_seen_in_two_common_images": [p for p, ids in shared.items()
             if len(ids) >= 2 and len(reference_partners[p[0]]) == len(candidate_partners[p[1]]) == 1],
     }
+    return shared, groups, {
+        "shared_feature_observation_count": shared_observations,
+        "reference_points_with_multiple_candidate_partners": sum(len(v) > 1 for v in reference_partners.values()),
+        "candidate_points_with_multiple_reference_partners": sum(len(v) > 1 for v in candidate_partners.values()),
+    }
+
+
+def compare_points(reference_observations, candidate_observations, reference_xyz, candidate_xyz, transform, radius):
+    shared, groups, summary = shared_point_groups(reference_observations, candidate_observations)
     reports = {}
     for name, pairs in groups.items():
         target = np.array([reference_xyz[a] for a, _ in pairs]).reshape(-1, 3)
@@ -90,15 +99,61 @@ def compare_points(reference_observations, candidate_observations, reference_xyz
             "common_image_support": distribution(len(shared[p]) for p in pairs),
             "camera_fitted_residual_to_reference_common_radius": distribution(residuals / radius),
         }
-    return {
-        "shared_feature_observation_count": shared_observations,
-        "reference_points_with_multiple_candidate_partners": sum(len(v) > 1 for v in reference_partners.values()),
-        "candidate_points_with_multiple_reference_partners": sum(len(v) > 1 for v in candidate_partners.values()),
-        "groups": reports,
+    return {**summary, "groups": reports}
+
+
+def orientation_similarity(reference_centers, candidate_centers, world_rotations):
+    u, _, vt = np.linalg.svd(np.mean(world_rotations, axis=0))
+    rotation = u @ np.diag([1, 1, np.linalg.det(u @ vt)]) @ vt
+    source = candidate_centers @ rotation.T
+    source_centered = source - source.mean(axis=0)
+    target_centered = reference_centers - reference_centers.mean(axis=0)
+    variance = float(np.sum(source_centered ** 2))
+    if variance <= 1e-12:
+        raise ValueError("zero camera variance for orientation-constrained fit")
+    scale = float(np.sum(source_centered * target_centered) / variance)
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError(f"orientation-constrained camera scale is not positive: {scale}")
+    transform = np.eye(4)
+    transform[:3, :3] = scale * rotation
+    transform[:3, 3] = reference_centers.mean(axis=0) - scale * source.mean(axis=0)
+    return transform
+
+
+def cross_check_alignment(cameras, observations, xyz, center_transform, radius):
+    names = sorted(set(cameras[0]) & set(cameras[1]))
+    target = np.array([colmap_camera_center(cameras[0][n]) for n in names])
+    source = np.array([colmap_camera_center(cameras[1][n]) for n in names])
+    world_rotations = [qvec_to_rotmat(cameras[0][n].qvec).T @ qvec_to_rotmat(cameras[1][n].qvec) for n in names]
+    _, groups, _ = shared_point_groups(*observations)
+    pairs = groups["mutually_unique_seen_in_two_common_images"]
+    target_points = np.array([xyz[0][a] for a, _ in pairs]).reshape(-1, 3)
+    source_points = np.array([xyz[1][b] for _, b in pairs]).reshape(-1, 3)
+    report = {}
+    fits = {
+        "camera_centers": lambda: center_transform,
+        "camera_orientations": lambda: orientation_similarity(target, source, world_rotations),
+        "shared_points": lambda: estimate_similarity_transform(source_points, target_points),
     }
+    for method, fit in fits.items():
+        try:
+            transform = fit()
+        except ValueError as exc:
+            report[method] = {"status": "unavailable", "reason": str(exc)}
+            continue
+        scale = float(np.cbrt(np.linalg.det(transform[:3, :3])))
+        rotation = transform[:3, :3] / scale
+        report[method] = {
+            "status": "evaluated", "candidate_to_reference_sim3": transform.tolist(), "scale": scale,
+            "camera_center_residual_to_radius": distribution(np.linalg.norm(transform_points(source, transform) - target, axis=1) / radius),
+            "camera_orientation_residual_degrees": distribution(rotation_angle(rotation.T @ r) for r in world_rotations),
+            "shared_point_pair_count": len(pairs),
+            "shared_point_residual_to_radius": distribution(np.linalg.norm(transform_points(source_points, transform) - target_points, axis=1) / radius),
+        }
+    return report
 
 
-def audit(root):
+def audit(root, *, cross_checks=False):
     root = root.resolve()
     prior_path = root / "gap-support-v1.json"
     prior = json.loads(prior_path.read_text())
@@ -128,15 +183,18 @@ def audit(root):
     if len(set(cameras[0]) & set(cameras[1])) != 9:
         raise ValueError("expected nine frozen common cameras")
     transform, radius, camera_report = compare_cameras(*cameras)
-    points = compare_points(model_data[0][0], model_data[1][0],
-                            *(parse_colmap_points3d(p / "points3D.txt") for p in paths), transform, radius)
+    xyz = [parse_colmap_points3d(p / "points3D.txt") for p in paths]
+    observations = [m[0] for m in model_data]
+    points = compare_points(*observations, *xyz, transform, radius)
+    cross_report = cross_check_alignment(cameras, observations, xyz, transform, radius) if cross_checks else None
     for p in source_paths:
         if sha256_file(p) != expected[str(p.relative_to(root))]:
             raise ValueError("source changed during overlap audit")
     if wal.exists() and wal.stat().st_size:
         raise ValueError("database changed during overlap audit")
     return {
-        "profile": "aliked_model7_overlap_v1",
+        "profile": "aliked_model7_cross_alignment_v1" if cross_checks else "aliked_model7_overlap_v1",
+        "cross_alignment": cross_report,
         "source_hashes": expected,
         "source_unchanged": True,
         "camera_comparison": camera_report,
@@ -146,7 +204,7 @@ def audit(root):
         "limitations": [
             "All nine common cameras fit one proper Sim3; no RANSAC or outlier removal.",
             "Point IDs are model-local; correspondence uses the same database image and feature index.",
-            "Point residuals use the camera fit, not a separately optimized point fit.",
+            "Baseline point_comparison uses the camera-center fit; cross_alignment labels each independent fit.",
             "First-order agreement is not ground truth, metric accuracy or permission to merge.",
             "Excluded-camera checks diagnose fit sensitivity, not Test-split evaluation.",
         ],
@@ -159,10 +217,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cross-checks", action="store_true")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("refusing to overwrite overlap audit")
-    record = audit(args.root)
+    record = audit(args.root, cross_checks=args.cross_checks)
     record["code_commit"] = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1], text=True,
     ).strip()

@@ -24,6 +24,20 @@ def test_overlap_camera_fit_preserves_rotation_and_checks_unfitted_orientation(m
     assert result["center_residual_to_reference_common_radius"]["max"] < 1e-12
     assert result["orientation_residual_degrees"]["max"] < 1e-5
     assert max(x["excluded_camera_residual_to_radius"] for x in result["leave_one_camera_out"]) < 1e-12
+    orientation_fit = audit["orientation_similarity"](target, source, [rotation] * len(source))
+    assert orientation_fit == pytest.approx(transform)
+    observations = {1: {i: i for i in range(len(source))}, 2: {i: i for i in range(len(source))}}
+    cross = audit["cross_check_alignment"](
+        [reference, candidate], [observations, observations],
+        [dict(enumerate(target)), dict(enumerate(source))], transform, 1,
+    )
+    for fit in cross.values():
+        assert fit["status"] == "evaluated"
+        assert fit["camera_center_residual_to_radius"]["max"] < 1e-12
+        assert fit["camera_orientation_residual_degrees"]["max"] < 1e-5
+        assert fit["shared_point_residual_to_radius"]["max"] < 1e-12
+    with pytest.raises(ValueError, match="not positive"):
+        audit["orientation_similarity"](-source, source, [np.eye(3)] * len(source))
     candidate["0.jpg"] = ColmapImage(0, np.array([1, 0, 0, 0]), -source[0], 1, "0.jpg", [])
     _, _, result = audit["compare_cameras"](reference, candidate)
     assert result["orientation_residual_degrees"]["max"] == pytest.approx(90)
