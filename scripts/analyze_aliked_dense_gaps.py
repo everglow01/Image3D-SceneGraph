@@ -48,6 +48,7 @@ def read_model(path, image_names, feature_counts, timestamps):
     observations = {image.image_id: {} for image in images}
     tracks = {}
     errors, angles, spans = [], [], []
+    observation_lengths, repeated_image_tracks = [], 0
     for line in (path / "points3D.txt").read_text().splitlines():
         if not line or line.startswith("#"):
             continue
@@ -57,8 +58,8 @@ def read_model(path, image_names, feature_counts, timestamps):
         point_id = int(fields[0])
         track = [(int(fields[i]), int(fields[i + 1])) for i in range(8, len(fields), 2)]
         ids = [image_id for image_id, _ in track]
-        if len(set(ids)) != len(ids):
-            raise ValueError("duplicate image in sparse track")
+        observation_lengths.append(len(track))
+        repeated_image_tracks += len(set(ids)) != len(ids)
         for image_id, index in track:
             if image_id not in observations or not 0 <= index < feature_counts[image_id]:
                 raise ValueError("invalid sparse observation index")
@@ -87,7 +88,9 @@ def read_model(path, image_names, feature_counts, timestamps):
         "end_seconds": max(timestamps[i] for i in ids),
         "point_count": len(tracks),
         "observations_per_image": distribution(map(len, observations.values())),
-        "track_length": distribution(map(len, tracks.values())),
+        "track_unique_image_count": distribution(map(len, tracks.values())),
+        "track_observation_count": distribution(observation_lengths),
+        "tracks_with_repeated_images": repeated_image_tracks,
         "track_time_span_seconds": distribution(spans),
         "point_mean_reprojection_error_pixels": distribution(errors),
         "first_last_ray_angle_degrees": distribution(angles),

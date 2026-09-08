@@ -88,9 +88,21 @@ def test_frozen_audit_reports_connected_graph_with_missing_registration(tmp_path
     assert prefix["kind"] == "prefix" and prefix["unregistered_count"] == 1
     assert gap["duration_seconds"] == 9 and gap["primary_tracks_spanning_interval"] == 1
     assert gap["direct_support"]["candidate_2d_count"]["max"] == 1
-    assert record["models"][0]["track_length"]["p50"] == 2
+    assert record["models"][0]["track_unique_image_count"]["p50"] == 2
     assert record["models"][0]["first_last_ray_angle_degrees"]["p50"] == pytest.approx(11.30993247)
     assert not record["reconstruction_started"]
+    (model / "images.txt").write_text(
+        "10 1 0 0 0 0 0 0 1 a.jpg\n1 2 100 1.1 2.1 100\n"
+        "30 1 0 0 0 -1 0 0 1 c.jpg\n1 2 100\n"
+    )
+    (model / "points3D.txt").write_text("100 0 0 5 255 255 255 0.2 10 0 10 1 30 0\n")
+    repeated = analyzer["audit"](root)["models"][0]
+    assert repeated["tracks_with_repeated_images"] == 1
+    assert repeated["track_observation_count"]["p50"] == 3
+    assert repeated["track_unique_image_count"]["p50"] == 2
+    (model / "points3D.txt").write_text("100 0 0 5 255 255 255 0.2 10 0 10 0 30 0\n")
+    with pytest.raises(ValueError, match="duplicate sparse observation"):
+        analyzer["audit"](root)
     Path(str(root / "positive" / "database.db") + "-wal").write_bytes(b"pending")
     with pytest.raises(ValueError, match="pending WAL"):
         analyzer["audit"](root)
