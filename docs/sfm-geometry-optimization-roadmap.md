@@ -573,6 +573,8 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 
 446 帧高密正分 Brute-force 对照也已完成（Job `20260907-170855-bd8d`，`c037180`）。代表模型 247/446 注册、55.38% 注册率、79.49% 覆盖，pose v2 通过但产品失败，仍有 13.843s / 7.820s 软间隙。共同的 192 帧 RGB、关键点和描述子逐字节一致；高密主体保留原 76 帧并新增注册 29 帧，证明加密有局部注册收益，却不能完成统一重建。用户要求固化后暂停新实验；不推广生产候选、不调整健康阈值、不自动启动后续求解器或训练评估。非正分端点占比不是具有真值的误匹配率。
 
+2026-09-08 后续三项有界核验进一步缩小了范围。主体/`model_7` 的相机中心、相机朝向和共同点三种 Sim3 拟合互不兼容，不能直接合并。38 帧孤立分量边界虽有可见 RGB 重叠，旧 Brute-force 的 15,504 个跨分量对均无达到 15 对应写库门槛的候选。唯一实验只将 27 个 ≤2s 边界对改用 ALIKED-LightGlue：仅 298.103↔299.101s 一对得到 29 candidate / 24 verified，虽连接抽象输入图，却低于不变的 30-point 注册门槛；一次 incremental Mapper 后主体注册集合仍精确为原 247 张，55.38%/79.49% 产品失败。图连通不等于可注册支持，不扩大同类局部配对、不事后降低阈值；完整证据见 `docs/aliked-cross-alignment-boundary-recovery-20260908.md`。
+
 
 实现状态（2026-09-07）：`sfm_pose_health_v2` 已前移到 raw sparse model，在 undistortion、dataset normalization/split、Gaussian initialization 和 CUDA 前识别孤立极端相机、多尺度相机分支、独立灾难性时间跳变与空点云；历史 v1 报告保持不可变。ordinary-COLMAP 对每个 incremental 候选做健康选择；全部失败时，先在 SQLite 副本上运行 `view_graph_calibrator + global_mapper`，只有 Global 仍失败时才允许一次视频 healthy-core repair（完整异常分支、最多 10%、point filtering、BA）。所有候选继续满足 12/70%/80% 产品门槛，v2 expansion/recovery/final BA 不能重新引入坏分支；`>2s` gaps 仍是 soft warning。
 
