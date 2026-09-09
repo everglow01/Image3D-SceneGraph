@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -261,11 +262,12 @@ def test_navigation_failure_is_fail_soft_for_new_gaussian_job(tmp_path, monkeypa
             )
 
     monkeypatch.setattr("image3d_scenegraph.jobs.get_reconstruction_adapter", lambda *_: GaussianAdapter())
-    monkeypatch.setattr(
-        store,
-        "_try_generate_navigation",
-        lambda *args, **kwargs: ({}, {"navigation_status": "unavailable"}, "unavailable", "navigation_generation_failed", None),
-    )
+    def failing_builder(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            1, ["navigation-builder"], output="render complete", stderr="invalid topology"
+        )
+
+    monkeypatch.setattr(store, "_run_navigation_builder", failing_builder)
     queued = store.enqueue_job(
         "multi_image",
         files,
@@ -279,6 +281,35 @@ def test_navigation_failure_is_fail_soft_for_new_gaussian_job(tmp_path, monkeypa
     assert done["navigation_reason"] == "navigation_generation_failed"
     assert "scene_splat" in done["assets"]
     assert not NAVIGATION_ASSET_ROLES.keys() & done["assets"].keys()
+    failure_log = (store.job_dir(done["job_id"]) / "diagnostics/navigation_failure.log").read_text()
+    assert "CalledProcessError" in failure_log
+    assert "render complete" in failure_log
+    assert "invalid topology" in failure_log
+
+
+@pytest.mark.parametrize("error", [
+    subprocess.TimeoutExpired(["navigation-builder"], 330, output=b"partial render", stderr=b"timeout detail"),
+    JobError("topology validation failed"),
+])
+def test_navigation_retry_retains_exception_details(tmp_path, monkeypatch, error):
+    store = JobStore(tmp_path / "jobs")
+    job_dir, _ = _completed_gaussian_job(store)
+    store.request_navigation_assets("gaussian-job")
+
+    def failing_builder(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(store, "_run_navigation_builder", failing_builder)
+    done = store.execute_navigation_job("gaussian-job")
+
+    assert done["status"] == "done"
+    assert done["navigation_status"] == "unavailable"
+    log = (job_dir / "lifecycle/navigation/attempt-001/failure.log").read_text()
+    assert type(error).__name__ in log
+    assert str(error) in log
+    if isinstance(error, subprocess.TimeoutExpired):
+        assert "partial render" in log
+        assert "timeout detail" in log
 
 
 def test_navigation_queue_uses_same_worker_after_reconstruction_queue(tmp_path, monkeypatch):
