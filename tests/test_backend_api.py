@@ -85,14 +85,16 @@ def test_recovered_derivative_identity_reaches_status_response(tmp_path):
         )
     )
 
-    response = TestClient(create_app(jobs, start_worker=False)).get(
-        "/api/jobs/recovered"
-    )
+    client = TestClient(create_app(jobs, start_worker=False))
+    response = client.get("/api/jobs/recovered")
 
     assert response.status_code == 200
     assert response.json()["result_kind"] == "salvaged_derivative"
     assert response.json()["source_job_id"] == "failed-source"
     assert response.json()["checkpoint_status"] == "missing"
+    download = client.get("/api/jobs/recovered/download")
+    assert download.status_code == 409
+    assert "dedicated Gaussian bundle" in download.json()["detail"]
 
 
 def test_asset_route_serves_gzip_json_as_transparent_json(tmp_path):

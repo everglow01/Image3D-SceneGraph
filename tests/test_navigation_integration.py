@@ -150,6 +150,10 @@ def test_recovered_gaussian_derivative_cannot_generate_navigation(tmp_path):
 
     with pytest.raises(JobError, match="read-only"):
         store.request_navigation_assets("gaussian-job")
+    with pytest.raises(JobError, match="read-only"):
+        store.build_mesh_variant("gaussian-job", {})
+    with pytest.raises(JobError, match="dedicated Gaussian bundle"):
+        store.build_zip("gaussian-job")
 
 
 def test_invalid_published_navigation_is_quarantined_and_can_retry(tmp_path, monkeypatch):

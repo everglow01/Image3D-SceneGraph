@@ -1739,6 +1739,8 @@ class JobStore:
             raise FileNotFoundError(job_id)
 
         manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
+        if manifest.get("result_kind") == "salvaged_derivative":
+            raise JobError("recovered Gaussian derivatives are read-only")
         self._with_existing_mesh_variants(job_dir, manifest)
         assets = manifest.setdefault("assets", {})
         source_asset = assets.get("point_cloud_aligned") or assets.get("point_cloud")
@@ -1791,6 +1793,11 @@ class JobStore:
         job_dir = self.job_dir(job_id)
         if not job_dir.exists():
             raise FileNotFoundError(job_id)
+        manifest_path = job_dir / "manifest.json"
+        if not manifest_path.is_file():
+            raise FileNotFoundError(job_id)
+        if self._read_json(manifest_path).get("result_kind") == "salvaged_derivative":
+            raise JobError("recovered Gaussian derivatives use the dedicated Gaussian bundle")
         bundle_path = self.output_root / f"{job_id}.zip"
         if bundle_path.exists():
             bundle_path.unlink()

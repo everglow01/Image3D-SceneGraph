@@ -1201,7 +1201,10 @@ export function App() {
   const canCancel = Boolean(currentStatus && ["queued", "running", "exporting"].includes(currentStatus.status));
   const canRetry = Boolean(currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
-  const canBuildMeshVariant = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
+  const canBuildMeshVariant = Boolean(
+    !isRecoveredDerivative &&
+      (manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned)
+  );
   const canBuildNavigation = Boolean(
     !isRecoveredDerivative &&
       manifest?.status === "done" &&

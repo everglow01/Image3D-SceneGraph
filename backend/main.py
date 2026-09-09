@@ -409,6 +409,8 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             path = app.state.job_store.build_zip(job_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="job not found") from exc
+        except JobError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return FileResponse(path, filename=path.name, media_type="application/zip")
 
     return app
