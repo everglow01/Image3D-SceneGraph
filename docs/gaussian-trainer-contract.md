@@ -47,7 +47,7 @@ It records every rejection count, source/sidecar hashes, settings, selected-row 
 
 ## Checkpoint and resume
 
-The trainer serializes project-owned model tensors, optimizer, schedule iteration, Default or MCMC strategy state, Python/NumPy/Torch CPU+CUDA RNG, camera order, and finite JSON metric history into the existing R2.5 `CheckpointState`. Attempts and checkpoints retain R2.5 atomic non-overwrite behavior and dataset/config/code/environment provenance checks. The effective-config hash prevents resuming a Default checkpoint as MCMC or vice versa; distributed resume still requires the original world size.
+The trainer serializes project-owned model tensors, optimizer, schedule iteration, Default or MCMC strategy state, Python/NumPy/Torch CPU+CUDA RNG, camera order, and finite JSON metric history into the existing R2.5 `CheckpointState`. Attempts and checkpoints retain R2.5 atomic non-overwrite behavior and dataset/config/code/environment provenance checks. Before a terminal or cancellation checkpoint, the trainer releases the no-longer-needed CPU Train/Validation image views; this lowers distributed host-memory peak without omitting or changing any checkpoint state. The effective-config hash prevents resuming a Default checkpoint as MCMC or vice versa; distributed resume still requires the original world size.
 
 Fresh/retry/resume remain distinct. Each attempt keeps its model/result/progress under immutable `attempts/{attempt_id}/artifacts`; a resume attempt cannot overwrite its parent. It loads only a provenance-compatible parent checkpoint. Iteration-indexed view sampling plus restored optimizer/model/RNG makes interrupted execution tolerance-reproducible without claiming cross-GPU bitwise identity.
 

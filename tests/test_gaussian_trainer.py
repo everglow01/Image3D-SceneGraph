@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -34,8 +35,9 @@ from image3d_scenegraph.gaussian.trainer import (
     _next_camera,
     _next_camera_batch,
     _opacity_reset_due,
-    _recovery_prune_due,
     _pack_checkpoint_shards,
+    _recovery_prune_due,
+    _release_training_views,
     _torch_load,
     _training_scene_scale,
     _update_position_learning_rate,
@@ -93,6 +95,23 @@ def test_cpu_training_views_keep_uint8_until_device_transfer(tmp_path, monkeypat
         torch.tensor([[[0, 127, 255], [255, 64, 0]]], dtype=torch.float32)
         / 255.0,
     )
+
+
+def test_terminal_checkpoint_releases_cpu_training_views():
+    image = torch.zeros((4, 4, 3), dtype=torch.uint8)
+    image_reference = weakref.ref(image)
+    views = [
+        TrainingView(
+            RenderCamera("train", torch.eye(4), torch.eye(3), 4, 4),
+            image,
+        )
+    ]
+    del image
+
+    _release_training_views(views)
+
+    assert views == []
+    assert image_reference() is None
 
 
 def test_v7_strategy_disables_regressive_screen_pruning():

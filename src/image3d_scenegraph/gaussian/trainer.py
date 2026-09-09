@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import io
 import json
@@ -68,6 +69,12 @@ class TrainingResult:
     per_rank_peak_reserved_bytes: tuple[int, ...] = ()
     strategy_name: str = "default_v1"
     gaussian_cap: int | None = None
+
+
+def _release_training_views(*groups: list[TrainingView]) -> None:
+    for views in groups:
+        views.clear()
+    gc.collect()
 
 
 def seed_training(seed: int) -> None:
@@ -283,6 +290,7 @@ def train_gaussians(
         for iteration in range(start_iteration, total_iterations + 1):
             if cancel_requested is not None and cancel_requested():
                 if completed_iteration > 0:
+                    _release_training_views(train_views, validation_views)
                     _write_latest_distributed_checkpoint(
                         run_dir,
                         attempt_id=attempt_id,
@@ -529,6 +537,7 @@ def train_gaussians(
                     candidate_path.write_bytes(_model_bytes(model))
 
             if iteration == total_iterations:
+                _release_training_views(train_views, validation_views)
                 _write_latest_distributed_checkpoint(
                     run_dir,
                     attempt_id=attempt_id,
