@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import traceback
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -790,9 +792,11 @@ class JobStore:
                 return current
         except JobCancelled:
             return self._finish_navigation_unsuccessful(job_id, "cancelled")
-        except (JobError, OSError, ValueError, subprocess.CalledProcessError):
+        except (JobError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+            self._write_navigation_failure(attempt_root / "failure.log", exc)
             return self._finish_navigation_unsuccessful(job_id, "navigation_generation_failed")
-        except Exception:
+        except Exception as exc:
+            self._write_navigation_failure(attempt_root / "failure.log", exc)
             return self._finish_navigation_unsuccessful(job_id, "unexpected_navigation_error")
 
     def list_queued_navigation_jobs(self) -> list[str]:
@@ -1230,7 +1234,10 @@ class JobStore:
             details = self._validate_navigation_workspace(job_dir, manifest, output_dir)
         except JobCancelled:
             raise
-        except Exception:
+        except Exception as exc:
+            self._write_navigation_failure(
+                job_dir / "diagnostics" / "navigation_failure.log", exc
+            )
             shutil.rmtree(output_dir, ignore_errors=True)
             return (
                 {},
@@ -1251,6 +1258,21 @@ class JobStore:
             None,
             details,
         )
+
+    def _write_navigation_failure(self, path: Path, exc: Exception) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{self._timestamp()}\n")
+                handle.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+                for name in ("stdout", "stderr"):
+                    output = getattr(exc, name, None)
+                    if output:
+                        if isinstance(output, bytes):
+                            output = output.decode("utf-8", errors="replace")
+                        handle.write(f"\n{name}:\n{output}\n")
+        except OSError:
+            logging.getLogger(__name__).exception("Could not persist navigation failure log")
 
     def _run_navigation_builder(
         self,
@@ -1594,12 +1616,13 @@ class JobStore:
             if destination.exists():
                 raise JobError(f"cannot publish over existing output: {name}")
             os.rename(source, destination)
-        navigation = workspace / "navigation"
-        if navigation.exists():
-            destination = job_dir / "navigation"
-            if destination.exists():
-                raise JobError("cannot publish over existing output: navigation")
-            os.rename(navigation, destination)
+        for name in ("colmap", "navigation"):
+            source = workspace / name
+            if source.exists():
+                destination = job_dir / name
+                if destination.exists():
+                    raise JobError(f"cannot publish over existing output: {name}")
+                os.rename(source, destination)
         run_log = workspace / "logs" / "run.log"
         if not run_log.is_file():
             raise JobError("completed attempt did not produce logs/run.log")
@@ -1617,7 +1640,7 @@ class JobStore:
 
     def _quarantine_unpublished_outputs(self, job_dir: Path, attempt_id: str) -> None:
         target = job_dir / "lifecycle" / "attempts" / attempt_id / "partial_published"
-        for name in ["frames", "geometry", "gaussian", "diagnostics", "semantic", "scene_graph"]:
+        for name in ["frames", "geometry", "gaussian", "diagnostics", "semantic", "scene_graph", "colmap"]:
             source = job_dir / name
             if not source.exists():
                 continue
@@ -1755,6 +1778,8 @@ class JobStore:
         candidate = (job_dir / asset_path).resolve()
         if job_dir != candidate and job_dir not in candidate.parents:
             raise JobError("asset path escapes job directory")
+        if candidate.relative_to(job_dir).parts[:1] == ("colmap",):
+            raise JobError("raw SfM data is internal evidence, not a public asset")
         if not candidate.is_file():
             raise FileNotFoundError(asset_path)
         return candidate
@@ -1797,9 +1822,7 @@ class JobStore:
                         + "\n",
                     )
                     continue
-                if relative.startswith("navigation/") or relative.startswith(
-                    "lifecycle/navigation/"
-                ):
+                if relative.startswith(("colmap/", "navigation/", "lifecycle/navigation/")):
                     continue
                 archive.write(path, relative)
         return bundle_path
