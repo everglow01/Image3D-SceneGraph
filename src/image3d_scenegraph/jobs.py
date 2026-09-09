@@ -699,6 +699,8 @@ class JobStore:
             if not manifest_path.is_file():
                 raise FileNotFoundError(job_id)
             manifest = self._read_json(manifest_path)
+            if manifest.get("result_kind") == "salvaged_derivative":
+                raise JobError("recovered Gaussian derivatives are read-only")
             if manifest.get("status") != "done":
                 raise JobError("navigation assets require a completed job")
             if not self._is_gaussian_job(manifest):
@@ -835,15 +837,16 @@ class JobStore:
                 continue
             if not required.issubset(manifest) or manifest.get("job_id") != directory.name:
                 continue
-            jobs.append(
-                {
-                    "job_id": directory.name,
-                    "status": str(manifest["status"]),
-                    "geometry_backend": str(manifest["geometry_backend"]),
-                    "output_type": str(manifest["output_type"]),
-                    "updated_at": str(manifest.get("updated_at", manifest.get("created_at", ""))),
-                }
-            )
+            summary: dict[str, object] = {
+                "job_id": directory.name,
+                "status": str(manifest["status"]),
+                "geometry_backend": str(manifest["geometry_backend"]),
+                "output_type": str(manifest["output_type"]),
+                "updated_at": str(manifest.get("updated_at", manifest.get("created_at", ""))),
+            }
+            if manifest.get("result_kind") == "salvaged_derivative":
+                summary["result_kind"] = "salvaged_derivative"
+            jobs.append(summary)
         return sorted(
             jobs,
             key=lambda job: (str(job["updated_at"]), str(job["job_id"])),

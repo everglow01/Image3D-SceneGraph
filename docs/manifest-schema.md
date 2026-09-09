@@ -9,7 +9,10 @@ Newly completed jobs contain:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `job_id` | string | Local job identifier. |
-| `status` | string | Current terminal value is `done`. |
+| `result_kind` | string | Optional non-pipeline result identity. `salvaged_derivative` means an operator-published, read-only recovery result; omission means an ordinary pipeline Job. |
+| `source_job_id` | string | Required with `salvaged_derivative`; identifies the unchanged failed source Job. |
+| `checkpoint_status` | string | Required with `salvaged_derivative`; currently `missing`, preserving that no final checkpoint was recovered or invented. |
+| `status` | string | Current terminal value is `done`; for a salvaged derivative this means only that its verified viewing assets were published, never that the source Job succeeded. |
 | `stage` | string | Last completed pipeline stage. |
 | `progress` | number | Completion fraction. |
 | `mode` | string | Requested input mode. |
@@ -71,6 +74,10 @@ New successful COLMAP-backed jobs also retain the existing `colmap/` workspace d
 
 Legacy terminal-only manifests remain valid and readable. They do not gain synthetic attempt history and cannot use the R2.6 retry operation.
 
+### Read-only salvaged derivatives
+
+A `salvaged_derivative` is an atomically published viewing record, not a worker attempt or a retroactive repair of its source. It has no synthetic `attempts`, `gaussian_training_result`, or checkpoint; `source_job_id` points to the unchanged failed Job and `checkpoint_status` remains `missing`. Its `done` status refers only to hash validation, optional SOR, Validation, and export of the recovered model. It may expose hardlinked in-root Gaussian, camera, sparse-geometry, frame, and SfM diagnostic assets through the ordinary contained asset route, plus `gaussian_recovery_record`; raw `colmap/` evidence remains internal and is never linked. Navigation generation and repeated whole-Job ZIP download are disabled; `gaussian_bundle` is the dedicated downloadable package. Test remains `not_run`. Readers must label this identity explicitly and must not include it in contract-complete Job or trainer-promotion counts.
+
 ## Gaussian effective configuration
 
 `gaussian_config` is present only when a trusted project-owned 3DGS caller supplies a resolved configuration. It contains:
@@ -102,6 +109,7 @@ Common asset roles include:
 - `gaussian_raw_model`, `gaussian_model`, `gaussian_training_result`, `gaussian_progress`, and `gaussian_dataset` for complete project-owned training jobs; the raw role is the immutable Validation-selected trainer output before SOR, while `gaussian_model` is the model passed to common evaluation/export
 - `gaussian_replay_dataset` and `gaussian_replay_record` for a self-contained frozen trainer input rooted at `gaussian/replay/`; it preserves dataset/image/camera/initialization hashes and includes the registered undistorted images without publishing the COLMAP database or matches
 - `gaussian_evaluation`, `gaussian_export_metadata`, `gaussian_canonical`, `gaussian_camera_path`, and `gaussian_bundle` for complete Stage 2D delivery; optional `gaussian_test_evaluation` and `gaussian_test_decision` appear only after an authorized frozen-candidate Test evaluation
+- `gaussian_recovery_record` only for a read-only `salvaged_derivative`; it binds the failed source, immutable rank shards, merged/SOR models, Validation/export hashes, missing checkpoint, and Test exclusion
 - `collision_mesh`, `navigation`, and `navigation_diagnostics` for a complete Train-only first-person navigation set
 - `video_probe`, `video_frame_selection`, `video_keyframe_timing`, `video_registration_diagnostics`, and `video_keyframe_contact_sheet` for a completed bounded video attempt; ordinary-COLMAP `standard_v2` attempts additionally publish `video_initial_registration_expansion`, `video_registration_recovery`, and `colmap_timing`
 - `vggt_ba_diagnostics` and `vggt_ba_window_graph` for a completed experimental VGGT-BA attempt, including one that used the explicit COLMAP fallback; `vggt_ba_initialization_diagnostics` appears only when VGGT-BA remained the effective source

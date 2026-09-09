@@ -25,6 +25,7 @@ import {
   buildEvidenceStages,
   type EvidenceStageId
 } from "./reconstructionEvidence";
+import { formatResultKind, type ResultKind } from "./resultKind";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
   defaultSfmCameraCalibration,
@@ -101,6 +102,9 @@ type MeshVariant = {
 
 type Manifest = {
   job_id: string;
+  result_kind?: ResultKind;
+  source_job_id?: string;
+  checkpoint_status?: "missing";
   status: string;
   stage: string;
   progress: number;
@@ -150,6 +154,7 @@ type Manifest = {
     gaussian_canonical?: string;
     gaussian_camera_path?: string;
     gaussian_bundle?: string;
+    gaussian_recovery_record?: string;
     vggt_ba_diagnostics?: string;
     vggt_ba_window_graph?: string;
     vggt_ba_initialization_diagnostics?: string;
@@ -298,6 +303,8 @@ type Manifest = {
     gaussian_sor_filter_kept_count?: number;
     gaussian_sor_filter_removed_count?: number;
     gaussian_count?: number;
+    gaussian_validation_psnr?: number;
+    gaussian_validation_ssim?: number;
     sfm_diagnostics_status?: string;
     sfm_diagnostics_reason?: string;
     sfm_diagnostics_image_count?: number;
@@ -332,6 +339,9 @@ type SceneGraph = {
 type JobStatus = Pick<
   Manifest,
   | "job_id"
+  | "result_kind"
+  | "source_job_id"
+  | "checkpoint_status"
   | "status"
   | "stage"
   | "progress"
@@ -349,6 +359,7 @@ type JobStatus = Pick<
 
 type JobSummary = {
   job_id: string;
+  result_kind?: ResultKind;
   status: string;
   geometry_backend: GeometryBackend;
   output_type: OutputType;
@@ -1180,12 +1191,20 @@ export function App() {
   }
 
   const currentStatus = jobStatus ?? manifest;
+  const isRecoveredDerivative = manifest?.result_kind === "salvaged_derivative";
+  const gaussianValidationPsnr =
+    currentStatus?.metrics.gaussian_validation_psnr ??
+    currentStatus?.metrics.gaussian_vggt_filtered_validation_psnr;
+  const gaussianValidationSsim =
+    currentStatus?.metrics.gaussian_validation_ssim ??
+    currentStatus?.metrics.gaussian_vggt_filtered_validation_ssim;
   const canCancel = Boolean(currentStatus && ["queued", "running", "exporting"].includes(currentStatus.status));
   const canRetry = Boolean(currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
   const canBuildMeshVariant = Boolean(manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned);
   const canBuildNavigation = Boolean(
-    manifest?.status === "done" &&
+    !isRecoveredDerivative &&
+      manifest?.status === "done" &&
       manifest.geometry_backend === "project_3dgs" &&
       manifest.output_type === "gaussian_splat" &&
       manifest.navigation_status !== "available" &&
@@ -2013,6 +2032,15 @@ export function App() {
               )}
             </div>
           </div>
+          {isRecoveredDerivative && manifest && (
+            <div className="recovered-derivative-notice" role="status">
+              <strong>恢复衍生结果</strong>
+              <span>
+                来源 Job {manifest.source_job_id ?? "未知"} 仍为失败；最终 checkpoint
+                {manifest.checkpoint_status === "missing" ? "缺失" : "不可用"}。本条目仅用于查看已恢复的 Validation 与导出资产。
+              </span>
+            </div>
+          )}
           {manifest && (
             <ReconstructionEvidenceRail
               active={activeEvidence}
@@ -2080,7 +2108,7 @@ export function App() {
             <div><dt>匹配内点</dt><dd>{formatInteger(currentStatus?.metrics.sfm_diagnostics_inlier_count)}</dd></div>
             <div><dt>高斯数量</dt><dd>{formatInteger(currentStatus?.metrics.gaussian_count)}</dd></div>
             <div><dt>空间对齐</dt><dd>{formatPolicy(currentStatus?.metrics.alignment_status)}</dd></div>
-            <div><dt>Validation PSNR</dt><dd>{currentStatus?.metrics.gaussian_vggt_filtered_validation_psnr === undefined ? "-" : `${currentStatus.metrics.gaussian_vggt_filtered_validation_psnr.toFixed(3)} dB`}</dd></div>
+            <div><dt>Validation PSNR</dt><dd>{gaussianValidationPsnr === undefined ? "-" : `${gaussianValidationPsnr.toFixed(3)} dB`}</dd></div>
           </dl>
 
           <details className="result-details">
@@ -2250,6 +2278,14 @@ export function App() {
                   {formatStatus(manifest?.gaussian_sor_filter_status)}
                   {currentStatus?.metrics.gaussian_sor_filter_removed_count !== undefined &&
                     ` · 删除 ${currentStatus.metrics.gaussian_sor_filter_removed_count}`}
+                </dd>
+              </div>
+            )}
+            {currentStatus?.metrics.gaussian_validation_psnr !== undefined && (
+              <div>
+                <dt>Validation</dt>
+                <dd>
+                  {`${currentStatus.metrics.gaussian_validation_psnr.toFixed(3)} dB · SSIM ${(gaussianValidationSsim ?? 0).toFixed(4)}`}
                 </dd>
               </div>
             )}
@@ -2644,6 +2680,7 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="高斯测试判定" />
               <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="高斯相机路径" />
               <AssetLink manifest={manifest} assetKey="gaussian_bundle" label="高斯结果包" />
+              <AssetLink manifest={manifest} assetKey="gaussian_recovery_record" label="高斯恢复记录" />
               <AssetLink manifest={manifest} assetKey="vggt_ba_diagnostics" label="VGGT-BA 诊断" />
               <AssetLink manifest={manifest} assetKey="vggt_ba_window_graph" label="VGGT-BA 窗口图" />
               <AssetLink manifest={manifest} assetKey="vggt_ba_initialization_diagnostics" label="VGGT-BA Train 初始化诊断" />
@@ -2670,7 +2707,7 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="consistency_diagnostics" label="一致性诊断" />
               <AssetLink manifest={manifest} assetKey="scene_graph" label="场景图（Scene Graph）" />
               <AssetLink manifest={manifest} assetKey="log" label="运行日志" />
-              {manifest && (
+              {manifest && !isRecoveredDerivative && (
                 <a href={`/api/jobs/${manifest.job_id}/download`}>
                   <Download size={16} aria-hidden="true" />
                   <span>下载完整结果包</span>
@@ -2857,7 +2894,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function formatJobOption(job: JobSummary) {
-  return `${job.job_id} · ${formatStatus(job.status)} · ${formatBackend(job.geometry_backend)} / ${formatOutput(job.output_type)}`;
+  const resultKind = formatResultKind(job.result_kind);
+  return `${job.job_id} · ${resultKind ? `${resultKind} · ` : ""}${formatStatus(job.status)} · ${formatBackend(job.geometry_backend)} / ${formatOutput(job.output_type)}`;
 }
 
 function formatStatus(value: string | null | undefined) {

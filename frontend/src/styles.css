@@ -358,6 +358,24 @@ h3 {
   margin-bottom: 10px;
 }
 
+.recovered-derivative-notice {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #e7b56d;
+  border-radius: 8px;
+  background: #fff7e8;
+  color: #70461d;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.recovered-derivative-notice strong {
+  flex: none;
+  color: #9a4d00;
+}
+
 .viewer-actions {
   display: flex;
   align-items: center;

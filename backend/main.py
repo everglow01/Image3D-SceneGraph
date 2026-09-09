@@ -309,7 +309,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             manifest = app.state.job_store.get_manifest(job_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="job not found") from exc
-        return {
+        response = {
             "job_id": manifest["job_id"],
             "status": manifest["status"],
             "stage": manifest["stage"],
@@ -327,6 +327,10 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             "navigation_reason": manifest.get("navigation_reason"),
             "metrics": manifest["metrics"],
         }
+        for key in ("result_kind", "source_job_id", "checkpoint_status"):
+            if key in manifest:
+                response[key] = manifest[key]
+        return response
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel_job(job_id: str) -> dict:

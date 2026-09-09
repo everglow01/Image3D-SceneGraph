@@ -142,6 +142,16 @@ def test_old_gaussian_navigation_generation_is_queued_idempotent_and_atomic(tmp_
         assert not NAVIGATION_ASSET_ROLES.keys() & bundled_manifest["assets"].keys()
 
 
+def test_recovered_gaussian_derivative_cannot_generate_navigation(tmp_path):
+    store = JobStore(tmp_path / "jobs")
+    job_dir, manifest = _completed_gaussian_job(store)
+    manifest["result_kind"] = "salvaged_derivative"
+    _write_json(job_dir / "manifest.json", manifest)
+
+    with pytest.raises(JobError, match="read-only"):
+        store.request_navigation_assets("gaussian-job")
+
+
 def test_invalid_published_navigation_is_quarantined_and_can_retry(tmp_path, monkeypatch):
     store = JobStore(tmp_path / "jobs")
     job_dir, _ = _completed_gaussian_job(store)

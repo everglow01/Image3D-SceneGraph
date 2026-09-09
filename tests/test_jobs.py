@@ -892,7 +892,9 @@ def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):
     root = tmp_path / "jobs"
     store = JobStore(output_root=root)
 
-    def write_manifest(job_id: str, updated_at: str) -> None:
+    def write_manifest(
+        job_id: str, updated_at: str, *, result_kind: str | None = None
+    ) -> None:
         directory = root / job_id
         directory.mkdir(parents=True)
         (directory / "manifest.json").write_text(
@@ -906,13 +908,22 @@ def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):
                     "output_type": "point_cloud",
                     "metrics": {},
                     "updated_at": updated_at,
+                    **(
+                        {"result_kind": result_kind}
+                        if result_kind is not None
+                        else {}
+                    ),
                 }
             ),
             encoding="utf-8",
         )
 
     write_manifest("older", "2026-08-12T00:00:00Z")
-    write_manifest("newer", "2026-08-13T00:00:00Z")
+    write_manifest(
+        "newer",
+        "2026-08-13T00:00:00Z",
+        result_kind="salvaged_derivative",
+    )
     (root / "missing-manifest").mkdir()
     malformed = root / "malformed"
     malformed.mkdir()
@@ -934,7 +945,10 @@ def test_list_jobs_returns_valid_manifests_newest_first(tmp_path):
         encoding="utf-8",
     )
 
-    assert [job["job_id"] for job in store.list_jobs()] == ["newer", "older"]
+    listed = store.list_jobs()
+    assert [job["job_id"] for job in listed] == ["newer", "older"]
+    assert listed[0]["result_kind"] == "salvaged_derivative"
+    assert "result_kind" not in listed[1]
 
 
 def test_create_image_job_and_read_outputs(tmp_path):

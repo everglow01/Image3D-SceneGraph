@@ -63,6 +63,38 @@ def test_list_jobs_returns_store_summaries(tmp_path):
     assert response.json()["jobs"][0]["job_id"] == "job-2"
 
 
+def test_recovered_derivative_identity_reaches_status_response(tmp_path):
+    jobs = tmp_path / "jobs"
+    job = jobs / "recovered"
+    job.mkdir(parents=True)
+    (job / "manifest.json").write_text(
+        json.dumps(
+            {
+                "job_id": "recovered",
+                "result_kind": "salvaged_derivative",
+                "source_job_id": "failed-source",
+                "checkpoint_status": "missing",
+                "status": "done",
+                "stage": "gaussian_export",
+                "progress": 1.0,
+                "mode": "video",
+                "geometry_backend": "project_3dgs",
+                "output_type": "gaussian_splat",
+                "metrics": {},
+            }
+        )
+    )
+
+    response = TestClient(create_app(jobs, start_worker=False)).get(
+        "/api/jobs/recovered"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result_kind"] == "salvaged_derivative"
+    assert response.json()["source_job_id"] == "failed-source"
+    assert response.json()["checkpoint_status"] == "missing"
+
+
 def test_asset_route_serves_gzip_json_as_transparent_json(tmp_path):
     jobs = tmp_path / "jobs"
     asset = jobs / "test-job" / "diagnostics" / "sfm" / "index.json.gz"
