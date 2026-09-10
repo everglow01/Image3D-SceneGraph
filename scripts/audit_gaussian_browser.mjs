@@ -60,7 +60,7 @@ window.loadScene = async (view, degree, mode) => {
     sphericalHarmonicsDegree:degree, ignoreDevicePixelRatio:true, integerBasedSort:false,
     renderMode:GS.RenderMode.OnChange});
   window.viewer = viewer; window.camera = camera; window.renderer = renderer;
-  const threshold = mode==='product' ? Math.max(1,Math.round(0.005*255)) : 0;
+  const threshold = mode==='product' ? Math.floor(0.005*255) : 0;
   await viewer.addSplatScene('/scene.ply', {showLoadingUI:false, progressiveLoad:true,
     splatAlphaRemovalThreshold:threshold});
   const material=viewer.getSplatMesh().material;
@@ -181,14 +181,15 @@ try {
     if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result?.value;
   };
   await call('Runtime.enable');await call('Log.enable');await call('Page.enable');
-  const modes=selfTest?[{degree:0,mode:'controlled'}]:[{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
+  const modes=selfTest?[0,2,3].map(degree=>({degree,mode:'controlled'})):[{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
     {degree:0,mode:'controlled',probe:true},{degree:2,mode:'controlled',probe:true}];
   for(const mode of modes){
     const selected=mode.probe?audit.views.filter(v=>v.image_id===option('--sh-probe','317')):audit.views;
     try {
-      await call('Page.navigate',{url:`http://127.0.0.1:${port}/`});
+      const url=`http://127.0.0.1:${port}/?mode=${mode.mode}&degree=${mode.degree}`;
+      await call('Page.navigate',{url});
       let ready=false;
-      for(let i=0;i<100;i++){try{ready=await evaluate('window.auditReady === true');}catch{}if(ready)break;await pause(100);}
+      for(let i=0;i<100;i++){try{ready=await evaluate(`window.location.href===${JSON.stringify(url)} && window.auditReady === true`);}catch{}if(ready)break;await pause(100);}
       if(!ready)throw Error('diagnostic page did not initialize');
       await evaluate(`window.loadScene(${JSON.stringify(selected[0])},${mode.degree},${JSON.stringify(mode.mode)})`);
       for(const view of selected){
@@ -196,7 +197,7 @@ try {
         const name=`browser-${mode.mode}-sh${mode.degree}-${view.image_id}`;
         await writeFile(join(output,name+'.png'),Buffer.from(capture.png,'base64'),{flag:'wx'});
         result.captures.push({name,image_id:view.image_id,...capture.runtime});
-        if(selfTest){assert(capture.runtime.reference_probe_pixel[0]>150,'expected red Gaussian not at projected CV pixel');
+        if(selfTest && mode.degree===0){assert(capture.runtime.reference_probe_pixel[0]>150,'expected red Gaussian not at projected CV pixel');
           assert(capture.runtime.reference_mirrored_pixel[0]<30,'camera Y axis was mirrored');}
         await writeFile(join(output,'browser.json'),JSON.stringify(result,null,2)+'\n');
       }
