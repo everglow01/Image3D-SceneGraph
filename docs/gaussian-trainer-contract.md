@@ -55,6 +55,8 @@ Fresh/retry/resume remain distinct. Each attempt keeps its model/result/progress
 
 `project_3dgs + gaussian_splat` owns the common Gaussian job lifecycle. The adapter runs COLMAP preparation and `scripts/run_gaussian_training.py` as cancellable subprocesses under the R2.6 serial worker. Trainer dispatch accepts default native `project`, isolated Official comparison `graphdeco`, or native experimental `mcmc`. Project and MCMC use the same Torch/CUDA/gsplat availability probe and distributed execution path. Omitted Project requests enable the existing recovery-gated prune; explicit/environment `off` remains a kill switch, while Graphdeco/MCMC default off and MCMC rejects `on`. Raw Gaussian hyperparameters are not exposed by the public job form.
 
+Public `vggt_visibility_v1` keeps its frozen extent-based depth semantics. The internal-only `vggt_visibility_oversized_center_v1` candidate changes only oversized Gaussian support, contradiction, and capture-envelope tests from the projected 3-sigma depth extent to the Gaussian center depth; ordinary rows remain extent-based. The CLI defaults to `extent`, records the selected policy/profile, and the product adapter exposes no raw policy control. Candidate evidence must use the same frozen model and Train depth views, preserve Original, report Validation only, and cannot redefine the public profile without a separate promotion decision.
+
 Complete jobs may publish:
 
 - `gaussian_raw_model`: immutable Validation-selected trainer output before common SOR;

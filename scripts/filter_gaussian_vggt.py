@@ -45,6 +45,11 @@ def main() -> None:
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
     parser.add_argument("--precision", choices=["auto", "bf16", "fp16", "fp32"], default="auto")
     parser.add_argument("--max-train-views", type=int, default=MAX_TRAIN_DEPTH_VIEWS)
+    parser.add_argument(
+        "--oversized-depth-policy",
+        choices=("extent", "center"),
+        default="extent",
+    )
     args = parser.parse_args()
     if args.max_train_views < 2:
         parser.error("--max-train-views must be at least 2")
@@ -191,6 +196,7 @@ def main() -> None:
         quaternions=quaternions.detach().cpu().numpy(),
         opacities=opacities.detach().cpu().numpy(),
         evidence=evidence,
+        oversized_depth_policy=args.oversized_depth_policy,
     )
     args.output_dir.mkdir(parents=True, exist_ok=False)
     filtered_model_path = args.output_dir / "filtered-model.pt"
@@ -205,7 +211,7 @@ def main() -> None:
             "sh_coeffs": source_model.sh_coeffs.detach()[indices],
         },
         "postprocess": {
-            "profile": "vggt_visibility_v1",
+            "profile": result.diagnostics["profile"],
             "source_model_sha256": sha256_file(args.model),
         },
     }
@@ -246,7 +252,7 @@ def main() -> None:
         encoding="utf-8",
     )
     result_record = {
-        "profile": "vggt_visibility_v1",
+        "profile": result.diagnostics["profile"],
         "status": "available",
         "source_model": str(args.model),
         "source_model_sha256": diagnostics["source_model_sha256"],

@@ -6,7 +6,10 @@ import pytest
 from image3d_scenegraph.gaussian.vggt_filter import (
     DepthEvidence,
     GaussianVggtFilterError,
+    OVERSIZED_CENTER_PROFILE_ID,
+    PROFILE_ID,
     REASON_FRONT_FREE_SPACE,
+    REASON_OUTSIDE_OVERSIZED,
     classify_gaussians,
 )
 
@@ -60,6 +63,8 @@ def test_multiview_free_space_floaters_are_removed_but_surface_is_kept():
     assert (~result.keep[:10]).all()
     assert result.keep[10:].all()
     assert (result.reasons[:10] & REASON_FRONT_FREE_SPACE).all()
+    assert result.diagnostics["profile"] == PROFILE_ID
+    assert result.diagnostics["settings"]["oversized_depth_policy"] == "extent"
     assert result.diagnostics["validation_image_ids"] == []
     assert result.diagnostics["test_image_ids"] == []
 
@@ -85,6 +90,76 @@ def test_single_view_contradiction_and_occluded_points_are_kept():
 
     assert result.keep[0]
     assert result.keep[1]
+
+
+def test_oversized_center_policy_rejects_extent_only_surface_support():
+    means, scales, quaternions, opacities = gaussian_arrays()
+    means[0, 2] = 8.0
+    scales[0] = 1.1
+    views = [evidence("1"), evidence("2", camera_x=0.01)]
+
+    extent = classify_gaussians(
+        means=means,
+        scales=scales,
+        quaternions=quaternions,
+        opacities=opacities,
+        evidence=views,
+    )
+    center = classify_gaussians(
+        means=means,
+        scales=scales,
+        quaternions=quaternions,
+        opacities=opacities,
+        evidence=views,
+        oversized_depth_policy="center",
+    )
+
+    assert extent.keep[0]
+    assert extent.diagnostics["profile"] == PROFILE_ID
+    assert not center.keep[0]
+    assert center.reasons[0] & REASON_OUTSIDE_OVERSIZED
+    assert center.diagnostics["profile"] == OVERSIZED_CENTER_PROFILE_ID
+    assert center.diagnostics["settings"]["oversized_depth_policy"] == "center"
+
+
+def test_oversized_center_policy_keeps_centered_surface_and_leaves_normal_rows_unchanged():
+    means, scales, quaternions, opacities = gaussian_arrays()
+    scales[0] = 1.1
+    views = [evidence("1"), evidence("2", camera_x=0.01)]
+
+    extent = classify_gaussians(
+        means=means,
+        scales=scales,
+        quaternions=quaternions,
+        opacities=opacities,
+        evidence=views,
+    )
+    center = classify_gaussians(
+        means=means,
+        scales=scales,
+        quaternions=quaternions,
+        opacities=opacities,
+        evidence=views,
+        oversized_depth_policy="center",
+    )
+
+    assert center.keep[0]
+    assert np.array_equal(center.keep[1:], extent.keep[1:])
+    assert np.array_equal(center.reasons[1:], extent.reasons[1:])
+
+
+def test_unknown_oversized_depth_policy_is_rejected():
+    means, scales, quaternions, opacities = gaussian_arrays()
+
+    with pytest.raises(GaussianVggtFilterError, match="unsupported oversized"):
+        classify_gaussians(
+            means=means,
+            scales=scales,
+            quaternions=quaternions,
+            opacities=opacities,
+            evidence=[evidence("1"), evidence("2")],
+            oversized_depth_policy="unknown",
+        )
 
 
 def test_overaggressive_filter_fails_instead_of_publishing():

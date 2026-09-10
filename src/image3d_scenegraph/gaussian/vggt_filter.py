@@ -9,6 +9,8 @@ import numpy as np
 
 
 PROFILE_ID = "vggt_visibility_v1"
+OVERSIZED_CENTER_PROFILE_ID = "vggt_visibility_oversized_center_v1"
+OVERSIZED_DEPTH_POLICIES = {"extent", "center"}
 REASON_FRONT_FREE_SPACE = np.uint8(1)
 REASON_OUTSIDE_OVERSIZED = np.uint8(2)
 
@@ -58,6 +60,7 @@ def classify_gaussians(
     minimum_contradictions: int = 2,
     oversized_normalized_scale: float = 0.1,
     oversized_screen_ratio: float = 0.15,
+    oversized_depth_policy: str = "extent",
     maximum_removal_fraction: float = 0.25,
     chunk_size: int = 100_000,
 ) -> GaussianFilterResult:
@@ -82,6 +85,10 @@ def classify_gaussians(
         raise GaussianVggtFilterError("relative depth tolerance must be between zero and one")
     if minimum_contradictions < 2:
         raise GaussianVggtFilterError("at least two independent contradictions are required")
+    if oversized_depth_policy not in OVERSIZED_DEPTH_POLICIES:
+        raise GaussianVggtFilterError(
+            f"unsupported oversized depth policy: {oversized_depth_policy}"
+        )
 
     support = np.zeros(count, dtype=np.uint16)
     contradictions = np.zeros(count, dtype=np.uint16)
@@ -139,11 +146,6 @@ def classify_gaussians(
             lower = z - depth_radius
             upper = z + depth_radius
             tolerance = relative_depth_tolerance * sampled_depth
-            supported = valid & (lower <= sampled_depth + tolerance) & (
-                upper >= sampled_depth - tolerance
-            )
-            contradicted = valid & (upper < sampled_depth - tolerance)
-            within_envelope = inside & (lower <= view.far_depth * 1.15)
 
             world_scale = float(np.linalg.norm(camera[:3, 0]))
             world_axis_radius = sigma_extent * world_scale * scale_chunk.max(axis=1)
@@ -157,6 +159,26 @@ def classify_gaussians(
                 > oversized_screen_ratio
                 * max(view.depth.shape[0] / view.scale_y, view.depth.shape[1] / view.scale_x)
             )
+            oversized_chunk = normalized_oversized[start:stop] | large_on_screen
+
+            supported = valid & (lower <= sampled_depth + tolerance) & (
+                upper >= sampled_depth - tolerance
+            )
+            contradicted = valid & (upper < sampled_depth - tolerance)
+            within_envelope = inside & (lower <= view.far_depth * 1.15)
+            if oversized_depth_policy == "center":
+                center_supported = valid & (z <= sampled_depth + tolerance) & (
+                    z >= sampled_depth - tolerance
+                )
+                center_contradicted = valid & (z < sampled_depth - tolerance)
+                center_within_envelope = inside & (z <= view.far_depth * 1.15)
+                supported = np.where(oversized_chunk, center_supported, supported)
+                contradicted = np.where(
+                    oversized_chunk, center_contradicted, contradicted
+                )
+                within_envelope = np.where(
+                    oversized_chunk, center_within_envelope, within_envelope
+                )
 
             support[start:stop] += supported.astype(np.uint16)
             contradictions[start:stop] += contradicted.astype(np.uint16)
@@ -197,13 +219,18 @@ def classify_gaussians(
         raise GaussianVggtFilterError("VGGT filter leaves too few visible Gaussians")
     diagnostics = {
         "schema_version": 1,
-        "profile": PROFILE_ID,
+        "profile": (
+            PROFILE_ID
+            if oversized_depth_policy == "extent"
+            else OVERSIZED_CENTER_PROFILE_ID
+        ),
         "settings": {
             "relative_depth_tolerance": relative_depth_tolerance,
             "sigma_extent": sigma_extent,
             "minimum_contradictions": minimum_contradictions,
             "oversized_normalized_scale": oversized_normalized_scale,
             "oversized_screen_ratio": oversized_screen_ratio,
+            "oversized_depth_policy": oversized_depth_policy,
             "maximum_removal_fraction": maximum_removal_fraction,
         },
         "counts": {
