@@ -14,6 +14,7 @@ from PIL import Image
 from .dataset import (
     DatasetContractError,
     camera_from_normalized_transform,
+    sha256_file,
     validate_contract,
 )
 from .render import RenderCamera
@@ -68,6 +69,7 @@ def load_evaluation_views(
     split: str,
     longest_edge: int,
     device: torch.device,
+    image_ids: list[str] | None = None,
 ) -> list[TrainingView]:
     if split not in {"validation", "test"}:
         raise DatasetContractError("the evaluator can load only validation or test views")
@@ -77,6 +79,7 @@ def load_evaluation_views(
         split=split,
         longest_edge=longest_edge,
         device=device,
+        image_ids=image_ids,
     )
 
 
@@ -87,11 +90,18 @@ def load_views(
     split: str,
     longest_edge: int,
     device: torch.device,
+    image_ids: list[str] | None = None,
 ) -> list[TrainingView]:
-    validate_contract(contract, dataset_root)
+    validate_contract(contract, dataset_root if image_ids is None else None)
     if split not in contract["splits"]:
         raise DatasetContractError(f"unknown dataset split: {split}")
     selected_ids = set(contract["splits"][split])
+    if image_ids is not None:
+        if split != "validation" or not image_ids or len(set(image_ids)) != len(image_ids):
+            raise DatasetContractError("a view subset requires unique nonempty Validation IDs")
+        if not set(image_ids).issubset(selected_ids):
+            raise DatasetContractError("view subset contains non-Validation IDs")
+        selected_ids = set(image_ids)
     normalization = contract["normalization"]
     views = []
     for entry in contract["images"]:
@@ -100,6 +110,11 @@ def load_views(
             continue
         distortion = entry["distortion"]
         path = (dataset_root / entry["path"]).resolve()
+        if image_ids is not None:
+            if not path.is_relative_to(dataset_root.resolve()):
+                raise DatasetContractError(f"image path escapes dataset root: {entry['path']}")
+            if not path.is_file() or sha256_file(path) != entry["sha256"]:
+                raise DatasetContractError(f"image hash mismatch: {entry['path']}")
         with Image.open(path) as source:
             source = source.convert("RGB")
             width, height = source.size
