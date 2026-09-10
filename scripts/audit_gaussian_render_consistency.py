@@ -71,6 +71,8 @@ def run(args) -> dict:
     entries = {str(row["image_id"]): row for row in contract["images"]}
     for view in views:
         sources["reference_" + view.camera.image_id] = args.dataset_root / entries[view.camera.image_id]["path"]
+        if args.existing_previews:
+            sources["historical_preview_" + view.camera.image_id] = args.existing_previews / f"{view.camera.image_id}.png"
     hashes.update({key: sha256_file(path) for key, path in sources.items() if key not in hashes})
     if not torch.cuda.is_available():
         raise RuntimeError("this audit requires the authorized remote CUDA device")
@@ -111,7 +113,12 @@ def run(args) -> dict:
                         image = render_gaussians(model, view.camera, sh_degree=degree, background=None).image
                         name = f"{label}-sh{degree}-{key}"
                         save_image(args.output_dir / f"{name}.png", image)
-                        item = {"reference": image_difference(image, view.image)}
+                        png_image = image.clamp(0, 1).mul(255).byte().float() / 255.0
+                        reference_png = view.image.clamp(0, 1).mul(255).byte().float() / 255.0
+                        item = {"reference": image_difference(image, view.image),
+                                "reference_png": image_difference(png_image, reference_png),
+                                "prediction_range": {"min": float(image.min()), "max": float(image.max()),
+                                                     "outside_0_1_fraction": float(((image < 0) | (image > 1)).float().mean())}}
                         cpu_image = image.cpu()
                         if degree == 3:
                             if label == "native":

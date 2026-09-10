@@ -86,10 +86,15 @@ window.loadScene = async (view, degree, mode) => {
     viewer.update();
     await viewer.runSplatSort(true,true); if(viewer.sortPromise) await viewer.sortPromise;
     await new Promise(r=>setTimeout(r,150));
+    viewer.updateSplatMesh();
+    if(!viewer.splatRenderReady || material.uniforms.focal.value.x<=0 || material.uniforms.viewport.value.x!==view.width) {
+      throw Error('splat projection uniforms not ready for fixed-camera capture');
+    }
     viewer.splatMesh.material.uniforms.fadeInComplete.value=1;
     viewer.forceRenderNextFrame(); viewer.render();
     const glContext=renderer.getContext(), pixels=new Uint8Array(w*h*4);
     glContext.readPixels(0,0,w,h,glContext.RGBA,glContext.UNSIGNED_BYTE,pixels);
+    if(!pixels.some((value,index)=>index%4<3 && value>0)) throw Error('blank frame; excluded from quality comparisons');
     const pixel=(x,y)=>Array.from(pixels.slice(((h-1-y)*w+x)*4,((h-1-y)*w+x)*4+4));
     const extension=glContext.getExtension('WEBGL_debug_renderer_info');
     const firstColor=new THREE.Vector4(),firstCenter=new THREE.Vector3();
@@ -184,7 +189,10 @@ try {
   const modes=selfTest?[0,2,3].map(degree=>({degree,mode:'controlled'})):[{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
     {degree:0,mode:'controlled',probe:true},{degree:2,mode:'controlled',probe:true}];
   for(const mode of modes){
-    const selected=mode.probe?audit.views.filter(v=>v.image_id===option('--sh-probe','317')):audit.views;
+    const requestedIds=option('--image-ids',null)?.split(',');
+    const selected=mode.probe?audit.views.filter(v=>v.image_id===option('--sh-probe','317')):
+      audit.views.filter(v=>!requestedIds || requestedIds.includes(v.image_id));
+    assert(selected.length>0,'no selected camera descriptors');
     try {
       const url=`http://127.0.0.1:${port}/?mode=${mode.mode}&degree=${mode.degree}`;
       await call('Page.navigate',{url});
@@ -204,6 +212,7 @@ try {
     } catch(error){result.captures.push({...mode,status:'failed',error:String(error)});if(selfTest)throw error;}
   }
   result.status=result.captures.some(c=>c.status==='failed')?'partial':'completed';
+  if(result.status==='partial')process.exitCode=2;
   result.chrome_log=chromeLog.slice(-12000);
 } catch(error){result.status='failed';result.error=String(error);process.exitCode=1;}
 finally {
