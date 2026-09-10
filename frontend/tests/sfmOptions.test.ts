@@ -6,11 +6,14 @@ import {
   defaultSfmPairing,
   formatSfmCameraCalibration,
   formatSfmGeometricVerification,
+  formatSfmMapper,
   formatSfmPairing,
   isSfmCameraCalibrationAvailable,
   isSfmGeometricVerificationAvailable,
+  isSfmMapperAvailable,
   isSfmPairingAvailable,
   type SfmCameraCalibrationStatus,
+  type SfmMapperStatus,
   type SfmPairing
 } from "../src/sfmOptions.ts";
 import type { ExperimentalOptionStatus } from "../src/backendOptions.ts";
@@ -119,6 +122,42 @@ test("camera calibration defaults preserve backend history", () => {
   );
 });
 
+
+test("mapper availability keeps incremental default and bounds Global", () => {
+  const global: SfmMapperStatus = {
+    id: "global",
+    label: "Global",
+    available: true,
+    reason: null,
+    experimental: true,
+    supported_modes: ["multi_image", "video"],
+    supported_geometry_sources: ["colmap"]
+  };
+
+  assert.equal(isSfmMapperAvailable("incremental", undefined, "video"), true);
+  assert.equal(isSfmMapperAvailable("global", undefined, "video"), false);
+  assert.equal(
+    isSfmMapperAvailable("global", global, "video", "colmap"),
+    true
+  );
+  assert.equal(
+    isSfmMapperAvailable("global", global, "video", "vggt_ba"),
+    false
+  );
+  assert.equal(
+    isSfmMapperAvailable("global", { ...global, available: false }, "video", "colmap"),
+    false
+  );
+});
+
+test("explicit and recovery Global mapper labels remain distinct", () => {
+  assert.equal(formatSfmMapper("global"), "Global（实验）");
+  assert.equal(formatSfmMapper("global_recovery_v1"), "Global（自动恢复）");
+  assert.equal(
+    formatSfmMapper("incremental_core_repair_v1"),
+    "Incremental healthy-core（自动恢复）"
+  );
+});
 
 test("camera calibration availability respects capability mode", () => {
   const autoGrouped: SfmCameraCalibrationStatus = {

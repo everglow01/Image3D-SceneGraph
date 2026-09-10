@@ -22,8 +22,10 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
+    COLMAP_MAPPER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
+    build_global_mapper_commands,
     colmap_frontend_provenance,
     resolve_colmap_camera_calibration,
     resolve_colmap_executable,
@@ -32,6 +34,7 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
     sha256_file,
+    validate_colmap_mapper,
 )
 from image3d_scenegraph.geometry.sfm_pose_health import (
     build_sfm_pose_health_from_text,
@@ -83,6 +86,11 @@ def main() -> None:
     parser.add_argument(
         "--camera-calibration",
         choices=COLMAP_CAMERA_CALIBRATION_IDS,
+    )
+    parser.add_argument(
+        "--sfm-mapper",
+        choices=COLMAP_MAPPER_IDS,
+        default="incremental",
     )
     parser.add_argument(
         "--single-camera",
@@ -160,6 +168,7 @@ def main() -> None:
         geometric_verification = resolve_colmap_geometric_verification(
             args.geometric_verification
         )
+        mapper_profile = validate_colmap_mapper(args.sfm_mapper)
         camera_calibration = (
             resolve_colmap_camera_calibration(args.camera_calibration)
             if args.camera_calibration is not None
@@ -206,6 +215,7 @@ def main() -> None:
     logs_dir = output_dir / "logs"
     work_dir = output_dir / "colmap"
     sparse_dir = work_dir / "sparse"
+    source_database_path = work_dir / "database.db"
     geometry_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
@@ -252,7 +262,7 @@ def main() -> None:
             colmap,
             "feature_extractor",
             "--database_path",
-            str(work_dir / "database.db"),
+            str(source_database_path),
             "--image_path",
             str(args.image_dir),
         ]
@@ -357,7 +367,7 @@ def main() -> None:
             if camera_plan is not None
             else None
         ),
-        "requested_mapper": "incremental",
+        "requested_mapper": mapper_profile,
         "colmap_random_seed": 0,
         "video_profile": (
             str(video_selection.get("profile"))
@@ -365,7 +375,11 @@ def main() -> None:
             else None
         ),
         "initial_video_selection_sha256": initial_video_selection_sha256,
-        "v2_mapper_options": v2_mapper_options(video_selection),
+        "v2_mapper_options": (
+            v2_mapper_options(video_selection)
+            if mapper_profile == "incremental"
+            else []
+        ),
         "v2_mapper_seed_count": len(mapper_seed_names),
         "test_rgb_loaded": False,
     }
@@ -377,8 +391,9 @@ def main() -> None:
             for command in feature_commands
         ],
         ("feature_matching", "colmap_feature_matching", matcher_command),
-        ("mapping", "colmap_mapping", mapper_command),
     ]
+    if mapper_profile == "incremental":
+        commands.append(("mapping", "colmap_mapping", mapper_command))
     command_logs = []
     stage_elapsed_seconds: dict[str, float] = {}
     for timing_stage, progress_stage, command in commands:
@@ -389,29 +404,76 @@ def main() -> None:
             timing_stage, 0.0
         ) + (time.perf_counter() - command_started_at)
 
-    database_path = work_dir / "database.db"
-    pose_recovery: dict[str, Any] | None = None
-    if args.gaussian_baseline:
-        (
-            model_dir,
-            registered_images,
-            sparse_points,
-            database_path,
-            pose_recovery,
-        ) = select_or_recover_sparse_model(
-            colmap=colmap,
-            sparse_dir=sparse_dir,
+    database_path = source_database_path
+    if mapper_profile == "global":
+        global_dir = work_dir / "global"
+        global_dir.mkdir(parents=True, exist_ok=False)
+        database_path = global_dir / "database.db"
+        _backup_sqlite_database(source_database_path, database_path)
+        sparse_dir = global_dir / "sparse"
+        sparse_dir.mkdir()
+        calibrator_command, global_mapper_command = build_global_mapper_commands(
+            colmap,
             database_path=database_path,
             image_dir=args.image_dir,
-            work_dir=work_dir,
-            output_dir=output_dir,
-            selected_timestamps=mapper_pose_timestamps,
-            mapper_seed_path=mapper_seed_path,
+            output_dir=sparse_dir,
             use_gpu=args.use_gpu,
             gpu_index=args.gpu_index,
             num_threads=args.num_threads,
-            command_logs=command_logs,
+            image_list_path=mapper_seed_path,
         )
+        for timing_stage, progress_stage, command in (
+            (
+                "view_graph_calibration",
+                "colmap_view_graph_calibration",
+                calibrator_command,
+            ),
+            ("mapping", "colmap_global_mapping", global_mapper_command),
+        ):
+            write_progress(args.progress_file, progress_stage)
+            command_started_at = time.perf_counter()
+            command_logs.append(run_command(command))
+            stage_elapsed_seconds[timing_stage] = time.perf_counter() - command_started_at
+
+    pose_recovery: dict[str, Any] | None = None
+    if args.gaussian_baseline:
+        if mapper_profile == "incremental":
+            (
+                model_dir,
+                registered_images,
+                sparse_points,
+                database_path,
+                pose_recovery,
+            ) = select_or_recover_sparse_model(
+                colmap=colmap,
+                sparse_dir=sparse_dir,
+                database_path=database_path,
+                image_dir=args.image_dir,
+                work_dir=work_dir,
+                output_dir=output_dir,
+                selected_timestamps=mapper_pose_timestamps,
+                mapper_seed_path=mapper_seed_path,
+                use_gpu=args.use_gpu,
+                gpu_index=args.gpu_index,
+                num_threads=args.num_threads,
+                command_logs=command_logs,
+            )
+        else:
+            (
+                model_dir,
+                registered_images,
+                sparse_points,
+                pose_recovery,
+            ) = select_explicit_global_sparse_model(
+                colmap=colmap,
+                sparse_dir=sparse_dir,
+                source_database_path=source_database_path,
+                database_path=database_path,
+                work_dir=work_dir,
+                output_dir=output_dir,
+                selected_timestamps=mapper_pose_timestamps,
+                command_logs=command_logs,
+            )
     else:
         model_dir, registered_images, sparse_points = find_largest_sparse_model(
             sparse_dir
@@ -647,9 +709,9 @@ def main() -> None:
         "mapper": (
             str(pose_recovery["effective_mapper"])
             if pose_recovery is not None
-            else "incremental"
+            else mapper_profile
         ),
-        "requested_mapper": "incremental",
+        "requested_mapper": mapper_profile,
         "colmap_random_seed": 0,
         "effective_database_path": database_path.resolve()
         .relative_to(output_dir.resolve())
@@ -657,7 +719,9 @@ def main() -> None:
         "source_database_sha256": (
             pose_recovery["source_database_sha256"]
             if pose_recovery is not None
-            else sha256_file(database_path) if database_path.is_file() else None
+            else sha256_file(source_database_path)
+            if source_database_path.is_file()
+            else None
         ),
         "effective_database_sha256": (
             pose_recovery["effective_database_sha256"]
@@ -689,7 +753,11 @@ def main() -> None:
         .as_posix(),
         "stage_elapsed_seconds": stage_elapsed_seconds,
         "total_elapsed_seconds": elapsed_seconds,
-        "v2_mapper_options": v2_mapper_options(video_selection),
+        "v2_mapper_options": (
+            v2_mapper_options(video_selection)
+            if mapper_profile == "incremental"
+            else []
+        ),
         "v2_mapper_seed_count": len(mapper_seed_names),
         "initial_registration_expansion_status": (
             expansion_diagnostics.get("status")
@@ -738,7 +806,8 @@ def main() -> None:
             if camera_diagnostics is not None
             else ["sfm_camera_calibration_profile=legacy_cli"]
         ),
-        f"sfm_mapper={pose_recovery['effective_mapper'] if pose_recovery is not None else 'incremental'}",
+        f"sfm_mapper_requested={mapper_profile}",
+        f"sfm_mapper={pose_recovery['effective_mapper'] if pose_recovery is not None else mapper_profile}",
         f"sfm_pose_health_status={pose_health['status'] if pose_health is not None else 'not_run'}",
         f"sfm_pose_health_reason_codes={','.join(pose_health['reason_codes']) if pose_health is not None else ''}",
         f"sfm_pose_recovery_status={pose_recovery['status'] if pose_recovery is not None else 'not_run'}",
@@ -843,6 +912,89 @@ def run_command(command: list[str]) -> str:
             + str(exc.stderr or "").strip()
         ) from exc
     return "command=" + " ".join(command) + "\nstdout=" + completed.stdout.strip() + "\nstderr=" + completed.stderr.strip()
+
+
+def select_explicit_global_sparse_model(
+    *,
+    colmap: str,
+    sparse_dir: Path,
+    source_database_path: Path,
+    database_path: Path,
+    work_dir: Path,
+    output_dir: Path,
+    selected_timestamps: dict[str, float] | None,
+    command_logs: list[str],
+) -> tuple[Path, int, int, dict[str, Any]]:
+    recovery_path = output_dir / "diagnostics" / "sfm_pose_recovery.json"
+    recovery_path.parent.mkdir(parents=True, exist_ok=True)
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "profile": "sfm_pose_recovery_v1",
+        "status": "not_needed",
+        "requested_mapper": "global",
+        "effective_mapper": None,
+        "recovery_applied": False,
+        "primary_candidates": [],
+        "recovery_candidates": [],
+        "selected": None,
+        "source_database_sha256": sha256_file(source_database_path),
+        "test_rgb_loaded": False,
+    }
+    candidates = [path for path in sparse_dir.iterdir() if path.is_dir()]
+    for candidate in sorted(candidates, key=lambda path: path.name):
+        evaluated = _evaluate_pose_candidate(
+            colmap=colmap,
+            model_dir=candidate,
+            text_dir=work_dir / "pose_health" / f"global-{candidate.name}",
+            database_path=database_path,
+            selected_timestamps=selected_timestamps,
+            command_logs=command_logs,
+            kind="global",
+        )
+        record["primary_candidates"].append(evaluated)
+    healthy = [
+        candidate for candidate in record["primary_candidates"] if candidate["accepted"]
+    ]
+    if not healthy:
+        record["status"] = "failed"
+        record["reason"] = "no_healthy_sfm_pose_candidate"
+        _relativize_pose_recovery_paths(record, output_dir)
+        write_json(recovery_path, record)
+        raise RuntimeError("explicit Global Mapper produced no healthy model")
+    selected = max(
+        healthy,
+        key=lambda value: (
+            int(value["registered_count"]),
+            float(
+                (value.get("registration_timeline") or {}).get(
+                    "temporal_coverage", -1.0
+                )
+            ),
+            int(value["point_count"]),
+            str(value["model_path"]),
+        ),
+    )
+    record["effective_mapper"] = "global"
+    record["selected"] = {
+        key: selected[key]
+        for key in (
+            "kind",
+            "model_path",
+            "database_path",
+            "registered_count",
+            "point_count",
+        )
+    }
+    record["effective_database_sha256"] = sha256_file(database_path)
+    selected_model = Path(selected["model_path"])
+    _relativize_pose_recovery_paths(record, output_dir)
+    write_json(recovery_path, record)
+    return (
+        selected_model,
+        int(selected["registered_count"]),
+        int(selected["point_count"]),
+        record,
+    )
 
 
 def select_or_recover_sparse_model(
@@ -1153,53 +1305,20 @@ def _try_global_pose_recovery(
         recovery_dir.mkdir(parents=True, exist_ok=False)
         copied_database = recovery_dir / "database.db"
         _backup_sqlite_database(database_path, copied_database)
-        command_logs.append(
-            run_command(
-                [
-                    colmap,
-                    "view_graph_calibrator",
-                    "--database_path",
-                    str(copied_database),
-                    "--default_random_seed",
-                    "0",
-                ]
-            )
-        )
         output = recovery_dir / "model"
         output.mkdir()
-        command = [
+        calibrator_command, mapper_command = build_global_mapper_commands(
             colmap,
-            "global_mapper",
-            "--database_path",
-            str(copied_database),
-            "--image_path",
-            str(image_dir),
-            "--output_path",
-            str(output),
-            "--default_random_seed",
-            "0",
-            "--GlobalMapper.gp_use_gpu",
-            "1" if use_gpu else "0",
-            "--GlobalMapper.ba_ceres_use_gpu",
-            "1" if use_gpu else "0",
-        ]
-        if mapper_seed_path is not None:
-            command.extend(
-                ("--GlobalMapper.image_list_path", str(mapper_seed_path))
-            )
-        if num_threads is not None:
-            command.extend(("--GlobalMapper.num_threads", str(num_threads)))
-        if use_gpu and gpu_index is not None:
-            first_gpu = gpu_index.split(",")[0]
-            command.extend(
-                (
-                    "--GlobalMapper.gp_gpu_index",
-                    first_gpu,
-                    "--GlobalMapper.ba_ceres_gpu_index",
-                    first_gpu,
-                )
-            )
-        command_logs.append(run_command(command))
+            database_path=copied_database,
+            image_dir=image_dir,
+            output_dir=output,
+            use_gpu=use_gpu,
+            gpu_index=gpu_index,
+            num_threads=num_threads,
+            image_list_path=mapper_seed_path,
+        )
+        command_logs.append(run_command(calibrator_command))
+        command_logs.append(run_command(mapper_command))
         evaluated = [
             _evaluate_pose_candidate(
                 colmap=colmap,

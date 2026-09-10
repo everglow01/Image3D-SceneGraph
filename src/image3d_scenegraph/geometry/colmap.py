@@ -14,6 +14,7 @@ COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
 COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
 COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree")
 COLMAP_GEOMETRIC_VERIFICATION_IDS = ("default_v1", "guided_v1")
+COLMAP_MAPPER_IDS = ("incremental", "global")
 COLMAP_CAMERA_CALIBRATION_IDS = (
     "shared_opencv_v1",
     "shared_simple_radial_v1",
@@ -314,6 +315,12 @@ def validate_colmap_geometric_verification(profile_id: str) -> str:
         raise ColmapFeatureError(
             f"unsupported COLMAP geometric verification: {profile_id}"
         )
+    return profile_id
+
+
+def validate_colmap_mapper(profile_id: str) -> str:
+    if profile_id not in COLMAP_MAPPER_IDS:
+        raise ColmapFeatureError(f"unsupported COLMAP mapper: {profile_id}")
     return profile_id
 
 
@@ -736,6 +743,97 @@ def colmap_geometric_verification_support_reasons(
                     else None
                 )
             result[(pairing_id, profile_id)] = reason
+    return result
+
+
+def build_global_mapper_commands(
+    executable: str | Path,
+    *,
+    database_path: Path,
+    image_dir: Path,
+    output_dir: Path,
+    use_gpu: bool,
+    gpu_index: str | None = None,
+    num_threads: int | None = None,
+    image_list_path: Path | None = None,
+) -> tuple[list[str], list[str]]:
+    calibrator = [
+        str(executable),
+        "view_graph_calibrator",
+        "--database_path",
+        str(database_path),
+        "--default_random_seed",
+        "0",
+    ]
+    mapper = [
+        str(executable),
+        "global_mapper",
+        "--database_path",
+        str(database_path),
+        "--image_path",
+        str(image_dir),
+        "--output_path",
+        str(output_dir),
+        "--default_random_seed",
+        "0",
+        "--GlobalMapper.gp_use_gpu",
+        "1" if use_gpu else "0",
+        "--GlobalMapper.ba_ceres_use_gpu",
+        "1" if use_gpu else "0",
+    ]
+    if image_list_path is not None:
+        mapper.extend(("--GlobalMapper.image_list_path", str(image_list_path)))
+    if num_threads is not None:
+        mapper.extend(("--GlobalMapper.num_threads", str(num_threads)))
+    if use_gpu and gpu_index is not None:
+        first_gpu = gpu_index.split(",")[0]
+        mapper.extend(
+            (
+                "--GlobalMapper.gp_gpu_index",
+                first_gpu,
+                "--GlobalMapper.ba_ceres_gpu_index",
+                first_gpu,
+            )
+        )
+    return calibrator, mapper
+
+
+def colmap_mapper_support_reason(executable: Path, profile_id: str) -> str | None:
+    profile_id = validate_colmap_mapper(profile_id)
+    return colmap_mapper_support_reasons(executable)[profile_id]
+
+
+def colmap_mapper_support_reasons(executable: Path) -> dict[str, str | None]:
+    requirements = {
+        "incremental": (("mapper", "--default_random_seed"),),
+        "global": (
+            ("view_graph_calibrator", "relpose_min_num_inliers"),
+            ("global_mapper", "--default_random_seed"),
+            ("global_mapper", "GlobalMapper.image_list_path"),
+            ("global_mapper", "GlobalMapper.gp_use_gpu"),
+            ("global_mapper", "GlobalMapper.ba_ceres_use_gpu"),
+        ),
+    }
+    outputs: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    for command in {command for values in requirements.values() for command, _ in values}:
+        try:
+            outputs[command] = _capture_help(executable, command)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            errors[command] = f"cannot inspect COLMAP mapper support: {exc}"
+    result: dict[str, str | None] = {}
+    for profile_id, markers in requirements.items():
+        error = next((errors[command] for command, _ in markers if command in errors), None)
+        missing = [
+            f"{command}:{marker}"
+            for command, marker in markers
+            if command not in errors and marker not in outputs[command]
+        ]
+        result[profile_id] = error or (
+            "COLMAP build is missing mapper options: " + ", ".join(missing)
+            if missing
+            else None
+        )
     return result
 
 

@@ -17,6 +17,7 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LEGACY_MATCHER_TO_PAIRING,
+    COLMAP_MAPPER_IDS,
     COLMAP_PAIRING_IDS,
     resolve_colmap_camera_calibration,
     resolve_colmap_vocab_tree,
@@ -84,6 +85,8 @@ class ProjectGaussianAdapter:
         progress_by_stage = {
             "colmap_feature_extraction": 0.16,
             "colmap_feature_matching": 0.20,
+            "colmap_view_graph_calibration": 0.23,
+            "colmap_global_mapping": 0.26,
             "colmap_mapping": 0.26,
             "video_initial_registration_expansion_pass_1": 0.27,
             "video_initial_registration_expansion_pass_2": 0.275,
@@ -443,6 +446,17 @@ class ProjectGaussianAdapter:
             "--camera-calibration",
             sfm_camera_calibration,
         ]
+        requested_sfm_mapper = _choice_option(
+            context,
+            "sfm_mapper",
+            "IMAGE3D_SFM_MAPPER",
+            "incremental",
+            set(COLMAP_MAPPER_IDS),
+        )
+        if geometry_source == "vggt_ba" and requested_sfm_mapper != "incremental":
+            raise ReconstructionError("VGGT-BA does not use the COLMAP Mapper selector")
+        geometry_metrics["sfm_mapper_requested"] = requested_sfm_mapper
+        mapper_args = ["--sfm-mapper", requested_sfm_mapper]
         video_geometry_args: list[str] = []
         if context.mode == "video" and video_profile == "standard_v2":
             if video_source_path is None or video_selection_path is None:
@@ -466,6 +480,7 @@ class ProjectGaussianAdapter:
                 *local_matcher_args,
                 *geometric_verification_args,
                 *camera_calibration_args,
+                *mapper_args,
                 *video_geometry_args,
                 *pairing_args,
                 "--gaussian-baseline",
@@ -560,11 +575,14 @@ class ProjectGaussianAdapter:
                 if (
                     colmap_timing.get("schema_version") != 1
                     or colmap_timing.get("profile") != "colmap_timing_v1"
+                    or colmap_timing.get("requested_mapper")
+                    != requested_sfm_mapper
                 ):
                     raise ValueError("unsupported COLMAP timing schema")
                 sfm_mapper = str(colmap_timing["mapper"])
                 if sfm_mapper not in {
                     "incremental",
+                    "global",
                     "global_recovery_v1",
                     "incremental_core_repair_v1",
                 }:
@@ -646,6 +664,7 @@ class ProjectGaussianAdapter:
                     pose_recovery_path.read_text(encoding="utf-8")
                 )
                 removed_count = _validate_colmap_pose_evidence(
+                    requested_mapper=requested_sfm_mapper,
                     mapper=sfm_mapper,
                     database_path=database_relative,
                     database_sha256=sfm_database_sha256,
@@ -1289,6 +1308,7 @@ def _default_geometric_verification_provenance() -> dict[str, str | bool]:
 
 def _validate_colmap_pose_evidence(
     *,
+    requested_mapper: str,
     mapper: str,
     database_path: Path,
     database_sha256: str,
@@ -1304,19 +1324,22 @@ def _validate_colmap_pose_evidence(
         for image_id in excluded_image_ids
     ):
         raise ValueError("invalid repaired COLMAP camera IDs")
-    expected_status = "not_needed" if mapper == "incremental" else "recovered"
+    expected_status = "not_needed" if mapper == requested_mapper else "recovered"
     if (
-        pose_health.get("schema_version") != 1
+        requested_mapper not in COLMAP_MAPPER_IDS
+        or (requested_mapper == "global" and mapper != "global")
+        or pose_health.get("schema_version") != 1
         or pose_health.get("profile") != "sfm_pose_health_v2"
         or pose_health.get("status") != "passed"
         or pose_recovery.get("schema_version") != 1
         or pose_recovery.get("profile") != "sfm_pose_recovery_v1"
+        or pose_recovery.get("requested_mapper") != requested_mapper
         or pose_recovery.get("status") != expected_status
         or pose_recovery.get("effective_mapper") != mapper
         or selected.get("kind") != mapper
         or Path(str(selected.get("database_path", ""))) != database_path
         or pose_recovery.get("effective_database_sha256") != database_sha256
-        or pose_recovery.get("recovery_applied") is not (mapper != "incremental")
+        or pose_recovery.get("recovery_applied") is not (mapper != requested_mapper)
         or bool(excluded_image_ids)
         is not (mapper == "incremental_core_repair_v1")
     ):
@@ -2235,6 +2258,13 @@ class ColmapPointCloudAdapter:
             "shared_simple_radial_v1",
             set(COLMAP_CAMERA_CALIBRATION_IDS),
         )
+        mapper = _choice_option(
+            context,
+            "sfm_mapper",
+            "IMAGE3D_SFM_MAPPER",
+            "incremental",
+            set(COLMAP_MAPPER_IDS),
+        )
         if "sfm_pairing" in context.options:
             pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
         else:
@@ -2257,6 +2287,8 @@ class ColmapPointCloudAdapter:
             geometric_verification,
             "--camera-calibration",
             camera_calibration,
+            "--sfm-mapper",
+            mapper,
             *pairing_args,
         ]
 
@@ -2367,6 +2399,13 @@ class ColmapVggtPointCloudAdapter:
             "shared_simple_radial_v1",
             set(COLMAP_CAMERA_CALIBRATION_IDS),
         )
+        mapper = _choice_option(
+            context,
+            "sfm_mapper",
+            "IMAGE3D_SFM_MAPPER",
+            "incremental",
+            set(COLMAP_MAPPER_IDS),
+        )
         if "sfm_pairing" in context.options:
             pairing_args = ["--pairing", str(context.options["sfm_pairing"])]
         else:
@@ -2414,6 +2453,8 @@ class ColmapVggtPointCloudAdapter:
             geometric_verification,
             "--camera-calibration",
             camera_calibration,
+            "--sfm-mapper",
+            mapper,
             *pairing_args,
             "--vggt-batch-size",
             str(batch_size),

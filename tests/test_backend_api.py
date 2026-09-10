@@ -147,6 +147,8 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "shared_simple_radial_v1",
         "auto_grouped_simple_radial_v1",
     ]
+    assert properties["sfm_mapper"]["enum"] == ["incremental", "global"]
+    assert properties["sfm_mapper"]["default"] == "incremental"
     assert properties["gaussian_geometry_source"]["enum"] == ["colmap", "vggt_ba"]
     assert properties["gaussian_geometry_source"]["default"] == "colmap"
     assert properties["gaussian_postprocess"]["enum"] == [
@@ -205,6 +207,7 @@ def test_create_job_forwards_gaussian_trainer(tmp_path):
         "sfm_feature_profile": "sift_v1",
         "sfm_local_matcher": "bruteforce",
         "sfm_geometric_verification": "default_v1",
+        "sfm_mapper": "incremental",
     }
 
 
@@ -248,6 +251,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
             "sfm_local_matcher": "lightglue",
             "sfm_geometric_verification": "guided_v1",
             "sfm_camera_calibration": "auto_grouped_simple_radial_v1",
+            "sfm_mapper": "global",
         },
         files=[
             ("files", (f"{index}.jpg", b"image", "image/jpeg"))
@@ -261,6 +265,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
         "sfm_local_matcher": "lightglue",
         "sfm_geometric_verification": "guided_v1",
         "sfm_camera_calibration": "auto_grouped_simple_radial_v1",
+        "sfm_mapper": "global",
     }
 
 
@@ -617,6 +622,7 @@ def test_create_job_omits_unspecified_colmap_vggt_options(tmp_path):
         "sfm_feature_profile": "sift_v1",
         "sfm_local_matcher": "bruteforce",
         "sfm_geometric_verification": "default_v1",
+        "sfm_mapper": "incremental",
     }
 
 
@@ -650,6 +656,7 @@ def test_create_job_forwards_independent_colmap_vggt_policies(tmp_path):
         "sfm_feature_profile": "sift_v1",
         "sfm_local_matcher": "bruteforce",
         "sfm_geometric_verification": "default_v1",
+        "sfm_mapper": "incremental",
         "colmap_vggt_grouping": "covisibility",
         "colmap_vggt_overlap_size": 1,
         "colmap_vggt_confidence_threshold_scope": "per_frame",

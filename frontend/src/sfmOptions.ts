@@ -4,6 +4,7 @@ export type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
 export type SfmLocalMatcher = "bruteforce" | "lightglue";
 export type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree";
 export type SfmGeometricVerification = "default_v1" | "guided_v1";
+export type SfmMapper = "incremental" | "global";
 export type SfmCameraCalibration =
   | "shared_opencv_v1"
   | "shared_simple_radial_v1"
@@ -11,6 +12,11 @@ export type SfmCameraCalibration =
 
 export type SfmCameraCalibrationStatus =
   ExperimentalOptionStatus<SfmCameraCalibration> & { is_default?: boolean };
+
+export type SfmMapperStatus = ExperimentalOptionStatus<SfmMapper> & {
+  is_default?: boolean;
+  supported_geometry_sources?: string[];
+};
 
 export type SfmGeometricVerificationStatus =
   ExperimentalOptionStatus<SfmGeometricVerification>;
@@ -75,6 +81,41 @@ export const sfmCameraCalibrationOptions: Array<{
     label: "Auto-grouped SIMPLE_RADIAL v1"
   }
 ];
+
+export const sfmMapperOptions: Array<{ id: SfmMapper; label: string }> = [
+  { id: "incremental", label: "Incremental（默认）" },
+  { id: "global", label: "Global（实验）" }
+];
+
+export function isSfmMapperAvailable(
+  mapper: SfmMapper,
+  status: SfmMapperStatus | undefined,
+  mode: string,
+  geometrySource?: string
+): boolean {
+  if (status === undefined) {
+    return mapper === "incremental";
+  }
+  return (
+    status.available !== false &&
+    (status.supported_modes?.includes(mode) ?? false) &&
+    (geometrySource === undefined ||
+      status.supported_geometry_sources === undefined ||
+      status.supported_geometry_sources.includes(geometrySource))
+  );
+}
+
+export function formatSfmMapper(value: string | undefined): string {
+  if (value === "global_recovery_v1") return "Global（自动恢复）";
+  if (value === "incremental_core_repair_v1") {
+    return "Incremental healthy-core（自动恢复）";
+  }
+  const mapper = value ?? "incremental";
+  return (
+    sfmMapperOptions.find((option) => option.id === mapper)?.label ??
+    `未知 SfM 求解器（${mapper}）`
+  );
+}
 
 export function isSfmPairingModeSupported(
   status: ExperimentalOptionStatus<SfmPairing> | undefined,

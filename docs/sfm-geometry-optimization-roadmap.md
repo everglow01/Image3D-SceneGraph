@@ -1,7 +1,7 @@
 # COLMAP / SfM 几何来源优化调研与分阶段实施路线
 
 > 日期：2026-09-01  
-> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph 与 Phase 5 相机标定均已接入代码；2026-09-08 用户将 SIFT + Brute-force + `sequential_loop` 设为视频基线，multi-image 仍默认 `exhaustive`。视频 `standard_v2` 继续为新 Job 默认，历史 v1 仍可显式选择
+> 状态：Phase 1 特征提取、Phase 2 局部匹配、Phase 3 图像对策略、Phase 4 两视图几何/View Graph、Phase 5 相机标定与 Phase 6 SfM 求解器均已接入代码；2026-09-08 用户将 SIFT + Brute-force + `sequential_loop` 设为视频基线，multi-image 仍默认 `exhaustive`。视频 `standard_v2` 继续为新 Job 默认，历史 v1 仍可显式选择
 > 范围：RGB 图像进入后，从局部特征提取、匹配、两视图几何验证、相机标定、SfM、三角化与 BA，一直到 3DGS 数据集之前  
 > 约束：坐标仍是归一化任意单位；不使用 Test 选择算法；模型权重不得在 Job 运行时下载
 
@@ -440,12 +440,12 @@ sfm_camera_calibration = shared_opencv_v1 | shared_simple_radial_v1 | auto_group
 3 图像对策略    Exhaustive / Sequential + Loop / Vocab Tree
 4 两视图几何    Default v1（默认） / Guided v1（实验）
 5 相机标定      Shared OPENCV / Shared SIMPLE_RADIAL / Auto-grouped
-6 SfM 求解       Incremental / Global（后续）
+6 SfM 求解       Incremental（默认） / Global（实验）
 ```
 
 要求：
 
-- 当前已启用第 1、2、3、4、5 项；SfM 求解仍保持 incremental；
+- 当前已启用第 1–6 项；SfM 求解默认保持 incremental，Global 仅为实验项；
 - 每个实验项显示服务器 availability、缺失模型和 setup command；
 - 结果页显示 requested/effective 值，历史 Job 缺字段时解释为 SIFT + brute-force + 当时 pairing + default verification + 当时 Project shared OPENCV + incremental；
 - SfM inspector 的关键点/pair canvas 继续复用，不新增第二套 Viewer；
@@ -563,7 +563,9 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 - raw sparse camera sidecar 记录 focal/distortion/registration/track/reprojection；COLMAP 默认 focal ratio/extra-param边界只产生 soft warning，provenance/model/assignment 漂移才是合同错误；
 - 真实 A/B 固定 feature、local matcher、pairing、geometric verification、Mapper/BA、输入和 trainer/split，只改变 camera profile；代码接入不构成质量提升或默认推广证据。
 
-### Phase 6：SfM 求解器（根因防线已接入，独立求解器选择仍待实现）
+### Phase 6：SfM 求解器（代码已接入，待真实证据）
+
+实现状态（2026-09-10）：稳定字段 `sfm_mapper=incremental|global` 已接入 shared resolver/capability、ordinary sparse 与 COLMAP+VGGT runners、API/JobStore/adapters、manifest 和前端第六阶段。Incremental 保持默认和现有 automatic Global/core recovery；显式 experimental Global 在 SQLite copy 上按 calibrator→Global Mapper 运行，作为 primary solver 通过同一 pose/product gates，失败不回退。`global`、`global_recovery_v1`、`incremental_core_repair_v1` 与 standard-v2 incremental expansion 保持独立 provenance。VGGT-BA 和 reused text model 明确拒绝 Global。代码接入不构成质量或性能提升，mapper-only 同数据库与端到端 geometry A/B 仍待执行。
 
 2026-09-07 核验更新：同源视频四格已经执行，SIFT+Brute-force 原始模型健康；SIFT+LightGlue 匹配 OOM；ALIKED+Brute-force 主模型与 Global 均不健康；ALIKED+LightGlue 主模型失败，删除 36 台相机后的 v1 报告虽通过，却残留九台约 20–100× 相机。四格归因仍不完整，不能把两相机碎片或 OOM 当作整格几何结论。
 

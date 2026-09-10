@@ -142,6 +142,102 @@ def test_pose_selection_uses_healthy_primary_without_recovery(
     assert str(tmp_path) not in json.dumps(published)
 
 
+def test_explicit_global_selection_is_primary_not_recovery(tmp_path, monkeypatch):
+    sparse = tmp_path / "global" / "sparse"
+    model = sparse / "0"
+    model.mkdir(parents=True)
+    _write_binary_count(model / "images.bin", 20)
+    _write_binary_count(model / "points3D.bin", 100)
+    source_database = tmp_path / "database.db"
+    global_database = tmp_path / "global" / "database.db"
+    sqlite3.connect(source_database).close()
+    sqlite3.connect(global_database).close()
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_evaluate_pose_candidate",
+        lambda **kwargs: {
+            "kind": kwargs["kind"],
+            "status": "accepted",
+            "accepted": True,
+            "model_path": str(kwargs["model_dir"]),
+            "database_path": str(kwargs["database_path"]),
+            "registered_count": 20,
+            "point_count": 100,
+            "pose_health": {"status": "passed", "reason_codes": []},
+        },
+    )
+
+    selected, registered, points, record = (
+        run_colmap_sparse.select_explicit_global_sparse_model(
+            colmap="colmap",
+            sparse_dir=sparse,
+            source_database_path=source_database,
+            database_path=global_database,
+            work_dir=tmp_path / "work",
+            output_dir=tmp_path,
+            selected_timestamps=None,
+            command_logs=[],
+        )
+    )
+
+    assert (selected, registered, points) == (model, 20, 100)
+    assert record["requested_mapper"] == "global"
+    assert record["effective_mapper"] == "global"
+    assert record["status"] == "not_needed"
+    assert record["recovery_applied"] is False
+    assert record["recovery_candidates"] == []
+    assert record["primary_candidates"][0]["kind"] == "global"
+    published = json.loads(
+        (tmp_path / "diagnostics" / "sfm_pose_recovery.json").read_text()
+    )
+    assert published["selected"]["model_path"] == "global/sparse/0"
+    assert published["selected"]["database_path"] == "global/database.db"
+
+
+def test_explicit_global_selection_fails_without_incremental_fallback(
+    tmp_path, monkeypatch
+):
+    sparse = tmp_path / "global" / "sparse"
+    model = sparse / "0"
+    model.mkdir(parents=True)
+    source_database = tmp_path / "database.db"
+    global_database = tmp_path / "global" / "database.db"
+    sqlite3.connect(source_database).close()
+    sqlite3.connect(global_database).close()
+    monkeypatch.setattr(
+        run_colmap_sparse,
+        "_evaluate_pose_candidate",
+        lambda **kwargs: {
+            "kind": kwargs["kind"],
+            "status": "rejected",
+            "accepted": False,
+            "model_path": str(kwargs["model_dir"]),
+            "database_path": str(kwargs["database_path"]),
+            "registered_count": 10,
+            "point_count": 20,
+            "gate_reason_codes": ["registered_count_below_gate"],
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="explicit Global Mapper"):
+        run_colmap_sparse.select_explicit_global_sparse_model(
+            colmap="colmap",
+            sparse_dir=sparse,
+            source_database_path=source_database,
+            database_path=global_database,
+            work_dir=tmp_path / "work",
+            output_dir=tmp_path,
+            selected_timestamps=None,
+            command_logs=[],
+        )
+
+    published = json.loads(
+        (tmp_path / "diagnostics" / "sfm_pose_recovery.json").read_text()
+    )
+    assert published["status"] == "failed"
+    assert published["recovery_candidates"] == []
+
+
 def test_pose_recovery_report_rejects_paths_outside_output(tmp_path):
     outside = tmp_path.parent / "outside-model"
     record = {
@@ -668,6 +764,94 @@ def test_runner_applies_thread_limit_and_writes_progress(tmp_path, monkeypatch):
     assert "use_gpu=False\n" in log
     assert "gpu_index=0\n" in log
     assert "num_threads=4\n" in log
+
+
+def test_runner_explicit_global_uses_database_copy_and_no_incremental_mapper(
+    tmp_path, monkeypatch
+):
+    image_dir = tmp_path / "images"
+    output_dir = tmp_path / "output"
+    image_dir.mkdir()
+    (image_dir / "frame.jpg").write_bytes(b"image")
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "feature_extractor":
+            database = Path(command[command.index("--database_path") + 1])
+            with sqlite3.connect(database) as connection:
+                connection.execute("CREATE TABLE marker(value INTEGER)")
+        elif command[1] == "view_graph_calibrator":
+            database = Path(command[command.index("--database_path") + 1])
+            with sqlite3.connect(database) as connection:
+                connection.execute("INSERT INTO marker VALUES(1)")
+        elif command[1] == "global_mapper":
+            model = Path(command[command.index("--output_path") + 1]) / "0"
+            model.mkdir()
+            _write_binary_count(model / "images.bin", 1)
+            _write_binary_count(model / "points3D.bin", 1)
+        elif command[1] == "model_converter" and command[-1] == "PLY":
+            (output_dir / "geometry" / "points.ply").write_text(
+                "ply\nelement vertex 1\nend_header\n", encoding="utf-8"
+            )
+        elif command[1] == "model_converter" and command[-1] == "TXT":
+            path = Path(command[command.index("--output_path") + 1])
+            path.mkdir(parents=True, exist_ok=True)
+            (path / "cameras.txt").write_text(
+                "1 PINHOLE 64 64 50 50 32 32\n", encoding="utf-8"
+            )
+            (path / "images.txt").write_text(
+                "1 1 0 0 0 0 0 0 1 frame.jpg\n\n", encoding="utf-8"
+            )
+        return "ok"
+
+    monkeypatch.setattr(
+        run_colmap_sparse, "resolve_colmap_executable", lambda: tmp_path / "colmap"
+    )
+    monkeypatch.setattr(
+        run_colmap_sparse, "colmap_version", lambda _: "COLMAP 4.0.0"
+    )
+    monkeypatch.setattr(run_colmap_sparse, "run_command", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_sparse.py",
+            "--image-dir",
+            str(image_dir),
+            "--output-dir",
+            str(output_dir),
+            "--sfm-mapper",
+            "global",
+            "--gpu-index",
+            "1,0",
+            "--num-threads",
+            "4",
+        ],
+    )
+
+    run_colmap_sparse.main()
+
+    command_names = [command[1] for command in commands]
+    assert "mapper" not in command_names
+    assert command_names.index("view_graph_calibrator") < command_names.index(
+        "global_mapper"
+    )
+    global_mapper = next(
+        command for command in commands if command[1] == "global_mapper"
+    )
+    assert global_mapper[global_mapper.index("--GlobalMapper.gp_gpu_index") + 1] == "1"
+    assert global_mapper[global_mapper.index("--GlobalMapper.num_threads") + 1] == "4"
+    timing = json.loads(
+        (output_dir / "diagnostics" / "colmap_timing.json").read_text()
+    )
+    assert timing["requested_mapper"] == "global"
+    assert timing["mapper"] == "global"
+    assert timing["effective_database_path"] == "colmap/global/database.db"
+    assert timing["source_database_sha256"] != timing["effective_database_sha256"]
+    log = (output_dir / "logs" / "run.log").read_text()
+    assert "sfm_mapper_requested=global" in log
+    assert "sfm_mapper=global" in log
 
 
 def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):

@@ -46,6 +46,7 @@ from image3d_scenegraph.geometry.colmap import (
     colmap_geometric_verification_support_reason,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reason,
+    colmap_mapper_support_reason,
     colmap_pairing_support_reason,
     resolve_colmap_executable,
     resolve_colmap_camera_calibration,
@@ -57,6 +58,7 @@ from image3d_scenegraph.geometry.colmap import (
     validate_colmap_feature_profile,
     validate_colmap_geometric_verification,
     validate_colmap_local_matcher,
+    validate_colmap_mapper,
     validate_colmap_pairing,
 )
 from image3d_scenegraph.video.keyframes import (
@@ -211,6 +213,21 @@ class JobStore:
                         )
                     )
                 )
+                mapper = validate_colmap_mapper(
+                    str(
+                        normalized_options.get(
+                            "sfm_mapper",
+                            os.environ.get("IMAGE3D_SFM_MAPPER", "incremental"),
+                        )
+                    )
+                )
+                if (
+                    geometry_backend == "project_3dgs"
+                    and normalized_options.get("gaussian_geometry_source", "colmap")
+                    == "vggt_ba"
+                    and mapper != "incremental"
+                ):
+                    raise JobError("VGGT-BA does not use the COLMAP Mapper selector")
                 if (
                     camera_calibration == "auto_grouped_simple_radial_v1"
                     and mode != "multi_image"
@@ -291,6 +308,7 @@ class JobStore:
                     or geometric_verification != "default_v1"
                     or camera_calibration
                     != COLMAP_CAMERA_CALIBRATION_DEFAULTS[geometry_backend]
+                    or mapper != "incremental"
                 ):
                     colmap = resolve_colmap_executable(project_root)
                     if colmap is None:
@@ -334,6 +352,10 @@ class JobStore:
                         )
                         if support_reason is not None:
                             raise JobError(support_reason)
+                    if mapper != "incremental":
+                        support_reason = colmap_mapper_support_reason(colmap, mapper)
+                        if support_reason is not None:
+                            raise JobError(support_reason)
                 resolved_feature = resolve_colmap_feature_profile(
                     feature_profile, project_root
                 )
@@ -345,12 +367,14 @@ class JobStore:
                 )
                 resolve_colmap_geometric_verification(geometric_verification)
                 resolve_colmap_camera_calibration(camera_calibration)
+                validate_colmap_mapper(mapper)
                 normalized_options.update(
                     sfm_feature_profile=feature_profile,
                     sfm_local_matcher=local_matcher,
                     sfm_pairing=pairing,
                     sfm_geometric_verification=geometric_verification,
                     sfm_camera_calibration=camera_calibration,
+                    sfm_mapper=mapper,
                 )
             except ColmapFeatureError as exc:
                 raise JobError(str(exc)) from exc
@@ -360,6 +384,7 @@ class JobStore:
             normalized_options.pop("sfm_pairing", None)
             normalized_options.pop("sfm_geometric_verification", None)
             normalized_options.pop("sfm_camera_calibration", None)
+            normalized_options.pop("sfm_mapper", None)
             normalized_options.pop("colmap_matcher", None)
         gaussian_trainer_record: dict[str, Any] | None = None
         try:
@@ -501,6 +526,8 @@ class JobStore:
                     normalized_options["sfm_camera_calibration"]
                 ),
                 sfm_camera_calibration_effective=None,
+                sfm_mapper=str(normalized_options["sfm_mapper"]),
+                sfm_mapper_effective=None,
             )
         if geometry_backend == "project_3dgs" and output_type == "gaussian_splat":
             manifest.update(
@@ -1158,6 +1185,19 @@ class JobStore:
                 sfm_camera_calibration_effective=str(
                     effective_camera_calibration
                 ),
+            )
+            requested_mapper = str(options.get("sfm_mapper", "incremental"))
+            effective_mapper = str(
+                metrics.get(
+                    "sfm_effective_mapper",
+                    metrics.get("sfm_mapper", requested_mapper),
+                )
+            )
+            if requested_mapper == "global" and effective_mapper != "global":
+                raise JobError("explicit Global Mapper did not remain the effective solver")
+            result.update(
+                sfm_mapper=requested_mapper,
+                sfm_mapper_effective=effective_mapper,
             )
         if self._is_gaussian_job(result):
             result.update(

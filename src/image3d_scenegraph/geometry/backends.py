@@ -16,6 +16,7 @@ from image3d_scenegraph.geometry.colmap import (
     colmap_geometric_verification_support_reasons,
     colmap_learned_feature_support_reason,
     colmap_local_matcher_support_reasons,
+    colmap_mapper_support_reasons,
     colmap_pairing_support_reasons,
     resolve_colmap_executable,
     resolve_colmap_feature_profile,
@@ -73,6 +74,15 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
         default_profile="shared_opencv_v1",
         supported_modes=("multi_image", "video"),
     )
+    multi_image_mappers = _colmap_mappers(
+        colmap,
+        supported_modes=("multi_image",),
+    )
+    project_mappers = _colmap_mappers(
+        colmap,
+        supported_modes=("multi_image", "video"),
+        supported_geometry_sources=("colmap",),
+    )
 
     return [
         BackendSpec(
@@ -101,6 +111,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             options={
                 "sfm_feature_profiles": feature_profiles,
                 "sfm_camera_calibrations": colmap_camera_calibrations,
+                "sfm_mappers": multi_image_mappers,
             },
         ),
         _colmap_vggt_spec(
@@ -109,6 +120,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
             feature_profiles=feature_profiles,
             camera_calibrations=dense_camera_calibrations,
+            mappers=multi_image_mappers,
         ),
         _external_model_spec(
             backend_id="dust3r",
@@ -129,6 +141,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             colmap,
             feature_profiles,
             project_camera_calibrations,
+            project_mappers,
         ),
     ]
 
@@ -322,6 +335,48 @@ def _colmap_feature_profiles(
     return result
 
 
+def _colmap_mappers(
+    colmap: Path | None,
+    *,
+    supported_modes: tuple[str, ...],
+    supported_geometry_sources: tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    reasons = (
+        colmap_mapper_support_reasons(colmap)
+        if colmap is not None
+        else {
+            "incremental": "colmap executable not found",
+            "global": "colmap executable not found",
+        }
+    )
+    return [
+        {
+            "id": profile_id,
+            "label": label,
+            "available": reasons[profile_id] is None,
+            "reason": reasons[profile_id],
+            "experimental": profile_id == "global",
+            "is_default": profile_id == "incremental",
+            "supported_modes": list(supported_modes),
+            **(
+                {"supported_geometry_sources": list(supported_geometry_sources)}
+                if supported_geometry_sources is not None
+                and profile_id == "global"
+                else {}
+            ),
+            "setup_command": (
+                "uv run python scripts/setup_colmap_cuda.py --install"
+                if reasons[profile_id] is not None
+                else None
+            ),
+        }
+        for profile_id, label in (
+            ("incremental", "Incremental"),
+            ("global", "Global"),
+        )
+    ]
+
+
 def _colmap_camera_calibrations(
     colmap: Path | None,
     *,
@@ -380,6 +435,7 @@ def _project_gaussian_spec(
     colmap: Path | None,
     feature_profiles: list[dict[str, Any]],
     camera_calibrations: list[dict[str, Any]],
+    project_mappers: list[dict[str, Any]],
 ) -> BackendSpec:
     trainers = get_gaussian_trainer_specs(project_root)
     available_trainers = [trainer for trainer in trainers if trainer.available]
@@ -501,6 +557,7 @@ def _project_gaussian_spec(
             "gaussian_trainers": [trainer.to_dict() for trainer in trainers],
             "sfm_feature_profiles": feature_profiles,
             "sfm_camera_calibrations": camera_calibrations,
+            "sfm_mappers": project_mappers,
             "gaussian_geometry_sources": [
                 {
                     "id": "colmap",
@@ -625,6 +682,7 @@ def _colmap_vggt_spec(
     checkpoint_hint: Path,
     feature_profiles: list[dict[str, Any]],
     camera_calibrations: list[dict[str, Any]],
+    mappers: list[dict[str, Any]],
 ) -> BackendSpec:
     missing: list[str] = []
     if colmap is None:
@@ -643,5 +701,6 @@ def _colmap_vggt_spec(
         options={
             "sfm_feature_profiles": feature_profiles,
             "sfm_camera_calibrations": camera_calibrations,
+            "sfm_mappers": mappers,
         },
     )

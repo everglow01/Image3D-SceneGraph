@@ -34,15 +34,18 @@ import {
   formatSfmFeatureProfile,
   formatSfmGeometricVerification,
   formatSfmLocalMatcher,
+  formatSfmMapper,
   formatSfmPairing,
   isSfmCameraCalibrationAvailable,
   isSfmGeometricVerificationAvailable,
+  isSfmMapperAvailable,
   isSfmPairingAvailable,
   isSfmPairingModeSupported,
   sfmCameraCalibrationOptions,
   sfmFeatureOptions,
   sfmGeometricVerificationOptions,
   sfmLocalMatcherOptions,
+  sfmMapperOptions,
   sfmPairingOptions
 } from "./sfmOptions";
 import type {
@@ -52,6 +55,8 @@ import type {
   SfmFeatureStatus,
   SfmGeometricVerification,
   SfmLocalMatcher,
+  SfmMapper,
+  SfmMapperStatus,
   SfmPairing
 } from "./sfmOptions";
 import {
@@ -190,6 +195,8 @@ type Manifest = {
   sfm_geometric_verification_effective?: SfmGeometricVerification;
   sfm_camera_calibration?: SfmCameraCalibration;
   sfm_camera_calibration_effective?: SfmCameraCalibration;
+  sfm_mapper?: SfmMapper;
+  sfm_mapper_effective?: string;
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -376,6 +383,7 @@ type BackendStatus = {
   gaussian_trainers?: GaussianTrainerStatus[];
   sfm_feature_profiles?: SfmFeatureStatus[];
   sfm_camera_calibrations?: SfmCameraCalibrationStatus[];
+  sfm_mappers?: SfmMapperStatus[];
   gaussian_geometry_sources?: ExperimentalOptionStatus<GaussianGeometrySource>[];
   gaussian_postprocessors?: ExperimentalOptionStatus<GaussianPostprocess>[];
   video_ingestion?: {
@@ -448,6 +456,7 @@ export function App() {
     useState<SfmGeometricVerification>("default_v1");
   const [sfmCameraCalibration, setSfmCameraCalibration] =
     useState<SfmCameraCalibration>("shared_simple_radial_v1");
+  const [sfmMapper, setSfmMapper] = useState<SfmMapper>("incremental");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("project");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -544,6 +553,13 @@ export function App() {
       : sfmCameraCalibrationStatuses.find(
           (option) => option.available === false
         );
+  const sfmMapperStatuses = selectedBackendStatus?.sfm_mappers ?? [];
+  const selectedSfmMapperStatus = sfmMapperStatuses.find(
+    (option) => option.id === sfmMapper
+  );
+  const sfmMapperNotice = selectedSfmMapperStatus?.reason
+    ? selectedSfmMapperStatus
+    : sfmMapperStatuses.find((option) => option.available === false);
   const usesColmapFeatureStage = ["colmap", "colmap_vggt", "project_3dgs"].includes(
     geometryBackend
   );
@@ -855,6 +871,7 @@ export function App() {
   function onModeChange(nextMode: Mode) {
     setMode(nextMode);
     setSfmPairing(defaultSfmPairing(nextMode));
+    setSfmMapper("incremental");
     if (nextMode === "video") {
       setGeometryBackend("project_3dgs");
       setOutputType("gaussian_splat");
@@ -871,6 +888,7 @@ export function App() {
   function onGeometryBackendChange(nextBackend: GeometryBackend) {
     setGeometryBackend(nextBackend);
     setSfmCameraCalibration(defaultSfmCameraCalibration(nextBackend));
+    setSfmMapper("incremental");
     setError(null);
   }
 
@@ -950,6 +968,21 @@ export function App() {
       );
       return;
     }
+    if (
+      usesColmapFeatureStage &&
+      !isSfmMapperAvailable(
+        sfmMapper,
+        selectedSfmMapperStatus,
+        mode,
+        geometryBackend === "project_3dgs" ? gaussianGeometrySource : undefined
+      )
+    ) {
+      setError(
+        selectedSfmMapperStatus?.reason ??
+          "服务器、输入模式或几何来源不支持所选 SfM 求解器。"
+      );
+      return;
+    }
     if (!selectedBackendAvailable) {
       setError(selectedBackendStatus?.reason ?? "所选几何重建后端不可用。");
       return;
@@ -1014,6 +1047,7 @@ export function App() {
         form.append("sfm_pairing", sfmPairing);
         form.append("sfm_geometric_verification", sfmGeometricVerification);
         form.append("sfm_camera_calibration", sfmCameraCalibration);
+        form.append("sfm_mapper", sfmMapper);
       }
       if (geometryBackend === "project_3dgs") {
         form.append("gaussian_trainer", gaussianTrainer);
@@ -1511,6 +1545,50 @@ export function App() {
                     <small>{sfmCameraCalibrationNotice.setup_command}</small>
                   )}
                 </label>
+
+                <label>
+                  <span>SfM 求解器</span>
+                  <select
+                    value={sfmMapper}
+                    onChange={(event) =>
+                      setSfmMapper(event.target.value as SfmMapper)
+                    }
+                  >
+                    {sfmMapperOptions.map((option) => {
+                      const status = sfmMapperStatuses.find(
+                        (candidate) => candidate.id === option.id
+                      );
+                      const unavailable = !isSfmMapperAvailable(
+                        option.id,
+                        status,
+                        mode,
+                        geometryBackend === "project_3dgs"
+                          ? gaussianGeometrySource
+                          : undefined
+                      );
+                      return (
+                        <option
+                          disabled={unavailable}
+                          key={option.id}
+                          value={option.id}
+                        >
+                          {unavailable
+                            ? `${option.label}（不可用）`
+                            : option.label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <small>
+                    Global 在同一匹配数据库副本上运行；失败不会静默回退 Incremental。
+                  </small>
+                  {sfmMapperNotice?.reason && (
+                    <small>{sfmMapperNotice.reason}</small>
+                  )}
+                  {sfmMapperNotice?.setup_command && (
+                    <small>{sfmMapperNotice.setup_command}</small>
+                  )}
+                </label>
               </>
             )}
 
@@ -1582,9 +1660,11 @@ export function App() {
                   <span>几何来源</span>
                   <select
                     value={gaussianGeometrySource}
-                    onChange={(event) =>
-                      setGaussianGeometrySource(event.target.value as GaussianGeometrySource)
-                    }
+                    onChange={(event) => {
+                      const source = event.target.value as GaussianGeometrySource;
+                      setGaussianGeometrySource(source);
+                      if (source === "vggt_ba") setSfmMapper("incremental");
+                    }}
                   >
                     {(gaussianGeometryStatuses.length > 0
                       ? gaussianGeometryStatuses
@@ -2105,7 +2185,7 @@ export function App() {
             <div><dt>稀疏点</dt><dd>{formatInteger(currentStatus?.metrics.num_points)}</dd></div>
             <div><dt>SfM 诊断</dt><dd>{formatStatus(currentStatus?.metrics.sfm_diagnostics_status)}</dd></div>
             <div><dt>位姿健康</dt><dd>{formatStatus(currentStatus?.metrics.sfm_pose_health_status)}</dd></div>
-            <div><dt>有效求解器</dt><dd>{formatPolicy(currentStatus?.metrics.sfm_effective_mapper)}</dd></div>
+            <div><dt>有效求解器</dt><dd>{formatSfmMapper(currentStatus?.metrics.sfm_effective_mapper)}</dd></div>
             <div><dt>位姿恢复</dt><dd>{formatStatus(currentStatus?.metrics.sfm_pose_recovery_status)}</dd></div>
             <div><dt>已注册图片</dt><dd>{formatRatio(currentStatus?.metrics.sfm_diagnostics_registered_image_count, currentStatus?.metrics.sfm_diagnostics_image_count)}</dd></div>
             <div><dt>匹配内点</dt><dd>{formatInteger(currentStatus?.metrics.sfm_diagnostics_inlier_count)}</dd></div>
@@ -2214,15 +2294,22 @@ export function App() {
                 </dd>
               </div>
             )}
-            {manifest?.geometry_backend === "project_3dgs" && (
+            {manifest && ["colmap", "colmap_vggt", "project_3dgs"].includes(manifest.geometry_backend) && (
               <div>
-                <dt>SfM 位姿健康{currentStatus?.metrics.sfm_effective_mapper ? " / 求解器" : ""}</dt>
+                <dt>SfM 求解器</dt>
                 <dd>
-                  {formatStatus(currentStatus?.metrics.sfm_pose_health_status)}
-                  {currentStatus?.metrics.sfm_effective_mapper
-                    ? ` / ${formatPolicy(currentStatus.metrics.sfm_effective_mapper)}`
+                  {formatSfmMapper(manifest.sfm_mapper)}
+                  {manifest.sfm_mapper_effective &&
+                  manifest.sfm_mapper_effective !== manifest.sfm_mapper
+                    ? ` → ${formatSfmMapper(manifest.sfm_mapper_effective)}`
                     : ""}
                 </dd>
+              </div>
+            )}
+            {manifest?.geometry_backend === "project_3dgs" && (
+              <div>
+                <dt>SfM 位姿健康</dt>
+                <dd>{formatStatus(currentStatus?.metrics.sfm_pose_health_status)}</dd>
               </div>
             )}
             {manifest?.geometry_backend === "project_3dgs" && currentStatus?.metrics.sfm_pose_recovery_status !== undefined && (
@@ -2929,6 +3016,8 @@ function formatStage(value: string | undefined) {
     video_probing: "探测视频与方向",
     video_frame_scoring: "分析候选视频帧",
     video_frame_extraction: "生成视频关键帧",
+    colmap_view_graph_calibration: "COLMAP View Graph 标定",
+    colmap_global_mapping: "COLMAP Global Mapper",
     vggt_ba_descriptors: "VGGT-BA 图像关系描述",
     vggt_ba_windows: "VGGT-BA 分批相机与局部 BA",
     vggt_ba_recovery: "VGGT-BA 弱帧连通恢复",

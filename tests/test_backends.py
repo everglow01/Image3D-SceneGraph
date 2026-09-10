@@ -161,6 +161,11 @@ def test_backend_specs_report_camera_calibration_capabilities(
             "auto_grouped_simple_radial_v1": None,
         },
     )
+    monkeypatch.setattr(
+        backends,
+        "colmap_mapper_support_reasons",
+        lambda _path: {"incremental": None, "global": None},
+    )
 
     specs = {spec.backend_id: spec for spec in get_backend_specs(tmp_path)}
     colmap_profiles = {
@@ -175,6 +180,10 @@ def test_backend_specs_report_camera_calibration_capabilities(
         item["id"]: item
         for item in specs["project_3dgs"].options["sfm_camera_calibrations"]
     }
+    project_mappers = {
+        item["id"]: item
+        for item in specs["project_3dgs"].options["sfm_mappers"]
+    }
 
     assert colmap_profiles["shared_simple_radial_v1"]["is_default"] is True
     assert project_profiles["shared_opencv_v1"]["is_default"] is True
@@ -182,6 +191,16 @@ def test_backend_specs_report_camera_calibration_capabilities(
         "multi_image",
         "video",
     ]
+    assert project_mappers["incremental"]["is_default"] is True
+    assert project_mappers["global"]["experimental"] is True
+    assert project_mappers["global"]["supported_modes"] == [
+        "multi_image",
+        "video",
+    ]
+    assert project_mappers["global"]["supported_geometry_sources"] == [
+        "colmap"
+    ]
+    assert "supported_geometry_sources" not in project_mappers["incremental"]
     assert project_profiles["auto_grouped_simple_radial_v1"][
         "supported_modes"
     ] == ["multi_image"]

@@ -139,6 +139,9 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             | None,
             Form(),
         ] = None,
+        sfm_mapper: Annotated[
+            Literal["incremental", "global"], Form()
+        ] = "incremental",
         video_keyframe_profile: Annotated[
             Literal["standard_v1", "standard_v2"], Form()
         ] = DEFAULT_VIDEO_PROFILE,
@@ -246,6 +249,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 ),
                 "sfm_camera_calibration": (
                     sfm_camera_calibration
+                    if geometry_backend in COLMAP_FEATURE_BACKENDS
+                    else None
+                ),
+                "sfm_mapper": (
+                    sfm_mapper
                     if geometry_backend in COLMAP_FEATURE_BACKENDS
                     else None
                 ),

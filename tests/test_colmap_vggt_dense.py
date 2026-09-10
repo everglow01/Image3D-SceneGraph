@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -113,6 +114,66 @@ def test_colmap_pipeline_pins_cuda_sift_to_gpu_zero(tmp_path, monkeypatch):
         matcher[matcher.index("--FeatureMatching.skip_geometric_verification") + 1]
         == "0"
     )
+
+
+def test_colmap_pipeline_global_uses_calibrated_database_copy(tmp_path, monkeypatch):
+    commands = []
+    sparse = tmp_path / "sparse"
+    sparse.mkdir()
+    database = tmp_path / "database.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE marker(value INTEGER)")
+
+    def fake_run(command):
+        commands.append(command)
+        if command[1] == "view_graph_calibrator":
+            copied = Path(command[command.index("--database_path") + 1])
+            with sqlite3.connect(copied) as connection:
+                connection.execute("INSERT INTO marker VALUES(1)")
+        return "ok"
+
+    monkeypatch.setattr("run_colmap_vggt_dense.run_command", fake_run)
+    monkeypatch.setattr(
+        "run_colmap_vggt_dense.convert_best_sparse_model",
+        lambda *_: (tmp_path / "global" / "sparse" / "0", []),
+    )
+    feature = resolve_colmap_feature_profile("sift_v1", tmp_path)
+
+    logs = run_colmap_pipeline(
+        colmap="/project/colmap",
+        image_dir=tmp_path / "images",
+        database_path=database,
+        sparse_dir=sparse,
+        text_dir=tmp_path / "sparse_txt",
+        pairing=ResolvedColmapPairing(
+            profile_id="exhaustive",
+            command="exhaustive_matcher",
+            pairing_options=(),
+        ),
+        feature_profile=feature,
+        local_matcher=resolve_colmap_local_matcher(
+            feature, "bruteforce", tmp_path
+        ),
+        geometric_verification=resolve_colmap_geometric_verification(
+            "default_v1"
+        ),
+        mapper="global",
+        single_camera=True,
+        mapper_abs_pose_min_num_inliers=30,
+        mapper_abs_pose_min_inlier_ratio=0.25,
+    )
+
+    names = [command[1] for command in commands]
+    assert "mapper" not in names
+    assert names[-2:] == ["view_graph_calibrator", "global_mapper"]
+    copied = tmp_path / "global" / "database.db"
+    assert copied.is_file()
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM marker").fetchone()[0] == 0
+    with sqlite3.connect(copied) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM marker").fetchone()[0] == 1
+    assert any("sfm_mapper_requested=global" in line for line in logs)
+    assert any(f"effective_colmap_database={copied}" in line for line in logs)
 
 
 def test_colmap_pipeline_runs_each_camera_extraction_batch(tmp_path, monkeypatch):
@@ -277,6 +338,29 @@ def test_dense_runner_rejects_guided_profile_when_reusing_text_model(
             str(tmp_path / "model"),
             "--geometric-verification",
             "guided_v1",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        run_dense_main()
+
+
+def test_dense_runner_rejects_global_mapper_when_reusing_text_model(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_colmap_vggt_dense.py",
+            "--image-dir",
+            str(tmp_path / "images"),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--colmap-model-dir",
+            str(tmp_path / "model"),
+            "--sfm-mapper",
+            "global",
         ],
     )
 

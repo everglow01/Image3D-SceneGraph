@@ -62,6 +62,14 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
     progress_path.write_text('{"stage":"colmap_feature_matching"}\n', encoding="utf-8")
     poll()
     poll()
+    progress_path.write_text(
+        '{"stage":"colmap_view_graph_calibration"}\n', encoding="utf-8"
+    )
+    poll()
+    progress_path.write_text(
+        '{"stage":"colmap_global_mapping"}\n', encoding="utf-8"
+    )
+    poll()
     progress_path.write_text('{"stage":"colmap_mapping"}\n', encoding="utf-8")
     poll()
     progress_path.write_text(
@@ -85,6 +93,8 @@ def test_project_gaussian_colmap_progress_callback_reports_new_substages(tmp_pat
 
     assert updates == [
         ("colmap_feature_matching", 0.20),
+        ("colmap_view_graph_calibration", 0.23),
+        ("colmap_global_mapping", 0.26),
         ("colmap_mapping", 0.26),
         ("video_initial_registration_expansion_pass_1", 0.27),
         ("video_initial_registration_expansion_pass_2", 0.275),
@@ -130,15 +140,23 @@ def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallbac
 
 
 @pytest.mark.parametrize(
-    ("mapper", "status", "applied", "excluded", "expected_count"),
+    ("requested", "mapper", "status", "applied", "excluded", "expected_count"),
     (
-        ("incremental", "not_needed", False, [], 0),
-        ("global_recovery_v1", "recovered", True, [], 0),
-        ("incremental_core_repair_v1", "recovered", True, [7, 9], 2),
+        ("incremental", "incremental", "not_needed", False, [], 0),
+        ("incremental", "global_recovery_v1", "recovered", True, [], 0),
+        (
+            "incremental",
+            "incremental_core_repair_v1",
+            "recovered",
+            True,
+            [7, 9],
+            2,
+        ),
+        ("global", "global", "not_needed", False, [], 0),
     ),
 )
 def test_colmap_pose_evidence_preserves_effective_solver_identity(
-    mapper, status, applied, excluded, expected_count
+    requested, mapper, status, applied, excluded, expected_count
 ):
     health = {
         "schema_version": 1,
@@ -149,6 +167,7 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
         "schema_version": 1,
         "profile": "sfm_pose_recovery_v1",
         "status": status,
+        "requested_mapper": requested,
         "effective_mapper": mapper,
         "effective_database_sha256": "a" * 64,
         "recovery_applied": applied,
@@ -160,6 +179,7 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
     }
 
     assert _validate_colmap_pose_evidence(
+        requested_mapper=requested,
         mapper=mapper,
         database_path=Path("colmap/database.db"),
         database_sha256="a" * 64,
@@ -169,6 +189,7 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
     health["profile"] = "sfm_pose_health_v1"
     with pytest.raises(ValueError, match="inconsistent COLMAP pose evidence"):
         _validate_colmap_pose_evidence(
+            requested_mapper=requested,
             mapper=mapper,
             database_path=Path("colmap/database.db"),
             database_sha256="a" * 64,
@@ -180,6 +201,7 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
 def test_colmap_pose_evidence_rejects_database_provenance_mismatch():
     with pytest.raises(ValueError, match="inconsistent COLMAP pose evidence"):
         _validate_colmap_pose_evidence(
+            requested_mapper="incremental",
             mapper="global_recovery_v1",
             database_path=Path("colmap/expected.db"),
             database_sha256="a" * 64,
@@ -192,6 +214,7 @@ def test_colmap_pose_evidence_rejects_database_provenance_mismatch():
                 "schema_version": 1,
                 "profile": "sfm_pose_recovery_v1",
                 "status": "recovered",
+                "requested_mapper": "incremental",
                 "effective_mapper": "global_recovery_v1",
                 "effective_database_sha256": "a" * 64,
                 "recovery_applied": True,
@@ -412,8 +435,33 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     assert command[command.index("--camera-calibration") + 1] == (
         "shared_opencv_v1"
     )
+    assert command[command.index("--sfm-mapper") + 1] == "incremental"
     assert "--vocab-tree-path" not in command
     assert "--gaussian-baseline" in command
+
+
+def test_project_gaussian_passes_explicit_global_mapper(tmp_path, monkeypatch):
+    captured = []
+
+    def fake_run(command, *args, **kwargs):
+        captured.append(command)
+        raise ReconstructionError("stop after COLMAP command capture")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
+    )
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={"sfm_mapper": "global"},
+    )
+
+    with pytest.raises(ReconstructionError, match="stop after COLMAP"):
+        ProjectGaussianAdapter().run(context)
+
+    assert captured[0][captured[0].index("--sfm-mapper") + 1] == "global"
 
 
 def test_project_gaussian_sequential_matcher_threads_vocab_tree(
@@ -1525,6 +1573,59 @@ def test_job_store_validates_camera_calibration_profile(tmp_path, monkeypatch):
     assert manifest["sfm_camera_calibration_effective"] is None
 
 
+def test_job_store_validates_mapper_profile_and_vggt_ba_boundary(
+    tmp_path, monkeypatch
+):
+    store = JobStore(output_root=tmp_path / "jobs")
+    images = [
+        UploadedInput(filename=f"{index}.jpg", content=b"image")
+        for index in range(12)
+    ]
+
+    with pytest.raises(JobError, match="unsupported COLMAP mapper"):
+        store.enqueue_job(
+            "multi_image",
+            images,
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={"sfm_mapper": "unknown"},
+        )
+    with pytest.raises(JobError, match="VGGT-BA does not use"):
+        store.enqueue_job(
+            "video",
+            [UploadedInput(filename="room.mp4", content=b"video")],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options={
+                "sfm_mapper": "global",
+                "gaussian_geometry_source": "vggt_ba",
+            },
+        )
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.resolve_colmap_executable",
+        lambda _root: tmp_path / "colmap",
+    )
+    monkeypatch.setattr(
+        "image3d_scenegraph.jobs.colmap_mapper_support_reason",
+        lambda _colmap, _profile: None,
+    )
+    manifest = store.enqueue_job(
+        "multi_image",
+        images,
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"sfm_mapper": "global"},
+    )
+    request = json.loads(
+        (store.job_dir(manifest["job_id"]) / "request.json").read_text()
+    )
+
+    assert request["options"]["sfm_mapper"] == "global"
+    assert manifest["sfm_mapper"] == "global"
+    assert manifest["sfm_mapper_effective"] is None
+
+
 def test_camera_calibration_defaults_preserve_backend_history(tmp_path):
     store = JobStore(output_root=tmp_path / "jobs")
     images = [
@@ -1547,6 +1648,7 @@ def test_camera_calibration_defaults_preserve_backend_history(tmp_path):
 
     assert colmap["sfm_camera_calibration"] == "shared_simple_radial_v1"
     assert project["sfm_camera_calibration"] == "shared_opencv_v1"
+    assert colmap["sfm_mapper"] == project["sfm_mapper"] == "incremental"
 
 
 def test_sequential_colmap_matcher_rejects_non_video_input(tmp_path):
@@ -1868,12 +1970,17 @@ def test_create_colmap_point_cloud_job_uses_adapter_contract(tmp_path, monkeypat
     assert manifest["sfm_camera_calibration_effective"] == (
         "shared_simple_radial_v1"
     )
+    assert manifest["sfm_mapper"] == "incremental"
+    assert manifest["sfm_mapper_effective"] == "incremental"
     assert manifest["metrics"]["sfm_camera_model"] == "SIMPLE_RADIAL"
     assert manifest["metrics"]["registered_images"] == 2
     assert manifest["metrics"]["num_points"] == 9
     assert captured_command[captured_command.index("--pairing") + 1] == "exhaustive"
     assert captured_command[captured_command.index("--camera-calibration") + 1] == (
         "shared_simple_radial_v1"
+    )
+    assert captured_command[captured_command.index("--sfm-mapper") + 1] == (
+        "incremental"
     )
 
 
@@ -1986,6 +2093,9 @@ def test_create_colmap_vggt_point_cloud_job_uses_adapter_contract(tmp_path, monk
     assert captured_command[captured_command.index("--pairing") + 1] == "exhaustive"
     assert captured_command[captured_command.index("--camera-calibration") + 1] == (
         "shared_simple_radial_v1"
+    )
+    assert captured_command[captured_command.index("--sfm-mapper") + 1] == (
+        "incremental"
     )
     assert captured_command[captured_command.index("--vggt-batch-size") + 1] == "4"
     assert captured_command[captured_command.index("--vggt-overlap-size") + 1] == "1"

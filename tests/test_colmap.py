@@ -61,6 +61,59 @@ def test_colmap_resolver_rejects_non_executable_override(tmp_path, monkeypatch):
     assert resolve_colmap_executable(tmp_path) is None
 
 
+def test_mapper_profiles_and_global_commands_are_frozen(tmp_path, monkeypatch):
+    executable = _make_executable(tmp_path / "colmap")
+    help_by_command = {
+        "mapper": "--default_random_seed",
+        "view_graph_calibrator": "relpose_min_num_inliers",
+        "global_mapper": (
+            "--default_random_seed GlobalMapper.image_list_path "
+            "GlobalMapper.gp_use_gpu GlobalMapper.ba_ceres_use_gpu"
+        ),
+    }
+    monkeypatch.setattr(
+        colmap,
+        "_capture_help",
+        lambda _executable, command: help_by_command[command],
+    )
+
+    assert colmap.validate_colmap_mapper("incremental") == "incremental"
+    assert colmap.colmap_mapper_support_reason(executable, "global") is None
+    calibrator, mapper = colmap.build_global_mapper_commands(
+        executable,
+        database_path=tmp_path / "database.db",
+        image_dir=tmp_path / "images",
+        output_dir=tmp_path / "sparse",
+        use_gpu=True,
+        gpu_index="1,0",
+        num_threads=4,
+        image_list_path=tmp_path / "images.txt",
+    )
+    assert calibrator[1] == "view_graph_calibrator"
+    assert mapper[1] == "global_mapper"
+    assert mapper[mapper.index("--GlobalMapper.gp_gpu_index") + 1] == "1"
+    assert mapper[mapper.index("--GlobalMapper.ba_ceres_gpu_index") + 1] == "1"
+    assert "--GlobalMapper.image_list_path" in mapper
+    assert "--GlobalMapper.num_threads" in mapper
+
+
+def test_mapper_capability_and_unknown_profile_fail_explicitly(tmp_path, monkeypatch):
+    executable = _make_executable(tmp_path / "colmap")
+    monkeypatch.setattr(
+        colmap,
+        "_capture_help",
+        lambda _executable, command: (
+            "--default_random_seed" if command == "mapper" else ""
+        ),
+    )
+
+    reason = colmap.colmap_mapper_support_reason(executable, "global")
+    assert "view_graph_calibrator:relpose_min_num_inliers" in (reason or "")
+    assert "global_mapper:GlobalMapper.gp_use_gpu" in (reason or "")
+    with pytest.raises(ColmapFeatureError, match="unsupported COLMAP mapper"):
+        colmap.validate_colmap_mapper("unknown")
+
+
 def test_local_matcher_capability_probe_is_descriptor_specific(
     tmp_path, monkeypatch
 ):

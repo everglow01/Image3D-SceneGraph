@@ -28,8 +28,10 @@ from image3d_scenegraph.geometry.colmap import (
     COLMAP_GEOMETRIC_VERIFICATION_IDS,
     COLMAP_LEGACY_MATCHER_IDS,
     COLMAP_LOCAL_MATCHER_IDS,
+    COLMAP_MAPPER_IDS,
     COLMAP_PAIRING_IDS,
     ColmapFeatureError,
+    build_global_mapper_commands,
     ResolvedColmapCameraCalibration,
     ResolvedColmapFeatureProfile,
     ResolvedColmapGeometricVerification,
@@ -41,6 +43,7 @@ from image3d_scenegraph.geometry.colmap import (
     resolve_colmap_geometric_verification,
     resolve_colmap_local_matcher,
     resolve_colmap_pairing,
+    validate_colmap_mapper,
 )
 from image3d_scenegraph.geometry.grouping import (
     ColmapImage,
@@ -54,6 +57,7 @@ from image3d_scenegraph.geometry.grouping import (
     qvec_to_rotmat,
 )
 from run_colmap_sparse import (
+    _backup_sqlite_database,
     build_camera_payload,
     colmap_version,
     discover_images,
@@ -252,6 +256,11 @@ def main() -> None:
         choices=COLMAP_CAMERA_CALIBRATION_IDS,
     )
     parser.add_argument(
+        "--sfm-mapper",
+        choices=COLMAP_MAPPER_IDS,
+        default="incremental",
+    )
+    parser.add_argument(
         "--colmap-model-dir",
         type=Path,
         help="Reuse an existing COLMAP text model instead of rerunning sparse reconstruction.",
@@ -343,6 +352,8 @@ def main() -> None:
         parser.error(
             "--geometric-verification cannot be changed when reusing --colmap-model-dir"
         )
+    if args.colmap_model_dir is not None and args.sfm_mapper != "incremental":
+        parser.error("--sfm-mapper cannot be changed when reusing --colmap-model-dir")
     legacy_matcher = args.matcher
     if args.pairing is None and legacy_matcher is None:
         legacy_matcher = "exhaustive"
@@ -396,6 +407,7 @@ def main() -> None:
         geometric_verification = resolve_colmap_geometric_verification(
             args.geometric_verification
         )
+        mapper_profile = validate_colmap_mapper(args.sfm_mapper)
         camera_calibration = (
             resolve_colmap_camera_calibration(args.camera_calibration)
             if args.camera_calibration is not None
@@ -469,6 +481,7 @@ def main() -> None:
                 ),
                 camera_calibration=camera_calibration,
                 camera_plan=camera_plan,
+                mapper=mapper_profile,
                 mapper_abs_pose_min_num_inliers=args.mapper_abs_pose_min_num_inliers,
                 mapper_abs_pose_min_inlier_ratio=args.mapper_abs_pose_min_inlier_ratio,
             ),
@@ -476,6 +489,16 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     colmap_seconds = time.perf_counter() - colmap_started_at
+    effective_mapper = (
+        mapper_profile if args.colmap_model_dir is None else "reused_text_model"
+    )
+    effective_database_path = (
+        database_path
+        if args.colmap_model_dir is None and mapper_profile == "incremental"
+        else sparse_dir.parent / "global" / "database.db"
+        if args.colmap_model_dir is None
+        else None
+    )
 
     colmap_images = parse_colmap_images_with_points(text_dir / "images.txt")
     points3d = parse_colmap_points3d(text_dir / "points3D.txt")
@@ -492,7 +515,7 @@ def main() -> None:
     camera_diagnostics_path = diagnostics_dir / "sfm_camera_calibration.json"
     if camera_plan is not None:
         camera_diagnostics = build_camera_calibration_diagnostics(
-            database_path=database_path,
+            database_path=effective_database_path or database_path,
             final_camera_payload=camera_payload,
             points3d_path=text_dir / "points3D.txt",
             plan=camera_plan,
@@ -1197,7 +1220,9 @@ def main() -> None:
             if camera_diagnostics is not None
             else []
         ),
-        "sfm_mapper=incremental",
+        f"sfm_mapper_requested={mapper_profile}",
+        f"sfm_mapper={effective_mapper}",
+        f"effective_colmap_database={effective_database_path or 'reused_text_model'}",
         f"matcher={pairing.command.removesuffix('_matcher')}",
         f"colmap_executable={colmap}",
         f"colmap_build={colmap_build}",
@@ -1275,12 +1300,14 @@ def run_colmap_pipeline(
     feature_profile: ResolvedColmapFeatureProfile,
     local_matcher: ResolvedColmapLocalMatcher,
     geometric_verification: ResolvedColmapGeometricVerification,
+    mapper: str = "incremental",
     single_camera: bool,
     mapper_abs_pose_min_num_inliers: int,
     mapper_abs_pose_min_inlier_ratio: float,
     camera_calibration: ResolvedColmapCameraCalibration | None = None,
     camera_plan: CameraExtractionPlan | None = None,
 ) -> list[str]:
+    mapper = validate_colmap_mapper(mapper)
     if (camera_calibration is None) != (camera_plan is None):
         raise ValueError("camera calibration and extraction plan must be provided together")
     if (
@@ -1353,24 +1380,27 @@ def run_colmap_pipeline(
                 *pairing.pairing_options,
             ],
         ),
-        (
-            "mapping",
-            [
-                colmap,
-                "mapper",
-                "--database_path",
-                str(database_path),
-                "--image_path",
-                str(image_dir),
-                "--output_path",
-                str(sparse_dir),
-                "--Mapper.abs_pose_min_num_inliers",
-                str(mapper_abs_pose_min_num_inliers),
-                "--Mapper.abs_pose_min_inlier_ratio",
-                str(mapper_abs_pose_min_inlier_ratio),
-            ],
-        ),
     ]
+    if mapper == "incremental":
+        commands.append(
+            (
+                "mapping",
+                [
+                    colmap,
+                    "mapper",
+                    "--database_path",
+                    str(database_path),
+                    "--image_path",
+                    str(image_dir),
+                    "--output_path",
+                    str(sparse_dir),
+                    "--Mapper.abs_pose_min_num_inliers",
+                    str(mapper_abs_pose_min_num_inliers),
+                    "--Mapper.abs_pose_min_inlier_ratio",
+                    str(mapper_abs_pose_min_inlier_ratio),
+                ],
+            )
+        )
     command_logs: list[str] = []
     stage_elapsed: dict[str, float] = {}
     for stage, command in commands:
@@ -1379,13 +1409,42 @@ def run_colmap_pipeline(
         stage_elapsed[stage] = stage_elapsed.get(stage, 0.0) + (
             time.perf_counter() - stage_started_at
         )
+    effective_database_path = database_path
+    effective_sparse_dir = sparse_dir
+    if mapper == "global":
+        global_dir = sparse_dir.parent / "global"
+        global_dir.mkdir(parents=True, exist_ok=False)
+        effective_database_path = global_dir / "database.db"
+        _backup_sqlite_database(database_path, effective_database_path)
+        effective_sparse_dir = global_dir / "sparse"
+        effective_sparse_dir.mkdir()
+        calibrator, global_mapper = build_global_mapper_commands(
+            colmap,
+            database_path=effective_database_path,
+            image_dir=image_dir,
+            output_dir=effective_sparse_dir,
+            use_gpu=True,
+            gpu_index="0",
+        )
+        for stage, command in (
+            ("view_graph_calibration", calibrator),
+            ("mapping", global_mapper),
+        ):
+            stage_started_at = time.perf_counter()
+            command_logs.append(run_command(command))
+            stage_elapsed[stage] = time.perf_counter() - stage_started_at
     command_logs.extend(
         f"colmap_{stage}_seconds={elapsed:.3f}"
         for stage, elapsed in stage_elapsed.items()
     )
-    model_dir, selection_logs = convert_best_sparse_model(colmap, sparse_dir, text_dir)
+    model_dir, selection_logs = convert_best_sparse_model(
+        colmap, effective_sparse_dir, text_dir
+    )
     command_logs.extend(selection_logs)
     command_logs.append(f"selected_model={model_dir}")
+    command_logs.append(f"sfm_mapper_requested={mapper}")
+    command_logs.append(f"sfm_mapper={mapper}")
+    command_logs.append(f"effective_colmap_database={effective_database_path}")
     return command_logs
 
 
