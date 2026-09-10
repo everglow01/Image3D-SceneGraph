@@ -36,6 +36,7 @@ from image3d_scenegraph.geometry.colmap import (
     sha256_file,
     validate_colmap_mapper,
 )
+from image3d_scenegraph.geometry.reprojection import normalize_pixel_errors
 from image3d_scenegraph.geometry.sfm_pose_health import (
     build_sfm_pose_health_from_text,
     require_sfm_pose_health,
@@ -571,6 +572,12 @@ def main() -> None:
         stage_elapsed_seconds["raw_model_conversion"] = (
             time.perf_counter() - conversion_started_at
         )
+    global_pixel_errors = mapper_profile == "global" or (
+        pose_recovery is not None
+        and pose_recovery["effective_mapper"] == "global_recovery_v1"
+    )
+    if raw_text_dir is not None and global_pixel_errors:
+        normalize_pixel_errors(raw_text_dir)
     pose_health: dict[str, Any] | None = None
     pose_health_path = output_dir / "diagnostics" / "sfm_pose_health.json"
     if args.gaussian_baseline:
@@ -672,6 +679,8 @@ def main() -> None:
         time.perf_counter() - text_conversion_started_at
     )
 
+    if global_pixel_errors:
+        normalize_pixel_errors(text_dir)
     camera_payload = build_camera_payload(text_dir)
     if args.gaussian_baseline:
         camera_models = {camera["model"] for camera in camera_payload["cameras"]}

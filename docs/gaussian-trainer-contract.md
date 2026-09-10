@@ -31,6 +31,8 @@ Sparse initialization parses project/COLMAP `points3D.txt` and records:
 - non-finite/support/error/budget rejection counts;
 - deterministic selected-row and complete selection hashes.
 
+New ordinary-COLMAP Global primary / `global_recovery_v1` text outputs use `fixed_model_pixel_reprojection_v1` before calibration diagnostics and the initialization 4-pixel filter: project fixed XYZ through the corresponding text camera and distortion into the original `images.txt` observations, take mean Euclidean pixel residual per point, then report unweighted point summaries. Never interpret Global's stored solver `ERROR` as pixels or repair it by multiplying by a focal length. Preserve the original `points3D.txt` bytes as `points3D.source-error.txt` and bind original cameras/images/points plus normalized points in `pixel-reprojection.json`; replace only the error column. Raw and undistorted models are recomputed independently. Self-built COLMAP+VGGT Global uses the same boundary. Incremental and historical/reused models remain unchanged. Unsupported cameras, missing point references, non-finite residuals, non-positive observed depth and points without observations fail explicitly; no RGB, new geometry or Test is consumed.
+
 Dense initialization reads an RGB PLY and a matching Stage 1 support sidecar when provided. It applies, in order:
 
 1. finite coordinate/confidence checks;

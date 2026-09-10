@@ -56,6 +56,7 @@ from image3d_scenegraph.geometry.grouping import (
     parse_colmap_points3d,
     qvec_to_rotmat,
 )
+from image3d_scenegraph.geometry.reprojection import normalize_pixel_errors
 from run_colmap_sparse import (
     _backup_sqlite_database,
     build_camera_payload,
@@ -500,6 +501,8 @@ def main() -> None:
         else None
     )
 
+    if effective_mapper == "global":
+        normalize_pixel_errors(text_dir)
     colmap_images = parse_colmap_images_with_points(text_dir / "images.txt")
     points3d = parse_colmap_points3d(text_dir / "points3D.txt")
     camera_payload = build_camera_payload(text_dir)

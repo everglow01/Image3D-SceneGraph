@@ -801,8 +801,9 @@ def test_runner_explicit_global_uses_database_copy_and_no_incremental_mapper(
                 "1 PINHOLE 64 64 50 50 32 32\n", encoding="utf-8"
             )
             (path / "images.txt").write_text(
-                "1 1 0 0 0 0 0 0 1 frame.jpg\n\n", encoding="utf-8"
+                "1 1 0 0 0 0 0 0 1 frame.jpg\n35 36 1\n", encoding="utf-8"
             )
+            (path / "points3D.txt").write_text("1 0 0 2 1 2 3 0.00001 1 0\n")
         return "ok"
 
     monkeypatch.setattr(
@@ -849,6 +850,10 @@ def test_runner_explicit_global_uses_database_copy_and_no_incremental_mapper(
     assert timing["mapper"] == "global"
     assert timing["effective_database_path"] == "colmap/global/database.db"
     assert timing["source_database_sha256"] != timing["effective_database_sha256"]
+    text_dir = output_dir / "colmap" / "sparse_txt"
+    assert (text_dir / "points3D.source-error.txt").read_text().split()[7] == "0.00001"
+    assert float((text_dir / "points3D.txt").read_text().split()[7]) == 5.0
+    assert json.loads((text_dir / "pixel-reprojection.json").read_text())["units"] == "pixels"
     log = (output_dir / "logs" / "run.log").read_text()
     assert "sfm_mapper_requested=global" in log
     assert "sfm_mapper=global" in log
@@ -974,10 +979,20 @@ def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):
     ).is_file()
 
 
+@pytest.mark.parametrize("global_recovery", [False, True])
 def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, global_recovery
 ):
     _accept_pose_health(monkeypatch)
+    if global_recovery:
+        original_select = run_colmap_sparse.select_or_recover_sparse_model
+
+        def select_recovery(**kwargs):
+            result = original_select(**kwargs)
+            result[-1]["effective_mapper"] = "global_recovery_v1"
+            return result
+
+        monkeypatch.setattr(run_colmap_sparse, "select_or_recover_sparse_model", select_recovery)
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     image_dir.mkdir()
@@ -986,6 +1001,12 @@ def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
 
     def fake_run(command):
         commands.append(command)
+        if global_recovery and command[1] == "model_converter" and command[-1] == "TXT":
+            path = Path(command[command.index("--output_path") + 1])
+            path.mkdir(parents=True, exist_ok=True)
+            (path / "cameras.txt").write_text("1 PINHOLE 64 64 50 50 32 32\n")
+            (path / "images.txt").write_text("1 1 0 0 0 0 0 0 1 frame.jpg\n35 36 1\n")
+            (path / "points3D.txt").write_text("1 0 0 2 1 2 3 0.00001 1 0\n")
         if command[1] == "mapper":
             model = output_dir / "colmap" / "sparse" / "0"
             model.mkdir(parents=True)
@@ -1036,6 +1057,12 @@ def test_gaussian_runner_caps_undistorted_images_and_uses_all_visible_gpus(
     log = (output_dir / "logs" / "run.log").read_text()
     assert "gpu_index=all_visible\n" in log
     assert "max_image_size=3072\n" in log
+    for relative in ("colmap/sparse_raw_txt", "colmap/undistorted/sparse_txt"):
+        text_dir = output_dir / relative
+        assert (text_dir / "pixel-reprojection.json").exists() == global_recovery
+        if global_recovery:
+            assert float((text_dir / "points3D.txt").read_text().split()[7]) == 5.0
+            assert (text_dir / "points3D.source-error.txt").read_text().split()[7] == "0.00001"
 
 
 def test_runner_applies_aliked_feature_profile(tmp_path, monkeypatch):
