@@ -20,6 +20,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-hash")
     parser.add_argument("--postprocess-record", type=Path)
     parser.add_argument("--postprocess-mask", type=Path)
+    parser.add_argument("--final-fit-record", type=Path)
     args = parser.parse_args()
 
     metadata = export_gaussians(
@@ -31,6 +32,7 @@ def main() -> None:
         checkpoint_hash=args.checkpoint_hash,
         postprocess_record_path=args.postprocess_record,
         postprocess_mask_path=args.postprocess_mask,
+        final_fit_record_path=args.final_fit_record,
     )
     print(json.dumps(metadata, allow_nan=False))
 

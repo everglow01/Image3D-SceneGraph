@@ -70,8 +70,10 @@ def evaluate_model(
     renderer: Callable[..., Any] = render_gaussians,
     health_thresholds: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    if split not in {"validation", "test"}:
-        raise GaussianEvaluationError("evaluation split must be validation or test")
+    if split not in {"validation", "test", "fit_validation"}:
+        raise GaussianEvaluationError(
+            "evaluation split must be validation, test, or fit_validation"
+        )
     if not views:
         raise GaussianEvaluationError(f"evaluation split is empty: {split}")
     if preview_dir is not None:
@@ -171,6 +173,12 @@ def evaluate_model(
         "schema_version": EVALUATION_SCHEMA_VERSION,
         "status": "complete" if not failures else "complete_with_failures",
         "split": split,
+        "quality_role": {
+            "validation": "held_out_model_selection",
+            "test": "held_out_final_evaluation",
+            "fit_validation": "in_sample_after_train_validation_fit",
+        }[split],
+        "selection_eligible": split == "validation",
         "num_views": len(views),
         "successful_views": len(per_view),
         "failed_views": failures,

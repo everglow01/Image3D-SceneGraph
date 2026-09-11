@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from image3d_scenegraph.gaussian.config import effective_config_hash, resolve_public_config
+from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.geometry.adapters import (
     ProjectGaussianAdapter,
     ReconstructionContext,
@@ -15,6 +16,7 @@ from image3d_scenegraph.geometry.adapters import (
     _gaussian_evaluation_metrics,
     _gaussian_renderer_metrics,
     _read_video_registration_recovery,
+    _run_gaussian_final_fit,
     _try_export_sfm_diagnostics,
     _validate_colmap_pose_evidence,
     _write_video_registration_diagnostics,
@@ -406,6 +408,9 @@ def test_gaussian_delivery_metrics_preserve_raw_and_renderer_identity(tmp_path):
         json.dumps(
             {
                 "schema_version": 2,
+                "split": "validation",
+                "quality_role": "held_out_model_selection",
+                "selection_eligible": True,
                 "quality_profiles": {
                     "primary": "raw_float_v1",
                     "display_clamped_uint8_v1": {},
@@ -456,6 +461,19 @@ def test_gaussian_delivery_metrics_preserve_raw_and_renderer_identity(tmp_path):
         "gaussian_browser_renderer_verification_profile": "fixed_camera_browser_v1",
     }
 
+    fit_evaluation = json.loads(evaluation_path.read_text())
+    fit_evaluation.update(
+        split="fit_validation",
+        quality_role="in_sample_after_train_validation_fit",
+        selection_eligible=False,
+    )
+    evaluation_path.write_text(json.dumps(fit_evaluation), encoding="utf-8")
+    assert _gaussian_evaluation_metrics(
+        evaluation_path,
+        prefix="gaussian_final_fit_fit",
+        expected_split="fit_validation",
+    )["gaussian_final_fit_fit_psnr"] == 23.8
+
     export_path.write_text('{"schema_version": 2}', encoding="utf-8")
     with pytest.raises(ReconstructionError, match="renderer identity"):
         _gaussian_renderer_metrics(export_path)
@@ -463,6 +481,105 @@ def test_gaussian_delivery_metrics_preserve_raw_and_renderer_identity(tmp_path):
     evaluation_path.write_text('{"schema_version": 2}', encoding="utf-8")
     with pytest.raises(ReconstructionError, match="evaluation identity"):
         _gaussian_evaluation_metrics(evaluation_path, prefix="gaussian_validation")
+
+
+def test_gaussian_final_fit_runner_publishes_only_complete_hash_bound_outputs(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "gaussian" / "source.pt"
+    source.parent.mkdir()
+    source.write_bytes(b"source-model")
+    selection = tmp_path / "selection.json"
+    selection.write_text("{}", encoding="utf-8")
+    dataset = tmp_path / "dataset.json"
+    dataset.write_text("{}", encoding="utf-8")
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    commands = []
+
+    def fake_run(command, *_args, **_kwargs):
+        commands.append(command)
+        output = Path(command[command.index("--output-dir") + 1])
+        output.mkdir(parents=True)
+        model_path = output / "model.pt"
+        model_path.write_bytes(b"final-model")
+        evaluation_path = output / "evaluation.json"
+        evaluation_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "split": "fit_validation",
+                    "quality_role": "in_sample_after_train_validation_fit",
+                    "selection_eligible": False,
+                    "quality_profiles": {
+                        "primary": "raw_float_v1",
+                        "display_clamped_uint8_v1": {},
+                    },
+                    "psnr": {"mean": 24.0},
+                    "ssim": {"mean": 0.8},
+                    "display_psnr": {"mean": 24.2},
+                    "display_ssim": {"mean": 0.81},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (output / "progress.jsonl").write_text("{}\n", encoding="utf-8")
+        record = {
+            "schema_version": 1,
+            "profile": "train_validation_v1",
+            "profile_hash": "a" * 64,
+            "status": "complete",
+            "source_model_sha256": sha256_file(source),
+            "source_model_unchanged": True,
+            "selection_evaluation_sha256": sha256_file(selection),
+            "final_model_sha256": sha256_file(model_path),
+            "evaluation_sha256": sha256_file(evaluation_path),
+            "test_rgb": "not_loaded",
+            "topology_changed": False,
+            "gaussian_count_before": 10,
+            "gaussian_count_after": 10,
+            "optimizer_updates": 2_000,
+            "camera_samples": 4_000,
+            "elapsed_seconds": 12.0,
+            "world_size": 2,
+        }
+        (output / "record.json").write_text(json.dumps(record), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "complete", "")
+
+    monkeypatch.setattr(
+        "image3d_scenegraph.geometry.adapters._run_adapter_command", fake_run
+    )
+    context = ReconstructionContext(
+        job_id="job",
+        job_dir=tmp_path,
+        mode="multi_image",
+        input_assets=[],
+        options={},
+    )
+
+    model_path, evaluation_path, assets, metrics, _, record_path = (
+        _run_gaussian_final_fit(
+            context=context,
+            profile="train_validation_v1",
+            project_root=tmp_path,
+            script=tmp_path / "run_gaussian_final_fit.py",
+            training_dir=tmp_path / "gaussian",
+            attempt_id="train-001",
+            dataset_path=dataset,
+            config_path=config,
+            source_model_path=source,
+            selection_evaluation_path=selection,
+            env=None,
+        )
+    )
+
+    assert "--distributed" in commands[0]
+    assert model_path.name == "model.pt"
+    assert evaluation_path.name == "evaluation.json"
+    assert record_path is not None and record_path.name == "record.json"
+    assert assets["gaussian_selection_model"] == "gaussian/source.pt"
+    assert metrics["gaussian_final_fit_status"] == "available"
+    assert metrics["gaussian_final_fit_fit_psnr"] == 24.0
 
 
 def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
@@ -1322,6 +1439,9 @@ def test_project_gaussian_job_defaults_to_project_with_recovery_prune(tmp_path):
     assert manifest["gaussian_sor_filter_status"] == "pending"
     assert request["options"]["gaussian_recovery_prune"] == "on"
     assert manifest["gaussian_recovery_prune"] == "on"
+    assert request["options"]["gaussian_final_fit"] == "off"
+    assert manifest["gaussian_final_fit"] == "off"
+    assert manifest["gaussian_final_fit_status"] == "disabled"
     recovery_prune_leaf = manifest["gaussian_config"]["effective_config"][
         "opacity_reset"
     ]["recovery_prune"]
@@ -1422,6 +1542,57 @@ def test_project_gaussian_job_rejects_unknown_recovery_prune_setting(tmp_path):
             geometry_backend="project_3dgs",
             output_type="gaussian_splat",
             options={"gaussian_recovery_prune": "maybe"},
+        )
+
+
+def test_project_gaussian_job_persists_explicit_final_fit(tmp_path):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    manifest = store.enqueue_job(
+        "multi_image",
+        [UploadedInput(filename=f"{index}.jpg", content=b"image") for index in range(12)],
+        geometry_backend="project_3dgs",
+        output_type="gaussian_splat",
+        options={"gaussian_final_fit": "train_validation_v1"},
+    )
+    request = json.loads(
+        (store.job_dir(manifest["job_id"]) / "request.json").read_text()
+    )
+
+    assert request["options"]["gaussian_final_fit"] == "train_validation_v1"
+    assert manifest["gaussian_final_fit"] == "train_validation_v1"
+    assert manifest["gaussian_final_fit_status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"gaussian_final_fit": "unknown"},
+        {
+            "gaussian_final_fit": "train_validation_v1",
+            "gaussian_trainer": "graphdeco",
+        },
+        {
+            "gaussian_final_fit": "train_validation_v1",
+            "gaussian_postprocess": "vggt_visibility_v1",
+        },
+    ],
+)
+def test_project_gaussian_job_rejects_invalid_final_fit_combinations(
+    tmp_path, options
+):
+    store = JobStore(output_root=tmp_path / "jobs")
+
+    with pytest.raises(JobError, match="final-fit"):
+        store.enqueue_job(
+            "multi_image",
+            [
+                UploadedInput(filename=f"{index}.jpg", content=b"image")
+                for index in range(12)
+            ],
+            geometry_backend="project_3dgs",
+            output_type="gaussian_splat",
+            options=options,
         )
 
 

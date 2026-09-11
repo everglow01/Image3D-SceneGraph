@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
+from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.geometry.camera_calibration import (
     camera_calibration_metrics,
 )
@@ -176,6 +177,7 @@ class ProjectGaussianAdapter:
         colmap_script = project_root / "scripts" / "run_colmap_sparse.py"
         vggt_ba_script = project_root / "scripts" / "run_vggt_ba_sparse.py"
         trainer_script = project_root / "scripts" / "run_gaussian_training.py"
+        final_fit_script = project_root / "scripts" / "run_gaussian_final_fit.py"
         evaluator_script = project_root / "scripts" / "evaluate_gaussian.py"
         exporter_script = project_root / "scripts" / "export_gaussian.py"
         filter_script = project_root / "scripts" / "filter_gaussian_vggt.py"
@@ -188,6 +190,24 @@ class ProjectGaussianAdapter:
             )
         if postprocess == "vggt_visibility_v1":
             required_scripts.append(filter_script)
+        final_fit = _choice_option(
+            context,
+            "gaussian_final_fit",
+            "IMAGE3D_GAUSSIAN_FINAL_FIT",
+            "off",
+            {"off", "train_validation_v1"},
+        )
+        trainer_id = str(context.options.get("gaussian_trainer", "project"))
+        if final_fit != "off":
+            if trainer_id not in {"project", "mcmc"}:
+                raise ReconstructionError(
+                    "Gaussian final-fit currently requires project or mcmc trainer"
+                )
+            if postprocess != "none":
+                raise ReconstructionError(
+                    "Gaussian final-fit cannot be combined with VGGT visibility postprocess"
+                )
+            required_scripts.append(final_fit_script)
         sor_filter = _choice_option(
             context,
             "gaussian_sor_filter",
@@ -988,7 +1008,6 @@ class ProjectGaussianAdapter:
         config_record = context.options.get("gaussian_config_record")
         if not isinstance(config_record, str):
             raise ReconstructionError("project 3DGS requires a resolved Gaussian config record")
-        trainer_id = str(context.options.get("gaussian_trainer", "project"))
         try:
             from image3d_scenegraph.gaussian.trainers import (
                 get_gaussian_trainer_specs,
@@ -1077,6 +1096,7 @@ class ProjectGaussianAdapter:
             model_path=model_path,
             env=env,
         )
+        selection_model_path = model_path
         sor_assets = (
             {
                 "gaussian_sor_filter_record": sor_record_path.relative_to(context.job_dir).as_posix(),
@@ -1107,6 +1127,26 @@ class ProjectGaussianAdapter:
         _adapter_progress(context, "gaussian_validation", 0.72)
         _run_adapter_command(command_evaluate, context, project_root, env=env)
         evaluation_path = evaluation_dir / "evaluation.json"
+        (
+            model_path,
+            delivery_evaluation_path,
+            final_fit_assets,
+            final_fit_metrics,
+            final_fit_log_lines,
+            final_fit_record_path,
+        ) = _run_gaussian_final_fit(
+            context=context,
+            profile=final_fit,
+            project_root=project_root,
+            script=final_fit_script,
+            training_dir=training_dir,
+            attempt_id=attempt_id,
+            dataset_path=effective_dataset_path,
+            config_path=effective_config_path,
+            source_model_path=selection_model_path,
+            selection_evaluation_path=evaluation_path,
+            env=env,
+        )
         test_status = "not_run"
         test_reason = "frontend_validation_only_visual_comparison"
         export_dir = training_dir / "export" / attempt_id
@@ -1120,7 +1160,7 @@ class ProjectGaussianAdapter:
             "--resolved-config-json",
             str(effective_config_path),
             "--evaluation",
-            str(evaluation_path),
+            str(delivery_evaluation_path),
             "--output-dir",
             str(export_dir),
             "--checkpoint-hash",
@@ -1133,6 +1173,8 @@ class ProjectGaussianAdapter:
                 "--postprocess-mask",
                 str(sor_mask_path),
             ]
+        if final_fit_record_path is not None:
+            command_export += ["--final-fit-record", str(final_fit_record_path)]
         _adapter_progress(context, "gaussian_export", 0.86)
         _run_adapter_command(command_export, context, project_root, env=env)
         export_metadata_path = export_dir / "export.json"
@@ -1211,6 +1253,8 @@ class ProjectGaussianAdapter:
             "gaussian_browser_sh_degree="
             f"{renderer_metrics['gaussian_browser_requested_sh_degree']}->"
             f"{renderer_metrics['gaussian_browser_effective_sh_degree']}",
+            f"gaussian_final_fit={final_fit}",
+            f"gaussian_final_fit_status={final_fit_metrics['gaussian_final_fit_status']}",
             f"gaussian_postprocess={postprocess}",
             f"gaussian_postprocess_status={postprocess_status}",
             *(
@@ -1231,6 +1275,7 @@ class ProjectGaussianAdapter:
             *sfm_log_lines,
             f"trainer={' '.join(command_train)}",
             *sor_log_lines,
+            *final_fit_log_lines,
             *postprocess_log_lines,
         ]
         if completed.stdout.strip():
@@ -1255,6 +1300,7 @@ class ProjectGaussianAdapter:
                 "gaussian_camera_path": camera_path.relative_to(context.job_dir).as_posix(),
                 "gaussian_bundle": bundle_path.relative_to(context.job_dir).as_posix(),
                 **sor_assets,
+                **final_fit_assets,
                 **postprocess_assets,
             },
             metrics={
@@ -1293,13 +1339,143 @@ class ProjectGaussianAdapter:
                     else {}
                 ),
                 **sor_metrics,
+                **final_fit_metrics,
                 **postprocess_metrics,
             },
             log_lines=log_lines,
         )
 
 
-def _gaussian_evaluation_metrics(path: Path, *, prefix: str) -> dict[str, float | str]:
+def _run_gaussian_final_fit(
+    *,
+    context: ReconstructionContext,
+    profile: str,
+    project_root: Path,
+    script: Path,
+    training_dir: Path,
+    attempt_id: str,
+    dataset_path: Path,
+    config_path: Path,
+    source_model_path: Path,
+    selection_evaluation_path: Path,
+    env: dict[str, str] | None,
+) -> tuple[
+    Path,
+    Path,
+    dict[str, str],
+    dict[str, int | float | str | bool],
+    list[str],
+    Path | None,
+]:
+    if profile == "off":
+        return (
+            source_model_path,
+            selection_evaluation_path,
+            {},
+            {
+                "gaussian_final_fit": "off",
+                "gaussian_final_fit_status": "disabled",
+            },
+            [],
+            None,
+        )
+    if profile != "train_validation_v1":
+        raise ReconstructionError(f"unsupported Gaussian final-fit profile: {profile}")
+    output_dir = training_dir / "final-fit" / attempt_id
+    command = [
+        os.environ.get("IMAGE3D_PYTHON", sys.executable),
+        str(script),
+        "--dataset-contract",
+        str(dataset_path),
+        "--dataset-root",
+        str(context.job_dir),
+        "--source-model",
+        str(source_model_path),
+        "--selection-evaluation",
+        str(selection_evaluation_path),
+        "--resolved-config-json",
+        str(config_path),
+        "--output-dir",
+        str(output_dir),
+        "--distributed",
+    ]
+    _adapter_progress(context, "gaussian_final_fit", 0.79)
+    completed = _run_adapter_command(command, context, project_root, env=env)
+    model_path = output_dir / "model.pt"
+    evaluation_path = output_dir / "evaluation.json"
+    progress_path = output_dir / "progress.jsonl"
+    record_path = output_dir / "record.json"
+    if not all(
+        path.is_file()
+        for path in (model_path, evaluation_path, progress_path, record_path)
+    ):
+        raise ReconstructionError("Gaussian final-fit output is incomplete")
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReconstructionError("Gaussian final-fit record is invalid") from exc
+    if (
+        record.get("schema_version") != 1
+        or record.get("profile") != profile
+        or record.get("status") != "complete"
+        or record.get("source_model_sha256") != sha256_file(source_model_path)
+        or record.get("source_model_unchanged") is not True
+        or record.get("selection_evaluation_sha256")
+        != sha256_file(selection_evaluation_path)
+        or record.get("final_model_sha256") != sha256_file(model_path)
+        or record.get("evaluation_sha256") != sha256_file(evaluation_path)
+        or record.get("test_rgb") != "not_loaded"
+        or record.get("topology_changed") is not False
+        or record.get("gaussian_count_before") != record.get("gaussian_count_after")
+    ):
+        raise ReconstructionError("Gaussian final-fit record identity mismatch")
+    metrics = {
+        "gaussian_final_fit": profile,
+        "gaussian_final_fit_status": "available",
+        "gaussian_final_fit_profile_hash": str(record["profile_hash"]),
+        "gaussian_final_fit_optimizer_updates": int(record["optimizer_updates"]),
+        "gaussian_final_fit_camera_samples": int(record["camera_samples"]),
+        "gaussian_final_fit_seconds": float(record["elapsed_seconds"]),
+        "gaussian_final_fit_world_size": int(record["world_size"]),
+        "gaussian_final_fit_gaussian_count": int(record["gaussian_count_after"]),
+        "gaussian_final_fit_source_model_sha256": str(
+            record["source_model_sha256"]
+        ),
+        "gaussian_final_fit_model_sha256": str(record["final_model_sha256"]),
+        **_gaussian_evaluation_metrics(
+            evaluation_path,
+            prefix="gaussian_final_fit_fit",
+            expected_split="fit_validation",
+        ),
+    }
+    assets = {
+        "gaussian_selection_model": source_model_path.relative_to(
+            context.job_dir
+        ).as_posix(),
+        "gaussian_final_fit_record": record_path.relative_to(
+            context.job_dir
+        ).as_posix(),
+        "gaussian_final_fit_evaluation": evaluation_path.relative_to(
+            context.job_dir
+        ).as_posix(),
+        "gaussian_final_fit_progress": progress_path.relative_to(
+            context.job_dir
+        ).as_posix(),
+    }
+    logs = [
+        f"gaussian_final_fit_command={' '.join(command)}",
+        *(
+            [f"gaussian_final_fit_stdout={completed.stdout.strip()}"]
+            if completed.stdout.strip()
+            else []
+        ),
+    ]
+    return model_path, evaluation_path, assets, metrics, logs, record_path
+
+
+def _gaussian_evaluation_metrics(
+    path: Path, *, prefix: str, expected_split: str = "validation"
+) -> dict[str, float | str]:
     try:
         evaluation = json.loads(path.read_text(encoding="utf-8"))
         profiles = evaluation["quality_profiles"]
@@ -1313,8 +1489,17 @@ def _gaussian_evaluation_metrics(path: Path, *, prefix: str) -> dict[str, float 
         }
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ReconstructionError("Gaussian evaluation identity is invalid") from exc
+    expected_role = (
+        "in_sample_after_train_validation_fit"
+        if expected_split == "fit_validation"
+        else "held_out_model_selection"
+    )
+    expected_selection_eligible = expected_split == "validation"
     if (
         evaluation.get("schema_version") != 2
+        or evaluation.get("split") != expected_split
+        or evaluation.get("quality_role") != expected_role
+        or evaluation.get("selection_eligible") is not expected_selection_eligible
         or values[f"{prefix}_metric_profile"] != "raw_float_v1"
         or "display_clamped_uint8_v1" not in profiles
         or not all(

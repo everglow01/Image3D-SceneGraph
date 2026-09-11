@@ -221,6 +221,103 @@ def test_filtered_export_verifies_and_bundles_postprocess_provenance(tmp_path):
         assert "postprocess/filter-mask.npz" in archive.namelist()
 
 
+def test_final_fit_export_preserves_selection_sor_lineage(tmp_path):
+    gaussian = model()
+    source_model = tmp_path / "selection-sor.pt"
+    final_model = tmp_path / "final-fit.pt"
+    payload = {
+        "state_dict": gaussian.state_dict(),
+        "max_sh_degree": gaussian.max_sh_degree,
+    }
+    torch.save(payload, source_model)
+    torch.save(payload, final_model)
+    value = contract()
+    config_hash = "c" * 64
+    evaluation_path = tmp_path / "fit-evaluation.json"
+    evaluation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "split": "fit_validation",
+                "quality_role": "in_sample_after_train_validation_fit",
+                "selection_eligible": False,
+                "provenance": {
+                    "dataset_hash": value["dataset_hash"],
+                    "effective_config_hash": config_hash,
+                    "model_sha256": sha256_file(final_model),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    mask_path = tmp_path / "filter-mask.npz"
+    np.savez_compressed(mask_path, keep=np.array([True, True]))
+    sor_record = tmp_path / "sor-record.json"
+    sor_record.write_text(
+        json.dumps(
+            {
+                "profile": "sor_v1",
+                "source_model_sha256": "d" * 64,
+                "filtered_model_sha256": sha256_file(source_model),
+                "mask_sha256": sha256_file(mask_path),
+                "counts": {"input": 2, "kept": 2, "removed": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    final_fit_record = tmp_path / "final-fit-record.json"
+    final_fit_record.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "profile": "train_validation_v1",
+                "profile_hash": "e" * 64,
+                "status": "complete",
+                "dataset_hash": value["dataset_hash"],
+                "effective_config_hash": config_hash,
+                "source_model_sha256": sha256_file(source_model),
+                "final_model_sha256": sha256_file(final_model),
+                "evaluation_sha256": sha256_file(evaluation_path),
+                "test_rgb": "not_loaded",
+                "topology_changed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = export_gaussians(
+        model_path=final_model,
+        contract=value,
+        config_record={"effective_config_hash": config_hash},
+        evaluation_path=evaluation_path,
+        output_dir=tmp_path / "export",
+        postprocess_record_path=sor_record,
+        postprocess_mask_path=mask_path,
+        final_fit_record_path=final_fit_record,
+    )
+
+    assert result["final_fit"]["profile"] == "train_validation_v1"
+    assert result["final_fit"]["source_model_sha256"] == sha256_file(source_model)
+    with zipfile.ZipFile(tmp_path / "export" / "result.zip") as archive:
+        assert "postprocess/diagnostics.json" in archive.namelist()
+        assert "final-fit/record.json" in archive.namelist()
+
+    broken = json.loads(final_fit_record.read_text())
+    broken["source_model_sha256"] = "0" * 64
+    final_fit_record.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(GaussianExportError, match="filtered model hash mismatch"):
+        export_gaussians(
+            model_path=final_model,
+            contract=value,
+            config_record={"effective_config_hash": config_hash},
+            evaluation_path=evaluation_path,
+            output_dir=tmp_path / "broken-export",
+            postprocess_record_path=sor_record,
+            postprocess_mask_path=mask_path,
+            final_fit_record_path=final_fit_record,
+        )
+
+
 def test_filtered_export_rejects_mismatched_postprocess_hash(tmp_path):
     gaussian = model()
     model_path = tmp_path / "filtered-model.pt"

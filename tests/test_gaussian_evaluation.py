@@ -55,6 +55,8 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
 
     assert result["schema_version"] == 2
     assert result["split"] == "validation"
+    assert result["quality_role"] == "held_out_model_selection"
+    assert result["selection_eligible"] is True
     assert result["quality_profiles"]["primary"] == "raw_float_v1"
     assert "display_clamped_uint8_v1" in result["quality_profiles"]
     assert result["psnr"]["mean"] == pytest.approx(120.0)
@@ -71,6 +73,29 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
     assert result["health"]["max_scale"]["max"] == pytest.approx(0.1)
     assert result["lpips"]["status"] == "not_run"
     assert len(list((tmp_path / "previews").glob("*.png"))) == 2
+
+
+def test_fit_validation_metrics_are_not_selection_eligible():
+    gaussian = model()
+    view = SimpleNamespace(
+        camera=SimpleNamespace(image_id="fit"),
+        image=torch.full((4, 4, 3), 0.5),
+    )
+    renderer = lambda *_args, **_kwargs: SimpleNamespace(  # noqa: E731
+        image=torch.full((4, 4, 3), 0.5)
+    )
+
+    result = evaluate_model(
+        gaussian,
+        [view],
+        split="fit_validation",
+        sh_degree=0,
+        renderer=renderer,
+    )
+
+    assert result["split"] == "fit_validation"
+    assert result["quality_role"] == "in_sample_after_train_validation_fit"
+    assert result["selection_eligible"] is False
 
 
 def test_evaluation_separates_raw_float_and_display_clamped_metrics(tmp_path):

@@ -78,6 +78,7 @@ type VideoRotation = "auto" | "clockwise_90" | "counterclockwise_90" | "180";
 type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
 type GaussianSorFilter = "on" | "off";
+type GaussianFinalFit = "off" | "train_validation_v1";
 type GaussianVariant = "original" | "vggt_filtered";
 
 type MeshSettings = {
@@ -147,6 +148,10 @@ type Manifest = {
     scene_splat?: string;
     gaussian_raw_model?: string;
     gaussian_model?: string;
+    gaussian_selection_model?: string;
+    gaussian_final_fit_record?: string;
+    gaussian_final_fit_evaluation?: string;
+    gaussian_final_fit_progress?: string;
     gaussian_training_result?: string;
     gaussian_progress?: string;
     gaussian_dataset?: string;
@@ -207,6 +212,8 @@ type Manifest = {
   gaussian_sor_filter?: GaussianSorFilter;
   gaussian_sor_filter_status?: "pending" | "disabled" | "available" | "unavailable";
   gaussian_sor_filter_reason?: string | null;
+  gaussian_final_fit?: GaussianFinalFit;
+  gaussian_final_fit_status?: "pending" | "disabled" | "available";
   gaussian_trainer?: {
     id: GaussianTrainer;
     label: string;
@@ -326,6 +333,16 @@ type Manifest = {
     gaussian_browser_requested_sh_degree?: number;
     gaussian_browser_effective_sh_degree?: number;
     gaussian_browser_renderer_verification_profile?: string;
+    gaussian_final_fit?: GaussianFinalFit;
+    gaussian_final_fit_status?: string;
+    gaussian_final_fit_optimizer_updates?: number;
+    gaussian_final_fit_camera_samples?: number;
+    gaussian_final_fit_seconds?: number;
+    gaussian_final_fit_gaussian_count?: number;
+    gaussian_final_fit_fit_psnr?: number;
+    gaussian_final_fit_fit_ssim?: number;
+    gaussian_final_fit_fit_display_psnr?: number;
+    gaussian_final_fit_fit_display_ssim?: number;
     sfm_diagnostics_status?: string;
     sfm_diagnostics_reason?: string;
     sfm_diagnostics_image_count?: number;
@@ -478,6 +495,8 @@ export function App() {
     useState<GaussianPostprocess>("none");
   const [gaussianSorFilter, setGaussianSorFilter] =
     useState<GaussianSorFilter>("on");
+  const [gaussianFinalFit, setGaussianFinalFit] =
+    useState<GaussianFinalFit>("off");
   const [gaussianLongestEdge, setGaussianLongestEdge] = useState(1280);
   const [videoRotation, setVideoRotation] = useState<VideoRotation>("auto");
   const [vggtMaxImages, setVggtMaxImages] = useState(225);
@@ -1068,6 +1087,7 @@ export function App() {
         form.append("gaussian_geometry_source", gaussianGeometrySource);
         form.append("gaussian_postprocess", gaussianPostprocess);
         form.append("gaussian_sor_filter", gaussianSorFilter);
+        form.append("gaussian_final_fit", gaussianFinalFit);
         form.append("gaussian_longest_edge", String(gaussianLongestEdge));
       }
       if (mode === "video") {
@@ -1618,7 +1638,11 @@ export function App() {
                   <span>训练器（Trainer）</span>
                   <select
                     value={gaussianTrainer}
-                    onChange={(event) => setGaussianTrainer(event.target.value as GaussianTrainer)}
+                    onChange={(event) => {
+                      const trainer = event.target.value as GaussianTrainer;
+                      setGaussianTrainer(trainer);
+                      if (trainer === "graphdeco") setGaussianFinalFit("off");
+                    }}
                   >
                     {(gaussianTrainerStatuses.length > 0
                       ? gaussianTrainerStatuses
@@ -1737,9 +1761,11 @@ export function App() {
                   <span>训练后清理</span>
                   <select
                     value={gaussianPostprocess}
-                    onChange={(event) =>
-                      setGaussianPostprocess(event.target.value as GaussianPostprocess)
-                    }
+                    onChange={(event) => {
+                      const postprocess = event.target.value as GaussianPostprocess;
+                      setGaussianPostprocess(postprocess);
+                      if (postprocess !== "none") setGaussianFinalFit("off");
+                    }}
                   >
                     {(gaussianPostprocessStatuses.length > 0
                       ? gaussianPostprocessStatuses
@@ -1795,6 +1821,27 @@ export function App() {
                   </select>
                   <small>
                     导出前用保守 SOR band 参数原位删除孤立低透明度高斯（渲染无损证据）；失败自动回退为未过滤结果。
+                  </small>
+                </label>
+                <label>
+                  <span>交付前补拟合</span>
+                  <select
+                    value={gaussianFinalFit}
+                    disabled={gaussianTrainer === "graphdeco"}
+                    onChange={(event) => {
+                      const finalFit = event.target.value as GaussianFinalFit;
+                      setGaussianFinalFit(finalFit);
+                      if (finalFit !== "off") setGaussianPostprocess("none");
+                    }}
+                  >
+                    <option value="off">关闭（默认）</option>
+                    <option value="train_validation_v1">
+                      Train+Validation v1（实验）
+                    </option>
+                  </select>
+                  <small>
+                    先用 held-out Validation 选择模型，再固定拓扑补拟合 2,000 步；Test
+                    不使用。补拟合后的指标是拟合集指标，不是 held-out 质量。
                   </small>
                 </label>
                 <label>
@@ -2408,6 +2455,25 @@ export function App() {
                 </dd>
               </div>
             )}
+            {manifest?.gaussian_final_fit !== undefined && (
+              <div>
+                <dt>Train+Validation final-fit</dt>
+                <dd>
+                  {formatStatus(manifest.gaussian_final_fit_status)}
+                  {currentStatus?.metrics.gaussian_final_fit_optimizer_updates !== undefined
+                    ? ` · ${currentStatus.metrics.gaussian_final_fit_optimizer_updates} 步`
+                    : ""}
+                </dd>
+              </div>
+            )}
+            {currentStatus?.metrics.gaussian_final_fit_fit_psnr !== undefined && (
+              <div>
+                <dt>Final-fit 拟合集（非 held-out）</dt>
+                <dd>
+                  {`${currentStatus.metrics.gaussian_final_fit_fit_psnr.toFixed(3)} dB · SSIM ${(currentStatus.metrics.gaussian_final_fit_fit_ssim ?? 0).toFixed(4)}`}
+                </dd>
+              </div>
+            )}
             {currentStatus?.metrics.gaussian_browser_renderer !== undefined && (
               <div>
                 <dt>浏览器渲染器</dt>
@@ -2814,11 +2880,15 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="mesh_diagnostics" label="网格诊断" />
               <AssetLink manifest={manifest} assetKey="scene_splat" label="高斯浏览资产" />
               <AssetLink manifest={manifest} assetKey="gaussian_raw_model" label="训练器原始高斯模型" />
+              <AssetLink manifest={manifest} assetKey="gaussian_selection_model" label="补拟合源高斯模型" />
               <AssetLink manifest={manifest} assetKey="gaussian_replay_dataset" label="高斯重放数据约定" />
               <AssetLink manifest={manifest} assetKey="gaussian_replay_record" label="高斯重放记录" />
               <AssetLink manifest={manifest} assetKey="gaussian_canonical" label="标准高斯 PLY" />
               <AssetLink manifest={manifest} assetKey="gaussian_export_metadata" label="高斯导出元数据" />
-              <AssetLink manifest={manifest} assetKey="gaussian_evaluation" label="高斯验证集评估" />
+              <AssetLink manifest={manifest} assetKey="gaussian_evaluation" label="高斯 held-out 验证评估" />
+              <AssetLink manifest={manifest} assetKey="gaussian_final_fit_record" label="Train+Validation 补拟合记录" />
+              <AssetLink manifest={manifest} assetKey="gaussian_final_fit_evaluation" label="补拟合拟合集评估" />
+              <AssetLink manifest={manifest} assetKey="gaussian_final_fit_progress" label="补拟合进度" />
               <AssetLink manifest={manifest} assetKey="gaussian_test_evaluation" label="高斯留出测试集评估" />
               <AssetLink manifest={manifest} assetKey="gaussian_test_decision" label="高斯测试判定" />
               <AssetLink manifest={manifest} assetKey="gaussian_camera_path" label="高斯相机路径" />
@@ -3052,6 +3122,7 @@ function formatStatus(value: string | null | undefined) {
     failed: "失败",
     cancelled: "已取消",
     not_generated: "未生成",
+    disabled: "已关闭",
     generating: "正在生成",
     available: "可用",
     unavailable: "不可用",
@@ -3084,6 +3155,7 @@ function formatStage(value: string | undefined) {
     gaussian_vggt_postprocess: "VGGT Train-depth 高斯清理",
     gaussian_vggt_filtered_validation: "VGGT 清理后验证",
     gaussian_vggt_filtered_export: "VGGT 清理后导出",
+    gaussian_final_fit: "Train+Validation 交付补拟合",
     reconstructing: "几何重建",
     training: "高斯训练",
     evaluating: "质量评估",

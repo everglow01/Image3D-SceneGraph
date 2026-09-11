@@ -79,6 +79,7 @@ GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
 GAUSSIAN_POSTPROCESSORS = {"none", "vggt_visibility_v1"}
 GAUSSIAN_SOR_FILTERS = {"on", "off"}
 GAUSSIAN_RECOVERY_PRUNE_SETTINGS = {"on", "off"}
+GAUSSIAN_FINAL_FIT_PROFILES = {"off", "train_validation_v1"}
 COLMAP_FEATURE_BACKENDS = {"colmap", "colmap_vggt", "project_3dgs"}
 COLMAP_CAMERA_CALIBRATION_DEFAULTS = {
     "colmap": "shared_simple_radial_v1",
@@ -435,12 +436,31 @@ class JobStore:
                     )
                 if gaussian_trainer == "mcmc" and recovery_prune == "on":
                     raise JobError("MCMC trainer cannot be combined with recovery prune")
+                final_fit = str(
+                    normalized_options.get(
+                        "gaussian_final_fit",
+                        os.environ.get("IMAGE3D_GAUSSIAN_FINAL_FIT", "off"),
+                    )
+                )
+                if final_fit not in GAUSSIAN_FINAL_FIT_PROFILES:
+                    raise JobError(
+                        f"unsupported Gaussian final-fit profile: {final_fit}"
+                    )
+                if final_fit != "off" and gaussian_trainer not in {"project", "mcmc"}:
+                    raise JobError(
+                        "Gaussian final-fit currently requires project or mcmc trainer"
+                    )
+                if final_fit != "off" and postprocess != "none":
+                    raise JobError(
+                        "Gaussian final-fit cannot be combined with VGGT visibility postprocess"
+                    )
                 normalized_options.update(
                     gaussian_trainer=gaussian_trainer,
                     gaussian_geometry_source=geometry_source,
                     gaussian_postprocess=postprocess,
                     gaussian_sor_filter=sor_filter,
                     gaussian_recovery_prune=recovery_prune,
+                    gaussian_final_fit=final_fit,
                 )
                 gaussian_trainer_record = trainer_record(gaussian_trainer)
                 if gaussian_config is None:
@@ -551,6 +571,12 @@ class JobStore:
                 ),
                 gaussian_recovery_prune=str(
                     normalized_options["gaussian_recovery_prune"]
+                ),
+                gaussian_final_fit=str(normalized_options["gaussian_final_fit"]),
+                gaussian_final_fit_status=(
+                    "pending"
+                    if normalized_options["gaussian_final_fit"] != "off"
+                    else "disabled"
                 ),
                 navigation_status="pending",
                 navigation_reason=None,
@@ -1231,6 +1257,10 @@ class JobStore:
                 ),
                 gaussian_sor_filter_reason=metrics.get(
                     "gaussian_sor_filter_reason"
+                ),
+                gaussian_final_fit=str(options.get("gaussian_final_fit", "off")),
+                gaussian_final_fit_status=str(
+                    metrics.get("gaussian_final_fit_status", "disabled")
                 ),
             )
         result["created_at"] = queued_manifest["created_at"]

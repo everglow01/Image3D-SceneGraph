@@ -92,6 +92,7 @@ Current mock API:
 - `gaussian_geometry_source`: `colmap` (default) or video-only `vggt_ba` (experimental/research-only)
 - `gaussian_postprocess`: `none` (default) or `vggt_visibility_v1` (experimental/research-only)
 - `gaussian_recovery_prune`: `on|off`; omitted Project v7 requests default to `on`, while Graphdeco/MCMC default to `off` and MCMC rejects explicit `on`
+- `gaussian_final_fit`: `off` (default) or experimental `train_validation_v1`; native Project/MCMC only. It runs after held-out Validation selection and SOR, uses Train+Validation for a fixed-topology 2,000-step delivery fit, and never loads Test RGB. It is initially incompatible with `vggt_visibility_v1`.
 - `gaussian_longest_edge`: 1280–3072px; used only with `project_3dgs + gaussian_splat`
 - `video_keyframe_profile`: `standard_v2` (default) or historical `standard_v1`; used only for bounded video jobs. New API, frontend, JobStore, adapter, and standalone-selector calls default to v2; explicit v1 remains replayable.
 - `video_rotation`: `auto`, `clockwise_90`, `counterclockwise_90`, or `180`
@@ -119,7 +120,7 @@ Two orthogonal research options are available for Gaussian jobs:
 
 Both options are experimental and research-only pending dependency, real-scene, resource, and license validation. VGGT-BA requires the pinned VGGT, DINOv2, LightGlue/ALIKED, VGGSfM tracker, PyCOLMAP, SciPy, and COLMAP dependencies; postprocessing requires the base VGGT repo/checkpoint. `GET /api/backends` reports these capabilities separately so missing BA dependencies do not disable ordinary COLMAP Gaussian jobs or base VGGT cleanup.
 
-For a same-input visual comparison with retained Official job `20260806_060729_a5d1d377`, select `Multi-image` → `Project 3DGS` → `Gaussian splat` → `Project v7 (gsplat)` and upload the same 225 source images. The frontend shows `standard_v1 · v10` on the resulting job. New Project v7 and MCMC jobs stop after Train/Validation model selection and export; they do not load Test or create a Test-consumption record. Coordinates remain normalized arbitrary units, not metres.
+For a same-input visual comparison with retained Official job `20260806_060729_a5d1d377`, select `Multi-image` → `Project 3DGS` → `Gaussian splat` → `Project v7 (gsplat)` and upload the same 225 source images. The frontend shows `standard_v1 · v10` on the resulting job. New Project v7 and MCMC jobs use held-out Validation for model selection and do not load Test or create a Test-consumption record. Explicit experimental `gaussian_final_fit=train_validation_v1` then refines the selected/SOR model on Train+Validation for delivery; its fit-set metrics are labeled non-held-out and the pre-fit held-out Validation report remains separate. Coordinates remain normalized arbitrary units, not metres.
 
 Create a complete asynchronous MCMC video Job through the same public task lifecycle:
 

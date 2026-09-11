@@ -17,6 +17,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from image3d_scenegraph.file_integrity import sha256_file
+
 from .checkpoint import (
     CheckpointProvenance,
     CheckpointState,
@@ -45,6 +47,11 @@ class TrainingCancelled(TrainingError):
 
 class TrainingOutOfMemory(TrainingError):
     """Raised when CUDA reports an out-of-memory condition."""
+
+
+FINAL_FIT_PROFILE = "train_validation_v1"
+FINAL_FIT_ITERATIONS = 2_000
+FINAL_FIT_NONPOSITION_LR_MULTIPLIER = 0.1
 
 
 @dataclass(frozen=True)
@@ -639,6 +646,386 @@ def train_gaussians(
     return TrainingResult(**payload)
 
 
+def final_fit_gaussians(
+    *,
+    contract: dict[str, Any],
+    dataset_root: Path,
+    source_model_path: Path,
+    selection_evaluation_path: Path,
+    resolved_config: ResolvedGaussianConfig,
+    output_dir: Path,
+    cancel_requested: Callable[[], bool] | None = None,
+    local_rank: int = 0,
+    world_rank: int = 0,
+    world_size: int = 1,
+) -> dict[str, Any]:
+    config = resolved_config.effective_config
+    validate_effective_config(config)
+    if not torch.cuda.is_available():
+        raise TrainingError("Gaussian final-fit requires CUDA")
+    if world_size < 1 or not 0 <= world_rank < world_size or local_rank < 0:
+        raise TrainingError("invalid distributed rank configuration")
+    if world_size > 1 and not torch.distributed.is_initialized():
+        raise TrainingError("distributed Gaussian final-fit requires an initialized process group")
+    if world_rank == 0:
+        if output_dir.exists():
+            raise TrainingError(f"final-fit output already exists: {output_dir}")
+        output_dir.mkdir(parents=True)
+    _distributed_barrier(world_size)
+
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+    seed_training(int(config["seed"]))
+    torch.cuda.reset_peak_memory_stats(device)
+    source_hash = sha256_file(source_model_path)
+    selection_evaluation_hash = sha256_file(selection_evaluation_path)
+    provenance = training_provenance(
+        dataset_hash=str(contract["dataset_hash"]),
+        effective_config_hash=resolved_config.effective_config_hash,
+        world_size=world_size,
+    )
+    try:
+        selection = json.loads(selection_evaluation_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise TrainingError("cannot read final-fit selection evaluation") from exc
+    if (
+        selection.get("schema_version") != 2
+        or selection.get("split") != "validation"
+        or selection.get("quality_role") != "held_out_model_selection"
+        or selection.get("selection_eligible") is not True
+        or selection.get("provenance", {}).get("dataset_hash")
+        != contract["dataset_hash"]
+        or selection.get("provenance", {}).get("effective_config_hash")
+        != resolved_config.effective_config_hash
+        or selection.get("provenance", {}).get("model_sha256") != source_hash
+    ):
+        raise TrainingError("final-fit selection evaluation identity mismatch")
+
+    train_ids, validation_ids, fit_ids = _final_fit_split_ids(contract)
+    train_views = load_training_views(
+        contract,
+        dataset_root,
+        split="train",
+        longest_edge=int(config["resolution"]["longest_edge"]),
+        device=torch.device("cpu"),
+    )
+    validation_views = load_training_views(
+        contract,
+        dataset_root,
+        split="validation",
+        longest_edge=int(config["resolution"]["longest_edge"]),
+        device=torch.device("cpu"),
+    )
+    fit_views = [*train_views, *validation_views]
+    loaded_ids = [view.camera.image_id for view in fit_views]
+    if len(loaded_ids) != len(set(loaded_ids)) or set(loaded_ids) != set(fit_ids):
+        raise TrainingError("final-fit loaded view identity mismatch")
+
+    model, source_count = _load_contiguous_model_shard(
+        source_model_path,
+        world_rank=world_rank,
+        world_size=world_size,
+        device=device,
+    )
+    local_count = model.count
+    global_count = torch.tensor(local_count, dtype=torch.int64, device=device)
+    if world_size > 1:
+        torch.distributed.all_reduce(global_count)
+    if int(global_count) != source_count:
+        raise TrainingError("final-fit model shards do not cover the source model")
+
+    learning_rates = _final_fit_learning_rates(config)
+    scene_scale = _training_scene_scale(contract)
+    optimizers = model.optimizers(learning_rates, position_scale=scene_scale)
+    sh_degree = int(config["sh_schedule"]["max_degree"])
+    profile = {
+        "profile": FINAL_FIT_PROFILE,
+        "optimizer_updates": FINAL_FIT_ITERATIONS,
+        "learning_rates": learning_rates,
+        "position_schedule": "constant_configured_final",
+        "nonposition_multiplier": FINAL_FIT_NONPOSITION_LR_MULTIPLIER,
+        "sh_degree": sh_degree,
+        "loss": {
+            "name": config["loss"]["name"],
+            "l1_weight": float(config["loss"]["l1_weight"]),
+            "ssim_weight": float(config["loss"]["ssim_weight"]),
+            "clamp_render": bool(config["loss"]["clamp_render"]),
+        },
+        "topology": "frozen",
+        "regularizers": "none",
+        "checkpointing": "disabled_bounded_phase",
+    }
+    profile_hash = hashlib.sha256(
+        json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    progress_path = output_dir / "progress.jsonl"
+    camera_order: list[int] = []
+    camera_cursor = 0
+    initial_loss = float("nan")
+    final_loss = float("nan")
+    started = time.perf_counter()
+
+    try:
+        for iteration in range(1, FINAL_FIT_ITERATIONS + 1):
+            if cancel_requested is not None and cancel_requested():
+                raise TrainingCancelled("Gaussian final-fit cancellation requested")
+            camera_order, camera_cursor, view_indices = _next_camera_batch(
+                len(fit_views), camera_order, camera_cursor, world_size
+            )
+            view_index = view_indices[world_rank]
+            for optimizer in optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
+            view, rendered = _render_visible_training_view(
+                model,
+                fit_views,
+                view_index,
+                sh_degree,
+                distributed=world_size > 1,
+            )
+            loss, terms = l1_ssim_loss(
+                rendered.image.clamp(0, 1)
+                if config["loss"]["clamp_render"]
+                else rendered.image,
+                view.image,
+                l1_weight=float(config["loss"]["l1_weight"]),
+                ssim_weight=float(config["loss"]["ssim_weight"]),
+            )
+            if not torch.isfinite(loss):
+                raise TrainingError(
+                    f"non-finite Gaussian final-fit loss at iteration {iteration}"
+                )
+            (loss / world_size).backward()
+            model.validate_gradients()
+            for optimizer in optimizers.values():
+                optimizer.step()
+            model.validate()
+            if model.count != local_count:
+                raise TrainingError("Gaussian final-fit changed frozen topology")
+            summary = torch.tensor(
+                [float(loss.detach()), terms["l1"], terms["ssim"]],
+                dtype=torch.float64,
+                device=device,
+            )
+            if world_size > 1:
+                torch.distributed.all_reduce(summary)
+            mean_loss, mean_l1, mean_ssim = (
+                float(value / world_size) for value in summary
+            )
+            if iteration == 1:
+                initial_loss = mean_loss
+            final_loss = mean_loss
+            if world_rank == 0:
+                _publish_event(
+                    progress_path,
+                    {
+                        "event": "final_fit",
+                        "profile": FINAL_FIT_PROFILE,
+                        "iteration": iteration,
+                        "optimizer_updates": iteration,
+                        "nominal_iterations": FINAL_FIT_ITERATIONS,
+                        "batch_view_ids": [
+                            fit_views[index].camera.image_id for index in view_indices
+                        ],
+                        "loss": mean_loss,
+                        "l1": mean_l1,
+                        "ssim": mean_ssim,
+                        "sh_degree": sh_degree,
+                        "gaussian_count": source_count,
+                        "world_size": world_size,
+                    },
+                    None,
+                )
+
+        fit_evaluation = evaluate_views(
+            model,
+            validation_views,
+            config,
+            preview_dir=output_dir / "previews" if world_rank == 0 else None,
+            distributed=world_size > 1,
+            split="fit_validation",
+        )
+        evaluation_count = torch.tensor(model.count, dtype=torch.int64, device=device)
+        if world_size > 1:
+            torch.distributed.all_reduce(evaluation_count)
+        fit_evaluation["gaussian_count"] = int(evaluation_count)
+        fit_evaluation["world_size"] = world_size
+        fit_evaluation["training_splits"] = ["train", "validation"]
+        fit_evaluation["test_rgb"] = "not_loaded"
+        fit_evaluation["selection_evaluation_sha256"] = selection_evaluation_hash
+        local_memory = (
+            int(torch.cuda.max_memory_allocated(device)),
+            int(torch.cuda.max_memory_reserved(device)),
+        )
+        per_rank_memory = [local_memory]
+        if world_size > 1:
+            gathered: list[tuple[int, int] | None] = [None] * world_size
+            torch.distributed.all_gather_object(gathered, local_memory)
+            per_rank_memory = [item for item in gathered if item is not None]
+        _release_training_views(train_views, validation_views, fit_views)
+        model_path = output_dir / "model.pt"
+        if world_size == 1:
+            model_path.write_bytes(_model_bytes(model))
+        else:
+            (output_dir / f".model-rank-{world_rank:03d}.pt").write_bytes(
+                _model_bytes(model)
+            )
+        _distributed_barrier(world_size)
+        if world_rank == 0:
+            if world_size == 1:
+                final_model = _load_model(model_path.read_bytes(), torch.device("cpu"))
+            else:
+                final_model = _merge_model_shards(
+                    [
+                        output_dir / f".model-rank-{rank:03d}.pt"
+                        for rank in range(world_size)
+                    ],
+                    model_path,
+                )
+            final_model.validate()
+            if final_model.count != source_count:
+                raise TrainingError("Gaussian final-fit changed global Gaussian count")
+            final_model_hash = sha256_file(model_path)
+            if sha256_file(source_model_path) != source_hash:
+                raise TrainingError("Gaussian final-fit source model changed")
+            if sha256_file(selection_evaluation_path) != selection_evaluation_hash:
+                raise TrainingError("Gaussian final-fit selection evaluation changed")
+            fit_evaluation["provenance"] = {
+                "dataset_hash": contract["dataset_hash"],
+                "effective_config_hash": resolved_config.effective_config_hash,
+                "model_sha256": final_model_hash,
+                "model_bytes": model_path.stat().st_size,
+                "source_model_sha256": source_hash,
+                "final_fit_profile_hash": profile_hash,
+            }
+            evaluation_path = output_dir / "evaluation.json"
+            evaluation_path.write_text(
+                json.dumps(fit_evaluation, indent=2, allow_nan=False) + "\n",
+                encoding="utf-8",
+            )
+            record = {
+                "schema_version": 1,
+                "profile": FINAL_FIT_PROFILE,
+                "profile_hash": profile_hash,
+                "status": "complete",
+                "dataset_hash": contract["dataset_hash"],
+                "effective_config_hash": resolved_config.effective_config_hash,
+                "code_hash": provenance.code_hash,
+                "environment_hash": provenance.environment_hash,
+                "source_model_sha256": source_hash,
+                "source_model_unchanged": True,
+                "selection_evaluation_sha256": selection_evaluation_hash,
+                "final_model_sha256": final_model_hash,
+                "evaluation_sha256": sha256_file(evaluation_path),
+                "input_splits": ["train", "validation"],
+                "train_count": len(train_ids),
+                "validation_count": len(validation_ids),
+                "fit_view_count": len(fit_ids),
+                "test_count": len(contract["splits"]["test"]),
+                "fit_view_ids_sha256": _id_list_hash(fit_ids),
+                "test_ids_sha256": _id_list_hash(
+                    [str(value) for value in contract["splits"]["test"]]
+                ),
+                "test_rgb": "not_loaded",
+                "optimizer_updates": FINAL_FIT_ITERATIONS,
+                "camera_samples": FINAL_FIT_ITERATIONS * world_size,
+                "world_size": world_size,
+                "gaussian_count_before": source_count,
+                "gaussian_count_after": final_model.count,
+                "topology_changed": False,
+                "initial_loss": initial_loss,
+                "final_loss": final_loss,
+                "elapsed_seconds": time.perf_counter() - started,
+                "peak_allocated_bytes": max(item[0] for item in per_rank_memory),
+                "peak_reserved_bytes": max(item[1] for item in per_rank_memory),
+                "profile_config": profile,
+                "model_path": "model.pt",
+                "evaluation_path": "evaluation.json",
+                "progress_path": "progress.jsonl",
+            }
+            (output_dir / "record.json").write_text(
+                json.dumps(record, indent=2, allow_nan=False) + "\n",
+                encoding="utf-8",
+            )
+    except torch.cuda.OutOfMemoryError as exc:
+        torch.cuda.empty_cache()
+        raise TrainingOutOfMemory("CUDA out of memory during Gaussian final-fit") from exc
+    except GaussianModelError as exc:
+        raise TrainingError(str(exc)) from exc
+
+    _distributed_barrier(world_size)
+    return json.loads((output_dir / "record.json").read_text(encoding="utf-8"))
+
+
+def _final_fit_split_ids(
+    contract: dict[str, Any],
+) -> tuple[list[str], list[str], list[str]]:
+    train_ids = [str(value) for value in contract["splits"]["train"]]
+    validation_ids = [str(value) for value in contract["splits"]["validation"]]
+    test_ids = {str(value) for value in contract["splits"]["test"]}
+    fit_ids = [*train_ids, *validation_ids]
+    if (
+        not train_ids
+        or not validation_ids
+        or len(fit_ids) != len(set(fit_ids))
+        or set(fit_ids) & test_ids
+    ):
+        raise TrainingError("final-fit requires disjoint nonempty Train/Validation/Test splits")
+    return train_ids, validation_ids, fit_ids
+
+
+def _final_fit_learning_rates(config: dict[str, Any]) -> dict[str, Any]:
+    source = config["learning_rate"]
+    multiplier = FINAL_FIT_NONPOSITION_LR_MULTIPLIER
+    return {
+        "position": {
+            "initial": float(source["position"]["final"]),
+            "final": float(source["position"]["final"]),
+            "delay_multiplier": 1.0,
+        },
+        "feature": float(source["feature"]) * multiplier,
+        "opacity": float(source["opacity"]) * multiplier,
+        "scaling": float(source["scaling"]) * multiplier,
+        "rotation": float(source["rotation"]) * multiplier,
+    }
+
+
+def _contiguous_shard_bounds(total: int, rank: int, world_size: int) -> tuple[int, int]:
+    if total < world_size or world_size < 1 or not 0 <= rank < world_size:
+        raise TrainingError("invalid final-fit model shard dimensions")
+    base, remainder = divmod(total, world_size)
+    start = rank * base + min(rank, remainder)
+    return start, start + base + (1 if rank < remainder else 0)
+
+
+def _load_contiguous_model_shard(
+    path: Path,
+    *,
+    world_rank: int,
+    world_size: int,
+    device: torch.device,
+) -> tuple[GaussianModel, int]:
+    source = _load_model(path.read_bytes(), torch.device("cpu"))
+    source_count = source.count
+    start, end = _contiguous_shard_bounds(source_count, world_rank, world_size)
+    model = GaussianModel(
+        means=source.means.detach()[start:end].clone(),
+        log_scales=source.log_scales.detach()[start:end].clone(),
+        quats=source.quats.detach()[start:end].clone(),
+        opacity_logits=source.opacity_logits.detach()[start:end].clone(),
+        sh_coeffs=source.sh_coeffs.detach()[start:end].clone(),
+        max_sh_degree=source.max_sh_degree,
+    ).to(device)
+    del source
+    gc.collect()
+    return model, source_count
+
+
+def _id_list_hash(values: list[str]) -> str:
+    return hashlib.sha256(
+        json.dumps(sorted(values), separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 @torch.no_grad()
 def evaluate_views(
     model: GaussianModel,
@@ -648,11 +1035,12 @@ def evaluate_views(
     preview_dir: Path | None = None,
     progress_events: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     distributed: bool = False,
+    split: str = "validation",
 ) -> dict[str, Any]:
     evaluated = evaluate_model(
         model,
         views,
-        split="validation",
+        split=split,
         sh_degree=active_sh_degree(int(config["iterations"]), config["sh_schedule"]),
         preview_dir=preview_dir,
         progress_events=progress_events,

@@ -158,6 +158,11 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     assert properties["gaussian_postprocess"]["default"] == "none"
     assert properties["gaussian_sor_filter"].get("default") is None
     assert properties["gaussian_recovery_prune"].get("default") is None
+    assert properties["gaussian_final_fit"]["anyOf"][0]["enum"] == [
+        "off",
+        "train_validation_v1",
+    ]
+    assert properties["gaussian_final_fit"].get("default") is None
     assert properties["video_keyframe_profile"]["enum"] == [
         "standard_v1",
         "standard_v2",
@@ -170,6 +175,7 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "gaussian_postprocess",
         "gaussian_sor_filter",
         "gaussian_recovery_prune",
+        "gaussian_final_fit",
         "gaussian_longest_edge",
     }
 
@@ -332,6 +338,27 @@ def test_create_job_forwards_gaussian_recovery_prune(tmp_path):
 
     assert response.status_code == 202
     assert store.options["gaussian_recovery_prune"] == "on"
+
+
+def test_create_job_forwards_gaussian_final_fit(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        data={
+            "mode": "multi_image",
+            "geometry_backend": "project_3dgs",
+            "output_type": "gaussian_splat",
+            "gaussian_final_fit": "train_validation_v1",
+        },
+        files=[("files", ("room.jpg", b"image", "image/jpeg"))],
+    )
+
+    assert response.status_code == 202
+    assert store.options["gaussian_final_fit"] == "train_validation_v1"
 
 
 def test_create_job_rejects_mcmc_recovery_prune_conflict(tmp_path):

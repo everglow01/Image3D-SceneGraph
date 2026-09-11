@@ -22,10 +22,15 @@ from image3d_scenegraph.gaussian.render import RenderCamera
 from image3d_scenegraph.gaussian.runtime import TrainingView, load_training_views
 from image3d_scenegraph.gaussian.trainer import (
     TrainingError,
+    FINAL_FIT_ITERATIONS,
     _build_mcmc_strategy,
     _build_strategy,
     _checkpoint_rank_bytes,
     _checkpoint_state,
+    _contiguous_shard_bounds,
+    _final_fit_learning_rates,
+    _final_fit_split_ids,
+    _load_contiguous_model_shard,
     _load_model,
     _local_gaussian_cap,
     _mcmc_refinement_due,
@@ -156,6 +161,79 @@ def test_mcmc_global_cap_is_split_exactly_across_ranks():
     assert sum(_local_gaussian_cap(3_000_000, rank, 4) for rank in range(4)) == 3_000_000
     with pytest.raises(TrainingError, match="smaller than distributed world size"):
         _local_gaussian_cap(1, 0, 2)
+
+
+def test_final_fit_profile_uses_bounded_fresh_optimizer_without_mutating_config():
+    config = resolve_internal_config().effective_config
+    before = repr(config)
+
+    rates = _final_fit_learning_rates(config)
+
+    assert FINAL_FIT_ITERATIONS == 2_000
+    assert rates["position"]["initial"] == pytest.approx(
+        config["learning_rate"]["position"]["final"]
+    )
+    assert rates["position"]["final"] == rates["position"]["initial"]
+    assert rates["feature"] == pytest.approx(
+        config["learning_rate"]["feature"] * 0.1
+    )
+    assert rates["opacity"] == pytest.approx(
+        config["learning_rate"]["opacity"] * 0.1
+    )
+    assert repr(config) == before
+
+
+def test_final_fit_contiguous_shards_cover_rows_in_order():
+    bounds = [_contiguous_shard_bounds(10, rank, 3) for rank in range(3)]
+
+    assert bounds == [(0, 4), (4, 7), (7, 10)]
+    assert [index for start, end in bounds for index in range(start, end)] == list(
+        range(10)
+    )
+    with pytest.raises(TrainingError, match="shard dimensions"):
+        _contiguous_shard_bounds(2, 0, 3)
+
+
+def test_final_fit_model_shards_merge_without_reordering(tmp_path):
+    source = model()
+    source_path = tmp_path / "source.pt"
+    source_path.write_bytes(_model_bytes(source))
+    shard_paths = []
+    for rank in range(2):
+        shard, count = _load_contiguous_model_shard(
+            source_path,
+            world_rank=rank,
+            world_size=2,
+            device=torch.device("cpu"),
+        )
+        assert count == source.count
+        path = tmp_path / f"rank-{rank}.pt"
+        path.write_bytes(_model_bytes(shard))
+        shard_paths.append(path)
+
+    merged = _merge_model_shards(shard_paths, tmp_path / "merged.pt")
+
+    for name in source.state_dict():
+        assert torch.equal(source.state_dict()[name], merged.state_dict()[name])
+
+
+def test_final_fit_uses_exact_train_validation_union_and_rejects_test_overlap():
+    contract = {
+        "splits": {
+            "train": ["train-1", "train-2"],
+            "validation": ["validation-1"],
+            "test": ["test-1"],
+        }
+    }
+
+    assert _final_fit_split_ids(contract) == (
+        ["train-1", "train-2"],
+        ["validation-1"],
+        ["train-1", "train-2", "validation-1"],
+    )
+    contract["splits"]["test"] = ["validation-1"]
+    with pytest.raises(TrainingError, match="disjoint"):
+        _final_fit_split_ids(contract)
 
 
 def test_mcmc_refinement_matches_gsplat_schedule():

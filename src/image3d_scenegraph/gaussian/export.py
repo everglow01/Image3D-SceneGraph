@@ -54,6 +54,7 @@ def export_gaussians(
     checkpoint_hash: str | None = None,
     postprocess_record_path: Path | None = None,
     postprocess_mask_path: Path | None = None,
+    final_fit_record_path: Path | None = None,
 ) -> dict[str, Any]:
     validate_contract(contract)
     if output_dir.exists():
@@ -70,6 +71,29 @@ def export_gaussians(
     model_hash = sha256_file(model_path)
     if provenance.get("model_sha256") != model_hash:
         raise GaussianExportError("evaluation model hash mismatch")
+    final_fit = None
+    if final_fit_record_path is not None:
+        final_fit = _read_json(final_fit_record_path)
+        if (
+            final_fit.get("schema_version") != 1
+            or final_fit.get("profile") != "train_validation_v1"
+            or final_fit.get("status") != "complete"
+            or final_fit.get("dataset_hash") != contract["dataset_hash"]
+            or final_fit.get("effective_config_hash") != config_hash
+            or not _is_sha256(final_fit.get("profile_hash"))
+            or not _is_sha256(final_fit.get("source_model_sha256"))
+            or final_fit.get("final_model_sha256") != model_hash
+            or final_fit.get("evaluation_sha256") != sha256_file(evaluation_path)
+            or evaluation.get("split") != "fit_validation"
+            or evaluation.get("quality_role")
+            != "in_sample_after_train_validation_fit"
+            or evaluation.get("selection_eligible") is not False
+            or final_fit.get("test_rgb") != "not_loaded"
+            or final_fit.get("topology_changed") is not False
+        ):
+            raise GaussianExportError("final-fit export provenance mismatch")
+    elif evaluation.get("split") == "fit_validation":
+        raise GaussianExportError("fit-set evaluation requires final-fit provenance")
     postprocess = None
     if postprocess_record_path is not None or postprocess_mask_path is not None:
         if postprocess_record_path is None or postprocess_mask_path is None:
@@ -79,7 +103,12 @@ def export_gaussians(
         if not postprocess_record_path.is_file() or not postprocess_mask_path.is_file():
             raise GaussianExportError("postprocess provenance assets are missing")
         postprocess = _read_json(postprocess_record_path)
-        if postprocess.get("filtered_model_sha256") != model_hash:
+        postprocess_model_hash = (
+            str(final_fit["source_model_sha256"])
+            if final_fit is not None
+            else model_hash
+        )
+        if postprocess.get("filtered_model_sha256") != postprocess_model_hash:
             raise GaussianExportError("postprocess filtered model hash mismatch")
         if postprocess.get("mask_sha256") != sha256_file(postprocess_mask_path):
             raise GaussianExportError("postprocess mask hash mismatch")
@@ -158,6 +187,16 @@ def export_gaussians(
             "mask_sha256": postprocess.get("mask_sha256"),
             "counts": postprocess.get("counts"),
         }
+    if final_fit is not None and final_fit_record_path is not None:
+        metadata["final_fit"] = {
+            "profile": final_fit["profile"],
+            "profile_hash": final_fit["profile_hash"],
+            "source_model_sha256": final_fit["source_model_sha256"],
+            "final_model_sha256": final_fit["final_model_sha256"],
+            "record_sha256": sha256_file(final_fit_record_path),
+            "evaluation_role": evaluation["quality_role"],
+            "selection_eligible": False,
+        }
     metadata_path = output_dir / "export.json"
     metadata_path.write_text(
         json.dumps(metadata, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -180,6 +219,8 @@ def export_gaussians(
                 "postprocess/filter-mask.npz": postprocess_mask_path,
             }
         )
+    if final_fit_record_path is not None:
+        bundle_entries["final-fit/record.json"] = final_fit_record_path
     bundle_path = output_dir / "result.zip"
     write_deterministic_zip(bundle_path, bundle_entries)
     bundle_record = {
