@@ -83,9 +83,12 @@ window.loadScene = async (view, degree, mode) => {
     const gl=new THREE.Matrix4().makeScale(1,-1,-1).multiply(cv);
     camera.matrix.copy(gl.clone().invert()); camera.matrix.decompose(camera.position,camera.quaternion,camera.scale);
     camera.updateMatrixWorld(true);
-    viewer.update();
+    if(viewer.sortPromise) await viewer.sortPromise;
+    viewer.updateSplatMesh();
     await viewer.runSplatSort(true,true); if(viewer.sortPromise) await viewer.sortPromise;
-    await new Promise(r=>setTimeout(r,150));
+    if(viewer.sortRunning || viewer.splatSortCount!==viewer.splatRenderCount) {
+      throw Error('full fixed-camera sort did not complete');
+    }
     viewer.updateSplatMesh();
     if(!viewer.splatRenderReady || material.uniforms.focal.value.x<=0 || material.uniforms.viewport.value.x!==view.width) {
       throw Error('splat projection uniforms not ready for fixed-camera capture');
@@ -108,6 +111,7 @@ window.loadScene = async (view, degree, mode) => {
         covariances_sample:Array.from(material.uniforms.covariancesTexture.value.image.data.slice(0,8)),
         shader_uniforms:Object.fromEntries(Object.entries(material.uniforms).filter(([k,v])=>typeof v.value==='number'||k==='focal'||k==='viewport').map(([k,v])=>[k,v.value])),
         count:viewer.splatMesh.getSplatCount(),render_count:viewer.splatRenderCount,sort_running:viewer.sortRunning,
+        sorted_count:viewer.splatSortCount,
         width:glContext.drawingBufferWidth,height:glContext.drawingBufferHeight,
         device_pixel_ratio:window.devicePixelRatio,renderer_pixel_ratio:renderer.getPixelRatio(),
         output_color_space:renderer.outputColorSpace,tone_mapping:renderer.toneMapping,
@@ -210,6 +214,12 @@ try {
         await writeFile(join(output,'browser.json'),JSON.stringify(result,null,2)+'\n');
       }
     } catch(error){result.captures.push({...mode,status:'failed',error:String(error)});if(selfTest)throw error;}
+    finally {
+      try {
+        await evaluate('(async()=>{await window.viewer?.dispose();window.renderer?.dispose();window.renderer?.forceContextLoss();window.viewer=null;window.renderer=null;return true;})()');
+        await call('HeapProfiler.collectGarbage');
+      } catch(error){events.push({cleanup_error:String(error)});}
+    }
   }
   result.status=result.captures.some(c=>c.status==='failed')?'partial':'completed';
   if(result.status==='partial')process.exitCode=2;
