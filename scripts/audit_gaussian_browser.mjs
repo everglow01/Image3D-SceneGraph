@@ -53,16 +53,24 @@ window.loadScene = async (view, degree, mode) => {
   document.body.style.width=view.width+'px';document.body.style.height=view.height+'px';
   const camera = new THREE.PerspectiveCamera();
   const renderer = new THREE.WebGLRenderer({antialias:false, preserveDrawingBuffer:true});
+  if(mode==='linear') renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
   renderer.setPixelRatio(1); renderer.setSize(view.width,view.height);
   renderer.setClearColor(0,1); document.body.appendChild(renderer.domElement);
   const viewer = new GS.Viewer({rootElement:document.body, camera, renderer,
     useBuiltInControls:false, selfDrivenMode:false, sharedMemoryForWorkers:false,
     sphericalHarmonicsDegree:degree, ignoreDevicePixelRatio:true, integerBasedSort:false,
     renderMode:GS.RenderMode.OnChange});
+  const treeReady=${selfTest ? 'null' : "new Promise(resolve=>viewer.getSplatMesh().onSplatTreeReady(resolve))"};
   window.viewer = viewer; window.camera = camera; window.renderer = renderer;
   const threshold = mode==='product' ? Math.floor(0.005*255) : 0;
-  await viewer.addSplatScene('/scene.ply', {showLoadingUI:false, progressiveLoad:true,
+  await viewer.addSplatScene('/scene.ply', {showLoadingUI:false, progressiveLoad:${selfTest ? 'false' : 'true'},
     splatAlphaRemovalThreshold:threshold});
+  if(viewer.splatSceneDownloadAndBuildPromise) await viewer.splatSceneDownloadAndBuildPromise;
+  if(treeReady) {
+    let treeTimer;
+    try { await Promise.race([treeReady,new Promise((_,reject)=>{treeTimer=setTimeout(()=>reject(Error('splat tree build timeout')),300000);})]); }
+    finally { clearTimeout(treeTimer); }
+  }
   const material=viewer.getSplatMesh().material;
   if(mode==='product') {
     const anchor=['float opacity = exp(-0.5 * A) * vColor.a;','float opa = vColor.a;'].find(s=>material.fragmentShader.includes(s));
@@ -73,6 +81,8 @@ window.loadScene = async (view, degree, mode) => {
   window.drawView = async view => {
     document.body.style.width=view.width+'px';document.body.style.height=view.height+'px';
     renderer.setSize(view.width,view.height);
+    camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(view.height/(2*view.intrinsic[1][1])));
+    camera.aspect=view.width/view.height;
     camera.near=mode==='product'?0.1:0.01; camera.far=mode==='product'?1000:1e10;
     const [fx,skew,cx]=view.intrinsic[0], [,fy,cy]=view.intrinsic[1];
     const w=view.width,h=view.height,n=camera.near,f=camera.far;
@@ -83,6 +93,7 @@ window.loadScene = async (view, degree, mode) => {
     const gl=new THREE.Matrix4().makeScale(1,-1,-1).multiply(cv);
     camera.matrix.copy(gl.clone().invert()); camera.matrix.decompose(camera.position,camera.quaternion,camera.scale);
     camera.updateMatrixWorld(true);
+    if(mode!=='product') viewer.splatMesh.disposeSplatTree();
     if(viewer.sortPromise) await viewer.sortPromise;
     viewer.updateSplatMesh();
     await viewer.runSplatSort(true,true); if(viewer.sortPromise) await viewer.sortPromise;
@@ -117,6 +128,8 @@ window.loadScene = async (view, degree, mode) => {
         output_color_space:renderer.outputColorSpace,tone_mapping:renderer.toneMapping,
         near:camera.near,far:camera.far,kernel_2d_size:viewer.kernel2DSize,
         gpu:extension?glContext.getParameter(extension.UNMASKED_RENDERER_WEBGL):glContext.getParameter(glContext.RENDERER),
+        splat_tree_present:viewer.splatMesh.getSplatTree()!==null,forced_all_splats:mode!=='product',
+        camera_fov_degrees:camera.fov,camera_aspect:camera.aspect,
         contains_sh3_calculation:material.vertexShader.includes('SH_C3'),
         alpha_loader_threshold:threshold,alpha_shader_threshold:mode==='product'?0.005:0,
         in_memory_compression:viewer.inMemoryCompressionLevel,
@@ -190,8 +203,11 @@ try {
     if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result?.value;
   };
   await call('Runtime.enable');await call('Log.enable');await call('Page.enable');
-  const modes=selfTest?[0,2,3].map(degree=>({degree,mode:'controlled'})):[{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
-    {degree:0,mode:'controlled',probe:true},{degree:2,mode:'controlled',probe:true}];
+  const allModes=selfTest?[0,2,3].map(degree=>({degree,mode:'controlled'})):[{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
+    {degree:2,mode:'linear',probe:true},{degree:0,mode:'controlled',probe:true},{degree:2,mode:'controlled',probe:true}];
+  const requestedModes=option('--modes',null)?.split(',');
+  const modes=allModes.filter(mode=>!requestedModes||requestedModes.includes(mode.mode));
+  assert(modes.length>0,'no requested browser audit modes');
   for(const mode of modes){
     const requestedIds=option('--image-ids',null)?.split(',');
     const selected=mode.probe?audit.views.filter(v=>v.image_id===option('--sh-probe','317')):
