@@ -306,12 +306,26 @@ type Manifest = {
     gaussian_vggt_filter_removed_count?: number;
     gaussian_vggt_filtered_validation_psnr?: number;
     gaussian_vggt_filtered_validation_ssim?: number;
+    gaussian_vggt_filtered_validation_metric_profile?: string;
+    gaussian_vggt_filtered_validation_display_psnr?: number;
+    gaussian_vggt_filtered_validation_display_ssim?: number;
+    gaussian_vggt_filtered_validation_display_metric_profile?: string;
     gaussian_sor_filter_input_count?: number;
     gaussian_sor_filter_kept_count?: number;
     gaussian_sor_filter_removed_count?: number;
     gaussian_count?: number;
     gaussian_validation_psnr?: number;
     gaussian_validation_ssim?: number;
+    gaussian_validation_metric_profile?: string;
+    gaussian_validation_display_psnr?: number;
+    gaussian_validation_display_ssim?: number;
+    gaussian_validation_display_metric_profile?: string;
+    gaussian_model_sh_degree?: number;
+    gaussian_browser_renderer?: string;
+    gaussian_browser_renderer_version?: string;
+    gaussian_browser_requested_sh_degree?: number;
+    gaussian_browser_effective_sh_degree?: number;
+    gaussian_browser_renderer_verification_profile?: string;
     sfm_diagnostics_status?: string;
     sfm_diagnostics_reason?: string;
     sfm_diagnostics_image_count?: number;
@@ -1232,6 +1246,12 @@ export function App() {
   const gaussianValidationSsim =
     currentStatus?.metrics.gaussian_validation_ssim ??
     currentStatus?.metrics.gaussian_vggt_filtered_validation_ssim;
+  const gaussianValidationDisplayPsnr =
+    currentStatus?.metrics.gaussian_validation_display_psnr ??
+    currentStatus?.metrics.gaussian_vggt_filtered_validation_display_psnr;
+  const gaussianValidationDisplaySsim =
+    currentStatus?.metrics.gaussian_validation_display_ssim ??
+    currentStatus?.metrics.gaussian_vggt_filtered_validation_display_ssim;
   const canCancel = Boolean(currentStatus && ["queued", "running", "exporting"].includes(currentStatus.status));
   const canRetry = Boolean(currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
@@ -2191,7 +2211,8 @@ export function App() {
             <div><dt>匹配内点</dt><dd>{formatInteger(currentStatus?.metrics.sfm_diagnostics_inlier_count)}</dd></div>
             <div><dt>高斯数量</dt><dd>{formatInteger(currentStatus?.metrics.gaussian_count)}</dd></div>
             <div><dt>空间对齐</dt><dd>{formatPolicy(currentStatus?.metrics.alignment_status)}</dd></div>
-            <div><dt>Validation PSNR</dt><dd>{gaussianValidationPsnr === undefined ? "-" : `${gaussianValidationPsnr.toFixed(3)} dB`}</dd></div>
+            <div><dt>Validation PSNR（原生 float）</dt><dd>{gaussianValidationPsnr === undefined ? "-" : `${gaussianValidationPsnr.toFixed(3)} dB`}</dd></div>
+            <div><dt>Validation PSNR（显示裁剪）</dt><dd>{gaussianValidationDisplayPsnr === undefined ? "-" : `${gaussianValidationDisplayPsnr.toFixed(3)} dB`}</dd></div>
           </dl>
 
           <details className="result-details">
@@ -2373,9 +2394,33 @@ export function App() {
             )}
             {currentStatus?.metrics.gaussian_validation_psnr !== undefined && (
               <div>
-                <dt>Validation</dt>
+                <dt>Validation（原生 float）</dt>
                 <dd>
                   {`${currentStatus.metrics.gaussian_validation_psnr.toFixed(3)} dB · SSIM ${(gaussianValidationSsim ?? 0).toFixed(4)}`}
+                </dd>
+              </div>
+            )}
+            {currentStatus?.metrics.gaussian_validation_display_psnr !== undefined && (
+              <div>
+                <dt>Validation（显示裁剪）</dt>
+                <dd>
+                  {`${currentStatus.metrics.gaussian_validation_display_psnr.toFixed(3)} dB · SSIM ${(gaussianValidationDisplaySsim ?? 0).toFixed(4)}`}
+                </dd>
+              </div>
+            )}
+            {currentStatus?.metrics.gaussian_browser_renderer !== undefined && (
+              <div>
+                <dt>浏览器渲染器</dt>
+                <dd>
+                  {`${currentStatus.metrics.gaussian_browser_renderer}@${currentStatus.metrics.gaussian_browser_renderer_version ?? "?"}`}
+                </dd>
+              </div>
+            )}
+            {currentStatus?.metrics.gaussian_model_sh_degree !== undefined && (
+              <div>
+                <dt>模型 / 浏览器 SH</dt>
+                <dd>
+                  {`SH${currentStatus.metrics.gaussian_model_sh_degree} / SH${currentStatus.metrics.gaussian_browser_effective_sh_degree ?? "?"}`}
                 </dd>
               </div>
             )}
@@ -2388,13 +2433,21 @@ export function App() {
               </dd>
             </div>
             <div>
-              <dt>过滤版 Validation</dt>
+              <dt>过滤版 Validation（原生 float）</dt>
               <dd>
                 {currentStatus?.metrics.gaussian_vggt_filtered_validation_psnr === undefined
                   ? "-"
                   : `${currentStatus.metrics.gaussian_vggt_filtered_validation_psnr.toFixed(3)} dB · SSIM ${(currentStatus.metrics.gaussian_vggt_filtered_validation_ssim ?? 0).toFixed(4)}`}
               </dd>
             </div>
+            {currentStatus?.metrics.gaussian_vggt_filtered_validation_display_psnr !== undefined && (
+              <div>
+                <dt>过滤版 Validation（显示裁剪）</dt>
+                <dd>
+                  {`${currentStatus.metrics.gaussian_vggt_filtered_validation_display_psnr.toFixed(3)} dB · SSIM ${(currentStatus.metrics.gaussian_vggt_filtered_validation_display_ssim ?? 0).toFixed(4)}`}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>导航资产</dt>
               <dd>{formatStatus(manifest?.navigation_status)}</dd>

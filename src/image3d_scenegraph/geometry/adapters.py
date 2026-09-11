@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -1151,6 +1152,10 @@ class ProjectGaussianAdapter:
             )
         ):
             raise ReconstructionError("project Gaussian export is incomplete")
+        validation_metrics = _gaussian_evaluation_metrics(
+            evaluation_path, prefix="gaussian_validation"
+        )
+        renderer_metrics = _gaussian_renderer_metrics(export_metadata_path)
         (
             postprocess_assets,
             postprocess_metrics,
@@ -1198,6 +1203,14 @@ class ProjectGaussianAdapter:
             ),
             f"gaussian_test_status={test_status}",
             f"gaussian_test_reason={test_reason}",
+            "gaussian_validation_metric_profile=raw_float_v1",
+            "gaussian_validation_display_metric_profile=display_clamped_uint8_v1",
+            "gaussian_browser_renderer="
+            f"{renderer_metrics['gaussian_browser_renderer']}@"
+            f"{renderer_metrics['gaussian_browser_renderer_version']}",
+            "gaussian_browser_sh_degree="
+            f"{renderer_metrics['gaussian_browser_requested_sh_degree']}->"
+            f"{renderer_metrics['gaussian_browser_effective_sh_degree']}",
             f"gaussian_postprocess={postprocess}",
             f"gaussian_postprocess_status={postprocess_status}",
             *(
@@ -1247,6 +1260,8 @@ class ProjectGaussianAdapter:
             metrics={
                 **video_metrics,
                 **geometry_metrics,
+                **validation_metrics,
+                **renderer_metrics,
                 "gaussian_count": int(result["gaussian_count"]),
                 "gaussian_trainer": trainer_id,
                 "gaussian_strategy": str(result.get("strategy_name", "default_v1")),
@@ -1282,6 +1297,73 @@ class ProjectGaussianAdapter:
             },
             log_lines=log_lines,
         )
+
+
+def _gaussian_evaluation_metrics(path: Path, *, prefix: str) -> dict[str, float | str]:
+    try:
+        evaluation = json.loads(path.read_text(encoding="utf-8"))
+        profiles = evaluation["quality_profiles"]
+        values: dict[str, float | str] = {
+            f"{prefix}_metric_profile": str(profiles["primary"]),
+            f"{prefix}_psnr": float(evaluation["psnr"]["mean"]),
+            f"{prefix}_ssim": float(evaluation["ssim"]["mean"]),
+            f"{prefix}_display_metric_profile": "display_clamped_uint8_v1",
+            f"{prefix}_display_psnr": float(evaluation["display_psnr"]["mean"]),
+            f"{prefix}_display_ssim": float(evaluation["display_ssim"]["mean"]),
+        }
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ReconstructionError("Gaussian evaluation identity is invalid") from exc
+    if (
+        evaluation.get("schema_version") != 2
+        or values[f"{prefix}_metric_profile"] != "raw_float_v1"
+        or "display_clamped_uint8_v1" not in profiles
+        or not all(
+            math.isfinite(value)
+            for value in values.values()
+            if isinstance(value, float)
+        )
+    ):
+        raise ReconstructionError("Gaussian evaluation identity is invalid")
+    return values
+
+
+def _gaussian_renderer_metrics(path: Path) -> dict[str, int | str]:
+    try:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        renderer = metadata["browser_renderer"]
+        values: dict[str, int | str] = {
+            "gaussian_model_sh_degree": int(metadata["model_sh_degree"]),
+            "gaussian_browser_renderer": str(renderer["implementation"]),
+            "gaussian_browser_renderer_version": str(renderer["version"]),
+            "gaussian_browser_requested_sh_degree": int(
+                renderer["requested_sh_degree"]
+            ),
+            "gaussian_browser_effective_sh_degree": int(
+                renderer["effective_sh_degree"]
+            ),
+            "gaussian_browser_renderer_verification_profile": str(
+                renderer["verification_profile"]
+            ),
+        }
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ReconstructionError("Gaussian browser renderer identity is invalid") from exc
+    if (
+        metadata.get("schema_version") != 2
+        or metadata.get("sh_degree") != values["gaussian_model_sh_degree"]
+        or values["gaussian_browser_requested_sh_degree"]
+        != values["gaussian_model_sh_degree"]
+        or not 0
+        <= values["gaussian_browser_effective_sh_degree"]
+        <= values["gaussian_browser_requested_sh_degree"]
+        <= 3
+        or any(
+            not value
+            for value in values.values()
+            if isinstance(value, str)
+        )
+    ):
+        raise ReconstructionError("Gaussian browser renderer identity is invalid")
+    return values
 
 
 def _legacy_sift_frontend_provenance() -> dict[str, str | int | None]:
@@ -1633,7 +1715,10 @@ def _try_build_vggt_filtered_variant(
         )
         if not all(path.is_file() for path in required):
             raise ReconstructionError("VGGT filtered Gaussian export is incomplete")
-        evaluation = json.loads(filtered_evaluation_path.read_text(encoding="utf-8"))
+        filtered_metrics = _gaussian_evaluation_metrics(
+            filtered_evaluation_path,
+            prefix="gaussian_vggt_filtered_validation",
+        )
         assets = {
             "gaussian_vggt_filtered_model": filtered_model_path.relative_to(
                 context.job_dir.resolve()
@@ -1664,12 +1749,7 @@ def _try_build_vggt_filtered_variant(
             "gaussian_vggt_filter_input_count": int(result["input_count"]),
             "gaussian_vggt_filter_kept_count": int(result["kept_count"]),
             "gaussian_vggt_filter_removed_count": int(result["removed_count"]),
-            "gaussian_vggt_filtered_validation_psnr": float(
-                evaluation["psnr"]["mean"]
-            ),
-            "gaussian_vggt_filtered_validation_ssim": float(
-                evaluation["ssim"]["mean"]
-            ),
+            **filtered_metrics,
         }
         log_lines = [
             f"gaussian_postprocess_command={' '.join(command_filter)}",

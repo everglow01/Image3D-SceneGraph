@@ -185,6 +185,25 @@ def test_filtered_export_verifies_and_bundles_postprocess_provenance(tmp_path):
         output_dir=tmp_path / "original-export",
     )
     assert "postprocess" not in original
+    metadata = json.loads(
+        (tmp_path / "original-export" / "export.json").read_text()
+    )
+    assert metadata["schema_version"] == 2
+    assert metadata["sh_degree"] == metadata["model_sh_degree"] == 3
+    assert metadata["browser_renderer"] == {
+        "implementation": "@mkkellogg/gaussian-splats-3d",
+        "version": "0.4.7",
+        "requested_sh_degree": 3,
+        "effective_sh_degree": 2,
+        "verified_max_sh_degree": 2,
+        "verification_profile": "fixed_camera_browser_v1",
+    }
+    assert json.loads(
+        (tmp_path / "original-export" / "camera_path.json").read_text()
+    )["schema_version"] == 1
+    assert json.loads(
+        (tmp_path / "original-export" / "bundle.json").read_text()
+    )["schema_version"] == 1
 
     result = export_gaussians(
         model_path=model_path,

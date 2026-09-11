@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
 
 
 torch = pytest.importorskip("torch")
@@ -52,10 +53,14 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
         renderer=renderer,
     )
 
-    assert result["schema_version"] == 1
+    assert result["schema_version"] == 2
     assert result["split"] == "validation"
+    assert result["quality_profiles"]["primary"] == "raw_float_v1"
+    assert "display_clamped_uint8_v1" in result["quality_profiles"]
     assert result["psnr"]["mean"] == pytest.approx(120.0)
+    assert result["display_psnr"]["mean"] == pytest.approx(120.0)
     assert result["ssim"]["p50"] == pytest.approx(1.0)
+    assert result["display_ssim"]["p50"] == pytest.approx(1.0)
     assert result["topology"] == {
         "strategy_updates": 2,
         "net_growth": 2,
@@ -66,6 +71,38 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
     assert result["health"]["max_scale"]["max"] == pytest.approx(0.1)
     assert result["lpips"]["status"] == "not_run"
     assert len(list((tmp_path / "previews").glob("*.png"))) == 2
+
+
+def test_evaluation_separates_raw_float_and_display_clamped_metrics(tmp_path):
+    gaussian = model()
+    views = [
+        SimpleNamespace(
+            camera=SimpleNamespace(image_id="over-range"),
+            image=torch.full((4, 4, 3), 0.5),
+        )
+    ]
+    renderer = lambda *_args, **_kwargs: SimpleNamespace(  # noqa: E731
+        image=torch.full((4, 4, 3), 1.5)
+    )
+
+    result = evaluate_model(
+        gaussian,
+        views,
+        split="validation",
+        sh_degree=0,
+        preview_dir=tmp_path / "previews",
+        renderer=renderer,
+    )
+
+    assert result["psnr"]["mean"] == pytest.approx(0.0)
+    assert result["display_psnr"]["mean"] > result["psnr"]["mean"]
+    assert result["per_view"][0]["psnr"] == result["psnr"]["mean"]
+    assert result["per_view"][0]["display_psnr"] == result["display_psnr"]["mean"]
+    assert Image.open(tmp_path / "previews" / "over-range.png").getpixel((0, 0)) == (
+        255,
+        255,
+        255,
+    )
 
 
 def test_evaluation_reports_screen_and_scale_health():
@@ -122,6 +159,7 @@ def test_test_authorization_is_hash_bound_and_consumed_once(tmp_path):
         effective_config_hash=hashes[1],
         model_sha256=hashes[2],
     )
+    assert json.loads(frozen.read_text())["schema_version"] == 1
 
     consumption = _authorize_test(
         frozen,

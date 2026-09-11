@@ -27,6 +27,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
 
   export type SplatMesh = {
     material: THREE.Material;
+    minSphericalHarmonicsDegree: number;
     computeBoundingBox(applySceneTransforms?: boolean, sceneIndex?: number): THREE.Box3;
   };
 

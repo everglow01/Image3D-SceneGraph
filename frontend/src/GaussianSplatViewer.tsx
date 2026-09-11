@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
+import gaussianViewerPackage from "@mkkellogg/gaussian-splats-3d/package.json" with { type: "json" };
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Capsule } from "three/examples/jsm/math/Capsule.js";
@@ -52,6 +53,12 @@ type ViewPreset = "fit" | "top" | "front" | "side";
 type ViewerState = "idle" | "loading" | "ready" | "error";
 type NavigationState = "idle" | "loading" | "ready" | "error";
 type ViewerMode = "orbit" | "walk";
+type RendererIdentity = {
+  implementation: string;
+  version: string;
+  requestedShDegree: number;
+  effectiveShDegree: number;
+};
 
 type SceneFrame = {
   center: THREE.Vector3;
@@ -252,6 +259,7 @@ export function GaussianSplatViewer({
   const [walkMessage, setWalkMessage] = useState("环绕查看模式");
   const [boundaryHint, setBoundaryHint] = useState(false);
   const [alphaControl, setAlphaControl] = useState<{ baseline: number; value: number } | null>(null);
+  const [rendererIdentity, setRendererIdentity] = useState<RendererIdentity | null>(null);
   const [sfmDiagnostics, setSfmDiagnostics] = useState<SfmDiagnostics | null>(null);
   const [sfmQuery, setSfmQuery] = useState<{ center: Vec3; forward: Vec3 } | null>(null);
   const [inspectionTab, setInspectionTab] = useState<SfmInspectionTab>("nearest");
@@ -411,6 +419,7 @@ export function GaussianSplatViewer({
     if (!mount || !sourceUrl || !metadataUrl) {
       setViewerState("idle");
       setNavigationState("idle");
+      setRendererIdentity(null);
       uprightRotationRef.current = null;
       return;
     }
@@ -425,6 +434,7 @@ export function GaussianSplatViewer({
     setSettings(null);
     setWalkMessage("环绕查看模式");
     setAlphaControl(null);
+    setRendererIdentity(null);
     setSfmDiagnostics(null);
     setSfmQuery(null);
     setSfmMessage("");
@@ -515,6 +525,20 @@ export function GaussianSplatViewer({
         if (cancelled) {
           return;
         }
+        const effectiveShDegree = viewer.getSplatMesh().minSphericalHarmonicsDegree;
+        if (
+          !Number.isInteger(effectiveShDegree) ||
+          effectiveShDegree < 0 ||
+          effectiveShDegree > metadata.sh_degree
+        ) {
+          throw new Error("Gaussian browser renderer SH identity is invalid");
+        }
+        setRendererIdentity({
+          implementation: gaussianViewerPackage.name,
+          version: gaussianViewerPackage.version,
+          requestedShDegree: metadata.sh_degree,
+          effectiveShDegree
+        });
         sceneFrameRef.current = getSceneFrame(
           viewer,
           metadata.scene_center ? rotateVec3(metadata.scene_center) : null,
@@ -771,6 +795,9 @@ export function GaussianSplatViewer({
             ? "第一人称漫游 · WASD/方向键移动 · 鼠标观察 · Esc 退出"
             : `${uprightAvailable ? "SfM 主平面已摆正 · " : ""}标准归一化坐标 · 任意单位（非米制）`}
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
+          {rendererIdentity === null
+            ? ""
+            : ` · ${rendererIdentity.implementation}@${rendererIdentity.version} · 模型 SH${rendererIdentity.requestedShDegree} / 浏览器 SH${rendererIdentity.effectiveShDegree}`}
           {viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
           {navigationState !== "ready" ? ` · ${unavailableMessage}` : ""}
         </div>

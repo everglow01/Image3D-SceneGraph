@@ -14,6 +14,10 @@ from .dataset import sha256_file, validate_contract
 from .evaluation import load_model_snapshot
 
 EXPORT_SCHEMA_VERSION = 1
+EXPORT_METADATA_SCHEMA_VERSION = 2
+BROWSER_RENDERER_IMPLEMENTATION = "@mkkellogg/gaussian-splats-3d"
+BROWSER_RENDERER_VERSION = "0.4.7"
+BROWSER_RENDERER_MAX_SH_DEGREE = 2
 PLY_FIELDS = (
     "x",
     "y",
@@ -102,7 +106,7 @@ def export_gaussians(
     if not isinstance(health, dict):
         health = None
     metadata = {
-        "schema_version": EXPORT_SCHEMA_VERSION,
+        "schema_version": EXPORT_METADATA_SCHEMA_VERSION,
         "format": "project_gaussian_ply_v1",
         "browser_derivative_format": "inria_v1_binary_little_endian",
         "coordinate_frame": "normalized",
@@ -118,6 +122,17 @@ def export_gaussians(
         "opacity_p90": float(torch.quantile(opacity, 0.9)),
         "health": health,
         "sh_degree": model.max_sh_degree,
+        "model_sh_degree": model.max_sh_degree,
+        "browser_renderer": {
+            "implementation": BROWSER_RENDERER_IMPLEMENTATION,
+            "version": BROWSER_RENDERER_VERSION,
+            "requested_sh_degree": model.max_sh_degree,
+            "effective_sh_degree": min(
+                model.max_sh_degree, BROWSER_RENDERER_MAX_SH_DEGREE
+            ),
+            "verified_max_sh_degree": BROWSER_RENDERER_MAX_SH_DEGREE,
+            "verification_profile": "fixed_camera_browser_v1",
+        },
         "sh_layout": "dc_rgb_then_rest_channel_major",
         "opacity": "logit",
         "scale": "natural_log",

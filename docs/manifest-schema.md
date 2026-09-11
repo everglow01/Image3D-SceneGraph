@@ -129,6 +129,10 @@ The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mes
 
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
+New `gaussian_export_metadata` uses schema 2. It preserves `sh_degree` for historical readers, adds the identical `model_sh_degree`, and records `browser_renderer` with implementation/version, requested SH degree, verified effective/max SH degree, and the fixed-camera verification profile. For the current delivery path this identifies `@mkkellogg/gaussian-splats-3d@0.4.7`, model/requested SH3, and effective SH2; it is renderer provenance, not a browser PSNR claim. `gaussian_camera_path`, bundle records, canonical PLY, and historical export metadata remain schema 1.
+
+New Project Gaussian manifest metrics publish `gaussian_validation_psnr`/`gaussian_validation_ssim` with `gaussian_validation_metric_profile=raw_float_v1`, plus `gaussian_validation_display_psnr`/`gaussian_validation_display_ssim` with `gaussian_validation_display_metric_profile=display_clamped_uint8_v1`. The existing PSNR/SSIM names remain raw-float compatibility fields. Filtered derivatives use the corresponding `gaussian_vggt_filtered_validation_*` names. Renderer identity is duplicated compactly as `gaussian_model_sh_degree`, `gaussian_browser_renderer`, `gaussian_browser_renderer_version`, `gaussian_browser_requested_sh_degree`, `gaussian_browser_effective_sh_degree`, and `gaussian_browser_renderer_verification_profile`, so status/list consumers need not infer browser capability from model SH. Historical manifests may omit every new field and are never backfilled.
+
 Only roles present in `assets` are available. Generic postprocessing can add existing alignment or mesh assets when an older manifest is loaded; this does not rerun reconstruction.
 
 ## SfM frontend diagnostics

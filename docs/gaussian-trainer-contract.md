@@ -22,6 +22,8 @@ COLMAP `SIMPLE_RADIAL`, `RADIAL`, and `OPENCV` distortion is explicitly inverted
 
 The trainer loads only `train` and `validation` IDs and asserts that no `test` ID enters runtime. LPIPS remains `not_run: dependency_not_audited_in_r2_10`; R2.11 owns dependency audit and final isolated test evaluation.
 
+Gaussian evaluation schema 2 preserves the historical top-level and per-view `psnr`/`ssim` fields as the primary `raw_float_v1` profile: metrics are computed directly from the unclamped gsplat float render and the float reference. It additionally reports `display_psnr`/`display_ssim` under `display_clamped_uint8_v1`, applying the preview path independently to prediction and reference (`clamp(0,1)`, multiply by 255, floor to uint8, divide by 255) before scoring. `quality_profiles` records both identities. These profiles are parallel reports: display metrics do not replace raw metrics, change Validation selection, or rewrite historical evaluation artifacts. Frozen-candidate and Test-consumption records remain schema 1 so previously frozen candidates retain their authorization identity.
+
 ## Initialization schema v1
 
 Sparse initialization parses project/COLMAP `points3D.txt` and records:

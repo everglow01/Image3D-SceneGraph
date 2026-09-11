@@ -21,7 +21,8 @@ from .render import render_gaussians
 from .runtime import TrainingView, load_evaluation_views
 from .training_math import psnr, structural_similarity
 
-EVALUATION_SCHEMA_VERSION = 1
+EVALUATION_SCHEMA_VERSION = 2
+FROZEN_CANDIDATE_SCHEMA_VERSION = 1
 LPIPS_NOT_RUN = {
     "status": "not_run",
     "reason": "pretrained_weight_license_and_hash_not_audited",
@@ -110,18 +111,34 @@ def evaluate_model(
                 if model.means.is_cuda:
                     torch.cuda.synchronize(model.means.device)
                 render_ms = (time.perf_counter() - started) * 1000.0
+                display_image = rendered.image.detach().clamp(0, 1).mul(255).byte()
+                display_reference = view.image.detach().clamp(0, 1).mul(255).byte()
+                display_image_float = display_image.float().div(255)
+                display_reference_float = display_reference.float().div(255)
                 entry = {
                     "image_id": view.camera.image_id,
                     "psnr": psnr(rendered.image, view.image),
                     "ssim": float(structural_similarity(rendered.image, view.image)),
+                    "display_psnr": psnr(display_image_float, display_reference_float),
+                    "display_ssim": float(
+                        structural_similarity(display_image_float, display_reference_float)
+                    ),
                     "render_milliseconds": render_ms,
                 }
-                if not all(np.isfinite(float(entry[key])) for key in ("psnr", "ssim", "render_milliseconds")):
+                if not all(
+                    np.isfinite(float(entry[key]))
+                    for key in (
+                        "psnr",
+                        "ssim",
+                        "display_psnr",
+                        "display_ssim",
+                        "render_milliseconds",
+                    )
+                ):
                     raise GaussianEvaluationError("non-finite view metric")
                 per_view.append(entry)
                 if preview_dir is not None:
-                    pixels = rendered.image.detach().clamp(0, 1).mul(255).byte().cpu().numpy()
-                    Image.fromarray(pixels).save(
+                    Image.fromarray(display_image.cpu().numpy()).save(
                         preview_dir / f"{_safe_name(view.camera.image_id)}.png"
                     )
             except torch.cuda.OutOfMemoryError as exc:
@@ -157,8 +174,31 @@ def evaluate_model(
         "num_views": len(views),
         "successful_views": len(per_view),
         "failed_views": failures,
+        "quality_profiles": {
+            "primary": "raw_float_v1",
+            "raw_float_v1": {
+                "psnr_field": "psnr",
+                "ssim_field": "ssim",
+                "prediction": "unclamped_float",
+                "reference": "float",
+                "quantization": "none",
+            },
+            "display_clamped_uint8_v1": {
+                "psnr_field": "display_psnr",
+                "ssim_field": "display_ssim",
+                "prediction": "clamp_0_1",
+                "reference": "clamp_0_1",
+                "quantization": "floor_uint8_then_divide_255",
+            },
+        },
         "psnr": _distribution([float(item["psnr"]) for item in per_view]),
         "ssim": _distribution([float(item["ssim"]) for item in per_view]),
+        "display_psnr": _distribution(
+            [float(item["display_psnr"]) for item in per_view]
+        ),
+        "display_ssim": _distribution(
+            [float(item["display_ssim"]) for item in per_view]
+        ),
         "lpips": dict(LPIPS_NOT_RUN),
         "render_milliseconds": _distribution(render_values),
         "render_fps": len(per_view) / total_seconds if total_seconds > 0 else 0.0,
@@ -276,7 +316,7 @@ def write_frozen_candidate(
     if not candidate_id or Path(candidate_id).name != candidate_id:
         raise GaussianEvaluationError("candidate ID must be a non-empty filename-safe value")
     payload = {
-        "schema_version": EVALUATION_SCHEMA_VERSION,
+        "schema_version": FROZEN_CANDIDATE_SCHEMA_VERSION,
         "status": "frozen",
         "candidate_id": candidate_id,
         "dataset_hash": dataset_hash,
@@ -303,7 +343,7 @@ def _authorize_test(
     except (OSError, json.JSONDecodeError) as exc:
         raise GaussianEvaluationError(f"cannot read frozen candidate: {exc}") from exc
     expected = {
-        "schema_version": EVALUATION_SCHEMA_VERSION,
+        "schema_version": FROZEN_CANDIDATE_SCHEMA_VERSION,
         "status": "frozen",
         "dataset_hash": dataset_hash,
         "effective_config_hash": config_hash,
@@ -316,7 +356,7 @@ def _authorize_test(
             raise GaussianEvaluationError(f"frozen candidate mismatch: {key}")
     consumption = path.with_name(f"{path.stem}.test-consumed.json")
     payload = {
-        "schema_version": EVALUATION_SCHEMA_VERSION,
+        "schema_version": FROZEN_CANDIDATE_SCHEMA_VERSION,
         "candidate_id": frozen.get("candidate_id"),
         "status": "running",
         "dataset_hash": dataset_hash,

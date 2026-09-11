@@ -12,6 +12,8 @@ from image3d_scenegraph.geometry.adapters import (
     ProjectGaussianAdapter,
     ReconstructionContext,
     ReconstructionError,
+    _gaussian_evaluation_metrics,
+    _gaussian_renderer_metrics,
     _read_video_registration_recovery,
     _try_export_sfm_diagnostics,
     _validate_colmap_pose_evidence,
@@ -396,6 +398,71 @@ def test_alignment_falls_back_to_gaussian_sfm_sparse_point_cloud(tmp_path, monke
     }
     assert (job_dir / assets["point_cloud_aligned"]).read_bytes() == b"aligned-ply\n"
     assert logs[0] == "alignment_status=aligned"
+
+
+def test_gaussian_delivery_metrics_preserve_raw_and_renderer_identity(tmp_path):
+    evaluation_path = tmp_path / "evaluation.json"
+    evaluation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "quality_profiles": {
+                    "primary": "raw_float_v1",
+                    "display_clamped_uint8_v1": {},
+                },
+                "psnr": {"mean": 23.8},
+                "ssim": {"mean": 0.82},
+                "display_psnr": {"mean": 24.1},
+                "display_ssim": {"mean": 0.83},
+            }
+        ),
+        encoding="utf-8",
+    )
+    export_path = tmp_path / "export.json"
+    export_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "sh_degree": 3,
+                "model_sh_degree": 3,
+                "browser_renderer": {
+                    "implementation": "@mkkellogg/gaussian-splats-3d",
+                    "version": "0.4.7",
+                    "requested_sh_degree": 3,
+                    "effective_sh_degree": 2,
+                    "verification_profile": "fixed_camera_browser_v1",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _gaussian_evaluation_metrics(
+        evaluation_path, prefix="gaussian_validation"
+    ) == {
+        "gaussian_validation_metric_profile": "raw_float_v1",
+        "gaussian_validation_psnr": 23.8,
+        "gaussian_validation_ssim": 0.82,
+        "gaussian_validation_display_metric_profile": "display_clamped_uint8_v1",
+        "gaussian_validation_display_psnr": 24.1,
+        "gaussian_validation_display_ssim": 0.83,
+    }
+    assert _gaussian_renderer_metrics(export_path) == {
+        "gaussian_model_sh_degree": 3,
+        "gaussian_browser_renderer": "@mkkellogg/gaussian-splats-3d",
+        "gaussian_browser_renderer_version": "0.4.7",
+        "gaussian_browser_requested_sh_degree": 3,
+        "gaussian_browser_effective_sh_degree": 2,
+        "gaussian_browser_renderer_verification_profile": "fixed_camera_browser_v1",
+    }
+
+    export_path.write_text('{"schema_version": 2}', encoding="utf-8")
+    with pytest.raises(ReconstructionError, match="renderer identity"):
+        _gaussian_renderer_metrics(export_path)
+
+    evaluation_path.write_text('{"schema_version": 2}', encoding="utf-8")
+    with pytest.raises(ReconstructionError, match="evaluation identity"):
+        _gaussian_evaluation_metrics(evaluation_path, prefix="gaussian_validation")
 
 
 def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
