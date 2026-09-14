@@ -71,6 +71,7 @@ VALID_MODES = {"image", "multi_image", "video", "panorama"}
 MESH_METHODS = {"poisson", "ball_pivoting", "alpha_shape"}
 LIFECYCLE_SCHEMA_VERSION = 1
 TERMINAL_STATUSES = {"done", "failed", "cancelled"}
+READ_ONLY_RESULT_KINDS = {"salvaged_derivative", "gaussian_comparison"}
 MAX_ATTEMPTS = 3
 MAX_VIDEO_BYTES = 2 * 1024**3
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
@@ -674,6 +675,8 @@ class JobStore:
         """Idempotently cancel queued work or request cancellation of running work."""
         with self._state_lock:
             manifest = self.get_manifest(job_id)
+            if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
+                raise JobError("Gaussian comparison/recovery results are read-only")
             status = manifest.get("status")
             navigation_status = manifest.get("navigation_status")
             if status == "done" and navigation_status in {"queued", "generating"}:
@@ -716,6 +719,8 @@ class JobStore:
         """Queue a bounded clean retry with a new immutable attempt identity."""
         with self._state_lock:
             manifest = self.get_manifest(job_id)
+            if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
+                raise JobError("Gaussian comparison/recovery results are read-only")
             if manifest.get("status") not in {"failed", "cancelled"}:
                 raise JobError("only failed or cancelled jobs can be retried")
             attempts = manifest.get("attempts")
@@ -752,7 +757,7 @@ class JobStore:
             if not manifest_path.is_file():
                 raise FileNotFoundError(job_id)
             manifest = self._read_json(manifest_path)
-            if manifest.get("result_kind") == "salvaged_derivative":
+            if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
                 raise JobError("recovered Gaussian derivatives are read-only")
             if manifest.get("status") != "done":
                 raise JobError("navigation assets require a completed job")
@@ -897,8 +902,8 @@ class JobStore:
                 "output_type": str(manifest["output_type"]),
                 "updated_at": str(manifest.get("updated_at", manifest.get("created_at", ""))),
             }
-            if manifest.get("result_kind") == "salvaged_derivative":
-                summary["result_kind"] = "salvaged_derivative"
+            if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
+                summary["result_kind"] = manifest["result_kind"]
             jobs.append(summary)
         return sorted(
             jobs,
@@ -1790,7 +1795,10 @@ class JobStore:
         manifest_path = job_dir / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(job_id)
-        manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
+        manifest = self._read_json(manifest_path)
+        if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
+            return manifest
+        manifest = self._with_existing_alignment_assets(job_dir, manifest)
         if manifest.get("status") != "done":
             return manifest
         manifest = self._with_existing_navigation_assets(job_dir, manifest)
@@ -1809,7 +1817,7 @@ class JobStore:
             raise FileNotFoundError(job_id)
 
         manifest = self._with_existing_alignment_assets(job_dir, self._read_json(manifest_path))
-        if manifest.get("result_kind") == "salvaged_derivative":
+        if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
             raise JobError("recovered Gaussian derivatives are read-only")
         self._with_existing_mesh_variants(job_dir, manifest)
         assets = manifest.setdefault("assets", {})
@@ -1866,7 +1874,7 @@ class JobStore:
         manifest_path = job_dir / "manifest.json"
         if not manifest_path.is_file():
             raise FileNotFoundError(job_id)
-        if self._read_json(manifest_path).get("result_kind") == "salvaged_derivative":
+        if self._read_json(manifest_path).get("result_kind") in READ_ONLY_RESULT_KINDS:
             raise JobError("recovered Gaussian derivatives use the dedicated Gaussian bundle")
         bundle_path = self.output_root / f"{job_id}.zip"
         if bundle_path.exists():

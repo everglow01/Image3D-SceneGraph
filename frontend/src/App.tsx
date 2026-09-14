@@ -26,6 +26,7 @@ import {
   type EvidenceStageId
 } from "./reconstructionEvidence";
 import { formatResultKind, type ResultKind } from "./resultKind";
+import { gaussianVariants, defaultGaussianVariant, type GaussianVariant } from "./gaussianVariants";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
   defaultSfmCameraCalibration,
@@ -79,7 +80,7 @@ type GaussianGeometrySource = "colmap" | "vggt_ba";
 type GaussianPostprocess = "none" | "vggt_visibility_v1";
 type GaussianSorFilter = "on" | "off";
 type GaussianFinalFit = "off" | "train_validation_v1";
-type GaussianVariant = "original" | "vggt_filtered";
+
 
 type MeshSettings = {
   method: MeshMethod;
@@ -109,6 +110,8 @@ type MeshVariant = {
 type Manifest = {
   job_id: string;
   result_kind?: ResultKind;
+  gaussian_variants?: GaussianVariant[];
+  default_gaussian_variant?: string;
   source_job_id?: string;
   checkpoint_status?: "missing";
   status: string;
@@ -522,7 +525,7 @@ export function App() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [pointCloudVariant, setPointCloudVariant] = useState<"raw" | "aligned">("aligned");
-  const [gaussianVariant, setGaussianVariant] = useState<GaussianVariant>("original");
+  const [gaussianVariant, setGaussianVariant] = useState<string>("original");
   const [viewerMode, setViewerMode] = useState<ViewerMode>("point_cloud");
   const [meshSettings, setMeshSettings] = useState<MeshSettings>(defaultMeshSettings);
   const [selectedMeshVariantId, setSelectedMeshVariantId] = useState<string | null>(null);
@@ -654,14 +657,10 @@ export function App() {
     }
     return `/api/jobs/${manifest.job_id}/assets/${manifest.assets.alignment_diagnostics}`;
   }, [manifest]);
-  const selectedSplatAsset =
-    gaussianVariant === "vggt_filtered" && manifest?.assets.scene_splat_vggt_filtered
-      ? manifest.assets.scene_splat_vggt_filtered
-      : manifest?.assets.scene_splat;
-  const selectedSplatMetadata =
-    gaussianVariant === "vggt_filtered" && manifest?.assets.gaussian_vggt_filtered_export_metadata
-      ? manifest.assets.gaussian_vggt_filtered_export_metadata
-      : manifest?.assets.gaussian_export_metadata;
+  const splatVariants = manifest ? gaussianVariants(manifest) : [];
+  const selectedSplatVariant = splatVariants.find(row => row.id === gaussianVariant);
+  const selectedSplatAsset = selectedSplatVariant?.scene_splat;
+  const selectedSplatMetadata = selectedSplatVariant?.export_metadata;
   const splatUrl = useMemo(() => {
     if (!manifest || !selectedSplatAsset) {
       return null;
@@ -850,11 +849,10 @@ export function App() {
   }
 
   function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
+    const defaultVariant = defaultGaussianVariant(nextManifest);
     setManifest(nextManifest);
     setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
-    setGaussianVariant(
-      nextManifest.assets.scene_splat_vggt_filtered ? "vggt_filtered" : "original"
-    );
+    setGaussianVariant(defaultVariant);
     setViewerMode((current) => {
       const hasProductPointCloud = Boolean(
         nextManifest.assets.point_cloud || nextManifest.assets.point_cloud_aligned
@@ -1260,6 +1258,8 @@ export function App() {
 
   const currentStatus = jobStatus ?? manifest;
   const isRecoveredDerivative = manifest?.result_kind === "salvaged_derivative";
+  const isComparison = manifest?.result_kind === "gaussian_comparison";
+  const isReadOnlyResult = isRecoveredDerivative || isComparison;
   const gaussianValidationPsnr =
     currentStatus?.metrics.gaussian_validation_psnr ??
     currentStatus?.metrics.gaussian_vggt_filtered_validation_psnr;
@@ -1272,15 +1272,15 @@ export function App() {
   const gaussianValidationDisplaySsim =
     currentStatus?.metrics.gaussian_validation_display_ssim ??
     currentStatus?.metrics.gaussian_vggt_filtered_validation_display_ssim;
-  const canCancel = Boolean(currentStatus && ["queued", "running", "exporting"].includes(currentStatus.status));
-  const canRetry = Boolean(currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
+  const canCancel = Boolean(!isReadOnlyResult && currentStatus && ["queued", "running", "exporting"].includes(currentStatus.status));
+  const canRetry = Boolean(!isReadOnlyResult && currentStatus && ["failed", "cancelled"].includes(currentStatus.status));
   const hasAlignedPointCloud = Boolean(manifest?.assets.point_cloud_aligned);
   const canBuildMeshVariant = Boolean(
-    !isRecoveredDerivative &&
+    !isReadOnlyResult &&
       (manifest?.assets.point_cloud || manifest?.assets.point_cloud_aligned)
   );
   const canBuildNavigation = Boolean(
-    !isRecoveredDerivative &&
+    !isReadOnlyResult &&
       manifest?.status === "done" &&
       manifest.geometry_backend === "project_3dgs" &&
       manifest.output_type === "gaussian_splat" &&
@@ -2136,22 +2136,14 @@ export function App() {
                 </div>
               )}
               {hasSplat && viewerMode === "gaussian_splat" && (
-                <div className="variant-toggle" role="group" aria-label="高斯清理前后视图">
-                  <button
-                    className={gaussianVariant === "original" ? "active" : ""}
-                    type="button"
-                    onClick={() => setGaussianVariant("original")}
-                  >
-                    Original
-                  </button>
-                  <button
-                    className={gaussianVariant === "vggt_filtered" ? "active" : ""}
-                    type="button"
-                    onClick={() => setGaussianVariant("vggt_filtered")}
-                    disabled={!manifest?.assets.scene_splat_vggt_filtered}
-                  >
-                    VGGT-filtered
-                  </button>
+                <div className="variant-toggle" role="group" aria-label="高斯模型对比">
+                  {splatVariants.map(variant => (
+                    <button className={gaussianVariant === variant.id ? "active" : ""}
+                      type="button" key={variant.id} aria-pressed={gaussianVariant === variant.id}
+                      onClick={() => setGaussianVariant(variant.id)}>
+                      {variant.label}
+                    </button>
+                  ))}
                 </div>
               )}
               <button
@@ -2182,6 +2174,18 @@ export function App() {
               )}
             </div>
           </div>
+          {isComparison && selectedSplatVariant && (
+            <div className="recovered-derivative-notice" role="status">
+              <strong>只读补拟合对比 · {selectedSplatVariant.label}</strong>
+              <span>
+                {selectedSplatVariant.model_stage === "final_fit"
+                  ? "Train+Validation 拟合集（非 held-out）" : "补拟合前 held-out Validation"}
+                {` · ${selectedSplatVariant.gaussian_count?.toLocaleString()} 高斯 · 原生 float ${selectedSplatVariant.psnr?.toFixed(3)} dB / SSIM ${selectedSplatVariant.ssim?.toFixed(4)}`}
+                {` · 显示裁剪 ${selectedSplatVariant.display_psnr?.toFixed(3)} dB / SSIM ${selectedSplatVariant.display_ssim?.toFixed(4)}`}
+                。切换会重新加载模型并复位视角；不代表浏览器截图指标或泛化提升。
+              </span>
+            </div>
+          )}
           {isRecoveredDerivative && manifest && (
             <div className="recovered-derivative-notice" role="status">
               <strong>恢复衍生结果</strong>
@@ -2920,7 +2924,7 @@ export function App() {
               <AssetLink manifest={manifest} assetKey="consistency_diagnostics" label="一致性诊断" />
               <AssetLink manifest={manifest} assetKey="scene_graph" label="场景图（Scene Graph）" />
               <AssetLink manifest={manifest} assetKey="log" label="运行日志" />
-              {manifest && !isRecoveredDerivative && (
+              {manifest && !isReadOnlyResult && (
                 <a href={`/api/jobs/${manifest.job_id}/download`}>
                   <Download size={16} aria-hidden="true" />
                   <span>下载完整结果包</span>
