@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import weakref
 from types import SimpleNamespace
 
@@ -29,6 +30,7 @@ from image3d_scenegraph.gaussian.trainer import (
     _checkpoint_state,
     _contiguous_shard_bounds,
     _final_fit_learning_rates,
+    _final_fit_profile,
     _final_fit_split_ids,
     _load_contiguous_model_shard,
     _load_model,
@@ -181,6 +183,102 @@ def test_final_fit_profile_uses_bounded_fresh_optimizer_without_mutating_config(
         config["learning_rate"]["opacity"] * 0.1
     )
     assert repr(config) == before
+
+
+def test_train_only_control_changes_only_supervision_and_profile_identity():
+    config = resolve_mcmc_config().effective_config
+    fit = _final_fit_profile(config)
+    control = _final_fit_profile(config, train_only_control=True)
+    assert fit.pop("profile") == "train_validation_v1"
+    assert control.pop("profile") == "train_only_control_v1"
+    assert fit == control
+    contract = {"splits": {"train": ["a", "b"], "validation": ["v"], "test": ["t"]}}
+    assert _final_fit_split_ids(contract, train_only_control=True) == (
+        ["a", "b"], ["v"], ["a", "b"]
+    )
+    contract["splits"]["validation"].append("t")
+    with pytest.raises(TrainingError, match="disjoint"):
+        _final_fit_split_ids(contract, train_only_control=True)
+
+
+@pytest.mark.parametrize("control", [False, True])
+def test_final_fit_cpu_mock_samples_only_allowed_views(tmp_path, monkeypatch, control):
+    import image3d_scenegraph.gaussian.trainer as trainer
+    from image3d_scenegraph.gaussian.dataset import sha256_file
+
+    class CpuTorch:
+        cuda = SimpleNamespace(
+            is_available=lambda: True,
+            set_device=lambda *_: None,
+            reset_peak_memory_stats=lambda *_: None,
+            manual_seed_all=lambda *_: None,
+            max_memory_allocated=lambda *_: 0,
+            max_memory_reserved=lambda *_: 0,
+            OutOfMemoryError=torch.cuda.OutOfMemoryError,
+        )
+
+        def device(self, *_):
+            return torch.device("cpu")
+
+        def __getattr__(self, name):
+            return getattr(torch, name)
+
+    monkeypatch.setattr(trainer, "torch", CpuTorch())
+    monkeypatch.setattr(trainer, "FINAL_FIT_ITERATIONS", 4)
+    config = resolve_mcmc_config()
+    contract = {"dataset_hash": "a" * 64,
+                "splits": {"train": ["a", "b"], "validation": ["v"], "test": ["t"]}}
+    source = tmp_path / "source.pt"
+    source.write_bytes(_model_bytes(model()))
+    selection = tmp_path / "selection.json"
+    selection.write_text(json.dumps({
+        "schema_version": 2, "split": "validation",
+        "quality_role": "held_out_model_selection", "selection_eligible": True,
+        "provenance": {"dataset_hash": contract["dataset_hash"],
+                       "effective_config_hash": config.effective_config_hash,
+                       "model_sha256": sha256_file(source)},
+    }))
+    loaded_splits = []
+    observed = []
+
+    def load_views(_contract, _root, *, split, **_kwargs):
+        assert split in {"train", "validation"}
+        loaded_splits.append(split)
+        return [SimpleNamespace(camera=SimpleNamespace(image_id=value))
+                for value in contract["splits"][split]]
+
+    def render(gaussian, views, index, *_args, **_kwargs):
+        assert {v.camera.image_id for v in views} == ({"a", "b"} if control else {"a", "b", "v"})
+        observed.append(views[index].camera.image_id)
+        view = SimpleNamespace(image=None)
+        loss = sum(parameter.square().mean() for parameter in gaussian.parameters())
+        return view, SimpleNamespace(image=loss)
+
+    monkeypatch.setattr(trainer, "load_training_views", load_views)
+    monkeypatch.setattr(trainer, "_training_scene_scale", lambda *_: 1.0)
+    monkeypatch.setattr(trainer, "_render_visible_training_view", render)
+    monkeypatch.setattr(trainer, "l1_ssim_loss", lambda image, *_args, **_kwargs: (
+        image, {"l1": float(image.detach()), "ssim": 0.0}
+    ))
+    monkeypatch.setattr(trainer, "evaluate_views", lambda *_args, **kwargs: {
+        "split": kwargs["split"]
+    })
+    record = trainer.final_fit_gaussians(
+        contract=contract, dataset_root=tmp_path, source_model_path=source,
+        selection_evaluation_path=selection, resolved_config=config,
+        output_dir=tmp_path / "fit", train_only_control=control,
+    )
+    assert loaded_splits == ["train", "validation"]
+    assert len(observed) == 4
+    assert set(observed) == ({"a", "b"} if control else {"a", "b", "v"})
+    assert record["input_splits"] == (["train"] if control else ["train", "validation"])
+    assert record["fit_view_count"] == (2 if control else 3)
+    assert record["optimizer_updates"] == record["camera_samples"] == 4
+    assert record["gaussian_count_before"] == record["gaussian_count_after"]
+    assert record["source_model_unchanged"] is True
+    assert record["test_rgb"] == "not_loaded"
+    evaluation = json.loads((tmp_path / "fit/evaluation.json").read_text())
+    assert evaluation["split"] == ("control_validation" if control else "fit_validation")
 
 
 def test_final_fit_contiguous_shards_cover_rows_in_order():

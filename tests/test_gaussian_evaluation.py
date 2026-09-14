@@ -75,7 +75,11 @@ def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monke
     assert len(list((tmp_path / "previews").glob("*.png"))) == 2
 
 
-def test_fit_validation_metrics_are_not_selection_eligible():
+@pytest.mark.parametrize(("split", "role"), [
+    ("fit_validation", "in_sample_after_train_validation_fit"),
+    ("control_validation", "held_out_after_train_only_control"),
+])
+def test_fit_validation_metrics_are_not_selection_eligible(split, role):
     gaussian = model()
     view = SimpleNamespace(
         camera=SimpleNamespace(image_id="fit"),
@@ -88,13 +92,13 @@ def test_fit_validation_metrics_are_not_selection_eligible():
     result = evaluate_model(
         gaussian,
         [view],
-        split="fit_validation",
+        split=split,
         sh_degree=0,
         renderer=renderer,
     )
 
-    assert result["split"] == "fit_validation"
-    assert result["quality_role"] == "in_sample_after_train_validation_fit"
+    assert result["split"] == split
+    assert result["quality_role"] == role
     assert result["selection_eligible"] is False
 
 

@@ -654,6 +654,7 @@ def final_fit_gaussians(
     selection_evaluation_path: Path,
     resolved_config: ResolvedGaussianConfig,
     output_dir: Path,
+    train_only_control: bool = False,
     cancel_requested: Callable[[], bool] | None = None,
     local_rank: int = 0,
     world_rank: int = 0,
@@ -701,7 +702,10 @@ def final_fit_gaussians(
     ):
         raise TrainingError("final-fit selection evaluation identity mismatch")
 
-    train_ids, validation_ids, fit_ids = _final_fit_split_ids(contract)
+    train_ids, validation_ids, fit_ids = _final_fit_split_ids(
+        contract, train_only_control=train_only_control
+    )
+    input_splits = ["train"] if train_only_control else ["train", "validation"]
     train_views = load_training_views(
         contract,
         dataset_root,
@@ -716,7 +720,7 @@ def final_fit_gaussians(
         longest_edge=int(config["resolution"]["longest_edge"]),
         device=torch.device("cpu"),
     )
-    fit_views = [*train_views, *validation_views]
+    fit_views = list(train_views) if train_only_control else [*train_views, *validation_views]
     loaded_ids = [view.camera.image_id for view in fit_views]
     if len(loaded_ids) != len(set(loaded_ids)) or set(loaded_ids) != set(fit_ids):
         raise TrainingError("final-fit loaded view identity mismatch")
@@ -738,23 +742,7 @@ def final_fit_gaussians(
     scene_scale = _training_scene_scale(contract)
     optimizers = model.optimizers(learning_rates, position_scale=scene_scale)
     sh_degree = int(config["sh_schedule"]["max_degree"])
-    profile = {
-        "profile": FINAL_FIT_PROFILE,
-        "optimizer_updates": FINAL_FIT_ITERATIONS,
-        "learning_rates": learning_rates,
-        "position_schedule": "constant_configured_final",
-        "nonposition_multiplier": FINAL_FIT_NONPOSITION_LR_MULTIPLIER,
-        "sh_degree": sh_degree,
-        "loss": {
-            "name": config["loss"]["name"],
-            "l1_weight": float(config["loss"]["l1_weight"]),
-            "ssim_weight": float(config["loss"]["ssim_weight"]),
-            "clamp_render": bool(config["loss"]["clamp_render"]),
-        },
-        "topology": "frozen",
-        "regularizers": "none",
-        "checkpointing": "disabled_bounded_phase",
-    }
+    profile = _final_fit_profile(config, train_only_control=train_only_control)
     profile_hash = hashlib.sha256(
         json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -819,7 +807,7 @@ def final_fit_gaussians(
                     progress_path,
                     {
                         "event": "final_fit",
-                        "profile": FINAL_FIT_PROFILE,
+                        "profile": profile["profile"],
                         "iteration": iteration,
                         "optimizer_updates": iteration,
                         "nominal_iterations": FINAL_FIT_ITERATIONS,
@@ -842,14 +830,14 @@ def final_fit_gaussians(
             config,
             preview_dir=output_dir / "previews" if world_rank == 0 else None,
             distributed=world_size > 1,
-            split="fit_validation",
+            split="control_validation" if train_only_control else "fit_validation",
         )
         evaluation_count = torch.tensor(model.count, dtype=torch.int64, device=device)
         if world_size > 1:
             torch.distributed.all_reduce(evaluation_count)
         fit_evaluation["gaussian_count"] = int(evaluation_count)
         fit_evaluation["world_size"] = world_size
-        fit_evaluation["training_splits"] = ["train", "validation"]
+        fit_evaluation["training_splits"] = input_splits
         fit_evaluation["test_rgb"] = "not_loaded"
         fit_evaluation["selection_evaluation_sha256"] = selection_evaluation_hash
         local_memory = (
@@ -904,7 +892,7 @@ def final_fit_gaussians(
             )
             record = {
                 "schema_version": 1,
-                "profile": FINAL_FIT_PROFILE,
+                "profile": profile["profile"],
                 "profile_hash": profile_hash,
                 "status": "complete",
                 "dataset_hash": contract["dataset_hash"],
@@ -916,7 +904,7 @@ def final_fit_gaussians(
                 "selection_evaluation_sha256": selection_evaluation_hash,
                 "final_model_sha256": final_model_hash,
                 "evaluation_sha256": sha256_file(evaluation_path),
-                "input_splits": ["train", "validation"],
+                "input_splits": input_splits,
                 "train_count": len(train_ids),
                 "validation_count": len(validation_ids),
                 "fit_view_count": len(fit_ids),
@@ -957,7 +945,7 @@ def final_fit_gaussians(
 
 
 def _final_fit_split_ids(
-    contract: dict[str, Any],
+    contract: dict[str, Any], *, train_only_control: bool = False,
 ) -> tuple[list[str], list[str], list[str]]:
     train_ids = [str(value) for value in contract["splits"]["train"]]
     validation_ids = [str(value) for value in contract["splits"]["validation"]]
@@ -970,7 +958,29 @@ def _final_fit_split_ids(
         or set(fit_ids) & test_ids
     ):
         raise TrainingError("final-fit requires disjoint nonempty Train/Validation/Test splits")
-    return train_ids, validation_ids, fit_ids
+    return train_ids, validation_ids, list(train_ids) if train_only_control else fit_ids
+
+
+def _final_fit_profile(
+    config: dict[str, Any], *, train_only_control: bool = False,
+) -> dict[str, Any]:
+    return {
+        "profile": "train_only_control_v1" if train_only_control else FINAL_FIT_PROFILE,
+        "optimizer_updates": FINAL_FIT_ITERATIONS,
+        "learning_rates": _final_fit_learning_rates(config),
+        "position_schedule": "constant_configured_final",
+        "nonposition_multiplier": FINAL_FIT_NONPOSITION_LR_MULTIPLIER,
+        "sh_degree": int(config["sh_schedule"]["max_degree"]),
+        "loss": {
+            "name": config["loss"]["name"],
+            "l1_weight": float(config["loss"]["l1_weight"]),
+            "ssim_weight": float(config["loss"]["ssim_weight"]),
+            "clamp_render": bool(config["loss"]["clamp_render"]),
+        },
+        "topology": "frozen",
+        "regularizers": "none",
+        "checkpointing": "disabled_bounded_phase",
+    }
 
 
 def _final_fit_learning_rates(config: dict[str, Any]) -> dict[str, Any]:

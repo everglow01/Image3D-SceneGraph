@@ -25,6 +25,10 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("--distributed", action="store_true")
+    parser.add_argument(
+        "--train-only-control", action="store_true",
+        help="Research-only equal-budget control; exclude Validation from optimization.",
+    )
     args = parser.parse_args()
 
     contract = json.loads(args.dataset_contract.read_text(encoding="utf-8"))
@@ -43,6 +47,7 @@ def main() -> None:
         "selection_evaluation_path": args.selection_evaluation,
         "resolved_config": resolved,
         "output_dir": args.output_dir,
+        "train_only_control": args.train_only_control,
     }
     cancel_requested = (
         (lambda: args.cancel_file.exists()) if args.cancel_file is not None else None
