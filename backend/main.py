@@ -352,6 +352,8 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             return app.state.job_store.cancel_job(job_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="job not found") from exc
+        except JobError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
     def retry_job(job_id: str) -> dict:

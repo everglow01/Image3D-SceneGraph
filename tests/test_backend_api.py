@@ -43,6 +43,23 @@ class FakeJobStore:
         }
 
 
+def test_comparison_mutation_routes_reject_without_server_error(tmp_path):
+    job = tmp_path / "comparison"
+    job.mkdir()
+    path = job / "manifest.json"
+    path.write_text(json.dumps({
+        "job_id": "comparison", "result_kind": "gaussian_comparison",
+        "status": "done", "assets": {}, "metrics": {},
+    }))
+    before = path.read_bytes()
+    client = TestClient(create_app(tmp_path, start_worker=False))
+    for action in ("cancel", "retry", "navigation-assets"):
+        response = client.post(f"/api/jobs/comparison/{action}")
+        assert response.status_code == 409
+        assert "read-only" in response.json()["detail"]
+    assert path.read_bytes() == before
+
+
 def test_list_jobs_returns_store_summaries(tmp_path):
     app = create_app(tmp_path / "jobs", start_worker=False)
     store = FakeJobStore()
