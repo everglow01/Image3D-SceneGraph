@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import signal
 import sqlite3
 import struct
 import subprocess
@@ -422,11 +423,18 @@ def main() -> None:
     if mapper_profile == "incremental":
         commands.append(("mapping", "colmap_mapping", mapper_command))
     command_logs = []
+    mapper_failure = None
     stage_elapsed_seconds: dict[str, float] = {}
     for timing_stage, progress_stage, command in commands:
         write_progress(args.progress_file, progress_stage)
         command_started_at = time.perf_counter()
-        command_logs.append(run_command(command))
+        if timing_stage == "mapping" and args.gaussian_baseline and video_selection is not None:
+            mapper_log, mapper_failure = run_video_incremental_mapper(
+                command, sparse_dir=sparse_dir, output_dir=output_dir,
+            )
+            command_logs.append(mapper_log)
+        else:
+            command_logs.append(run_command(command))
         stage_elapsed_seconds[timing_stage] = stage_elapsed_seconds.get(
             timing_stage, 0.0
         ) + (time.perf_counter() - command_started_at)
@@ -472,6 +480,7 @@ def main() -> None:
                 database_path,
                 pose_recovery,
             ) = select_or_recover_sparse_model(
+                mapper_failure=mapper_failure,
                 colmap=colmap,
                 sparse_dir=sparse_dir,
                 database_path=database_path,
@@ -949,6 +958,49 @@ def run_command(command: list[str]) -> str:
     return "command=" + " ".join(command) + "\nstdout=" + completed.stdout.strip() + "\nstderr=" + completed.stderr.strip()
 
 
+def run_video_incremental_mapper(
+    command: list[str], *, sparse_dir: Path, output_dir: Path,
+) -> tuple[str, dict[str, Any] | None]:
+    try:
+        return run_command(command), None
+    except RuntimeError as exc:
+        cause = exc.__cause__
+        if not (
+            isinstance(cause, subprocess.CalledProcessError)
+            and cause.returncode == -signal.SIGABRT
+            and "Check failed: ba_config.NumImages() >= 2 (0 vs. 2)" in (cause.stderr or "")
+            and "At least two images must be registered for global bundle-adjustment" in (cause.stderr or "")
+            and len(command) > 1 and command[1] == "mapper"
+        ):
+            raise
+        saved = {}
+        for model in sorted(sparse_dir.iterdir()) if sparse_dir.is_dir() else []:
+            files = [model / name for name in ("cameras.bin", "images.bin", "points3D.bin")]
+            if not all(path.is_file() and path.stat().st_size >= 8 for path in files):
+                continue
+            registered, points = read_sparse_model_counts(model)
+            if registered >= 2 and points > 0:
+                saved[model.name] = {path.name: sha256_file(path) for path in files}
+        diagnostics = output_dir / "diagnostics"
+        diagnostics.mkdir(parents=True, exist_ok=True)
+        log_path = diagnostics / "sfm_mapper_failure.log"
+        log_path.write_text(str(exc) + "\n", encoding="utf-8")
+        record = {
+            "profile": "incremental_empty_global_ba_abort_v1",
+            "returncode": cause.returncode,
+            "status": "candidate_validation_required" if saved else "no_saved_candidate",
+            "log_path": str(log_path.relative_to(output_dir)),
+            "log_sha256": sha256_file(log_path),
+            "saved_candidate_files_sha256": saved,
+            "test_rgb_loaded": False,
+        }
+        write_json(diagnostics / "sfm_mapper_failure.json", record)
+        if not saved:
+            raise
+        print("sfm_mapper_failure=incremental_empty_global_ba_abort_v1; validating saved candidates", flush=True)
+        return str(exc), record
+
+
 def select_explicit_global_sparse_model(
     *,
     colmap: str,
@@ -1046,6 +1098,7 @@ def select_or_recover_sparse_model(
     gpu_index: str | None,
     num_threads: int | None,
     command_logs: list[str],
+    mapper_failure: dict[str, Any] | None = None,
 ) -> tuple[Path, int, int, Path, dict[str, Any]]:
     recovery_path = output_dir / "diagnostics" / "sfm_pose_recovery.json"
     recovery_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1067,6 +1120,8 @@ def select_or_recover_sparse_model(
         ),
         "test_rgb_loaded": False,
     }
+    if mapper_failure is not None:
+        record["mapper_failure"] = mapper_failure
     healthy: list[dict[str, Any]] = []
     for candidate in sorted(candidates, key=lambda path: path.name):
         evaluated = _evaluate_pose_candidate(
@@ -1164,6 +1219,9 @@ def select_or_recover_sparse_model(
             str(value["model_path"]),
         ),
     )
+    if mapper_failure is not None:
+        record["status"] = "recovered_after_mapper_abort"
+        record["recovery_applied"] = True
     if selected["kind"] != "incremental":
         record["status"] = "recovered"
         record["recovery_applied"] = True

@@ -194,6 +194,10 @@ def prepare(source: Path, root: Path, *, reuse_experiment: Path | None = None) -
             if sha256_file(original / item["path"]) != item["sha256"]:
                 raise ValueError("retained image changed during geometry")
         files.extend([root / "reuse.json", shared / "diagnostics/sfm_frontend_contract.json"])
+    for name in ("sfm_mapper_failure.json", "sfm_mapper_failure.log", "sfm_pose_recovery.json"):
+        path = shared / "diagnostics" / name
+        if path.is_file():
+            files.append(path)
     write_json(root / "protocol.json", {
         "profile": PROFILE, "status": "frozen", "code": code,
         "source": str(source), "source_sha256": probe["source"]["sha256"],

@@ -159,8 +159,9 @@ def test_project_gaussian_vggt_ba_progress_callback_reports_recovery_and_fallbac
         ("global", "global", "not_needed", False, [], 0),
     ),
 )
+@pytest.mark.parametrize("mapper_abort", [False, True])
 def test_colmap_pose_evidence_preserves_effective_solver_identity(
-    requested, mapper, status, applied, excluded, expected_count
+    requested, mapper, status, applied, excluded, expected_count, mapper_abort
 ):
     health = {
         "schema_version": 1,
@@ -181,6 +182,24 @@ def test_colmap_pose_evidence_preserves_effective_solver_identity(
             "excluded_image_ids": excluded,
         },
     }
+
+    if mapper_abort:
+        recovery["mapper_failure"] = {
+            "profile": "incremental_empty_global_ba_abort_v1", "returncode": -6,
+            "status": "candidate_validation_required",
+            "saved_candidate_files_sha256": {"0": {"images.bin": "b" * 64}},
+        }
+        recovery["recovery_applied"] = True
+        if mapper == "incremental":
+            recovery["status"] = "recovered_after_mapper_abort"
+        if requested == "global":
+            with pytest.raises(ValueError, match="mapper failure evidence"):
+                _validate_colmap_pose_evidence(
+                    requested_mapper=requested, mapper=mapper,
+                    database_path=Path("colmap/database.db"), database_sha256="a" * 64,
+                    pose_health=health, pose_recovery=recovery,
+                )
+            return
 
     assert _validate_colmap_pose_evidence(
         requested_mapper=requested,

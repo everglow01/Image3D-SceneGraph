@@ -1620,7 +1620,19 @@ def _validate_colmap_pose_evidence(
         for image_id in excluded_image_ids
     ):
         raise ValueError("invalid repaired COLMAP camera IDs")
+    mapper_failure = pose_recovery.get("mapper_failure")
+    if mapper_failure is not None and (
+        requested_mapper != "incremental"
+        or not isinstance(mapper_failure, dict)
+        or mapper_failure.get("profile") != "incremental_empty_global_ba_abort_v1"
+        or mapper_failure.get("returncode") != -6
+        or mapper_failure.get("status") != "candidate_validation_required"
+        or not mapper_failure.get("saved_candidate_files_sha256")
+    ):
+        raise ValueError("inconsistent COLMAP mapper failure evidence")
     expected_status = "not_needed" if mapper == requested_mapper else "recovered"
+    if mapper_failure is not None and mapper == "incremental":
+        expected_status = "recovered_after_mapper_abort"
     if (
         requested_mapper not in COLMAP_MAPPER_IDS
         or (requested_mapper == "global" and mapper != "global")
@@ -1635,7 +1647,9 @@ def _validate_colmap_pose_evidence(
         or selected.get("kind") != mapper
         or Path(str(selected.get("database_path", ""))) != database_path
         or pose_recovery.get("effective_database_sha256") != database_sha256
-        or pose_recovery.get("recovery_applied") is not (mapper != requested_mapper)
+        or pose_recovery.get("recovery_applied") is not (
+            mapper != requested_mapper or mapper_failure is not None
+        )
         or bool(excluded_image_ids)
         is not (mapper == "incremental_core_repair_v1")
     ):

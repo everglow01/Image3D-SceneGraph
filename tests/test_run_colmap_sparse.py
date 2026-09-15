@@ -677,6 +677,102 @@ def test_run_command_preserves_colmap_stderr(monkeypatch):
         run_colmap_sparse.run_command(command)
 
 
+EMPTY_BA_ERROR = (
+    "Check failed: ba_config.NumImages() >= 2 (0 vs. 2) "
+    "At least two images must be registered for global bundle-adjustment"
+)
+
+
+@pytest.mark.parametrize("code,stderr,operation", [
+    (-9, EMPTY_BA_ERROR, "mapper"),
+    (-15, EMPTY_BA_ERROR, "mapper"),
+    (1, EMPTY_BA_ERROR, "mapper"),
+    (-6, "CUDA out of memory", "mapper"),
+    (-6, EMPTY_BA_ERROR.replace("(0 vs. 2)", "(1 vs. 2)"), "mapper"),
+    (-6, EMPTY_BA_ERROR, "global_mapper"),
+    (-6, EMPTY_BA_ERROR, "feature_extractor"),
+])
+def test_empty_ba_recovery_rejects_other_failures(tmp_path, monkeypatch, code, stderr, operation):
+    command = ["colmap", operation]
+    def fail(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(code, command, stderr=stderr)
+    monkeypatch.setattr(run_colmap_sparse.subprocess, "run", fail)
+    with pytest.raises(RuntimeError, match="returncode="):
+        run_colmap_sparse.run_video_incremental_mapper(
+            command, sparse_dir=tmp_path / "absent", output_dir=tmp_path,
+        )
+    assert not (tmp_path / "diagnostics").exists()
+
+
+@pytest.mark.parametrize("saved", [False, True])
+def test_empty_ba_recovery_requires_saved_candidate_and_retains_error(tmp_path, monkeypatch, saved):
+    sparse = tmp_path / "sparse"
+    model = sparse / "0"
+    model.mkdir(parents=True)
+    for name, count in (("images.bin", 20), ("points3D.bin", 100)):
+        _write_binary_count(model / name, count)
+    if saved:
+        _write_binary_count(model / "cameras.bin", 1)
+    command = ["colmap", "mapper"]
+    def fail(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(-6, command, output="saved models", stderr=EMPTY_BA_ERROR)
+    monkeypatch.setattr(run_colmap_sparse.subprocess, "run", fail)
+    if saved:
+        log, record = run_colmap_sparse.run_video_incremental_mapper(
+            command, sparse_dir=sparse, output_dir=tmp_path,
+        )
+        assert EMPTY_BA_ERROR in log
+        assert record["status"] == "candidate_validation_required"
+        assert set(record["saved_candidate_files_sha256"]["0"]) == {"cameras.bin", "images.bin", "points3D.bin"}
+    else:
+        with pytest.raises(RuntimeError, match="returncode=-6"):
+            run_colmap_sparse.run_video_incremental_mapper(
+                command, sparse_dir=sparse, output_dir=tmp_path,
+            )
+    record = json.loads((tmp_path / "diagnostics/sfm_mapper_failure.json").read_text())
+    log_path = tmp_path / record["log_path"]
+    assert "saved models" in log_path.read_text()
+    assert EMPTY_BA_ERROR in log_path.read_text()
+    assert hashlib.sha256(log_path.read_bytes()).hexdigest() == record["log_sha256"]
+    assert record["test_rgb_loaded"] is False
+
+
+def test_mapper_abort_does_not_bypass_failed_geometry_gates(tmp_path, monkeypatch):
+    model = tmp_path / "sparse/0"
+    model.mkdir(parents=True)
+    rejected = {
+        "kind": "incremental", "accepted": False, "registered_count": 1251,
+        "point_count": 146321, "model_path": str(model),
+        "gate_reason_codes": ["registration_rate_below_gate"],
+        "pose_health": {"status": "passed", "automatic_repair": {"eligible": False}},
+    }
+    events = []
+    monkeypatch.setattr(run_colmap_sparse, "_evaluate_pose_candidate", lambda **_: rejected)
+    def global_recovery(**_):
+        events.append("global")
+        return {**rejected, "kind": "global_recovery_v1"}
+    def core_repair(**_):
+        events.append("core")
+        return {"accepted": False, "status": "ineligible"}
+    monkeypatch.setattr(run_colmap_sparse, "_try_global_pose_recovery", global_recovery)
+    monkeypatch.setattr(run_colmap_sparse, "_try_core_pose_repair", core_repair)
+    failure = {"profile": "incremental_empty_global_ba_abort_v1", "returncode": -6}
+    with pytest.raises(RuntimeError, match="registration_rate_below_gate"):
+        run_colmap_sparse.select_or_recover_sparse_model(
+            colmap="colmap", sparse_dir=model.parent, database_path=tmp_path / "database.db",
+            image_dir=tmp_path, work_dir=tmp_path / "work", output_dir=tmp_path,
+            selected_timestamps={"frame.jpg": 0.0}, mapper_seed_path=None,
+            use_gpu=False, gpu_index=None, num_threads=None, command_logs=[],
+            mapper_failure=failure,
+        )
+    assert events == ["global", "core"]
+    report = json.loads((tmp_path / "diagnostics/sfm_pose_recovery.json").read_text())
+    assert report["status"] == "failed"
+    assert report["selected"] is None
+    assert report["mapper_failure"] == failure
+    assert not report["test_rgb_loaded"]
+
+
 def test_gpu_indices_accept_multiple_visible_devices():
     assert run_colmap_sparse.parse_gpu_indices("0,1") == "0,1"
     with pytest.raises(argparse.ArgumentTypeError, match="comma-separated"):
@@ -1268,8 +1364,9 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
 
 
 @pytest.mark.parametrize("reuse", [False, True])
+@pytest.mark.parametrize("mapper_abort", [False, True])
 def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
-    tmp_path, monkeypatch, reuse
+    tmp_path, monkeypatch, reuse, mapper_abort
 ):
     _accept_pose_health(monkeypatch)
     image_dir = tmp_path / "images"
@@ -1318,6 +1415,10 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
             model.mkdir(parents=True)
             _write_binary_count(model / "images.bin", 12)
             _write_binary_count(model / "points3D.bin", 100)
+            _write_binary_count(model / "cameras.bin", 1)
+            if mapper_abort:
+                cause = subprocess.CalledProcessError(-6, command, stderr=EMPTY_BA_ERROR)
+                raise RuntimeError(EMPTY_BA_ERROR) from cause
         elif command[1] == "model_converter" and command[-1] == "PLY":
             (output_dir / "geometry" / "points.ply").write_text(
                 "ply\nelement vertex 1\nend_header\n", encoding="utf-8"
@@ -1465,6 +1566,12 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert timing["sfm_frontend_contract_path"] == (
         "diagnostics/sfm_frontend_contract.json"
     )
+    if mapper_abort:
+        report = json.loads((output_dir / "diagnostics/sfm_pose_recovery.json").read_text())
+        assert report["status"] == "recovered_after_mapper_abort"
+        assert report["recovery_applied"] is True
+        assert report["mapper_failure"]["profile"] == "incremental_empty_global_ba_abort_v1"
+        assert (output_dir / report["mapper_failure"]["log_path"]).is_file()
     assert timing["total_elapsed_seconds"] >= sum(
         timing["stage_elapsed_seconds"].values()
     )

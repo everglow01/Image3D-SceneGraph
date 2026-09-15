@@ -44,3 +44,13 @@ SIFT/Brute-force、sequential_loop、default_v1 verification、shared OPENCV、I
 ```
 
 随后使用相同脚本的`run-arm --arm project|mcmc --protocol-sha256 <新协议SHA>`。这些命令仅在授权远端dashboard任务执行；不是本机GPU运行指令。
+
+## 2026-09-15 空模型 BA 崩溃修复续跑
+
+首个2,500种子任务在Mapper处理后续小子模型时，触发`ba_config.NumImages() >= 2 (0 vs. 2)`并以SIGABRT退出。最大已保存Incremental模型注册1,251/2,500张（50.04%），有146,321个三维点；它尚未通过完整健康验收，不能当作合格几何。该次没有执行Global recovery、冻结replay或启动Gaussian，也不构成完整的2,500种子质量终评。
+
+用户随后授权修复并在几何通过后继续双臂。本次只修复项目runner的已知异常恢复边界，不修改或重编译外部COLMAP：仅视频Gaussian初始Incremental Mapper的负SIGABRT返回码和上述零图像BA错误同时匹配时，允许已有二进制候选进入原有完整解析、位姿健康及12/70%/80%验收链。没有可用的落盘候选仍失败。OOM、取消、其他断言、特征/匹配失败、显式Global以及后续扩展/BA失败均不由此豁免。候选头部计数和文件存在性只是进入验收的前置条件，不替代完整解析或质量门槛。
+
+`diagnostics/sfm_mapper_failure.log`保留原命令、返回码和完整stdout/stderr；同名JSON绑定日志和已保存候选文件SHA。`sfm_pose_recovery.json`包含`mapper_failure`，若直接接受落盘Incremental候选则状态为`recovered_after_mapper_abort`、`recovery_applied=true`，不得标作正常完成Mapper。后续Global/core身份维持原合同。成功冻结协议时绑定异常日志、异常记录和恢复诊断哈希。
+
+续跑根为`outputs/experiments/num4-new-4k-seed2500-abortfix-train-only-v1/`，调度在同名`-dispatch/`。仍从原1,000种子实验复用经过哈希校验的2,787帧和独立SQLite快照，重跑2,500种子Mapper；不直接复用上次未验收模型，不覆盖两次旧失败目录或删除once/exit标记。除新增精确异常分类外，求解参数、种子规则、几何门槛及双臂预算保持不变。它是新代码版本的恢复续跑，不冒充原对照已成功完成。
