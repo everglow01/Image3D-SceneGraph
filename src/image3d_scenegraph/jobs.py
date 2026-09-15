@@ -63,6 +63,7 @@ from image3d_scenegraph.geometry.colmap import (
 )
 from image3d_scenegraph.video.keyframes import (
     DEFAULT_VIDEO_PROFILE,
+    MAX_VIDEO_BYTES,
     VIDEO_PROFILES,
 )
 
@@ -73,7 +74,6 @@ LIFECYCLE_SCHEMA_VERSION = 1
 TERMINAL_STATUSES = {"done", "failed", "cancelled"}
 READ_ONLY_RESULT_KINDS = {"salvaged_derivative", "gaussian_comparison"}
 MAX_ATTEMPTS = 3
-MAX_VIDEO_BYTES = 2 * 1024**3
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 VIDEO_ROTATIONS = {"auto", "clockwise_90", "counterclockwise_90", "180"}
 GAUSSIAN_GEOMETRY_SOURCES = {"colmap", "vggt_ba"}
@@ -1940,7 +1940,7 @@ class JobStore:
             if size_bytes is None or size_bytes <= 0:
                 raise JobError("video input is empty")
             if size_bytes > MAX_VIDEO_BYTES:
-                raise JobError("video exceeds the 2 GiB limit")
+                raise JobError(f"video exceeds the {MAX_VIDEO_BYTES // 1024**3} GiB limit")
             if uploaded.content is None and uploaded.staged_path is None:
                 raise JobError("video input has no staged content")
         if mode == "panorama" and len(files) != 1:

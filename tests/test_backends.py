@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.main import create_app
 from image3d_scenegraph.geometry import backends
 from image3d_scenegraph.geometry.backends import get_backend_specs
+from image3d_scenegraph.video.keyframes import MAX_CANDIDATES, MAX_DURATION_SECONDS, MAX_VIDEO_BYTES
 
 
 def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
@@ -20,6 +21,11 @@ def test_backend_specs_report_mock_available(tmp_path, monkeypatch):
     assert "colmap executable not found" in (specs["colmap"].reason or "")
     assert specs["colmap_vggt"].available is False
     assert "colmap executable not found" in (specs["colmap_vggt"].reason or "")
+    video = specs["project_3dgs"].options["video_ingestion"]
+    assert video["supported_profiles"] == ["standard_v1", "standard_v2"]
+    assert video["max_duration_seconds"] == MAX_DURATION_SECONDS == 906
+    assert video["max_keyframes"] == MAX_CANDIDATES == 5_436
+    assert video["max_size_bytes"] == MAX_VIDEO_BYTES == 16 * 1024**3
 
 
 def test_backend_specs_prefer_project_local_colmap(tmp_path, monkeypatch):

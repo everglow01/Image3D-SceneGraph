@@ -17,6 +17,7 @@ from PIL import Image
 from image3d_scenegraph.video.keyframes import (
     DEFAULT_VIDEO_PROFILE,
     MAX_CANDIDATES,
+    MAX_DURATION_SECONDS,
     MAX_KEYFRAMES,
     STANDARD_V1,
     STANDARD_V2,
@@ -26,6 +27,7 @@ from image3d_scenegraph.video.keyframes import (
     _estimate_sparse_motion,
     base_keyframe_count,
     extract_video_keyframes,
+    probe_video,
     score_frame,
     select_keyframes,
     target_keyframe_count,
@@ -59,7 +61,11 @@ def test_default_video_profile_uses_standard_v2_budgets() -> None:
     assert target_keyframe_count(360) == 1_800
     assert target_keyframe_count(600) == 3_000
     assert target_keyframe_count(606) == 3_030
-    assert MAX_CANDIDATES == 3_636
+    assert target_keyframe_count(601) == 3_005
+    assert target_keyframe_count(900) == 4_500
+    assert target_keyframe_count(906) == 4_530
+    assert MAX_DURATION_SECONDS == 906
+    assert MAX_CANDIDATES == 5_436
 
 
 def test_historical_standard_v1_duration_budgets() -> None:
@@ -80,6 +86,49 @@ def test_standard_v2_duration_budgets() -> None:
         2_424,
         3_030,
     )
+
+
+@pytest.mark.parametrize("duration", [601, 900, 906])
+def test_long_video_selection_preserves_v2_density(duration: int) -> None:
+    candidates = [
+        _candidate(
+            index,
+            time_seconds=(index + 0.5) / 6,
+            descriptor=np.full((32, 32), index % 256, dtype=np.float32),
+        )
+        for index in range(duration * 6)
+    ]
+    selected = select_keyframes(candidates, float(duration), profile=STANDARD_V2)
+    assert base_keyframe_count(duration) == duration * 4
+    assert sum(item["selection_reason"] == "base" for item in selected) == duration * 4
+    assert duration * 4 <= len(selected) <= duration * 5
+    assert target_keyframe_count(duration, STANDARD_V1) == 1_000
+
+
+@pytest.mark.parametrize("duration", [10, 601, 900, 906, 906.001, 9.999])
+def test_probe_video_duration_boundary(tmp_path, monkeypatch, duration: float) -> None:
+    source = tmp_path / "new-video.mp4"
+    source.write_bytes(b"video-probe-fixture")
+    payload = {
+        "streams": [{
+            "codec_type": "video",
+            "duration": str(duration),
+            "width": 1920,
+            "height": 1080,
+            "avg_frame_rate": "30/1",
+        }],
+        "format": {"format_name": "mov,mp4"},
+    }
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, json.dumps(payload)),
+    )
+    if 10 <= duration <= 906:
+        assert probe_video(source, ffprobe="ffprobe")["duration_seconds"] == duration
+    else:
+        with pytest.raises(VideoKeyframeError, match="15 minutes"):
+            probe_video(source, ffprobe="ffprobe")
 
 
 def test_frame_quality_and_selection_are_bounded() -> None:
@@ -246,6 +295,44 @@ def test_insufficient_video_keyframes_is_explicit() -> None:
     ]
     with pytest.raises(VideoKeyframeError, match="insufficient_video_keyframes"):
         select_keyframes(candidates, 10.0)
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg tools are unavailable",
+)
+def test_extracts_4k_hevc_mov_at_reconstruction_resolution(tmp_path: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+    encoders = subprocess.run(
+        [ffmpeg, "-hide_banner", "-encoders"],
+        capture_output=True, text=True, check=True, timeout=30,
+    )
+    if "libx265" not in encoders.stdout:
+        pytest.skip("libx265 fixture encoder is unavailable")
+    source = tmp_path / "4k-hevc.MOV"
+    subprocess.run(
+        [
+            ffmpeg, "-v", "error", "-f", "lavfi", "-i",
+            "testsrc2=size=480x270:rate=6:duration=10.2",
+            "-vf", "scale=3840:2160",
+            "-c:v", "libx265", "-preset", "ultrafast", "-crf", "35",
+            "-x265-params", "pools=1:frame-threads=1:log-level=error",
+            "-pix_fmt", "yuv420p10le", "-tag:v", "hvc1", str(source),
+        ],
+        check=True, capture_output=True, timeout=120,
+    )
+    probe = probe_video(source)
+    assert probe["codec"] == "hevc"
+    assert (probe["display_width"], probe["display_height"]) == (3840, 2160)
+    source_hash = probe["source"]["sha256"]
+    result = extract_video_keyframes(source, tmp_path / "out", longest_edge=1280)
+    assert result["selection"]["selected_count"] >= 24
+    selected = sorted((tmp_path / "out" / "frames" / "selected").glob("*.jpg"))
+    with Image.open(selected[0]) as image:
+        assert image.size == (1280, 720)
+        assert image.mode == "RGB"
+        assert image.getexif().get(274) == 1
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == source_hash
 
 
 @pytest.mark.skipif(

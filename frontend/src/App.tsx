@@ -1870,8 +1870,11 @@ export function App() {
                       <option value="180">强制旋转 180°</option>
                     </select>
                     <small>
-                      支持 10 秒–10 分钟、最大 2 GiB 的 MP4/MOV/M4V/WebM；覆盖 1080p30
-                      竖拍输入，最多选择 800 张关键帧。坐标仍为归一化任意单位。
+                      支持 10 秒–15 分钟、最大 16 GiB 的 MP4/MOV/M4V/WebM；支持 4K H.265
+                      输入，由服务端 FFmpeg 解码并缩放到所选重建分辨率。
+                      默认每秒选取 4 张基础帧，运动自适应补到最多 5 张；
+                      15 分钟最多初选 4,500 张，缺口恢复可从每秒 6 张候选中补帧。
+                      实际数量受质量筛选影响。坐标仍为归一化任意单位。
                     </small>
                     {selectedBackendStatus?.video_ingestion?.reason && (
                       <small>{selectedBackendStatus.video_ingestion.reason}</small>
@@ -3011,8 +3014,8 @@ function validateFiles(mode: Mode, files: File[]) {
   }
   if (mode === "video") {
     const file = files[0];
-    if (file.size > 2 * 1024 ** 3) {
-      return "视频文件不能超过 2 GiB。";
+    if (file.size > 16 * 1024 ** 3) {
+      return "视频文件不能超过 16 GiB。";
     }
     if (!/\.(mp4|mov|m4v|webm)$/i.test(file.name)) {
       return "视频必须使用 MP4、MOV、M4V 或 WebM 格式。";

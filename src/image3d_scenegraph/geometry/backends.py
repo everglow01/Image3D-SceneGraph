@@ -639,10 +639,10 @@ def _project_gaussian_spec(
                 "reason": None
                 if video_available
                 else "ffmpeg and ffprobe executables are required",
-                "supported_profiles": ["standard_v1"],
-                "max_duration_seconds": 606,
-                "max_size_bytes": 2 * 1024**3,
-                "max_keyframes": 3_636,
+                "supported_profiles": ["standard_v1", "standard_v2"],
+                "max_duration_seconds": 906,
+                "max_size_bytes": 16 * 1024**3,
+                "max_keyframes": 5_436,
             },
         },
     )

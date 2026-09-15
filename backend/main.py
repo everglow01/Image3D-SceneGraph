@@ -47,7 +47,7 @@ async def _stage_video_upload(store: JobStore, upload: UploadFile) -> UploadedIn
             while chunk := await upload.read(8 * 1024 * 1024):
                 size_bytes += len(chunk)
                 if size_bytes > MAX_VIDEO_BYTES:
-                    raise JobError("video exceeds the 2 GiB limit")
+                    raise JobError(f"video exceeds the {MAX_VIDEO_BYTES // 1024**3} GiB limit")
                 digest.update(chunk)
                 handle.write(chunk)
         return UploadedInput(

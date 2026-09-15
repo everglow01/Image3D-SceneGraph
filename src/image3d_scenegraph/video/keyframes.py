@@ -28,10 +28,10 @@ V2_PROFILE_ID = "video_keyframes_standard_v2"
 PROFILE_ID = V2_PROFILE_ID
 VIDEO_PROFILES = {STANDARD_V1, STANDARD_V2}
 MIN_DURATION_SECONDS = 10.0
-MAX_DURATION_SECONDS = 606.0
-MAX_VIDEO_BYTES = 2 * 1024**3
+MAX_DURATION_SECONDS = 906.0
+MAX_VIDEO_BYTES = 16 * 1024**3
 CANDIDATE_FPS = 6
-MAX_CANDIDATES = 3_636
+MAX_CANDIDATES = int(MAX_DURATION_SECONDS * CANDIDATE_FPS)
 MAX_KEYFRAMES = 1_000
 MIN_KEYFRAMES = 24
 V2_BASE_FPS = 4
@@ -98,7 +98,7 @@ def probe_video(
         raise VideoKeyframeError(f"video input is missing: {source}")
     size_bytes = source.stat().st_size
     if size_bytes > MAX_VIDEO_BYTES:
-        raise VideoKeyframeError("video exceeds the 2 GiB limit")
+        raise VideoKeyframeError(f"video exceeds the {MAX_VIDEO_BYTES // 1024**3} GiB limit")
     if size_bytes == 0:
         raise VideoKeyframeError("video input is empty")
     if ffprobe is None:
@@ -139,7 +139,7 @@ def probe_video(
     if duration is None:
         raise VideoKeyframeError("video duration is unavailable")
     if duration < MIN_DURATION_SECONDS or duration > MAX_DURATION_SECONDS:
-        raise VideoKeyframeError("video duration must be between 10 seconds and 10 minutes")
+        raise VideoKeyframeError("video duration must be between 10 seconds and 15 minutes")
 
     width = _positive_int(stream.get("width"), "video width")
     height = _positive_int(stream.get("height"), "video height")
