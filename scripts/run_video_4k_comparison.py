@@ -82,10 +82,59 @@ def run_command(output: Path, name: str, arguments: list[str]) -> None:
     print(f"stage={name} complete", flush=True)
 
 
-def prepare(source: Path, root: Path) -> None:
+def reuse_video_preparation(parent: Path, shared: Path, source_sha256: str) -> dict:
+    original = parent / "shared"
+    selection_path = original / "frames/selection.json"
+    selection = read_json(selection_path)
+    previous_probe = read_json(original / "diagnostics/video_probe.json")
+    if (previous_probe.get("source", {}).get("sha256") != source_sha256
+            or previous_probe.get("duration_seconds") != selection.get("duration_seconds")):
+        raise ValueError("retained video probe identity mismatch")
+    frontend_path = original / "diagnostics/sfm_frontend_contract.json"
+    frontend = read_json(frontend_path)
+    recovery_path = original / "diagnostics/sfm_pose_recovery.json"
+    recovery = read_json(recovery_path)
+    database = original / "colmap/database.db"
+    if (selection.get("profile") != "video_keyframes_standard_v2"
+            or selection.get("source_sha256") != source_sha256
+            or frontend.get("initial_video_selection_sha256") != sha256_file(selection_path)
+            or frontend.get("v2_mapper_seed_count") != 1000):
+        raise ValueError("retained 1000-seed preparation identity mismatch")
+    if sha256_file(database) != recovery.get("source_database_sha256"):
+        raise ValueError("retained feature database changed after the failed run")
+    selected = selection["selected"]
+    if len(selected) != selection["selected_count"] or len({item["path"] for item in selected}) != len(selected):
+        raise ValueError("retained selected-frame list is incomplete or duplicated")
+    for item in selected:
+        source = (original / item["path"]).resolve()
+        destination = (shared / item["path"]).resolve()
+        if not source.is_relative_to(original.resolve()) or not destination.is_relative_to(shared.resolve()):
+            raise ValueError("retained selected frame escapes its workspace")
+        if sha256_file(source) != item["sha256"]:
+            raise ValueError("retained selected frame hash mismatch")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.link(source, destination)
+    metadata = ["frames/selection.json", "diagnostics/video_probe.json", "diagnostics/video_keyframe_timing.json", "diagnostics/video_keyframes.jpg"]
+    for relative in metadata:
+        destination = shared / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original / relative, destination)
+    sources = [database, frontend_path, recovery_path, *(original / name for name in metadata)]
+    return {
+        "profile": "retained_frontend_seed2500_v1",
+        "source_experiment": str(parent), "source_database": str(database),
+        "source_database_sha256": recovery["source_database_sha256"],
+        "source_frontend_contract": str(frontend_path),
+        "source_files": {str(path): sha256_file(path) for path in sources},
+        "selected_count": len(selected), "mapper_seed_limit": 2500,
+        "initial_feature_extraction": "reused", "initial_feature_matching": "reused",
+    }
+
+
+def prepare(source: Path, root: Path, *, reuse_experiment: Path | None = None) -> None:
     if root.exists():
         raise ValueError("experiment root already exists; inspect instead of retrying")
-    require_resources(root.parent, minimum_free_gib=40)
+    require_resources(root.parent, minimum_free_gib=30 if reuse_experiment is not None else 40)
     code = revision()
     probe = probe_video(source)
     if (probe["source_width"], probe["source_height"]) != (3840, 2160):
@@ -109,6 +158,16 @@ def prepare(source: Path, root: Path) -> None:
         "sfm_pairing": "sequential_loop", "sfm_geometric_verification": "default_v1",
         "sfm_camera_calibration": "shared_opencv_v1", "sfm_mapper": "incremental",
     }
+    reused = None
+    if reuse_experiment is not None:
+        reused = reuse_video_preparation(reuse_experiment, shared, probe["source"]["sha256"])
+        write_json(root / "reuse.json", reused)
+        options.update(
+            video_preparation_reused=True, v2_mapper_seed_limit=2500,
+            sfm_reuse_feature_database=reused["source_database"],
+            sfm_reuse_frontend_contract=reused["source_frontend_contract"],
+            sfm_reuse_database_sha256=reused["source_database_sha256"],
+        )
     result = ProjectGaussianAdapter().run(ReconstructionContext(
         job_id=PROFILE, job_dir=shared, mode="video",
         input_assets=[{"path": f"input/{source.name}"}], options=options,
@@ -126,6 +185,15 @@ def prepare(source: Path, root: Path) -> None:
     if sha256_file(source) != probe["source"]["sha256"]:
         raise ValueError("source video changed during preparation")
     files = [replay / "dataset.json", replay / "replay.json", *(root / f"{arm}.config.json" for arm in ARMS)]
+    if reused is not None:
+        for path, expected in reused["source_files"].items():
+            if sha256_file(Path(path)) != expected:
+                raise ValueError(f"retained source changed during geometry: {path}")
+        original = reuse_experiment / "shared"
+        for item in read_json(original / "frames/selection.json")["selected"]:
+            if sha256_file(original / item["path"]) != item["sha256"]:
+                raise ValueError("retained image changed during geometry")
+        files.extend([root / "reuse.json", shared / "diagnostics/sfm_frontend_contract.json"])
     write_json(root / "protocol.json", {
         "profile": PROFILE, "status": "frozen", "code": code,
         "source": str(source), "source_sha256": probe["source"]["sha256"],
@@ -133,6 +201,8 @@ def prepare(source: Path, root: Path) -> None:
         "files": {str(path): sha256_file(path) for path in files},
         "split_counts": {key: len(value) for key, value in dataset["splits"].items()},
         "image_dimensions": sorted(set(dimensions)),
+        "geometry_variant": "retained_frontend_seed2500_v1" if reused is not None else "fresh_seed1000_v1",
+        "mapper_seed_limit": 2500 if reused is not None else 1000,
         "world_size": 2, "main_updates": 30000, "main_camera_samples": 60000,
         "final_fit_profile": "train_only_control_v1", "final_fit_updates": 2000,
         "final_fit_camera_samples": 4000, "view_cache_max_bytes_per_collection": VIEW_CACHE_MAX_BYTES,
@@ -217,6 +287,9 @@ def main() -> None:
     preparation = commands.add_parser("prepare")
     preparation.add_argument("--source", type=Path, required=True)
     preparation.add_argument("--output-dir", type=Path, required=True)
+    reuse = commands.add_parser("prepare-reuse")
+    reuse.add_argument("--source-experiment", type=Path, required=True)
+    reuse.add_argument("--output-dir", type=Path, required=True)
     arm = commands.add_parser("run-arm")
     arm.add_argument("--output-dir", type=Path, required=True)
     arm.add_argument("--arm", choices=ARMS, required=True)
@@ -224,6 +297,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "prepare":
         prepare(args.source.resolve(), args.output_dir.resolve())
+    elif args.command == "prepare-reuse":
+        parent = args.source_experiment.resolve()
+        source = Path(read_json(parent / "prepare-started.json")["source"])
+        prepare(source.resolve(), args.output_dir.resolve(), reuse_experiment=parent)
     else:
         run_arm(args.output_dir.resolve(), args.arm, args.protocol_sha256)
 

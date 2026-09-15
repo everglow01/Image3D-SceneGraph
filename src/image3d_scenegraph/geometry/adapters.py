@@ -276,14 +276,15 @@ class ProjectGaussianAdapter:
                 "--progress-file",
                 str(video_progress_path),
             ]
-            _adapter_progress(context, "video_probing", 0.06)
-            _run_adapter_command(
-                command_video,
-                context,
-                project_root,
-                env=None,
-                poll_callback=self._video_progress_callback(context, video_progress_path),
-            )
+            if context.options.get("video_preparation_reused") is not True:
+                _adapter_progress(context, "video_probing", 0.06)
+                _run_adapter_command(
+                    command_video,
+                    context,
+                    project_root,
+                    env=None,
+                    poll_callback=self._video_progress_callback(context, video_progress_path),
+                )
             video_selection_path = context.job_dir / "frames" / "selection.json"
             probe_path = context.job_dir / "diagnostics" / "video_probe.json"
             contact_sheet_path = context.job_dir / "diagnostics" / "video_keyframes.jpg"
@@ -358,6 +359,8 @@ class ProjectGaussianAdapter:
                     video_selection["selected_count"]
                 ),
             }
+            if context.options.get("video_preparation_reused") is True:
+                video_metrics["video_preparation_reused"] = True
             if video_profile == "standard_v2":
                 video_metrics.update(
                     video_base_selected_count=int(
@@ -513,6 +516,14 @@ class ProjectGaussianAdapter:
                 "--progress-file",
                 str(progress_path),
             ]
+            if "v2_mapper_seed_limit" in context.options:
+                command_geometry += ["--v2-mapper-seed-limit", str(context.options["v2_mapper_seed_limit"])]
+            if "sfm_reuse_feature_database" in context.options:
+                command_geometry += [
+                    "--reuse-feature-database", str(context.options["sfm_reuse_feature_database"]),
+                    "--reuse-frontend-contract", str(context.options["sfm_reuse_frontend_contract"]),
+                    "--reuse-database-sha256", str(context.options["sfm_reuse_database_sha256"]),
+                ]
             progress_callback = self._colmap_progress_callback(context, progress_path)
         else:
             external_root = Path(

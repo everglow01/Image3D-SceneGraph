@@ -49,7 +49,11 @@ def v2_mapper_options(selection: dict[str, Any] | None) -> list[str]:
     return [value for option in V2_MAPPER_OPTIONS for value in option]
 
 
-def v2_mapper_seed_image_names(selection: dict[str, Any]) -> list[str]:
+def v2_mapper_seed_image_names(
+    selection: dict[str, Any], *, max_images: int = V2_MAPPER_SEED_MAX_IMAGES,
+) -> list[str]:
+    if isinstance(max_images, bool) or not isinstance(max_images, int) or max_images < 1:
+        raise ValueError("v2 Mapper seed budget must be a positive integer")
     if selection.get("profile") != V2_PROFILE_ID:
         raise ValueError("v2 Mapper seeding requires standard_v2 selection metadata")
     selected = selection.get("selected")
@@ -60,8 +64,8 @@ def v2_mapper_seed_image_names(selection: dict[str, Any]) -> list[str]:
         key=lambda item: (float(item["time_seconds"]), int(item["pts"])),
     )
     base = [item for item in ordered if item.get("selection_reason") == "base"]
-    pool = base if len(base) >= V2_MAPPER_SEED_MAX_IMAGES else ordered
-    target = min(V2_MAPPER_SEED_MAX_IMAGES, len(pool))
+    pool = base if len(base) >= max_images else ordered
+    target = min(max_images, len(pool))
     if target == len(pool):
         seed = pool
     elif target == 1:

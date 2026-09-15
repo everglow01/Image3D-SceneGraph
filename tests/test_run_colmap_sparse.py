@@ -1267,8 +1267,9 @@ def test_gaussian_sequential_matcher_enables_vocab_tree_loop_detection(
     assert f"sfm_pairing_vocab_tree_sha256={hashlib.sha256(b'tree').hexdigest()}\n" in log
 
 
+@pytest.mark.parametrize("reuse", [False, True])
 def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, reuse
 ):
     _accept_pose_health(monkeypatch)
     image_dir = tmp_path / "images"
@@ -1301,6 +1302,13 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     commands = []
     events = []
     recovery_call = {}
+    reuse_calls = []
+
+    def fake_reuse(*args, **kwargs):
+        reuse_calls.append((args, kwargs))
+        return {"profile": "retained_feature_database_v1"}
+
+    monkeypatch.setattr(run_colmap_sparse, "reuse_feature_database", fake_reuse)
 
     def fake_run(command):
         commands.append(command)
@@ -1374,14 +1382,25 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
             str(video_source),
             "--video-selection",
             str(selection_path),
+            *([
+                "--reuse-feature-database", str(tmp_path / "source.db"),
+                "--reuse-frontend-contract", str(tmp_path / "frontend.json"),
+                "--reuse-database-sha256", "a" * 64,
+                "--v2-mapper-seed-limit", "2500",
+            ] if reuse else []),
         ],
     )
 
     run_colmap_sparse.main()
 
-    matcher = commands[1]
-    mapper = commands[2]
-    assert matcher[matcher.index("--SequentialMatching.overlap") + 1] == "21"
+    if reuse:
+        assert len(reuse_calls) == 1
+        assert all(command[1] not in ("feature_extractor", "sequential_matcher") for command in commands)
+        mapper = commands[0]
+    else:
+        matcher = commands[1]
+        mapper = commands[2]
+        assert matcher[matcher.index("--SequentialMatching.overlap") + 1] == "21"
     assert mapper[mapper.index("--Mapper.ba_global_frames_ratio") + 1] == "1.5"
     assert mapper[mapper.index("--Mapper.ba_global_points_ratio") + 1] == "1.5"
     assert mapper[mapper.index("--Mapper.ba_global_frames_freq") + 1] == "1000"
@@ -1422,8 +1441,7 @@ def test_v2_runner_sets_dynamic_overlap_and_recovers_before_undistortion(
     assert timing["geometric_verification"]["guided_matching"] is True
     assert timing["vocab_tree_sha256"] == hashlib.sha256(b"tree").hexdigest()
     assert set(timing["stage_elapsed_seconds"]) == {
-        "feature_extraction",
-        "feature_matching",
+        *([] if reuse else ["feature_extraction", "feature_matching"]),
         "mapping",
         "initial_registration_expansion",
         "registration_recovery",

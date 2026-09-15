@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
 import struct
 import subprocess
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -107,7 +109,16 @@ def main() -> None:
     parser.add_argument("--vocab-tree-path", type=Path)
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
+    parser.add_argument("--v2-mapper-seed-limit", type=int, default=1000)
+    parser.add_argument("--reuse-feature-database", type=Path)
+    parser.add_argument("--reuse-frontend-contract", type=Path)
+    parser.add_argument("--reuse-database-sha256")
     args = parser.parse_args()
+    reuse_fields = (args.reuse_feature_database, args.reuse_frontend_contract, args.reuse_database_sha256)
+    if any(value is not None for value in reuse_fields) and not all(value is not None for value in reuse_fields):
+        parser.error("database reuse requires source database, frontend contract and SHA256 together")
+    if args.v2_mapper_seed_limit < 1:
+        parser.error("--v2-mapper-seed-limit must be positive")
     if args.camera_calibration is not None and args.single_camera is not None:
         parser.error("--camera-calibration cannot be combined with --single-camera")
     legacy_single_camera = (
@@ -151,6 +162,11 @@ def main() -> None:
             )
         except (OSError, json.JSONDecodeError) as exc:
             raise SystemExit("Cannot read video selection metadata") from exc
+
+    if args.v2_mapper_seed_limit != 1000 and (
+        video_selection is None or video_selection.get("profile") != V2_PROFILE_ID
+    ):
+        parser.error("nondefault Mapper seed budgets require standard_v2 video")
 
     started_at = time.perf_counter()
     colmap_path = resolve_colmap_executable()
@@ -234,7 +250,7 @@ def main() -> None:
     mapper_seed_path: Path | None = None
     mapper_seed_option: str | None = None
     if video_selection is not None and video_selection.get("profile") == V2_PROFILE_ID:
-        mapper_seed_names = v2_mapper_seed_image_names(video_selection)
+        mapper_seed_names = v2_mapper_seed_image_names(video_selection, max_images=args.v2_mapper_seed_limit)
         discovered_names = {path.name for path in image_paths}
         if not set(mapper_seed_names) <= discovered_names:
             raise SystemExit("v2 Mapper seed images are missing from the image directory")
@@ -384,9 +400,19 @@ def main() -> None:
         "v2_mapper_seed_count": len(mapper_seed_names),
         "test_rgb_loaded": False,
     }
+    reused_frontend = None
+    if args.reuse_feature_database is not None:
+        reused_frontend = reuse_feature_database(
+            args.reuse_feature_database, source_database_path,
+            source_frontend=args.reuse_frontend_contract,
+            requested_frontend=frontend_contract,
+            expected_sha256=args.reuse_database_sha256,
+            image_names={path.name for path in image_paths},
+        )
+        frontend_contract["reused_frontend"] = reused_frontend
     write_json(frontend_contract_path, frontend_contract)
 
-    commands = [
+    commands = [] if reused_frontend is not None else [
         *[
             ("feature_extraction", "colmap_feature_extraction", command)
             for command in feature_commands
@@ -1489,10 +1515,76 @@ def _relativize_pose_recovery_paths(
                 ) from exc
 
 
+def _database_table_digests(path: Path) -> dict[str, dict[str, Any]]:
+    result = {}
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+        tables = [row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )]
+        for table in tables:
+            quoted = '"' + table.replace('"', '""') + '"'
+            columns = list(connection.execute(f"PRAGMA table_info({quoted})"))
+            primary = [row[1] for row in sorted(columns, key=lambda row: row[5]) if row[5]]
+            order = ",".join('"' + name.replace('"', '""') + '"' for name in primary) or "rowid"
+            digest = hashlib.sha256()
+            count = 0
+            for row in connection.execute(f"SELECT * FROM {quoted} ORDER BY {order}"):
+                count += 1
+                for value in row:
+                    data = value if isinstance(value, bytes) else json.dumps(value, allow_nan=False).encode()
+                    digest.update(type(value).__name__.encode() + len(data).to_bytes(8, "little") + data)
+            result[table] = {"rows": count, "sha256": digest.hexdigest()}
+    return result
+
+
+def reuse_feature_database(
+    source: Path,
+    destination: Path,
+    *,
+    source_frontend: Path,
+    requested_frontend: dict[str, Any],
+    expected_sha256: str,
+    image_names: set[str],
+) -> dict[str, Any]:
+    if not source.is_file() or destination.exists():
+        raise ValueError("feature database reuse requires an existing source and new destination")
+    wal = Path(str(source) + "-wal")
+    if wal.exists() and wal.stat().st_size:
+        raise ValueError("source feature database has a nonempty WAL")
+    if sha256_file(source) != expected_sha256:
+        raise ValueError("source feature database hash mismatch")
+    previous = json.loads(source_frontend.read_text(encoding="utf-8"))
+    def without_budget(record):
+        return {key: value for key, value in record.items() if key != "v2_mapper_seed_count"}
+
+    if without_budget(previous) != without_budget(requested_frontend):
+        raise ValueError("reused frontend differs beyond the Mapper seed budget")
+    with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+        stored_names = {row[0] for row in connection.execute("SELECT name FROM images")}
+    if stored_names != image_names:
+        raise ValueError("reused database image names differ from selected frames")
+    before = _database_table_digests(source)
+    _backup_sqlite_database(source, destination)
+    after = _database_table_digests(destination)
+    if before != after or sha256_file(source) != expected_sha256 or (wal.exists() and wal.stat().st_size):
+        raise ValueError("feature database snapshot changed during reuse")
+    return {
+        "profile": "retained_feature_database_v1",
+        "source_database": str(source.resolve()),
+        "source_database_sha256": expected_sha256,
+        "source_frontend_sha256": sha256_file(source_frontend),
+        "snapshot_sha256": sha256_file(destination),
+        "table_digests": after,
+        "feature_extraction": "reused",
+        "feature_matching": "reused",
+    }
+
+
 def _backup_sqlite_database(source: Path, destination: Path) -> None:
-    with sqlite3.connect(f"file:{source.resolve()}?mode=ro", uri=True) as source_db:
-        with sqlite3.connect(destination) as destination_db:
+    with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as source_db:
+        with closing(sqlite3.connect(destination)) as destination_db:
             source_db.backup(destination_db)
+            destination_db.commit()
 
 
 def _model_candidates(root: Path) -> list[Path]:

@@ -101,6 +101,25 @@ def test_v2_mapper_seed_is_uniform_bounded_and_base_only() -> None:
     assert all(int(name.removeprefix("frame-").removesuffix(".jpg")) < 1603 for name in names)
 
 
+def test_2500_seed_budget_uses_all_selected_when_base_pool_is_smaller():
+    selection = {"profile": V2_PROFILE_ID, "selected": [
+        {"pts": index, "time_seconds": index / 5, "path": f"frames/{index}.jpg",
+         "selection_reason": "base" if index < 2405 else "adaptive_motion"}
+        for index in range(2787)
+    ]}
+    baseline = v2_mapper_seed_image_names(selection)
+    expanded = v2_mapper_seed_image_names(selection, max_images=2500)
+    assert len(baseline) == 1000
+    assert baseline[-1] == "2404.jpg"
+    assert len(expanded) == len(set(expanded)) == 2500
+    assert (expanded[0], expanded[-1]) == ("0.jpg", "2786.jpg")
+    assert sum(int(name[:-4]) >= 2405 for name in expanded) >= 95
+    assert expanded == v2_mapper_seed_image_names(selection, max_images=2500)
+    for invalid in (0, -1, True, 2500.0):
+        with pytest.raises(ValueError, match="positive integer"):
+            v2_mapper_seed_image_names(selection, max_images=invalid)
+
+
 def test_initial_registration_expansion_propagates_selected_frames(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -79,6 +79,46 @@ def test_arm_dispatch_preserves_no_test_and_train_only_boundary(tmp_path, monkey
         experiment.run_arm(tmp_path, arm, "b" * 64)
 
 
+def test_reused_video_hardlinks_frames_but_copies_mutable_selection(tmp_path):
+    from image3d_scenegraph.file_integrity import sha256_file
+
+    parent = tmp_path / "old"
+    shared = parent / "shared"
+    for directory in ("frames/selected", "diagnostics", "colmap"):
+        (shared / directory).mkdir(parents=True)
+    image = shared / "frames/selected/frame.jpg"
+    image.write_bytes(b"immutable-frame")
+    database = shared / "colmap/database.db"
+    database.write_bytes(b"database-fixture")
+    selection = shared / "frames/selection.json"
+    selection.write_text(json.dumps({
+        "profile": "video_keyframes_standard_v2", "source_sha256": "a" * 64,
+        "duration_seconds": 601.3, "selected_count": 1,
+        "selected": [{"path": "frames/selected/frame.jpg", "sha256": sha256_file(image)}],
+    }))
+    (shared / "diagnostics/video_probe.json").write_text(json.dumps({
+        "source": {"sha256": "a" * 64}, "duration_seconds": 601.3,
+    }))
+    (shared / "diagnostics/sfm_frontend_contract.json").write_text(json.dumps({
+        "initial_video_selection_sha256": sha256_file(selection), "v2_mapper_seed_count": 1000,
+    }))
+    (shared / "diagnostics/sfm_pose_recovery.json").write_text(json.dumps({
+        "source_database_sha256": sha256_file(database),
+    }))
+    (shared / "diagnostics/video_keyframe_timing.json").write_text("{}")
+    (shared / "diagnostics/video_keyframes.jpg").write_bytes(b"contact")
+    target = tmp_path / "new/shared"
+    record = experiment.reuse_video_preparation(parent, target, "a" * 64)
+    assert (target / "frames/selected/frame.jpg").stat().st_ino == image.stat().st_ino
+    assert (target / "frames/selection.json").stat().st_ino != selection.stat().st_ino
+    assert (target / "frames/selection.json").read_bytes() == selection.read_bytes()
+    assert record["mapper_seed_limit"] == 2500
+    assert record["source_database_sha256"] == sha256_file(database)
+    image.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="frame hash mismatch"):
+        experiment.reuse_video_preparation(parent, tmp_path / "bad/shared", "a" * 64)
+
+
 def test_protocol_hash_failure_precedes_gpu_or_output_creation(tmp_path):
     (tmp_path / "protocol.json").write_text("{}")
     with pytest.raises(ValueError, match="protocol hash mismatch"):
