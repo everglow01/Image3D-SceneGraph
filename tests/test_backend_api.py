@@ -635,7 +635,7 @@ def test_create_job_rejects_invalid_gaussian_resolution(tmp_path):
     app = create_app(tmp_path / "jobs", start_worker=False)
     response = TestClient(app).post(
         "/api/jobs",
-        data={"gaussian_longest_edge": "3073"},
+        data={"gaussian_longest_edge": "3841"},
         files=[("files", ("room.jpg", b"image", "image/jpeg"))],
     )
     assert response.status_code == 422

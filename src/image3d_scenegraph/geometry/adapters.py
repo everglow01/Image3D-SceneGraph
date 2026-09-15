@@ -1048,10 +1048,28 @@ class ProjectGaussianAdapter:
             "--max-initial-points",
             str(context.options.get("gaussian_max_initial_points", 1_000_000)),
         ]
-        if trainer_id in {"project", "mcmc"}:
+        if context.options.get("gaussian_prepare_only") is True:
+            command_train.append("--prepare-only")
+        elif trainer_id in {"project", "mcmc"}:
             command_train.append("--distributed")
         _adapter_progress(context, "gaussian_training", 0.35)
         completed = _run_adapter_command(command_train, context, project_root, env=env)
+        if context.options.get("gaussian_prepare_only") is True:
+            replay = training_dir / "replay"
+            from image3d_scenegraph.gaussian.replay import validate_replay_bundle
+
+            validate_replay_bundle(replay)
+            return ReconstructionResult(
+                stage="gaussian_prepared",
+                assets={
+                    **geometry_assets,
+                    **video_assets,
+                    "gaussian_replay_dataset": (replay / "dataset.json").relative_to(context.job_dir).as_posix(),
+                    "gaussian_replay_record": (replay / "replay.json").relative_to(context.job_dir).as_posix(),
+                },
+                metrics={**geometry_metrics, **video_metrics},
+                log_lines=[*registration_log_lines, completed.stdout.strip()],
+            )
         result_candidates = sorted(training_dir.glob("attempts/*/artifacts/result.json"))
         if not result_candidates:
             raise ReconstructionError("project Gaussian trainer did not produce complete results")

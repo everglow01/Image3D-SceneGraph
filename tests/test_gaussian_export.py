@@ -221,7 +221,9 @@ def test_filtered_export_verifies_and_bundles_postprocess_provenance(tmp_path):
         assert "postprocess/filter-mask.npz" in archive.namelist()
 
 
-def test_final_fit_export_preserves_selection_sor_lineage(tmp_path):
+@pytest.mark.parametrize("train_only", [False, True])
+def test_final_fit_export_preserves_selection_sor_lineage(tmp_path, train_only):
+    profile = "train_only_control_v1" if train_only else "train_validation_v1"
     gaussian = model()
     source_model = tmp_path / "selection-sor.pt"
     final_model = tmp_path / "final-fit.pt"
@@ -238,8 +240,8 @@ def test_final_fit_export_preserves_selection_sor_lineage(tmp_path):
         json.dumps(
             {
                 "schema_version": 2,
-                "split": "fit_validation",
-                "quality_role": "in_sample_after_train_validation_fit",
+                "split": "control_validation" if train_only else "fit_validation",
+                "quality_role": "held_out_after_train_only_control" if train_only else "in_sample_after_train_validation_fit",
                 "selection_eligible": False,
                 "provenance": {
                     "dataset_hash": value["dataset_hash"],
@@ -270,7 +272,8 @@ def test_final_fit_export_preserves_selection_sor_lineage(tmp_path):
         json.dumps(
             {
                 "schema_version": 1,
-                "profile": "train_validation_v1",
+                "profile": profile,
+                "input_splits": ["train"] if train_only else ["train", "validation"],
                 "profile_hash": "e" * 64,
                 "status": "complete",
                 "dataset_hash": value["dataset_hash"],
@@ -296,7 +299,7 @@ def test_final_fit_export_preserves_selection_sor_lineage(tmp_path):
         final_fit_record_path=final_fit_record,
     )
 
-    assert result["final_fit"]["profile"] == "train_validation_v1"
+    assert result["final_fit"]["profile"] == profile
     assert result["final_fit"]["source_model_sha256"] == sha256_file(source_model)
     with zipfile.ZipFile(tmp_path / "export" / "result.zip") as archive:
         assert "postprocess/diagnostics.json" in archive.namelist()

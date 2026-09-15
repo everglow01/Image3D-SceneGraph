@@ -89,6 +89,25 @@ def test_replay_bundle_hardlinks_and_validates_frozen_inputs(tmp_path):
     ).st_ino
 
 
+def test_prepare_only_freezes_replay_without_training(tmp_path, monkeypatch):
+    import sys
+    from scripts import run_gaussian_training as runner
+
+    source, dataset, _initialization, _diagnostics, _contract = _replay_fixture(tmp_path)
+    run_dir = tmp_path / "prepared"
+    monkeypatch.setattr(sys, "argv", [
+        "run_gaussian_training.py", "--dataset-contract", str(dataset),
+        "--dataset-root", str(source), "--run-dir", str(run_dir),
+        "--trainer", "project", "--initialization", "sparse",
+        "--points", str(source / "points3D.txt"), "--prepare-only",
+    ])
+    monkeypatch.setattr(runner, "require_geometry_readiness", lambda *_args: None)
+    monkeypatch.setattr(runner, "train_gaussians", lambda **_kwargs: pytest.fail("prepare-only entered optimization"))
+    runner.main()
+    assert validate_replay_bundle(run_dir / "replay")["image_count"] == 12
+    assert not (run_dir / "attempts").exists()
+
+
 def test_replay_bundle_rejects_image_tampering(tmp_path):
     source, dataset, initialization, diagnostics, contract = _replay_fixture(tmp_path)
     replay = tmp_path / "replay"

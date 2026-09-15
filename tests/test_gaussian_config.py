@@ -101,8 +101,9 @@ def test_public_profile_resolves_official_baseline_deterministically():
     assert resolve_internal_config("rtx4060_8gb_development_v1").effective_config == second.effective_config
 
 
-def test_mcmc_profile_resolves_complete_frozen_method_package():
-    resolved = resolve_mcmc_config(longest_edge=3072)
+@pytest.mark.parametrize("longest_edge", [3072, 3840])
+def test_mcmc_profile_resolves_complete_frozen_method_package(longest_edge):
+    resolved = resolve_mcmc_config(longest_edge=longest_edge)
     config = resolved.effective_config
 
     assert resolved.requested_profile == "mcmc_v1"
@@ -116,7 +117,7 @@ def test_mcmc_profile_resolves_complete_frozen_method_package():
         "opacity": 0.5,
         "scale_multiplier": 0.1,
     }
-    assert config["resolution"]["longest_edge"] == 3072
+    assert config["resolution"]["longest_edge"] == longest_edge
     assert config["loss"]["opacity_regularization"] == 0.01
     assert config["loss"]["scale_regularization"] == 0.01
     assert config["learning_rate"]["opacity"] == 0.05
@@ -151,10 +152,11 @@ def test_mcmc_profile_rejects_incompatible_method_settings(overrides, message):
         resolve_internal_config("mcmc_v1", overrides=overrides)
 
 
-def test_public_profile_hashes_selected_training_resolution():
-    resolved = resolve_public_config("standard_v1", longest_edge=3072)
+@pytest.mark.parametrize("longest_edge", [3072, 3840])
+def test_public_profile_hashes_selected_training_resolution(longest_edge):
+    resolved = resolve_public_config("standard_v1", longest_edge=longest_edge)
 
-    assert resolved.effective_config["resolution"]["longest_edge"] == 3072
+    assert resolved.effective_config["resolution"]["longest_edge"] == longest_edge
     assert resolved.effective_config_hash != resolve_public_config("standard_v1").effective_config_hash
 
 
@@ -185,7 +187,7 @@ def test_internal_override_is_validated_hashed_and_recorded():
         ({"iterations": True}, "must be an integer: iterations"),
         ({"iterations": "30000"}, "must be an integer: iterations"),
         ({"loss": {"l1_weight": 1}}, "must be a finite float: loss.l1_weight"),
-        ({"resolution": {"longest_edge": 3073}}, "exceeds 3072"),
+        ({"resolution": {"longest_edge": 3841}}, "exceeds 3840"),
         (
             {"learning_rate": {"position": {"final": 0.001}}},
             "learning_rate.position.final cannot exceed initial",

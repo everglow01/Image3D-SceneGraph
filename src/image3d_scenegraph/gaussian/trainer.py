@@ -9,6 +9,7 @@ import json
 import platform
 import random
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -33,7 +34,7 @@ from .initialization import InitializationResult
 from .model import GaussianModel, GaussianModelError
 from .readiness import project_initialization_keep_mask
 from .render import render_gaussians
-from .runtime import TrainingView, load_training_views
+from .runtime import TrainingView, TrainingViews, load_training_views, view_cameras
 from .training_math import active_sh_degree, exponential_learning_rate, l1_ssim_loss
 
 
@@ -78,7 +79,7 @@ class TrainingResult:
     gaussian_cap: int | None = None
 
 
-def _release_training_views(*groups: list[TrainingView]) -> None:
+def _release_training_views(*groups: list[TrainingView] | TrainingViews) -> None:
     for views in groups:
         views.clear()
     gc.collect()
@@ -140,6 +141,7 @@ def train_gaussians(
     resume_iteration: int | None = None,
     cancel_requested: Callable[[], bool] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    save_intermediate_previews: bool = True,
     local_rank: int = 0,
     world_rank: int = 0,
     world_size: int = 1,
@@ -205,7 +207,9 @@ def train_gaussians(
         device=torch.device("cpu"),
     )
     test_ids = set(str(value) for value in contract["splits"]["test"])
-    loaded_ids = {view.camera.image_id for view in (*train_views, *validation_views)}
+    loaded_ids = {
+        camera.image_id for camera in view_cameras(train_views) + view_cameras(validation_views)
+    }
     if loaded_ids & test_ids:
         raise TrainingError("held-out test views entered the trainer runtime")
 
@@ -502,7 +506,9 @@ def train_gaussians(
                     config,
                     preview_dir=(
                         artifact_dir / "validation" / f"iteration_{iteration:09d}"
-                        if world_rank == 0
+                        if world_rank == 0 and (
+                            save_intermediate_previews or iteration == total_iterations
+                        )
                         else None
                     ),
                     progress_events=history,
@@ -720,8 +726,8 @@ def final_fit_gaussians(
         longest_edge=int(config["resolution"]["longest_edge"]),
         device=torch.device("cpu"),
     )
-    fit_views = list(train_views) if train_only_control else [*train_views, *validation_views]
-    loaded_ids = [view.camera.image_id for view in fit_views]
+    fit_views = train_views if train_only_control else train_views + validation_views
+    loaded_ids = [camera.image_id for camera in view_cameras(fit_views)]
     if len(loaded_ids) != len(set(loaded_ids)) or set(loaded_ids) != set(fit_ids):
         raise TrainingError("final-fit loaded view identity mismatch")
 
@@ -1039,7 +1045,7 @@ def _id_list_hash(values: list[str]) -> str:
 @torch.no_grad()
 def evaluate_views(
     model: GaussianModel,
-    views: list[TrainingView],
+    views: Sequence[TrainingView],
     config: dict[str, Any],
     *,
     preview_dir: Path | None = None,
@@ -1073,7 +1079,7 @@ def evaluate_views(
 
 def save_validation_previews(
     model: GaussianModel,
-    views: list[TrainingView],
+    views: Sequence[TrainingView],
     output_dir: Path,
     config: dict[str, Any],
 ) -> None:
@@ -1089,12 +1095,12 @@ def save_validation_previews(
 def _build_strategy(
     strategy_type,
     config: dict[str, Any],
-    train_views: list[TrainingView] | tuple[TrainingView, ...] = (),
+    train_views: Sequence[TrainingView] = (),
 ):
     densify = config["densification"]
     pruning = config["pruning"]
     max_dimension = max(
-        (max(view.camera.width, view.camera.height) for view in train_views),
+        (max(camera.width, camera.height) for camera in view_cameras(train_views)),
         default=int(config["resolution"]["longest_edge"]),
     )
     screen_pruning = bool(pruning["enabled"]) and bool(pruning["screen_radius_enabled"])
@@ -1252,7 +1258,7 @@ def _next_camera_batch(
 
 def _render_visible_training_view(
     model: GaussianModel,
-    views: list[TrainingView],
+    views: Sequence[TrainingView],
     first_index: int,
     sh_degree: int,
     *,

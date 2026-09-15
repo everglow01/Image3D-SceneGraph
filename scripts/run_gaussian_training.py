@@ -63,7 +63,11 @@ def main() -> None:
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--readiness-only", action="store_true")
+    parser.add_argument("--prepare-only", action="store_true", help="Freeze initialization and replay without optimization.")
+    parser.add_argument("--no-intermediate-previews", action="store_true", help="Keep Validation metrics at every scheduled step but PNGs only at the final step.")
     args = parser.parse_args()
+    if args.prepare_only and (args.readiness_only or args.attempt_kind != "fresh" or args.initialization == "frozen"):
+        parser.error("prepare-only requires fresh sparse/dense initialization and is distinct from readiness-only")
 
     contract = json.loads(args.dataset_contract.read_text(encoding="utf-8"))
     validate_contract(contract, args.dataset_root)
@@ -190,6 +194,10 @@ def main() -> None:
             replay_root=args.run_dir / "replay",
         )
 
+    if args.prepare_only:
+        print(json.dumps({"status": "prepared", "replay_root": str(args.run_dir / "replay")}))
+        return
+
     native_trainer = args.trainer in {"project", "mcmc"}
     trainer = train_gaussians if native_trainer else train_external_gaussians
     trainer_args = {
@@ -202,6 +210,7 @@ def main() -> None:
     }
     if native_trainer:
         trainer_args.update(
+            save_intermediate_previews=not args.no_intermediate_previews,
             attempt_kind=args.attempt_kind,
             parent_attempt_id=args.parent_attempt_id,
             resume_iteration=args.resume_iteration,

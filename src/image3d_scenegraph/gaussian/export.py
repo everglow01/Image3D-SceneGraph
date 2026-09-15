@@ -74,9 +74,14 @@ def export_gaussians(
     final_fit = None
     if final_fit_record_path is not None:
         final_fit = _read_json(final_fit_record_path)
+        expected_split, expected_role = {
+            "train_validation_v1": ("fit_validation", "in_sample_after_train_validation_fit"),
+            "train_only_control_v1": ("control_validation", "held_out_after_train_only_control"),
+        }.get(final_fit.get("profile"), (None, None))
         if (
             final_fit.get("schema_version") != 1
-            or final_fit.get("profile") != "train_validation_v1"
+            or expected_split is None
+            or (final_fit.get("profile") == "train_only_control_v1" and final_fit.get("input_splits") != ["train"])
             or final_fit.get("status") != "complete"
             or final_fit.get("dataset_hash") != contract["dataset_hash"]
             or final_fit.get("effective_config_hash") != config_hash
@@ -84,16 +89,15 @@ def export_gaussians(
             or not _is_sha256(final_fit.get("source_model_sha256"))
             or final_fit.get("final_model_sha256") != model_hash
             or final_fit.get("evaluation_sha256") != sha256_file(evaluation_path)
-            or evaluation.get("split") != "fit_validation"
-            or evaluation.get("quality_role")
-            != "in_sample_after_train_validation_fit"
+            or evaluation.get("split") != expected_split
+            or evaluation.get("quality_role") != expected_role
             or evaluation.get("selection_eligible") is not False
             or final_fit.get("test_rgb") != "not_loaded"
             or final_fit.get("topology_changed") is not False
         ):
             raise GaussianExportError("final-fit export provenance mismatch")
-    elif evaluation.get("split") == "fit_validation":
-        raise GaussianExportError("fit-set evaluation requires final-fit provenance")
+    elif evaluation.get("split") in {"fit_validation", "control_validation"}:
+        raise GaussianExportError("final-fit evaluation requires final-fit provenance")
     postprocess = None
     if postprocess_record_path is not None or postprocess_mask_path is not None:
         if postprocess_record_path is None or postprocess_mask_path is None:

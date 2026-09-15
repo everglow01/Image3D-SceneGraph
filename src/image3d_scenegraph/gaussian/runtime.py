@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,6 +45,85 @@ class TrainingView:
         )
 
 
+VIEW_CACHE_MAX_BYTES = 512 * 1024**2
+
+
+@dataclass(frozen=True)
+class _ViewSource:
+    camera: RenderCamera
+    path: Path
+    intrinsic: np.ndarray
+    distortion: dict[str, Any]
+    device: torch.device
+
+    def load(self) -> TrainingView:
+        with Image.open(self.path) as source:
+            source = source.convert("RGB")
+            target_size = (self.camera.width, self.camera.height)
+            if source.size != target_size:
+                source = source.resize(target_size, Image.Resampling.LANCZOS)
+            image = torch.from_numpy(np.asarray(source, dtype=np.uint8).copy())
+        if self.device.type != "cpu" or self.distortion.get("state") != "none":
+            image = image.to(device=self.device, dtype=torch.float32).div_(255.0)
+        else:
+            image = image.to(self.device)
+        image = _undistort_image(image, self.intrinsic, self.distortion)
+        return TrainingView(self.camera, image)
+
+
+class TrainingViews(Sequence[TrainingView]):
+    """Ordered camera metadata with a byte-bounded decoded-image cache."""
+
+    def __init__(self, sources: list[_ViewSource], *, cache_max_bytes: int = VIEW_CACHE_MAX_BYTES):
+        if cache_max_bytes < 0:
+            raise ValueError("view cache budget must be nonnegative")
+        self.sources = sources
+        self.cache_max_bytes = cache_max_bytes
+        self.cached_bytes = 0
+        self._cache: OrderedDict[int, TrainingView] = OrderedDict()
+
+    @property
+    def cameras(self) -> list[RenderCamera]:
+        return [source.camera for source in self.sources]
+
+    def __len__(self) -> int:
+        return len(self.sources)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return TrainingViews(self.sources[index], cache_max_bytes=self.cache_max_bytes)
+        if index < 0:
+            index += len(self)
+        if not 0 <= index < len(self):
+            raise IndexError(index)
+        if index in self._cache:
+            self._cache.move_to_end(index)
+            return self._cache[index]
+        view = self.sources[index].load()
+        size = view.image.numel() * view.image.element_size()
+        while self._cache and self.cached_bytes + size > self.cache_max_bytes:
+            _, evicted = self._cache.popitem(last=False)
+            self.cached_bytes -= evicted.image.numel() * evicted.image.element_size()
+        if size <= self.cache_max_bytes:
+            self._cache[index] = view
+            self.cached_bytes += size
+        return view
+
+    def __add__(self, other: TrainingViews) -> TrainingViews:
+        return TrainingViews(self.sources + other.sources, cache_max_bytes=self.cache_max_bytes)
+
+    def clear(self) -> None:
+        self._cache.clear()
+        self.sources.clear()
+        self.cached_bytes = 0
+
+
+def view_cameras(views: Sequence[TrainingView]) -> list[RenderCamera]:
+    if isinstance(views, TrainingViews):
+        return views.cameras
+    return [view.camera for view in views]
+
+
 def load_training_views(
     contract: dict[str, Any],
     dataset_root: Path,
@@ -50,7 +131,7 @@ def load_training_views(
     split: str,
     longest_edge: int,
     device: torch.device,
-) -> list[TrainingView]:
+) -> TrainingViews:
     if split not in {"train", "validation"}:
         raise DatasetContractError("the trainer can load only train or validation views")
     return load_views(
@@ -70,7 +151,7 @@ def load_evaluation_views(
     longest_edge: int,
     device: torch.device,
     image_ids: list[str] | None = None,
-) -> list[TrainingView]:
+) -> TrainingViews:
     if split not in {"validation", "test"}:
         raise DatasetContractError("the evaluator can load only validation or test views")
     return load_views(
@@ -91,7 +172,7 @@ def load_views(
     longest_edge: int,
     device: torch.device,
     image_ids: list[str] | None = None,
-) -> list[TrainingView]:
+) -> TrainingViews:
     validate_contract(contract, dataset_root if image_ids is None else None)
     if split not in contract["splits"]:
         raise DatasetContractError(f"unknown dataset split: {split}")
@@ -116,22 +197,13 @@ def load_views(
             if not path.is_file() or sha256_file(path) != entry["sha256"]:
                 raise DatasetContractError(f"image hash mismatch: {entry['path']}")
         with Image.open(path) as source:
-            source = source.convert("RGB")
             width, height = source.size
-            scale = min(1.0, longest_edge / max(width, height))
-            target_width = max(1, int(round(width * scale)))
-            target_height = max(1, int(round(height * scale)))
-            if (target_width, target_height) != (width, height):
-                source = source.resize((target_width, target_height), Image.Resampling.LANCZOS)
-            image = torch.from_numpy(np.asarray(source, dtype=np.uint8).copy())
+        scale = min(1.0, longest_edge / max(width, height))
+        target_width = max(1, int(round(width * scale)))
+        target_height = max(1, int(round(height * scale)))
         intrinsic = np.asarray(entry["intrinsic"], dtype=np.float64).copy()
         intrinsic[0] *= target_width / width
         intrinsic[1] *= target_height / height
-        if device.type != "cpu" or distortion.get("state") != "none":
-            image = image.to(device=device, dtype=torch.float32).div_(255.0)
-        else:
-            image = image.to(device)
-        image = _undistort_image(image, intrinsic, distortion)
         camera_from_world = np.asarray(entry["camera_from_world"], dtype=np.float64)
         camera_from_normalized = camera_from_normalized_transform(
             camera_from_world, normalization
@@ -145,10 +217,10 @@ def load_views(
             width=target_width,
             height=target_height,
         )
-        views.append(TrainingView(camera, image))
+        views.append(_ViewSource(camera, path, intrinsic, distortion, device))
     if len(views) != len(selected_ids):
         raise DatasetContractError(f"split {split} does not resolve to every contracted image")
-    return views
+    return TrainingViews(views)
 
 
 def _undistort_image(

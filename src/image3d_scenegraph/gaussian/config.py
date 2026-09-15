@@ -255,7 +255,7 @@ def validate_effective_config(config: dict[str, Any]) -> None:
 
     resolution = _mapping(root["resolution"], "resolution", {"policy", "longest_edge"})
     _choice(resolution["policy"], "resolution.policy", {"explicit_only"})
-    _integer(resolution["longest_edge"], "resolution.longest_edge", minimum=64, maximum=3072)
+    _integer(resolution["longest_edge"], "resolution.longest_edge", minimum=64, maximum=3840)
 
     loss = _mapping(
         root["loss"],

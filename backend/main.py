@@ -116,7 +116,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         gaussian_final_fit: Annotated[
             Literal["off", "train_validation_v1"] | None, Form()
         ] = None,
-        gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3072)] = None,
+        gaussian_longest_edge: Annotated[int | None, Form(ge=1280, le=3840)] = None,
         colmap_matcher: Annotated[
             Literal["exhaustive", "sequential"] | None, Form()
         ] = None,

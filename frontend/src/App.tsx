@@ -1854,6 +1854,7 @@ export function App() {
                     <option value={1920}>1920px</option>
                     <option value={2560}>2560px</option>
                     <option value={3072}>3072px</option>
+                    <option value={3840}>3840px（4K UHD）</option>
                   </select>
                   <small>同时控制 COLMAP 去畸变训练图和 3DGS 训练/验证视图；分辨率越高，显存占用越大。</small>
                 </label>

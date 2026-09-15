@@ -7,6 +7,7 @@ import json
 import os
 import re
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -61,7 +62,7 @@ def load_model_snapshot(path: Path, device: torch.device) -> GaussianModel:
 
 def evaluate_model(
     model: GaussianModel,
-    views: list[TrainingView],
+    views: Sequence[TrainingView],
     *,
     split: str,
     sh_degree: int,
