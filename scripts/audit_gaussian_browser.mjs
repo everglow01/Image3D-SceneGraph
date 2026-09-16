@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local-only fixed-camera audit. No model training, external services, or new dependencies.
+// Local-only fixed-camera audit. No model training or external services.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {createReadStream} from 'node:fs';
@@ -9,24 +9,33 @@ import {resolve, dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {SPARK_VERSION, SPARK_PROFILE, SPARK_SETTINGS, validateSparkAudit,
+  sparkFixture, sparkPage, checkSparkSelfTest} from './gaussian_spark_audit.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const selfTest = args.includes('--self-test');
-const output = resolve(option('--output', 'outputs/analysis/browser-render-audit'));
+const rendererName = option('--renderer', 'legacy');
+assert(['legacy', 'spark'].includes(rendererName), 'renderer must be legacy or spark');
+const spark = rendererName === 'spark';
+const reportName = spark ? 'spark.json' : 'browser.json';
+const output = resolve(option('--output', spark ? 'outputs/analysis/spark-render-audit' : 'outputs/analysis/browser-render-audit'));
 await mkdir(output, {recursive: false});
-const profile = await mkdtemp(join(tmpdir(), 'image3d-render-audit-'));
+const profile = await mkdtemp(join(process.env.CLAUDE_JOB_DIR ? join(process.env.CLAUDE_JOB_DIR, 'tmp') : tmpdir(), 'image3d-render-audit-'));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const events = [];
 const result = {schema_version: 1, status: 'running', self_test: selfTest,
-  profile: 'fixed_camera_browser_v1', test_rgb: 'not_loaded', captures: [], events,
+  profile: spark ? SPARK_PROFILE : 'fixed_camera_browser_v1', test_rgb: 'not_loaded', captures: [], events,
   note: 'Pinned library harness, not a deployed product UI screenshot. Fixed camera, no upright rotation or overlays.'};
+if (spark) result.settings = SPARK_SETTINGS;
 let browser, server, socket;
+let sourcePly;
 let chromeLog='';
 let timeout;
 
 function fixture() {
+  if (spark) return sparkFixture();
   const fields = ['x','y','z','nx','ny','nz','f_dc_0','f_dc_1','f_dc_2',
     ...Array.from({length: 45}, (_, i) => `f_rest_${i}`), 'opacity',
     'scale_0','scale_1','scale_2','rot_0','rot_1','rot_2','rot_3'];
@@ -142,26 +151,61 @@ window.auditReady=true;
 </script>`;
 
 try {
+  const auditText = selfTest ? null : await readFile(resolve(option('--audit')), 'utf8');
   const audit = selfTest ? {source_sha256:{},views:[{image_id:'fixture',width:128,height:128,
     intrinsic:[[100,0,64],[0,100,64],[0,0,1]],camera_from_normalized:[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]}]} :
-    JSON.parse(await readFile(resolve(option('--audit')), 'utf8'));
+    JSON.parse(auditText);
   const ply = selfTest ? null : resolve(option('--ply'));
+  if (spark && !selfTest) {
+    validateSparkAudit(audit);
+    result.audit_sha256 = createHash('sha256').update(auditText).digest('hex');
+    result.dataset_hash = audit.dataset_hash;
+    result.expected_count = audit.model_count;
+    result.source_sha256 = audit.source_sha256;
+  }
+  if (spark) {
+    const modes = option('--modes', null)?.split(',');
+    assert(!modes || modes.every(mode => mode === 'controlled'), 'Spark only supports controlled mode');
+    const ids = option('--image-ids', null)?.split(',');
+    assert(!ids || ids.every(id => audit.views.some(view => view.image_id === id)), 'unknown requested camera ID');
+    result.image_ids = audit.views.filter(view => !ids || ids.includes(view.image_id)).map(view => view.image_id);
+    result.sh_probe = option('--sh-probe', result.image_ids.includes('317') ? '317' : result.image_ids[0]);
+    assert(result.image_ids.includes(result.sh_probe), 'SH probe must be among the selected cameras');
+  }
   if (!selfTest) {
     const hash=createHash('sha256');
     for await(const chunk of createReadStream(ply)) hash.update(chunk);
     result.ply_sha256=hash.digest('hex');
     assert.equal(result.ply_sha256,audit.source_sha256.ply,'PLY hash mismatch');
+    sourcePly = ply;
   }
+  const servedPage = spark ? sparkPage({count:selfTest ? 6 : audit.model_count,
+    near:selfTest ? 0.01 : audit.near, far:selfTest ? 1e10 : audit.far}) : page;
   const files = new Map([
     ['/splats.js', join(repo,'frontend/node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js')],
     ['/three.js',join(repo,'frontend/node_modules/three/build/three.module.js')],
     ['/three.core.js',join(repo,'frontend/node_modules/three/build/three.core.js')],
   ]);
-  result.library_sha256=createHash('sha256').update(await readFile(files.get('/splats.js'))).digest('hex');
+  if (spark) {
+    const packageRoot = join(repo, 'frontend/node_modules/@sparkjsdev/spark');
+    const installed = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+    assert.equal(installed.version, SPARK_VERSION, 'Spark audit requires the pinned package version');
+    files.delete('/splats.js');
+    files.set('/spark.js', join(packageRoot, 'dist/spark.module.js'));
+    files.set('/Pass.js', join(repo, 'frontend/node_modules/three/examples/jsm/postprocessing/Pass.js'));
+    result.implementation = installed.name;
+    result.version = installed.version;
+    result.three_version = JSON.parse(await readFile(join(repo, 'frontend/node_modules/three/package.json'), 'utf8')).version;
+    result.asset_sha256 = {};
+    for (const [url, path] of files) result.asset_sha256[url] = createHash('sha256').update(await readFile(path)).digest('hex');
+    result.library_sha256 = result.asset_sha256['/spark.js'];
+  } else {
+    result.library_sha256=createHash('sha256').update(await readFile(files.get('/splats.js'))).digest('hex');
+  }
   server=createServer(async(req,res)=>{
     try {
       const path=new URL(req.url,'http://localhost').pathname;
-      if(path==='/'){res.setHeader('Content-Type','text/html');res.end(page);return;}
+      if(path==='/'){res.setHeader('Content-Type','text/html');res.end(servedPage);return;}
       if(path==='/scene.ply' && selfTest){res.end(fixture());return;}
       const target=path==='/scene.ply'?ply:files.get(path);
       if(!target){res.writeHead(404);res.end();return;}
@@ -203,14 +247,16 @@ try {
     if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result?.value;
   };
   await call('Runtime.enable');await call('Log.enable');await call('Page.enable');
-  const allModes=selfTest?[0,2,3].map(degree=>({degree,mode:'controlled'})):[{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
+  const allModes=selfTest?[0,2,3].map(degree=>({degree,mode:'controlled'})):
+    spark ? [{degree:3,mode:'controlled'}, {degree:0,mode:'controlled',probe:true}, {degree:2,mode:'controlled',probe:true}] :
+    [{degree:3,mode:'product'}, {degree:3,mode:'controlled'},
     {degree:2,mode:'linear',probe:true},{degree:0,mode:'controlled',probe:true},{degree:2,mode:'controlled',probe:true}];
   const requestedModes=option('--modes',null)?.split(',');
   const modes=allModes.filter(mode=>!requestedModes||requestedModes.includes(mode.mode));
   assert(modes.length>0,'no requested browser audit modes');
   for(const mode of modes){
     const requestedIds=option('--image-ids',null)?.split(',');
-    const selected=mode.probe?audit.views.filter(v=>v.image_id===option('--sh-probe','317')):
+    const selected=mode.probe?audit.views.filter(v=>v.image_id===(spark ? result.sh_probe : option('--sh-probe','317'))):
       audit.views.filter(v=>!requestedIds || requestedIds.includes(v.image_id));
     assert(selected.length>0,'no selected camera descriptors');
     try {
@@ -222,21 +268,22 @@ try {
       await evaluate(`window.loadScene(${JSON.stringify(selected[0])},${mode.degree},${JSON.stringify(mode.mode)})`);
       for(const view of selected){
         const capture=await evaluate(`window.drawView(${JSON.stringify(view)})`);
-        const name=`browser-${mode.mode}-sh${mode.degree}-${view.image_id}`;
+        const name=`${spark ? 'spark' : 'browser'}-${mode.mode}-sh${mode.degree}-${view.image_id}`;
         await writeFile(join(output,name+'.png'),Buffer.from(capture.png,'base64'),{flag:'wx'});
         result.captures.push({name,image_id:view.image_id,...capture.runtime});
-        if(selfTest && mode.degree===0){assert(capture.runtime.reference_probe_pixel[0]>150,'expected red Gaussian not at projected CV pixel');
+        if(selfTest && !spark && mode.degree===0){assert(capture.runtime.reference_probe_pixel[0]>150,'expected red Gaussian not at projected CV pixel');
           assert(capture.runtime.reference_mirrored_pixel[0]<30,'camera Y axis was mirrored');}
-        await writeFile(join(output,'browser.json'),JSON.stringify(result,null,2)+'\n');
+        await writeFile(join(output,reportName),JSON.stringify(result,null,2)+'\n');
       }
-    } catch(error){result.captures.push({...mode,status:'failed',error:String(error)});if(selfTest)throw error;}
+    } catch(error){result.captures.push({...mode,status:'failed',error:String(error)});if(selfTest || spark)throw error;}
     finally {
       try {
-        await evaluate('(async()=>{await window.viewer?.dispose();window.renderer?.dispose();window.renderer?.forceContextLoss();window.viewer=null;window.renderer=null;return true;})()');
+        await evaluate(spark ? 'window.disposeAudit?.()' : '(async()=>{await window.viewer?.dispose();window.renderer?.dispose();window.renderer?.forceContextLoss();window.viewer=null;window.renderer=null;return true;})()');
         await call('HeapProfiler.collectGarbage');
-      } catch(error){events.push({cleanup_error:String(error)});}
+      } catch(error){events.push({cleanup_error:String(error)});if(spark)throw error;}
     }
   }
+  if (spark && selfTest) result.self_test_result = checkSparkSelfTest(result.captures);
   result.status=result.captures.some(c=>c.status==='failed')?'partial':'completed';
   if(result.status==='partial')process.exitCode=2;
   result.chrome_log=chromeLog.slice(-12000);
@@ -245,6 +292,17 @@ finally {
   clearTimeout(timeout);socket?.close();browser?.kill();server?.closeAllConnections();server?.close();
   result.chrome_profile=profile;
   result.chrome_log=chromeLog.slice(-12000);
-  await writeFile(join(output,'browser.json'),JSON.stringify(result,null,2)+'\n');
+  if (spark && sourcePly) {
+    try {
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(sourcePly)) hash.update(chunk);
+      result.ply_after_sha256 = hash.digest('hex');
+      result.source_unchanged = result.ply_after_sha256 === result.ply_sha256;
+      assert(result.source_unchanged, 'source PLY changed during audit');
+    } catch (error) {
+      result.status = 'integrity_failed'; result.error = String(error); process.exitCode = 1;
+    }
+  }
+  await writeFile(join(output,reportName),JSON.stringify(result,null,2)+'\n');
 }
 console.log(JSON.stringify({status:result.status,output,captures:result.captures.map(c=>({name:c.name,status:c.status,count:c.count,effective_sh:c.effective_sh,error:c.error}))}));
