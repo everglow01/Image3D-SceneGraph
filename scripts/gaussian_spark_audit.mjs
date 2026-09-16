@@ -116,6 +116,20 @@ window.loadScene = async (_view, degree) => {
     renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove();
   };
   scene.add(spark, mesh);
+  let pending = null, updateError = null;
+  window.auditMotion = {THREE, renderer, camera,
+    step: () => {
+      if (updateError) throw updateError;
+      if (!pending) pending = spark.update({scene,camera}).catch(error => {updateError=error;}).finally(() => {pending=null;});
+      renderer.render(scene,camera);
+    },
+    settle: async () => {
+      if (pending) await pending;
+      if (updateError) throw updateError;
+      await spark.update({scene,camera});
+      if (spark.sorting || spark.sortDirty) throw Error('motion sort unfinished');
+      renderer.render(scene,camera);
+    }};
   const loadStart = performance.now();
   await mesh.initialized;
   const loadMs = performance.now() - loadStart;

@@ -12,10 +12,15 @@ import {createHash} from 'node:crypto';
 import {SPARK_VERSION, SPARK_PROFILE, SPARK_SETTINGS, validateSparkAudit,
   sparkFixture, sparkPage, checkSparkSelfTest} from './gaussian_spark_audit.mjs';
 
+import {MOTION_PROTOCOL, assertHardware, motionTrial} from './gaussian_browser_motion.mjs';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const selfTest = args.includes('--self-test');
+const hardware = args.includes('--hardware');
+const motion = args.includes('--motion');
+assert(!hardware || !args.includes('--software'), 'hardware and software are mutually exclusive');
+assert(!motion || (hardware && !selfTest), 'motion requires hardware and a frozen model audit');
 const rendererName = option('--renderer', 'legacy');
 assert(['legacy', 'spark'].includes(rendererName), 'renderer must be legacy or spark');
 const spark = rendererName === 'spark';
@@ -81,6 +86,22 @@ window.loadScene = async (view, degree, mode) => {
     finally { clearTimeout(treeTimer); }
   }
   const material=viewer.getSplatMesh().material;
+  let motionError=null;
+  window.auditMotion = {THREE,renderer,camera,
+    step: () => {
+      if(motionError)throw motionError;
+      viewer.updateSplatMesh();
+      if(!viewer.sortRunning) void viewer.runSplatSort(true,true).catch(error=>{motionError=error;});
+      viewer.forceRenderNextFrame();viewer.render();
+    },
+    settle: async () => {
+      if(motionError)throw motionError;
+      if(viewer.sortPromise)await viewer.sortPromise;
+      viewer.updateSplatMesh();
+      await viewer.runSplatSort(true,true);if(viewer.sortPromise)await viewer.sortPromise;
+      if(viewer.sortRunning)throw Error('motion sort unfinished');
+      viewer.updateSplatMesh();viewer.forceRenderNextFrame();viewer.render();
+    }};
   if(mode==='product') {
     const anchor=['float opacity = exp(-0.5 * A) * vColor.a;','float opa = vColor.a;'].find(s=>material.fragmentShader.includes(s));
     if(!anchor) throw Error('product alpha shader anchor missing');
@@ -156,7 +177,7 @@ try {
     intrinsic:[[100,0,64],[0,100,64],[0,0,1]],camera_from_normalized:[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]}]} :
     JSON.parse(auditText);
   const ply = selfTest ? null : resolve(option('--ply'));
-  if (spark && !selfTest) {
+  if ((spark || hardware) && !selfTest) {
     validateSparkAudit(audit);
     result.audit_sha256 = createHash('sha256').update(auditText).digest('hex');
     result.dataset_hash = audit.dataset_hash;
@@ -218,8 +239,11 @@ try {
   const port=server.address().port;
   browser=spawn(option('--chrome','/usr/bin/google-chrome'),['--headless=new','--no-first-run',
     '--no-default-browser-check','--disable-dev-shm-usage','--remote-debugging-port=0',
-    '--enable-unsafe-swiftshader',...(args.includes('--software')?['--use-angle=swiftshader']:[]),
+    ...(hardware ? ['--use-angle=vulkan','--enable-features=Vulkan','--disable-vulkan-surface',
+      '--disable-software-rasterizer'] : ['--enable-unsafe-swiftshader',...(args.includes('--software')?['--use-angle=swiftshader']:[])]),
     `--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','pipe']});
+  result.requested_hardware_webgl=hardware;
+  result.motion_protocol=motion ? MOTION_PROTOCOL : null;
   result.requested_software_webgl=args.includes('--software');
   browser.stderr.on('data',chunk=>chromeLog+=chunk.toString());
   browser.on('error',error=>events.push({chrome_spawn_error:String(error)}));
@@ -265,17 +289,39 @@ try {
       let ready=false;
       for(let i=0;i<100;i++){try{ready=await evaluate(`window.location.href===${JSON.stringify(url)} && window.auditReady === true`);}catch{}if(ready)break;await pause(100);}
       if(!ready)throw Error('diagnostic page did not initialize');
+      const loadStart=Date.now();
       await evaluate(`window.loadScene(${JSON.stringify(selected[0])},${mode.degree},${JSON.stringify(mode.mode)})`);
+      const loadMs=Date.now()-loadStart;
       for(const view of selected){
         const capture=await evaluate(`window.drawView(${JSON.stringify(view)})`);
+        if(hardware) assertHardware(capture.runtime.gpu);
         const name=`${spark ? 'spark' : 'browser'}-${mode.mode}-sh${mode.degree}-${view.image_id}`;
         await writeFile(join(output,name+'.png'),Buffer.from(capture.png,'base64'),{flag:'wx'});
-        result.captures.push({name,image_id:view.image_id,...capture.runtime});
+        result.captures.push({name,image_id:view.image_id,...capture.runtime,scene_load_wall_ms:loadMs});
         if(selfTest && !spark && mode.degree===0){assert(capture.runtime.reference_probe_pixel[0]>150,'expected red Gaussian not at projected CV pixel');
           assert(capture.runtime.reference_mirrored_pixel[0]<30,'camera Y axis was mirrored');}
         await writeFile(join(output,reportName),JSON.stringify(result,null,2)+'\n');
       }
-    } catch(error){result.captures.push({...mode,status:'failed',error:String(error)});if(selfTest || spark)throw error;}
+      if(motion && mode.degree===3 && mode.mode==='controlled') {
+        const baseView=selected.find(view => view.image_id===option('--motion-base',selected[0].image_id));
+        assert(baseView,'motion base must be among selected cameras');
+        result.motion={base_image_id:baseView.image_id,trials:[]};
+        for(let trial=0;trial<MOTION_PROTOCOL.trials+1;trial++) {
+          const captureImages=trial===MOTION_PROTOCOL.trials;
+          const measured=await evaluate(`(${motionTrial.toString()})(${JSON.stringify(baseView)},${JSON.stringify(MOTION_PROTOCOL)},${captureImages})`);
+          assertHardware(measured.device);
+          for(const sample of measured.samples) {
+            for(const key of ['png','settled_png']) {
+              const filename=`motion-${String(sample.frame).padStart(3,'0')}-${key}.png`;
+              await writeFile(join(output,filename),Buffer.from(sample[key],'base64'),{flag:'wx'});
+              sample[key]=filename;
+            }
+          }
+          result.motion.trials.push(measured);
+          await writeFile(join(output,reportName),JSON.stringify(result,null,2)+'\n');
+        }
+      }
+    } catch(error){result.captures.push({...mode,status:'failed',error:String(error)});if(selfTest || spark || hardware)throw error;}
     finally {
       try {
         await evaluate(spark ? 'window.disposeAudit?.()' : '(async()=>{await window.viewer?.dispose();window.renderer?.dispose();window.renderer?.forceContextLoss();window.viewer=null;window.renderer=null;return true;})()');
@@ -292,7 +338,7 @@ finally {
   clearTimeout(timeout);socket?.close();browser?.kill();server?.closeAllConnections();server?.close();
   result.chrome_profile=profile;
   result.chrome_log=chromeLog.slice(-12000);
-  if (spark && sourcePly) {
+  if ((spark || hardware) && sourcePly) {
     try {
       const hash = createHash('sha256');
       for await (const chunk of createReadStream(sourcePly)) hash.update(chunk);

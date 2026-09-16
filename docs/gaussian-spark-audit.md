@@ -64,6 +64,16 @@ node scripts/audit_gaussian_browser.mjs --renderer spark \
 
 Spark 退出码：0 为捕获/完整性检查完成（不是质量提升 PASS）；1 为输入、自检、捕获、释放或完整性失败。任一步失败立即停止，不继续尝试较低 SH 阶数；已有截图与失败记录保留。原有 legacy 审计的部分失败退出码 2 保持不变。下一次重试必须使用新输出目录。
 
+## 独立视角与硬件移动验收
+
+用户授权后可用 `freeze_spark_acceptance.py --dataset ... --output protocol.json`，在任何新候选渲染前冻结 12 个 Validation 视角：去掉前六视角，按数值 ID 排序等距选取，不读取质量分数。它们只是相对前六视角独立，仍是同场景开发 Validation，不是新的 Test。
+
+先用既有 `audit_gaussian_render_consistency.py` 在远端生成这 12 个相机的原生/参考 PNG，然后两臂运行 `audit_gaussian_browser.mjs --renderer spark|legacy --hardware --motion --motion-base <首个冻结ID> --modes controlled`，传入该原生 `audit.json`、同一 PLY 和冻结 IDs。`--hardware` 固定 ANGLE Vulkan、禁止软件光栅回退，并要求每次捕获实际身份为 NVIDIA L2；不修改驱动、权限或关闭沙箱。NVIDIA ICD 通过本次进程的 `VK_ICD_FILENAMES` 指定，不修改系统配置。
+
+连续路径在首个冻结相机附近作相机局部横向 ±0.01 arbitrary units 与 ±3° yaw 的正弦闭环。每轮60帧预热、240帧测量，共3轮；路径位移按帧索引固定，不宣称两臂具有相同墙钟移动速度。静态显示配置不变，交互测量不等待每次排序，Spark 同时只提交一个更新，旧库采用异步全量强制排序；这是受控全量排序负载，不是生产查看器的裁剪与排序触发策略。记录 rAF 间隔、CPU提交耗时、可用且非disjoint的GPU timer query；无截图/读回进入性能轮次。GPU query包含本次同步提交的离屏生成与绘制，不是整个异步排序的GPU耗时。rAF是headless吞吐/调度证据，不是带显示器的端到端延迟。
+
+另一个不计入性能的240帧截图轮次每20帧及终点取样（13帧），生成320px宽缩略图；再在完全相同的相机姿态等待排序并渲染，得到settled参考。live-vs-settled残差衡量采样点的排序/更新延迟，不是对真实移动视频的重建准确率，也不能排除采样点之间的闪烁。预先冻结质量门槛沿用MAE改善≥10%、参考PSNR下降≤0.1dB/SSIM下降≤.002；性能P95及加载比≤1.2；采样运动最大MAE≤.01且比旧库增加≤.002。`compare_spark_acceptance.py --root ...`汇总指标并保留逐视角与逐样本结果，绝不自动推广默认。
+
 ## 实现验证边界
 
 CPU 单元测试覆盖输入门槛、SH3 非零合成数据、自检判定、模拟渲染器下的相机转换/排序/数量/降阶/WebGL/空帧拒绝，以及 CLI 在读取 Test 输入时于打开 PLY 和启动浏览器前失败。模拟测试不编译 GPU shader，不代表合成浏览器自检或约 300 万高斯加载已通过。
