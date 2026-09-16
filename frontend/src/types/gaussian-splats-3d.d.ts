@@ -25,6 +25,10 @@ declare module "@mkkellogg/gaussian-splats-3d" {
     saveState(): void;
   };
 
+  export const OrbitControls: new (camera: THREE.Camera, domElement: HTMLElement) => ViewerControls & {
+    dispose(): void;
+  };
+
   export type SplatMesh = {
     material: THREE.Material;
     minSphericalHarmonicsDegree: number;
@@ -35,8 +39,10 @@ declare module "@mkkellogg/gaussian-splats-3d" {
     camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
     controls: ViewerControls | null;
     renderer?: THREE.WebGLRenderer;
+    disposed: boolean;
 
     constructor(options?: {
+      renderer?: THREE.WebGLRenderer;
       rootElement?: HTMLElement;
       cameraUp?: [number, number, number];
       initialCameraPosition?: [number, number, number];

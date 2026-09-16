@@ -158,13 +158,14 @@ test('browser adapter applies CV projection and fails closed on incomplete mocke
   }
 });
 
-test('Spark stays an exact dev dependency; production viewer remains on the existing library', async () => {
+test('Spark stays pinned and opt-in; the page defaults to the existing library', async () => {
   const pkg = JSON.parse(await readFile(new URL('../frontend/package.json', import.meta.url)));
-  assert.equal(pkg.devDependencies['@sparkjsdev/spark'], SPARK_VERSION);
-  assert.equal(pkg.dependencies['@sparkjsdev/spark'], undefined);
+  assert.equal(pkg.dependencies['@sparkjsdev/spark'], SPARK_VERSION);
+  assert.equal(pkg.devDependencies['@sparkjsdev/spark'], undefined);
   const viewer = await readFile(new URL('../frontend/src/GaussianSplatViewer.tsx', import.meta.url), 'utf8');
   assert.match(viewer, /@mkkellogg\/gaussian-splats-3d/);
-  assert.doesNotMatch(viewer, /@sparkjsdev/);
+  assert.match(viewer, /useState<RendererKind>\("legacy"\)/);
+  assert.match(viewer, /await import\("\.\/SparkPageViewer"\)/);
 });
 
 test('CLI rejects wrong PLY hashes and invalid selections before launching Chrome', async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 import gaussianViewerPackage from "@mkkellogg/gaussian-splats-3d/package.json" with { type: "json" };
 import * as THREE from "three";
+import type { SparkPageViewer } from "./SparkPageViewer";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Capsule } from "three/examples/jsm/math/Capsule.js";
 import { Octree } from "three/examples/jsm/math/Octree.js";
@@ -53,6 +54,14 @@ type ViewPreset = "fit" | "top" | "front" | "side";
 type ViewerState = "idle" | "loading" | "ready" | "error";
 type NavigationState = "idle" | "loading" | "ready" | "error";
 type ViewerMode = "orbit" | "walk";
+type RendererKind = "legacy" | "spark";
+type ViewerRuntime = Pick<GaussianSplats3D.Viewer,
+  "camera" | "controls" | "renderer" | "start" | "stop" | "dispose" | "forceRenderNextFrame">;
+type SavedView = {
+  sourceKey: string;
+  camera: THREE.PerspectiveCamera;
+  target: THREE.Vector3;
+};
 type RendererIdentity = {
   implementation: string;
   version: string;
@@ -144,8 +153,9 @@ function patchSplatAlphaThreshold(viewer: GaussianSplats3D.Viewer, threshold: nu
   return true;
 }
 
-function applySplatAlphaThreshold(viewer: GaussianSplats3D.Viewer | null, threshold: number) {
-  const material = viewer?.getSplatMesh().material;
+function applySplatAlphaThreshold(viewer: ViewerRuntime | null, threshold: number) {
+  if (!(viewer instanceof GaussianSplats3D.Viewer)) return;
+  const material = viewer.getSplatMesh().material;
   if (!(material instanceof THREE.ShaderMaterial) || !material.uniforms.alphaThreshold) {
     return;
   }
@@ -153,7 +163,7 @@ function applySplatAlphaThreshold(viewer: GaussianSplats3D.Viewer | null, thresh
   viewer?.forceRenderNextFrame?.();
 }
 
-function configureControls(viewer: GaussianSplats3D.Viewer, frame: SceneFrame) {
+function configureControls(viewer: ViewerRuntime, frame: SceneFrame) {
   const controls = viewer.controls;
   if (!controls) {
     return;
@@ -175,12 +185,11 @@ function configureControls(viewer: GaussianSplats3D.Viewer, frame: SceneFrame) {
 }
 
 function getSceneFrame(
-  viewer: GaussianSplats3D.Viewer,
+  box: THREE.Box3,
   sceneCenter: [number, number, number] | null,
   sceneRadius: number | null,
   cameraFrame: { center: [number, number, number]; up: [number, number, number] } | null
 ): SceneFrame {
-  const box = viewer.getSplatMesh().computeBoundingBox(true);
   const center = cameraFrame
     ? new THREE.Vector3(...cameraFrame.center)
     : sceneCenter
@@ -203,7 +212,7 @@ function getSceneFrame(
   };
 }
 
-function applyViewPreset(viewer: GaussianSplats3D.Viewer, frame: SceneFrame, preset: ViewPreset) {
+function applyViewPreset(viewer: ViewerRuntime, frame: SceneFrame, preset: ViewPreset) {
   const config = VIEW_PRESETS[preset];
   const orientation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), frame.up);
   const direction = config.direction.clone().applyQuaternion(orientation).normalize();
@@ -243,7 +252,12 @@ export function GaussianSplatViewer({
   navigationReason
 }: GaussianSplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const viewerRef = useRef<GaussianSplats3D.Viewer | null>(null);
+  const viewerRef = useRef<ViewerRuntime | null>(null);
+  const releaseRef = useRef<Promise<void>>(Promise.resolve());
+  const savedViewRef = useRef<SavedView | null>(null);
+  const [rendererKind, setRendererKind] = useState<RendererKind>("legacy");
+  const [viewerError, setViewerError] = useState("");
+  const sourceKey = JSON.stringify([sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl]);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
   const uprightRotationRef = useRef<THREE.Matrix3 | null>(null);
   const walkRuntimeRef = useRef<WalkRuntime | null>(null);
@@ -291,6 +305,7 @@ export function GaussianSplatViewer({
             return response.json();
           })
         );
+      if (viewerRef.current !== viewer) return;
       setSfmDiagnostics(diagnostics);
       const direction = viewer.camera.getWorldDirection(new THREE.Vector3());
       const position = viewer.camera.position.clone();
@@ -306,10 +321,23 @@ export function GaussianSplatViewer({
       setInspectionTab(tab);
       onInspectionStateChange(tab);
     } catch (error) {
-      setSfmMessage(error instanceof Error ? error.message : "SfM 诊断加载失败");
+      if (viewerRef.current === viewer) setSfmMessage(error instanceof Error ? error.message : "SfM 诊断加载失败");
     } finally {
-      setSfmLoading(false);
+      if (viewerRef.current === viewer) setSfmLoading(false);
     }
+  };
+
+  const switchRenderer = (next: RendererKind) => {
+    if (next === rendererKind || viewerModeRef.current !== "orbit") return;
+    const viewer = viewerRef.current;
+    if (viewerState === "ready" && viewer?.camera instanceof THREE.PerspectiveCamera && viewer.controls) {
+      savedViewRef.current = {
+        sourceKey,
+        camera: viewer.camera.clone(),
+        target: viewer.controls.target.clone()
+      };
+    }
+    setRendererKind(next);
   };
 
   const setView = (preset: ViewPreset) => {
@@ -425,8 +453,10 @@ export function GaussianSplatViewer({
     }
 
     let cancelled = false;
+    const previousRelease = releaseRef.current;
     const controller = new AbortController();
     setViewerState("loading");
+    setViewerError("");
     setNavigationState(navigationUrl && collisionMeshUrl ? "loading" : "idle");
     setViewerMode("orbit");
     viewerModeRef.current = "orbit";
@@ -436,10 +466,12 @@ export function GaussianSplatViewer({
     setAlphaControl(null);
     setRendererIdentity(null);
     setSfmDiagnostics(null);
+    setSfmLoading(false);
     setSfmQuery(null);
     setSfmMessage("");
     setUprightAvailable(false);
-    mount.replaceChildren();
+    setBoundaryHint(false);
+    onInspectionStateChange(null);
     void fetch(sourceUrl, { method: "HEAD", signal: controller.signal })
       .then((response) => {
         const bytes = parseContentLength(response.headers.get("content-length"));
@@ -451,10 +483,59 @@ export function GaussianSplatViewer({
         // Asset size is optional; the viewer still owns the actual GET and error state.
       });
 
-    let viewer: GaussianSplats3D.Viewer | null = null;
+    let viewer: GaussianSplats3D.Viewer | SparkPageViewer | null = null;
     let auxiliaryScene: THREE.Scene | null = null;
+    let legacyRenderer: THREE.WebGLRenderer | null = null;
+    let legacyResize: ResizeObserver | null = null;
+    let disposal: Promise<void> | null = null;
+    const release = () => {
+      if (disposal) return disposal;
+      const runtime = walkRuntimeRef.current;
+      walkRuntimeRef.current = null;
+      if (runtime) {
+        uninstallWalkHandlers(runtime);
+        disposeWalkRuntime(runtime);
+      }
+      if (document.pointerLockElement === viewer?.renderer?.domElement) document.exitPointerLock();
+      viewer?.stop();
+      if (viewerRef.current === viewer) viewerRef.current = null;
+      disposal = previousRelease.then(async () => {
+        legacyResize?.disconnect();
+        try {
+          await viewer?.dispose();
+        } catch (error) {
+          // Legacy disposal can reject an aborted download after completing its cleanup.
+          if (!(viewer instanceof GaussianSplats3D.Viewer && viewer.disposed)) throw error;
+        } finally {
+          legacyRenderer?.dispose();
+          legacyRenderer?.forceContextLoss();
+          legacyRenderer?.domElement.remove();
+        }
+        auxiliaryScene?.clear();
+        mount.replaceChildren();
+      });
+      releaseRef.current = disposal;
+      void disposal.catch(() => {
+        if (!cancelled) setViewerError("查看器释放失败，请刷新页面后重试");
+      });
+      return disposal;
+    };
+    const fail = (error: unknown) => {
+      if (!cancelled) {
+        setViewerError(error instanceof Error ? error.message : "高斯泼溅加载失败");
+        setViewerState("error");
+        setViewerMode("orbit");
+        viewerModeRef.current = "orbit";
+        cancelled = true;
+        controller.abort();
+        void release();
+      }
+    };
     const load = async () => {
       try {
+        await previousRelease;
+        if (cancelled) return;
+        mount.replaceChildren();
         const response = await fetch(metadataUrl, { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`Gaussian export metadata request failed: ${response.status}`);
@@ -497,35 +578,60 @@ export function GaussianSplatViewer({
           : null;
         const cameraUp: [number, number, number] = uprightAxis ?? cameraFrame?.up ?? [0, 0, 1];
         const cameraCenter = rotateVec3(cameraFrame?.center ?? metadata.scene_center ?? [0, 0, 0]);
-        viewer = new GaussianSplats3D.Viewer({
-          rootElement: mount,
-          cameraUp,
-          initialCameraPosition: [cameraCenter[0], cameraCenter[1] + 1.2, cameraCenter[2] + 3],
-          initialCameraLookAt: cameraCenter,
-          sharedMemoryForWorkers: false,
-          sphericalHarmonicsDegree: metadata.sh_degree,
-          ignoreDevicePixelRatio: true,
-          integerBasedSort: false,
-          renderMode: GaussianSplats3D.RenderMode.OnChange,
-          threeScene: auxiliaryScene
-        });
-        viewerRef.current = viewer;
-        await viewer.addSplatScene(sourceUrl, {
-          showLoadingUI: true,
-          progressiveLoad: true,
-          splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity),
-          ...(rotation
-            ? {
-                rotation: new THREE.Quaternion()
-                  .setFromRotationMatrix(new THREE.Matrix4().setFromMatrix3(rotation))
-                  .toArray()
-              }
-            : {})
-        });
-        if (cancelled) {
-          return;
+        const modelRotation = rotation
+          ? new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().setFromMatrix3(rotation))
+          : null;
+        let bounds: THREE.Box3;
+        let effectiveShDegree: number;
+        if (rendererKind === "spark") {
+          const { SparkPageViewer } = await import("./SparkPageViewer");
+          if (cancelled) return;
+          viewer = new SparkPageViewer(mount, auxiliaryScene, fail);
+          viewer.camera.up.set(...cameraUp);
+          viewer.camera.position.set(cameraCenter[0], cameraCenter[1] + 1.2, cameraCenter[2] + 3);
+          viewer.camera.lookAt(new THREE.Vector3(...cameraCenter));
+          viewerRef.current = viewer;
+          await viewer.load(sourceUrl, metadata.sh_degree, modelRotation);
+          if (cancelled) return;
+          effectiveShDegree = metadata.sh_degree;
+          bounds = viewer.getBoundingBox();
+        } else {
+          // Keep DOM/context ownership here: legacy otherwise removes rootElement from document.body.
+          legacyRenderer = new THREE.WebGLRenderer({ antialias: false, precision: "highp" });
+          legacyRenderer.setPixelRatio(1);
+          legacyRenderer.setClearColor(0, 0);
+          legacyRenderer.setSize(Math.max(mount.clientWidth, 1), Math.max(mount.clientHeight, 1));
+          mount.appendChild(legacyRenderer.domElement);
+          viewer = new GaussianSplats3D.Viewer({
+            renderer: legacyRenderer,
+            rootElement: mount,
+            cameraUp,
+            initialCameraPosition: [cameraCenter[0], cameraCenter[1] + 1.2, cameraCenter[2] + 3],
+            initialCameraLookAt: cameraCenter,
+            sharedMemoryForWorkers: false,
+            sphericalHarmonicsDegree: metadata.sh_degree,
+            ignoreDevicePixelRatio: true,
+            integerBasedSort: false,
+            renderMode: GaussianSplats3D.RenderMode.OnChange,
+            threeScene: auxiliaryScene
+          });
+          legacyResize = new ResizeObserver(() => {
+            if (cancelled) return;
+            legacyRenderer?.setSize(Math.max(mount.clientWidth, 1), Math.max(mount.clientHeight, 1));
+            if (viewer instanceof GaussianSplats3D.Viewer) viewer.forceRenderNextFrame?.();
+          });
+          legacyResize.observe(mount);
+          viewerRef.current = viewer;
+          await viewer.addSplatScene(sourceUrl, {
+            showLoadingUI: true,
+            progressiveLoad: true,
+            splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity),
+            ...(modelRotation ? { rotation: modelRotation.toArray() } : {})
+          });
+          if (cancelled) return;
+          effectiveShDegree = viewer.getSplatMesh().minSphericalHarmonicsDegree;
+          bounds = viewer.getSplatMesh().computeBoundingBox(true);
         }
-        const effectiveShDegree = viewer.getSplatMesh().minSphericalHarmonicsDegree;
         if (
           !Number.isInteger(effectiveShDegree) ||
           effectiveShDegree < 0 ||
@@ -534,13 +640,13 @@ export function GaussianSplatViewer({
           throw new Error("Gaussian browser renderer SH identity is invalid");
         }
         setRendererIdentity({
-          implementation: gaussianViewerPackage.name,
-          version: gaussianViewerPackage.version,
+          implementation: rendererKind === "spark" ? "@sparkjsdev/spark" : gaussianViewerPackage.name,
+          version: rendererKind === "spark" ? "2.2.0" : gaussianViewerPackage.version,
           requestedShDegree: metadata.sh_degree,
           effectiveShDegree
         });
         sceneFrameRef.current = getSceneFrame(
-          viewer,
+          bounds,
           metadata.scene_center ? rotateVec3(metadata.scene_center) : null,
           metadata.scene_radius_p95,
           cameraFrame
@@ -552,7 +658,18 @@ export function GaussianSplatViewer({
         );
         configureControls(viewer, sceneFrameRef.current);
         applyViewPreset(viewer, sceneFrameRef.current, "fit");
-        if (patchSplatAlphaThreshold(viewer, metadata.viewer_minimum_opacity)) {
+        const saved = savedViewRef.current;
+        savedViewRef.current = null;
+        if (saved?.sourceKey === sourceKey && viewer.camera instanceof THREE.PerspectiveCamera) {
+          const aspect = viewer.camera.aspect;
+          viewer.camera.copy(saved.camera);
+          viewer.camera.aspect = aspect;
+          viewer.camera.updateProjectionMatrix();
+          viewer.controls?.target.copy(saved.target);
+          viewer.controls?.update();
+          viewer.controls?.saveState();
+        }
+        if (viewer instanceof GaussianSplats3D.Viewer && patchSplatAlphaThreshold(viewer, metadata.viewer_minimum_opacity)) {
           setAlphaControl({ baseline: metadata.viewer_minimum_opacity, value: metadata.viewer_minimum_opacity });
         }
         viewer.start();
@@ -594,10 +711,8 @@ export function GaussianSplatViewer({
             }
           }
         }
-      } catch {
-        if (!cancelled) {
-          setViewerState("error");
-        }
+      } catch (error) {
+        fail(error);
       }
     };
     void load();
@@ -605,27 +720,9 @@ export function GaussianSplatViewer({
     return () => {
       cancelled = true;
       controller.abort();
-      if (document.pointerLockElement === viewer?.renderer?.domElement) {
-        document.exitPointerLock();
-      }
-      const runtime = walkRuntimeRef.current;
-      walkRuntimeRef.current = null;
-      if (runtime) {
-        uninstallWalkHandlers(runtime);
-        disposeWalkRuntime(runtime);
-      }
-      const activeViewer = viewerRef.current;
-      viewerRef.current = null;
-      if (activeViewer) {
-        activeViewer.stop();
-        void activeViewer.dispose().catch(() => {
-          // The viewer owns its internal DOM and may already have removed it.
-        });
-      }
-      auxiliaryScene?.clear();
-      mount.replaceChildren();
+      void release();
     };
-  }, [sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, navigationStatus]);
+  }, [sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, navigationStatus, rendererKind]);
 
   const walkReady = viewerState === "ready" && navigationState === "ready";
   const unavailableMessage =
@@ -642,6 +739,17 @@ export function GaussianSplatViewer({
       <div className="splat-root" ref={mountRef} />
       {sourceUrl && (
         <div className="splat-toolbar" aria-label="高斯泼溅控制">
+          <select
+            className="viewer-tool-button"
+            aria-label="高斯查看器"
+            value={rendererKind}
+            disabled={viewerMode !== "orbit"}
+            title="切换会重新加载模型并保留当前视角；漫游时请先按 Esc 退出"
+            onChange={(event) => switchRenderer(event.target.value as RendererKind)}
+          >
+            <option value="legacy">旧查看器（默认）</option>
+            <option value="spark">Spark（实验）</option>
+          </select>
           {viewerMode === "orbit" && (
             <button
               className={uprightAvailable ? "viewer-tool-button active" : "viewer-tool-button"}
@@ -798,6 +906,7 @@ export function GaussianSplatViewer({
           {rendererIdentity === null
             ? ""
             : ` · ${rendererIdentity.implementation}@${rendererIdentity.version} · 模型 SH${rendererIdentity.requestedShDegree} / 浏览器 SH${rendererIdentity.effectiveShDegree}`}
+          {rendererKind === "spark" ? " · 实验渲染：固定审计配置，不透明度调节仅旧查看器提供" : ""}
           {viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
           {navigationState !== "ready" ? ` · ${unavailableMessage}` : ""}
         </div>
@@ -805,8 +914,8 @@ export function GaussianSplatViewer({
       {viewerState !== "ready" && (
         <div className="viewer-overlay">
           {viewerState === "idle" && "尚未加载高斯泼溅"}
-          {viewerState === "loading" && "正在加载高斯泼溅"}
-          {viewerState === "error" && "高斯泼溅加载失败"}
+          {viewerState === "loading" && `正在加载${rendererKind === "spark" ? " Spark" : "旧查看器"}（切换时先释放上一实例）`}
+          {viewerState === "error" && `${viewerError || "高斯泼溅加载失败"}；可通过上方菜单切换查看器`}
         </div>
       )}
     </div>
@@ -942,7 +1051,7 @@ async function loadWalkRuntime(
 }
 
 function installWalkHandlers(
-  viewer: GaussianSplats3D.Viewer,
+  viewer: ViewerRuntime,
   runtime: WalkRuntime,
   modeRef: { current: ViewerMode },
   activeSettingsRef: { current: WalkSettings | null },
@@ -1085,7 +1194,7 @@ function uninstallWalkHandlers(runtime: WalkRuntime) {
 }
 
 function leaveWalkMode(
-  viewer: GaussianSplats3D.Viewer | null,
+  viewer: ViewerRuntime | null,
   runtime: WalkRuntime | null,
   modeRef: { current: ViewerMode },
   setViewerMode: (mode: ViewerMode) => void,
@@ -1175,7 +1284,7 @@ function showBoundaryHint(runtime: WalkRuntime, setBoundaryHint: (visible: boole
   }, 1200);
 }
 
-function applyWalkCamera(viewer: GaussianSplats3D.Viewer, runtime: WalkRuntime, settings: WalkSettings | null) {
+function applyWalkCamera(viewer: ViewerRuntime, runtime: WalkRuntime, settings: WalkSettings | null) {
   if (!(viewer.camera instanceof THREE.PerspectiveCamera)) {
     return;
   }

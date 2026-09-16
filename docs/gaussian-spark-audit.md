@@ -2,9 +2,9 @@
 
 ## 范围
 
-`node scripts/audit_gaussian_browser.mjs --renderer spark` 是研究专用入口，profile 为 `fixed_camera_spark_v1`，输出 `spark.json` 和 `spark-controlled-sh*-<image_id>.png`。省略 `--renderer` 仍运行原来的 GaussianSplats3D 审计；生产 `GaussianSplatViewer.tsx`、导出、训练和默认查看器均不变。
+`node scripts/audit_gaussian_browser.mjs --renderer spark` 是研究专用入口，profile 为 `fixed_camera_spark_v1`，输出 `spark.json` 和 `spark-controlled-sh*-<image_id>.png`。省略 `--renderer` 仍运行原来的 GaussianSplats3D 审计。页面接入现提供显式 Spark 切换，旧查看器仍为默认；导出、训练均不变（见下方“页面接入”）。
 
-Spark 精确锁定为开发依赖 `@sparkjsdev/spark@2.2.0`（MIT），由 `frontend/package-lock.json` 固定发行包。只使用已安装的本地模块和输入 PLY，不上传模型到第三方、不在浏览器中访问 CDN。npm 发行包已包含 WASM/Worker，不要求运行时安装 Rust。远端安装、执行与部署仍需分别授权；源码仅通过 Git 同步。
+Spark 精确锁定为运行依赖 `@sparkjsdev/spark@2.2.0`（MIT），由 `frontend/package-lock.json` 固定发行包；页面仅在显式选择 Spark 后按需加载独立代码块。只使用已安装的本地模块和输入 PLY，不上传模型到第三方、不在浏览器中访问 CDN。npm 发行包已包含 WASM/Worker，不要求运行时安装 Rust。远端安装、执行与部署仍需分别授权；源码仅通过 Git 同步。
 
 ## 冻结设置
 
@@ -73,6 +73,16 @@ Spark 退出码：0 为捕获/完整性检查完成（不是质量提升 PASS）
 连续路径在首个冻结相机附近作相机局部横向 ±0.01 arbitrary units 与 ±3° yaw 的正弦闭环。每轮60帧预热、240帧测量，共3轮；路径位移按帧索引固定，不宣称两臂具有相同墙钟移动速度。静态显示配置不变，交互测量不等待每次排序，Spark 同时只提交一个更新，旧库采用异步全量强制排序；这是受控全量排序负载，不是生产查看器的裁剪与排序触发策略。记录 rAF 间隔、CPU提交耗时、可用且非disjoint的GPU timer query；无截图/读回进入性能轮次。GPU query包含本次同步提交的离屏生成与绘制，不是整个异步排序的GPU耗时。rAF是headless吞吐/调度证据，不是带显示器的端到端延迟。
 
 另一个不计入性能的240帧截图轮次每20帧及终点取样（13帧），生成320px宽缩略图；再在完全相同的相机姿态等待排序并渲染，得到settled参考。live-vs-settled残差衡量采样点的排序/更新延迟，不是对真实移动视频的重建准确率，也不能排除采样点之间的闪烁。预先冻结质量门槛沿用MAE改善≥10%、参考PSNR下降≤0.1dB/SSIM下降≤.002；性能P95及加载比≤1.2；采样运动最大MAE≤.01且比旧库增加≤.002。`compare_spark_acceptance.py --root ...`汇总指标并保留逐视角与逐样本结果，绝不自动推广默认。
+
+## 页面接入
+
+高斯页面工具栏提供“旧查看器（默认） / Spark（实验）”。不改变 manifest、模型变体或资产 URL；选择只影响当前页面，刷新后恢复旧查看器。切换会重新加载当前模型，保留相机位置、朝向、目标点、FOV 和 zoom；更换模型或对齐来源时不沿用旧相机。漫游中先按 Esc 退出再切换。
+
+两臂复用已有环绕控制器、预设视角、SfM 摆正与输入视图检查、导航碰撞和漫游设置。Spark 使用扩展源/累积编码、禁用 LoD、Z-depth 排序及已审计的 blur 参数；不透明度滑块只保留在旧查看器中。页面相机、窗口尺寸、裁剪和导航由交互控制，不冒充固定相机审计截图；此前 718×1277 的 headless 验收不是任意页面分辨率的性能保证。
+
+页面等待上一实例释放后才创建下一实例。Spark 下载可取消，解码和排序结束后释放纹理、worker、controls、ResizeObserver、动画帧及 WebGL 上下文；旧库使用页面持有的外部 renderer，避免其销毁逻辑错误移除 React 容器。加载、SH 身份、渲染或上下文错误会显示，不自动改用旧库或降 SH；用户仍能手动切回旧查看器。
+
+本地检查：`npm --prefix frontend test`、`npm --prefix frontend run build`，以及原有 Node 审计测试。新增测试使用模拟浏览器/渲染器，覆盖串行释放、快速切换、相机保留和跨模型隔离、解码/排序中的取消、错误及资源释放；不等同真实 GPU 页面验收。远端完整模型页面的来回切换、摆正/预设视角、缩放窗口、输入视图检查、漫游与长时间资源释放仍需部署后单独验证。
 
 ## 实现验证边界
 
