@@ -1,4 +1,4 @@
-"""Frozen two-arm UHD video experiment; never evaluates Test RGB."""
+"""Frozen two-arm native-resolution video experiment; never evaluates Test RGB."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from image3d_scenegraph.geometry.adapters import ProjectGaussianAdapter, Reconst
 from image3d_scenegraph.video.keyframes import probe_video
 
 PROFILE = "num4_new_4k_train_only_v1"
+NATIVE_1080_PROFILE = "num4_retake_1080_train_only_v1"
 ARMS = ("project", "mcmc")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,12 +35,12 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def configs() -> dict:
+def configs(longest_edge: int = 3840) -> dict:
     return {
         arm: resolved_config_record(resolve_internal_config(
             "standard_v1" if arm == "project" else "mcmc_v1",
             overrides={
-                "resolution": {"longest_edge": 3840},
+                "resolution": {"longest_edge": longest_edge},
                 "opacity_reset": {"recovery_prune": {"enabled": arm == "project"}},
             },
         ))
@@ -131,26 +132,41 @@ def reuse_video_preparation(parent: Path, shared: Path, source_sha256: str) -> d
     }
 
 
-def prepare(source: Path, root: Path, *, reuse_experiment: Path | None = None) -> None:
+def prepare(
+    source: Path, root: Path, *, reuse_experiment: Path | None = None,
+    longest_edge: int = 3840, mapper_seed_limit: int = 1000,
+) -> None:
+    if longest_edge not in (1920, 3840) or mapper_seed_limit not in (1000, 2500, 3500):
+        raise ValueError("unsupported resolution or Mapper seed budget")
+    if reuse_experiment is not None:
+        if longest_edge != 3840:
+            raise ValueError("retained preparation requires the original UHD input")
+        mapper_seed_limit = 2500
+    profile = PROFILE if longest_edge == 3840 else NATIVE_1080_PROFILE
     if root.exists():
         raise ValueError("experiment root already exists; inspect instead of retrying")
     require_resources(root.parent, minimum_free_gib=30 if reuse_experiment is not None else 40)
     code = revision()
     probe = probe_video(source)
-    if (probe["source_width"], probe["source_height"]) != (3840, 2160):
-        raise ValueError("this frozen experiment expects native 3840x2160 input")
+    expected_size = (longest_edge, longest_edge * 9 // 16)
+    if (probe["source_width"], probe["source_height"]) != expected_size:
+        raise ValueError(f"this frozen experiment expects native {expected_size[0]}x{expected_size[1]} input")
     root.mkdir()
-    write_json(root / "prepare-started.json", {"code": code, "source": str(source), "probe": probe})
+    write_json(root / "prepare-started.json", {
+        "code": code, "source": str(source), "probe": probe, "profile": profile,
+        "longest_edge": longest_edge, "mapper_seed_limit": mapper_seed_limit,
+    })
     shared = root / "shared"
     for directory in ("input", "geometry", "diagnostics", "logs"):
         (shared / directory).mkdir(parents=True, exist_ok=False)
     os.link(source, shared / "input" / source.name)
-    records = configs()
+    records = configs(longest_edge)
     for arm, record in records.items():
         write_json(root / f"{arm}.config.json", record)
     options = {
         "gaussian_trainer": "project", "gaussian_geometry_source": "colmap",
-        "gaussian_longest_edge": 3840, "gaussian_prepare_only": True,
+        "gaussian_longest_edge": longest_edge, "gaussian_prepare_only": True,
+        "v2_mapper_seed_limit": mapper_seed_limit,
         "gaussian_config_record": json.dumps(records["project"]),
         "gaussian_final_fit": "off", "gaussian_sor_filter": "on", "gaussian_postprocess": "none",
         "video_keyframe_profile": "standard_v2", "video_rotation": "auto",
@@ -163,13 +179,13 @@ def prepare(source: Path, root: Path, *, reuse_experiment: Path | None = None) -
         reused = reuse_video_preparation(reuse_experiment, shared, probe["source"]["sha256"])
         write_json(root / "reuse.json", reused)
         options.update(
-            video_preparation_reused=True, v2_mapper_seed_limit=2500,
+            video_preparation_reused=True,
             sfm_reuse_feature_database=reused["source_database"],
             sfm_reuse_frontend_contract=reused["source_frontend_contract"],
             sfm_reuse_database_sha256=reused["source_database_sha256"],
         )
     result = ProjectGaussianAdapter().run(ReconstructionContext(
-        job_id=PROFILE, job_dir=shared, mode="video",
+        job_id=profile, job_dir=shared, mode="video",
         input_assets=[{"path": f"input/{source.name}"}], options=options,
         progress_callback=lambda stage, progress: print(f"stage={stage} progress={progress}", flush=True),
     ))
@@ -180,8 +196,8 @@ def prepare(source: Path, root: Path, *, reuse_experiment: Path | None = None) -
     validate_replay_bundle(replay)
     dataset = read_json(replay / "dataset.json")
     dimensions = [(entry["width"], entry["height"]) for entry in dataset["images"]]
-    if max(max(size) for size in dimensions) <= 3072:
-        raise ValueError("UHD preparation was unexpectedly downsampled")
+    if max(max(size) for size in dimensions) <= longest_edge * 0.8:
+        raise ValueError("native-resolution preparation was unexpectedly downsampled")
     if sha256_file(source) != probe["source"]["sha256"]:
         raise ValueError("source video changed during preparation")
     files = [replay / "dataset.json", replay / "replay.json", *(root / f"{arm}.config.json" for arm in ARMS)]
@@ -199,14 +215,14 @@ def prepare(source: Path, root: Path, *, reuse_experiment: Path | None = None) -
         if path.is_file():
             files.append(path)
     write_json(root / "protocol.json", {
-        "profile": PROFILE, "status": "frozen", "code": code,
+        "profile": profile, "status": "frozen", "code": code,
         "source": str(source), "source_sha256": probe["source"]["sha256"],
         "replay": str(replay), "dataset_hash": dataset["dataset_hash"],
         "files": {str(path): sha256_file(path) for path in files},
         "split_counts": {key: len(value) for key, value in dataset["splits"].items()},
-        "image_dimensions": sorted(set(dimensions)),
-        "geometry_variant": "retained_frontend_seed2500_v1" if reused is not None else "fresh_seed1000_v1",
-        "mapper_seed_limit": 2500 if reused is not None else 1000,
+        "image_dimensions": sorted(set(dimensions)), "longest_edge": longest_edge,
+        "geometry_variant": "retained_frontend_seed2500_v1" if reused is not None else f"fresh_seed{mapper_seed_limit}_v1",
+        "mapper_seed_limit": mapper_seed_limit,
         "world_size": 2, "main_updates": 30000, "main_camera_samples": 60000,
         "final_fit_profile": "train_only_control_v1", "final_fit_updates": 2000,
         "final_fit_camera_samples": 4000, "view_cache_max_bytes_per_collection": VIEW_CACHE_MAX_BYTES,
@@ -219,7 +235,7 @@ def load_protocol(root: Path, expected_sha256: str) -> dict:
     if sha256_file(root / "protocol.json") != expected_sha256:
         raise ValueError("protocol hash mismatch")
     protocol = read_json(root / "protocol.json")
-    if protocol["profile"] != PROFILE or protocol["status"] != "frozen" or protocol["code"] != revision():
+    if protocol["profile"] not in (PROFILE, NATIVE_1080_PROFILE) or protocol["status"] != "frozen" or protocol["code"] != revision():
         raise ValueError("protocol/code identity mismatch")
     for path, expected in protocol["files"].items():
         if sha256_file(Path(path)) != expected:
@@ -291,6 +307,8 @@ def main() -> None:
     preparation = commands.add_parser("prepare")
     preparation.add_argument("--source", type=Path, required=True)
     preparation.add_argument("--output-dir", type=Path, required=True)
+    preparation.add_argument("--longest-edge", type=int, choices=(1920, 3840), default=3840)
+    preparation.add_argument("--mapper-seed-limit", type=int, choices=(1000, 2500, 3500), default=1000)
     reuse = commands.add_parser("prepare-reuse")
     reuse.add_argument("--source-experiment", type=Path, required=True)
     reuse.add_argument("--output-dir", type=Path, required=True)
@@ -300,7 +318,10 @@ def main() -> None:
     arm.add_argument("--protocol-sha256", required=True)
     args = parser.parse_args()
     if args.command == "prepare":
-        prepare(args.source.resolve(), args.output_dir.resolve())
+        prepare(
+            args.source.resolve(), args.output_dir.resolve(),
+            longest_edge=args.longest_edge, mapper_seed_limit=args.mapper_seed_limit,
+        )
     elif args.command == "prepare-reuse":
         parent = args.source_experiment.resolve()
         source = Path(read_json(parent / "prepare-started.json")["source"])

@@ -68,3 +68,22 @@ Test不优化、不解码评价、不创建消费标记；合同验证可能读�
 ```
 
 以上命令须置于授权远端dashboard任务，设置 `CUDA_VISIBLE_DEVICES=0,1`；不是本机执行指令，也不包含Test授权。
+
+## 2026-09-17 重拍视频：原生1080p / 3,500种子
+
+用户确认使用 `/usr/local/3Ddataset/num_4_room_new/VID20260917094108.mp4` 启动全新实验，并明确同意原生1080p和初始Mapper最多3,500种子；不实现通用按时长自动加种子的默认策略。现场视频流约848.447秒、1920×1080、HEVC，带90度显示旋转；沿用已有自动方向处理，目标最长边1920，不插值到4K。正式准备记录完整源SHA、旋转和实际去畸变尺寸，使用独立 `num4_retake_1080_train_only_v1` 身份，不冒充UHD实验。
+
+- 独立根：`outputs/experiments/num4-retake-1080-seed3500-train-only-v1/`，调度位于同名 `-dispatch/`。全新取帧、特征、匹配、几何，不复用旧视频数据库/相机，不覆盖旧目录。
+- 3,500是本次显式上限，约保持先前601秒/2,500种子的时间密度，不保证几何成功。实际数量受可用帧数限制；继续使用既有规则：基础池足够则从基础池均匀选，否则从全部已选帧均匀选。约848秒的基础预算约3,394张，不能误称为保留全部基础帧再补足3,500。全部已选帧参与原有匹配，非种子仍走后续注册扩展。
+- 其余沿用上述合同：standard-v2、SIFT/Brute-force/sequential_loop、共享OPENCV、Incremental及既有精确崩溃恢复、原位姿与12/70%/80%门槛；>2秒缺口仅软警告。几何通过后冻结同一replay，Project先、MCMC后，各两卡30k+2k Train-only、相同SOR与Validation、无Test消费。
+- 40/20/8 GiB磁盘、12 GiB主机内存资源门槛不变。现场释放后约64 GiB空闲不代表峰值保证；失败保留证据，不自动降级、清理或重试。
+- 原4K fresh入口仍默认3840/1,000，`prepare-reuse`仍绑定原4K/2,500；产品/API默认不变。本研究任务不自动发布为前端产品Job，不重启既有服务。
+
+```bash
+.venv/bin/python scripts/run_video_4k_comparison.py prepare \
+  --source /usr/local/3Ddataset/num_4_room_new/VID20260917094108.mp4 \
+  --output-dir outputs/experiments/num4-retake-1080-seed3500-train-only-v1 \
+  --longest-edge 1920 --mapper-seed-limit 3500
+```
+
+冻结后使用本文件原有 `run-arm` 命令，传本次新根和同一协议SHA；不得沿用旧模型协议或越过几何失败。
