@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gaussianVariants, defaultGaussianVariant } from "../src/gaussianVariants.ts";
+import { gaussianVariants, defaultGaussianVariant, gaussianVariantMetricLabel } from "../src/gaussianVariants.ts";
 import { formatResultKind } from "../src/resultKind.ts";
 
 function fixture() {
@@ -33,6 +33,23 @@ test("invalid comparison cannot silently fall back to Original", () => {
     const m = fixture(); mutate(m); assert.throws(() => gaussianVariants(m));
   }
   assert.throws(() => gaussianVariants({ result_kind: "gaussian_comparison", assets: {} }));
+});
+
+test("two Train-only models retain held-out labels and distinct assets", () => {
+  const m = fixture();
+  m.gaussian_variants = m.gaussian_variants.filter(v => v.model_stage === "final_fit").map(v => ({
+    ...v, model_stage: "train_only", metric_role: "held_out_after_train_only_control"
+  }));
+  const variants = gaussianVariants(m);
+  assert.equal(variants.length, 2);
+  assert.notEqual(variants[0].scene_splat, variants[1].scene_splat);
+  assert.match(gaussianVariantMetricLabel(variants[0]), /Train-only 后 held-out Validation/);
+  assert.match(gaussianVariantMetricLabel(variants[0]), /非 Test/);
+  assert.match(gaussianVariantMetricLabel(gaussianVariants(fixture())[1]), /非 held-out/);
+  for (const wrongRole of ["held_out_model_selection", "in_sample_after_train_validation_fit"]) {
+    m.gaussian_variants[0].metric_role = wrongRole;
+    assert.throws(() => gaussianVariants(m));
+  }
 });
 
 test("historical Original and VGGT default selection remain compatible", () => {

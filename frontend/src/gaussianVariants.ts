@@ -4,7 +4,7 @@ export type GaussianVariant = {
   scene_splat: string;
   export_metadata: string;
   trainer?: "project" | "mcmc";
-  model_stage?: "selection" | "final_fit";
+  model_stage?: "selection" | "final_fit" | "train_only";
   metric_role?: string;
   psnr?: number;
   ssim?: number;
@@ -51,9 +51,10 @@ export function gaussianVariants(manifest: VariantManifest): GaussianVariant[] {
         typeof row.label !== "string" || !row.label.trim() ||
         !relativePath(row.scene_splat) || !relativePath(row.export_metadata) ||
         !["project", "mcmc"].includes(row.trainer) ||
-        !["selection", "final_fit"].includes(row.model_stage) ||
+        !["selection", "final_fit", "train_only"].includes(row.model_stage) ||
         row.metric_role !== (row.model_stage === "selection"
-          ? "held_out_model_selection" : "in_sample_after_train_validation_fit") ||
+          ? "held_out_model_selection" : row.model_stage === "train_only"
+            ? "held_out_after_train_only_control" : "in_sample_after_train_validation_fit") ||
         ![row.psnr, row.ssim, row.display_psnr, row.display_ssim].every(v => typeof v === "number" && Number.isFinite(v)) ||
         !Number.isSafeInteger(row.gaussian_count) || row.gaussian_count <= 0 ||
         typeof row.model_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(row.model_sha256)) {
@@ -67,6 +68,12 @@ export function gaussianVariants(manifest: VariantManifest): GaussianVariant[] {
     throw new Error("高斯对比默认模型不一致");
   }
   return rows;
+}
+
+export function gaussianVariantMetricLabel(variant: GaussianVariant): string {
+  if (variant.model_stage === "train_only") return "Train-only 后 held-out Validation（未参与补拟合；非 Test）";
+  return variant.model_stage === "final_fit"
+    ? "Train+Validation 拟合集（非 held-out）" : "补拟合前 held-out Validation";
 }
 
 export function defaultGaussianVariant(manifest: VariantManifest): string {

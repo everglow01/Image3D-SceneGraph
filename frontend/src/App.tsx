@@ -26,7 +26,7 @@ import {
   type EvidenceStageId
 } from "./reconstructionEvidence";
 import { formatResultKind, type ResultKind } from "./resultKind";
-import { gaussianVariants, defaultGaussianVariant, type GaussianVariant } from "./gaussianVariants";
+import { gaussianVariants, defaultGaussianVariant, gaussianVariantMetricLabel, type GaussianVariant } from "./gaussianVariants";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 import {
   defaultSfmCameraCalibration,
@@ -2182,8 +2182,7 @@ export function App() {
             <div className="recovered-derivative-notice" role="status">
               <strong>只读补拟合对比 · {selectedSplatVariant.label}</strong>
               <span>
-                {selectedSplatVariant.model_stage === "final_fit"
-                  ? "Train+Validation 拟合集（非 held-out）" : "补拟合前 held-out Validation"}
+                {gaussianVariantMetricLabel(selectedSplatVariant)}
                 {` · ${selectedSplatVariant.gaussian_count?.toLocaleString()} 高斯 · 原生 float ${selectedSplatVariant.psnr?.toFixed(3)} dB / SSIM ${selectedSplatVariant.ssim?.toFixed(4)}`}
                 {` · 显示裁剪 ${selectedSplatVariant.display_psnr?.toFixed(3)} dB / SSIM ${selectedSplatVariant.display_ssim?.toFixed(4)}`}
                 。切换会重新加载模型并复位视角；不代表浏览器截图指标或泛化提升。
