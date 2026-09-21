@@ -1,12 +1,12 @@
 # Gaussian 手动修剪数据合同
 
-日期：2026-09-21。状态：本地数据核心、API、会话、编辑界面已接通并完成 CPU/mock 验证；未部署、未做真实 GPU/浏览器验收。
+日期：2026-09-21。状态：数据核心、API、会话、编辑界面已接通并完成CPU/mock验证；已获准部署，服务器内部完整模型GPU编辑和严格TURN视频冒烟通过。SDP跨网浏览器与完整性能验收未完成，详见 [部署证据](cloud-gaussian-rendering.md)。
 
 完整批准计划：[gaussian-editor-cloud-plan.md](gaussian-editor-cloud-plan.md)。论文优化计划保持暂缓。
 
 ## 当前实现与未实现
 
-`gaussian/editing.py` 提供 CPU 选择数学、受控源解析、文件式编辑文档、删除/撤销/重做、不可变版本与派生 PLY/ZIP 导出。`editor_session.py` 和 `backend/gaussian_editor.py` 已将其接到 HTTP、会话凭证及 renderer 接口；`CloudGaussianViewer.tsx` 提供独立界面。`apply(selected=...)` 仍是内部函数，客户端不能直接上传 mask/索引，HTTP 路由验证固定帧和服务器生成的 selection token。真实云服务未部署。
+`gaussian/editing.py` 提供 CPU 选择数学、受控源解析、文件式编辑文档、删除/撤销/重做、不可变版本与派生 PLY/ZIP 导出。`editor_session.py` 和 `backend/gaussian_editor.py` 已将其接到 HTTP、会话凭证及 renderer 接口；`CloudGaussianViewer.tsx` 提供独立界面。`apply(selected=...)` 仍是内部函数，客户端不能直接上传 mask/索引，HTTP 路由验证固定帧和服务器生成的 selection token。生产后端和同机认证TURN已部署，但浏览器经SDP的真实交互仍待验收。
 
 没有训练、自动修洞、颜色编辑、语义分割或 Test RGB 消费。
 

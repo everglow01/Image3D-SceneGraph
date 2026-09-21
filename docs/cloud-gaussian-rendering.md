@@ -1,6 +1,6 @@
 # 云端 Gaussian 渲染合同
 
-日期：2026-09-21。**本地 API、编辑界面、WebRTC 接线和产品 GPU 租约已实现并做 CPU/mock 验证；远端未部署，真实媒体/CUDA/性能未验收。**
+日期：2026-09-21。**本地实现已完成，并已在 i-94B8D131 部署认证 TURN 与云编辑后端；两份完整模型的服务器内部 CUDA／严格 relay 视频冒烟通过。SDP 跨网浏览器、持续交互与性能目标仍未验收。**
 
 总体设计见 [gaussian-editor-cloud-plan.md](gaussian-editor-cloud-plan.md)，编辑接口见 [gaussian-editor-contract.md](gaussian-editor-contract.md)。论文计划继续暂停。
 
@@ -44,16 +44,31 @@ HTTP mutation 只匹配显式 Origin allowlist，不信任任意 Host/转发头�
 
 浏览器只收到有效期1小时的 HMAC TURN 限时凭证，永远不收到共享密钥；当前会话凭证只在内存和 `X-Editor-Token` 请求头，不放 URL 或 browser storage。只读编辑文档/派生下载沿用已有内网资产边界，不冒充账户登录。部署必须阻止代理记录凭证请求头、完整 SDP 或响应体。
 
-`pyproject.toml` / `uv.lock` 已添加可选 `cloud` 组：aiortc1.15.0、PyAV16.1.0。锁文件解析成功，未改变 Torch2.3.1/gsplat1.5.3，未安装这些新依赖到远端或本地运行环境。获授权后可使用项目文档既有 uv 流程加 `--extra cloud --extra gpu --inexact --locked`，但依赖解析不等于实际 wheel 编码/ABI/许可证分发验收。H264/libx264 与媒体二进制的分发条件仍需部署方确认。
+`pyproject.toml` / `uv.lock` 的可选 `cloud` 组锁定 aiortc1.15.0、PyAV16.1.0。远端已从获准 PyPI 官方源安装这两个包及锁定的10项媒体依赖；本地未安装。**现场完整 `uv sync` 的 dry-run 会替换两项既有 NVIDIA 库，故没有执行**；实际使用 `uv pip install --no-deps` 只新增12个锁定媒体包，保留现场 Torch2.3.1+cu121、gsplat1.5.3+pt23cu121、nvidia-cublas-cu12 12.9.2.10 和 nvidia-cuda-nvrtc-cu12 12.9.86。未来同步必须先 dry-run，不把锁文件未改 Torch 当成现场环境不会变化。媒体已实际导入并解码，但这不是所有编码器、ABI或许可证分发场景的验收；没有接入 NVENC。
 
-## 本地证据与剩余验收
+## 已部署现场与服务器内部证据
 
-本地相关 Python 回归、前端 Node/mock 测试、TypeScript/Vite build、Ruff、diff 检查通过。测试用合成小 PLY、假 renderer/media，不绑定真实 ICE 端口，不执行 CUDA；前端 hook 模拟不是浏览器截图或真实视频验收。详细结果记录在 `codex.md` §17。
+用户已明确授权目标实例 `i-94B8D131`、项目 `/usr/local/3dgs_new/Image3D-SceneGraph`、依赖来源、受保护配置、项目后端重启及单GPU有界测试。源码只经 Git 同步；主功能提交 `f3a41aa`，基础relay冒烟脚本提交 `82d7113`，扩展验收脚本提交 `9ce320f`。
 
-未执行：Git 提交/推送/远端 pull、安装和启动 TURN、修改防火墙、重启现有服务、真实模型加载/渲染/软件编码、浏览器 WebRTC 连通与性能测试。
+- `image3d-cloud.service`：沿用原 `127.0.0.1:8000`，保留原后端白名单配置（实际为 HOME、PATH、IMAGE3D_OUTPUT_ROOT），再加载 `/etc/image3d-cloud/backend.env`。配置目录0700、文件0600，密钥不进入仓库或日志。旧后端在确认无排队/运行任务与CUDA进程后优雅退出；未重启GPU面板。现有Vite仍在8081，代理能力接口返回 `cloud_available=true`。
+- `image3d-turn.service`：DynamicUser独立运行，同机10.186.96.23的8082 TCP/UDP；relay范围49160–49179，peer白名单仅本机IP，其余地址拒绝。使用systemd `LoadCredential` 读取TURN配置；systemd249用 `${CREDENTIALS_DIRECTORY}`，不支持此处的 `%d`。
+- coturn4.5.2-3.1~ubuntu22.04.1及4项必要运行库来自获准 Ubuntu 阿里云镜像，逐包SHA256与APT元数据匹配后隔离展开到 `external/coturn-cloud-v1`。首次APT下载遇过期索引404；刷新仅Ubuntu索引后发现常规安装会升级SQLite，故未执行系统包安装。现有SQLite库仍为3.37.2-2ubuntu0.7。默认 `coturn.service` 保持runtime mask，只有专用认证实例运行。没有修改防火墙。
+- 冒烟目录：`outputs/experiments/cloud-editor-smoke-v1/`。run-v1误选直连，被严格断言判失败；run-v2的测试客户端提前关闭未使用host协议，向共享ICE接收队列注入EOF，造成超时。两次失败目录与记录保留，未作为通过证据。最终脚本将host协议从候选配对中移除、退出时才关闭，并同时断言SDP候选和最终nominated pair为relay。
+- run-v3执行任务 `20260921-150846-9d25`、只读监控 `20260921-150846-e185` 均exit0。Project **1,483,682**与MCMC **2,999,158**高斯串行在GPU0完成真实加载、固定PNG、选区隔离预览、删除、撤销及保存；每份模型分别通过TURN/UDP和TURN/TCP解码5帧640×360视频，共20帧，DataChannel相机序号有推进。这里只用了相机路径与PLY，没有数据集RGB、训练或Test消费。
+- 两份源PLY在测试前后以及独立复核中的SHA256一致。结束后无CUDA compute进程，两卡各约3MiB，共享GPU租约可重新取得。服务器103项Python CPU/mock回归、69项前端测试和生产构建通过，保留Starlette弃用和Vite大包警告。
+- 报告：`run-v3/result.json`，SHA256 `8feb43b88dd3c8baa9139bb81065d79b8735e5d8d590c93fa553365e0f52ed74`。小报告与两张固定帧已下载至本地 `outputs/analysis/cloud-editor-smoke-v1/run-v3/`，未复制模型。可复用脚本：`scripts/smoke_cloud_gaussian.py`；它拒绝覆盖已有输出目录，不自动启动训练。
 
-后续远端验收须单独明确实例、目录、源 PLY hash、时间/GPU预算和允许的服务操作；先经 Git 同步代码，禁止源码包。验证内容：
-1. 1.48M/3M 模型导入与显存、固定相机 SH/坐标/颜色一致性。
+- 在新的run-v4目录完成扩展验收：执行 `20260921-151718-e8d3`、监控 `20260921-151719-7c05` 均exit0，用时约141秒。两模型均通过真实渲染器持锁时worker不执行内存中的排队探针、删除→撤销→重做→保存→PLY/ZIP导出→最终撤销恢复、1920×1080固定帧，以及再次各两种传输的20帧严格relay视频。没有提交真实训练任务。导出版本均为v00000003，各移除原始第0行的一个高斯；导出数分别1,483,681和2,999,157。ZIP所有条目CRC通过；独立流式对比证明导出PLY的全部属性和行序与源文件去掉第0行后的二进制数据逐字节一致。编辑结果保持未评价和不继承导航身份。
+- 最终报告：`run-v4/result.json`，SHA256 `c9c03b8f06b71bca80d434e7bd17596620314704ef23510927ab988885c131e8`；本地报告及两张1080高清帧位于 `outputs/analysis/cloud-editor-smoke-v1/run-v4/`。原文件哈希独立复核未变，GPU进程已退出、共享锁可再次取得，后端与TURN仍active。完整导出保留在独立实验目录，服务器剩余约19GiB；没有删除旧实验或测试证据，下一次训练仍须重新检查其磁盘门禁。
+
+## 剩余验收边界
+
+用户当前经公司SDP远程办公，不是直连内网。本机访问8082的TCP/UDP实测超时；**服务器内部认证relay已通过，但不证明SDP路径获准或浏览器可连**。用户正向管理员确认SDP权限；无需据此修改服务器防火墙、改公网暴露或改为HTTP图像流。
+
+每轮20帧是同机aiortc客户端的功能冒烟，**不是浏览器端到端验收，也不是帧率或时延基准**；两模型加载约16–17/32秒是单次观测，不代表稳定加载性能。真实训练运行/多轮排队、崩溃回收压力、1920高清持续视频、10分钟浏览器运行及20次重连仍未完成；已验证真实渲染锁阻断探针、完整模型编辑导出与高清固定帧，不能据此扩大为全部压力/性能目标通过。后续测试仍需明确GPU/时间预算并使用新输出目录。
+
+剩余项目：
+1. 完整模型显存峰值、跨视角 SH/坐标/颜色的定量一致性；现有固定帧只证明实际输出，不是质量基准。
 2. 真正的渲染、CPU拷贝、编码、网络与浏览器呈现分段测量；不要把 render 耗时当端到端时延。
 3. 训练/导航排队、外部进程保守阻断、关闭/崩溃后的 GPU 释放。
 4. 浏览器10分钟运行、20次切换/重连，无PLY下载；运动中位≥25fps、P95帧间隔≤66.7ms、输入到呈现P95≤200ms均仍是待验目标。
