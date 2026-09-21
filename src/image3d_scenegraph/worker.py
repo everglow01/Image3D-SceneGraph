@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import fcntl
 import threading
+import time
+
+from image3d_scenegraph.gpu_lease import LeaseBusy, product_gpu_lease
 
 from image3d_scenegraph.execution import (
     run_cancellable_command as run_cancellable_command,
@@ -19,6 +22,8 @@ class LocalJobWorker:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._lease = None
+        self._gpu_retry_at = 0.0
+        self.gpu_wait_reason: str | None = None
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -52,16 +57,24 @@ class LocalJobWorker:
         self._wake.set()
 
     def run_once(self) -> str | None:
-        queued = self.store.list_queued_jobs()
-        if queued:
-            job_id = queued[0]
-            self.store.execute_job(job_id)
-            return job_id
-        navigation_queued = self.store.list_queued_navigation_jobs()
-        if not navigation_queued:
+        if time.monotonic() < self._gpu_retry_at:
             return None
-        job_id = navigation_queued[0]
-        self.store.execute_navigation_job(job_id)
+        queued = self.store.list_queued_jobs()
+        navigation_queued = [] if queued else self.store.list_queued_navigation_jobs()
+        if not queued and not navigation_queued:
+            return None
+        job_id = (queued or navigation_queued)[0]
+        try:
+            with product_gpu_lease(self.store.output_root):
+                self.gpu_wait_reason = None
+                if queued:
+                    self.store.execute_job(job_id)
+                else:
+                    self.store.execute_navigation_job(job_id)
+        except LeaseBusy as exc:
+            self.gpu_wait_reason = str(exc)
+            self._gpu_retry_at = time.monotonic() + 5
+            return None
         return job_id
 
     def _run(self) -> None:

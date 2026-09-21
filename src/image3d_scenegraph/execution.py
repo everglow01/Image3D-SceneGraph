@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from image3d_scenegraph.gpu_lease import inherited_gpu_fds
+
 
 class JobCancelled(RuntimeError):
     """Raised when a queued or running local job is cancelled."""
@@ -36,6 +38,7 @@ def run_cancellable_command(
             stderr=stderr_file,
             text=True,
             start_new_session=True,
+            pass_fds=inherited_gpu_fds(),
         )
         try:
             while process.poll() is None:

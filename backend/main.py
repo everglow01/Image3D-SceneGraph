@@ -21,6 +21,8 @@ from image3d_scenegraph.jobs import (
     UploadedInput,
 )
 from image3d_scenegraph.worker import LocalJobWorker
+from image3d_scenegraph.gaussian.editor_session import EditorSessions
+from backend.gaussian_editor import editor_router
 
 
 class MeshVariantRequest(BaseModel):
@@ -62,23 +64,29 @@ async def _stage_video_upload(store: JobStore, upload: UploadFile) -> UploadedIn
         raise
 
 
-def create_app(output_root: Path | str | None = None, *, start_worker: bool = True) -> FastAPI:
+def create_app(output_root: Path | str | None = None, *, start_worker: bool = True,
+               editor_service: EditorSessions | None = None) -> FastAPI:
     store = JobStore(output_root)
     worker = LocalJobWorker(store)
+    editor = editor_service or EditorSessions(store)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if start_worker:
             worker.start()
+        editor.start()
         try:
             yield
         finally:
+            await editor.shutdown()
             if start_worker:
                 worker.stop()
 
     app = FastAPI(title="Image3D-SceneGraph API", lifespan=lifespan)
     app.state.job_store = store
     app.state.job_worker = worker
+    app.state.gaussian_editor = editor
+    app.include_router(editor_router(editor))
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

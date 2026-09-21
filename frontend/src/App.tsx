@@ -2180,7 +2180,7 @@ export function App() {
           </div>
           {isComparison && selectedSplatVariant && (
             <div className="recovered-derivative-notice" role="status">
-              <strong>只读补拟合对比 · {selectedSplatVariant.label}</strong>
+              <strong>原模型历史指标（不代表编辑版） · {selectedSplatVariant.label}</strong>
               <span>
                 {gaussianVariantMetricLabel(selectedSplatVariant)}
                 {` · ${selectedSplatVariant.gaussian_count?.toLocaleString()} 高斯 · 原生 float ${selectedSplatVariant.psnr?.toFixed(3)} dB / SSIM ${selectedSplatVariant.ssim?.toFixed(4)}`}
@@ -2206,6 +2206,12 @@ export function App() {
             />
           )}
           <GeometryViewer
+            cloudSource={manifest && selectedSplatVariant ? {
+              job_id: manifest.job_id,
+              variant_id: manifest.gaussian_variants ? selectedSplatVariant.id : undefined,
+              asset_role: selectedSplatVariant.id === "vggt_filtered" ? "scene_splat_vggt_filtered" : "scene_splat",
+              label: selectedSplatVariant.label
+            } : undefined}
             pointCloudUrl={visiblePointCloudUrl}
             camerasUrl={viewerMode === "point_cloud" ? camerasUrl : null}
             alignmentDiagnosticsUrl={alignmentDiagnosticsUrl}

@@ -1,9 +1,12 @@
+import { useState } from "react";
+import { CloudGaussianViewer, type CloudSource } from "./CloudGaussianViewer";
 import { GaussianSplatViewer } from "./GaussianSplatViewer";
 import { MeshViewer } from "./MeshViewer";
 import { PointCloudViewer } from "./PointCloudViewer";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
 
 type GeometryViewerProps = {
+  cloudSource?: CloudSource;
   pointCloudUrl: string | null;
   camerasUrl: string | null;
   alignmentDiagnosticsUrl: string | null;
@@ -23,6 +26,7 @@ type GeometryViewerProps = {
 };
 
 export function GeometryViewer({
+  cloudSource,
   pointCloudUrl,
   camerasUrl,
   alignmentDiagnosticsUrl,
@@ -40,9 +44,14 @@ export function GeometryViewer({
   navigationStatus,
   navigationReason
 }: GeometryViewerProps) {
+  const [cloud, setCloud] = useState(false);
   if (splatUrl) {
-    return (
-      <GaussianSplatViewer
+    return <>
+      {cloudSource && <div className="variant-toggle cloud-mode-toggle" role="group" aria-label="渲染位置">
+        <button type="button" aria-pressed={!cloud} className={!cloud ? "active" : ""} onClick={() => setCloud(false)}>本地查看</button>
+        <button type="button" aria-pressed={cloud} className={cloud ? "active" : ""} onClick={() => { onInspectionStateChange(null); setCloud(true); }}>云端查看与修剪</button>
+      </div>}
+      {cloud && cloudSource ? <CloudGaussianViewer key={splatUrl} source={cloudSource} metadataUrl={splatMetadataUrl} cameraPathUrl={splatCameraPathUrl} alignmentUrl={alignmentDiagnosticsUrl} /> : <GaussianSplatViewer
         sourceUrl={splatUrl}
         metadataUrl={splatMetadataUrl}
         cameraPathUrl={splatCameraPathUrl}
@@ -55,8 +64,8 @@ export function GeometryViewer({
         navigationUrl={navigationUrl}
         navigationStatus={navigationStatus}
         navigationReason={navigationReason}
-      />
-    );
+      />}
+    </>;
   }
   if (meshUrl) {
     return <MeshViewer sourceUrl={meshUrl} />;
