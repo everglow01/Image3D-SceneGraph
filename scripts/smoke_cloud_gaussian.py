@@ -82,6 +82,16 @@ async def media_check(service, session, camera, transport):
         for gatherer in gatherers:
             gatherer._connection._transport_policy = TransportPolicy.RELAY
         await client.setLocalDescription(await client.createOffer())
+        # aioice 0.10.2 hides host candidates but still pairs their protocols unless removed.
+        for gatherer in gatherers:
+            connection = gatherer._connection
+            hosts = [
+                p for p in connection._protocols if p.local_candidate.type != "relay"
+            ]
+            connection._protocols = [
+                p for p in connection._protocols if p.local_candidate.type == "relay"
+            ]
+            await asyncio.gather(*(p.close() for p in hosts))
         candidates = [
             line
             for line in client.localDescription.sdp.splitlines()
