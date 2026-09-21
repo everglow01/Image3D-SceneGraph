@@ -43,6 +43,7 @@ async def media_check(service, session, camera, transport):
     channel = client.createDataChannel("camera", ordered=False)
     received = asyncio.get_running_loop().create_future()
     consumers = []
+    unused_protocols = []
 
     @channel.on("open")
     def opened():
@@ -91,7 +92,8 @@ async def media_check(service, session, camera, transport):
             connection._protocols = [
                 p for p in connection._protocols if p.local_candidate.type == "relay"
             ]
-            await asyncio.gather(*(p.close() for p in hosts))
+            # Closing a protocol injects EOF into the shared ICE receive queue.
+            unused_protocols.extend(hosts)
         candidates = [
             line
             for line in client.localDescription.sdp.splitlines()
@@ -114,6 +116,7 @@ async def media_check(service, session, camera, transport):
             task.cancel()
         await asyncio.gather(*consumers, return_exceptions=True)
         await client.close()
+        await asyncio.gather(*(p.close() for p in unused_protocols))
         await media.close()
         session["media"] = None
 
