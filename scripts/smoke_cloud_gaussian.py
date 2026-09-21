@@ -155,6 +155,22 @@ async def run(args, report):
                 "load_seconds": time.monotonic() - started,
             }
             report["models"].append(item)
+            from image3d_scenegraph.worker import LocalJobWorker
+
+            class QueuedProbe:
+                output_root = jobs.output_root
+
+                def list_queued_jobs(self):
+                    return ["smoke-lease-probe"]
+
+                def execute_job(self, job_id):
+                    raise AssertionError(
+                        "worker entered while renderer held the GPU lease"
+                    )
+
+            worker = LocalJobWorker(QueuedProbe())
+            assert worker.run_once() is None and worker.gpu_wait_reason
+            item["worker_blocked_by_live_renderer"] = True
             frame = await service.freeze(session, 1, camera)
             assert frame["image"].startswith("data:image/png;base64,")
             import base64
@@ -211,14 +227,77 @@ async def run(args, report):
                 },
             )
             assert undone["visible_count"] == source["gaussian_count"]
-            await service.save(session, 2)
-            item["delete_undo_save"] = "passed"
+            frame = await service.freeze(session, 1, camera)
+            redone = await service.operation(
+                session,
+                {
+                    "ticket": frame["ticket"],
+                    "expected_revision": 2,
+                    "kind": "redo",
+                    "operation_id": "smoke-redo",
+                    "confirm_large": False,
+                },
+            )
+            assert redone["visible_count"] == deleted["visible_count"]
+            saved = await service.save(session, 3)
+            await service.start_export(session, saved["version"])
+            await service.export_task
+            assert service.export_state["status"] == "done", service.export_state[
+                "error"
+            ]
+            record_path = service.edits.export_asset(
+                doc["edit_id"], saved["version"], "export.json"
+            )
+            record = json.loads(record_path.read_text())
+            assert record["gaussian_count"] == redone["visible_count"]
+            assert record["removed_count"] == selected["selected_count"]
+            assert record["quality_role"] == "manual_edit_not_evaluated"
+            assert record["navigation_status"] == "not_inherited"
+            assert (
+                sha256_file(record_path.with_name("scene.ply"))
+                == record["browser_sha256"]
+            )
+            import zipfile
+
+            with zipfile.ZipFile(record_path.with_name("bundle.zip")) as archive:
+                assert archive.testzip() is None
+            item["export"] = {
+                "version": saved["version"],
+                "gaussian_count": record["gaussian_count"],
+                "removed_count": record["removed_count"],
+                "zip_crc_passed": True,
+            }
+            frame = await service.freeze(session, 1, camera)
+            restored = await service.operation(
+                session,
+                {
+                    "ticket": frame["ticket"],
+                    "expected_revision": 3,
+                    "kind": "undo",
+                    "operation_id": "smoke-final-undo",
+                    "confirm_large": False,
+                },
+            )
+            assert restored["visible_count"] == source["gaussian_count"]
+            item["delete_undo_redo_save_export"] = "passed"
             item["media"] = []
             for transport in ("udp", "tcp"):
                 await service.resume(session)
                 item["media"].append(
                     await media_check(service, session, camera, transport)
                 )
+            high_camera = dict(
+                camera,
+                width=1920,
+                height=1080,
+                intrinsic=[[1080, 0, 960], [0, 1080, 540], [0, 0, 1]],
+            )
+            high_frame = await service.freeze(session, session["seq"] + 1, high_camera)
+            assert (high_frame["width"], high_frame["height"]) == (1920, 1080)
+            (args.output / (variant + "-1080.png")).write_bytes(
+                base64.b64decode(high_frame["image"].split(",", 1)[1])
+            )
+            item["fixed_frame_1920x1080"] = "passed"
             await service.close(session)
             item["source_unchanged"] = sha256_file(path) == before
             assert item["source_unchanged"]
