@@ -10,7 +10,7 @@ const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
 }).outputText;
 
-function pageHarness() {
+function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
   const hooks: any[] = [], effects: (() => void)[] = [], instances: any[] = [];
   let cursor = 0, dirty = true, tree: any;
   const mount = { clientWidth: 800, clientHeight: 400, replaceChildren() {}, appendChild() {} };
@@ -61,7 +61,8 @@ function pageHarness() {
       if (options?.renderer) this.renderer = options.renderer;
       instances.push(this);
     }
-    async addSplatScene() {}
+    async addSplatScene(sourceUrl: string) { this.sourceUrl = sourceUrl; }
+    sourceUrl = "";
     getSplatMesh() { return { minSphericalHarmonicsDegree: 2,
       material: new THREE.ShaderMaterial(), computeBoundingBox: () => this.bounds() }; }
     bounds() { return new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)); }
@@ -79,7 +80,8 @@ function pageHarness() {
     getBoundingBox() { return this.bounds(); }
   }
   const exports: Record<string, any> = {};
-  runInNewContext(code, { exports, AbortController,
+  runInNewContext(code, { exports, AbortController, URLSearchParams,
+    window: { location: { search: options.search ?? "" } },
     fetch: async (_url: string, _options: unknown) => ({ ok: true, headers: { get: () => null },
       json: async () => ({ sh_degree: 3, viewer_minimum_opacity: 0.005, scene_radius_p95: 1 }) }),
     document: { pointerLockElement: null },
@@ -95,7 +97,7 @@ function pageHarness() {
       return {};
     }
   });
-  const props = { sourceUrl: "/scene.ply", metadataUrl: "/export.json", cameraPathUrl: null,
+  const props = { sourceUrl: options.sourceUrl ?? "/scene.ply", metadataUrl: "/export.json", cameraPathUrl: null,
     alignmentUrl: null, jobId: "job", sfmDiagnosticsUrl: null, inspectionRequest: null,
     onInspectionStateChange() {}, collisionMeshUrl: null, navigationUrl: null,
     navigationStatus: null, navigationReason: null };
@@ -119,6 +121,7 @@ function pageHarness() {
   };
   return { instances, flush,
     selector: () => find(tree, n => n.type === "select").props,
+    experimentSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产试验")?.props,
     hint: () => find(tree, n => n.props?.className === "viewer-hint")?.props.children.flat().join(""),
     changeSource: () => { props.sourceUrl = "/other.ply"; dirty = true; },
     changeNavigationStatus: (status: string) => { props.navigationStatus = status; dirty = true; },
@@ -165,6 +168,33 @@ test("navigation status changes do not download the same splat again", async () 
   assert.equal(h.instances.length, 1);
   assert.equal(h.instances[0].disposed, false);
   h.unmount(); await h.flush();
+});
+
+test("compact browser assets are opt-in and preserve the same model camera", async () => {
+  const sourceUrl = "/api/jobs/train_validation_final_fit_v1_comparison/assets/variants/mcmc-final-fit/scene.ply";
+  const ordinary = pageHarness({ sourceUrl }); await ordinary.flush();
+  assert.equal(ordinary.experimentSelector(), undefined);
+  ordinary.unmount(); await ordinary.flush();
+
+  const h = pageHarness({ sourceUrl, search: "?browser-ksplat-ab=1" }); await h.flush();
+  assert.equal(h.instances[0].sourceUrl, sourceUrl);
+  h.instances[0].camera.position.set(4, 5, 6);
+  h.instances[0].controls.target.set(0.2, 0.3, 0.4);
+  h.experimentSelector().onChange({ target: { value: "level1" } }); await h.flush();
+  assert.match(h.instances[1].sourceUrl, /level1\.ksplat$/);
+  assert.equal(h.instances[0].disposed, true);
+  assert.deepEqual(h.instances[1].camera.position.toArray(), [4, 5, 6]);
+  assert.deepEqual(h.instances[1].controls.target.toArray(), [0.2, 0.3, 0.4]);
+  h.experimentSelector().onChange({ target: { value: "level2" } }); await h.flush();
+  assert.match(h.instances[2].sourceUrl, /level2\.ksplat$/);
+  h.experimentSelector().onChange({ target: { value: "ply" } }); await h.flush();
+  assert.equal(h.instances[3].sourceUrl, sourceUrl);
+  h.unmount(); await h.flush();
+
+  const other = pageHarness({ sourceUrl: "/other.ply", search: "?browser-ksplat-ab=1" });
+  await other.flush();
+  assert.equal(other.experimentSelector(), undefined);
+  other.unmount(); await other.flush();
 });
 
 test("rapid switching cannot bypass pending disposal or restore a camera into another model", async () => {

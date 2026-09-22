@@ -131,6 +131,28 @@ def test_asset_route_serves_gzip_json_as_transparent_json(tmp_path):
     assert response.json() == {"schema_version": 1}
 
 
+def test_browser_ksplat_experiment_is_read_only_and_path_limited(tmp_path):
+    jobs = tmp_path / "jobs"
+    root = tmp_path / "experiments" / "browser-ksplat-20260922-v1"
+    root.mkdir(parents=True)
+    asset = root / "level1.ksplat"
+    asset.write_bytes(b"experimental splats")
+    client = TestClient(create_app(jobs, start_worker=False))
+    url = "/api/gaussian-browser-experiments/browser-ksplat-20260922-v1/level1.ksplat"
+
+    response = client.get(url, headers={"Range": "bytes=0-3"})
+    assert response.status_code == 206
+    assert response.content == b"expe"
+    assert response.headers["content-range"] == "bytes 0-3/19"
+    assert client.head(url).status_code == 200
+    assert client.get(url.replace("level1", "private")).status_code != 200
+    assert client.post(url).status_code == 405
+
+    asset.unlink()
+    asset.symlink_to(tmp_path / "private.txt")
+    assert client.get(url).status_code == 404
+
+
 def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     schema = create_app(tmp_path / "jobs").openapi()
     body_schema = schema["paths"]["/api/jobs"]["post"]["requestBody"]["content"][
