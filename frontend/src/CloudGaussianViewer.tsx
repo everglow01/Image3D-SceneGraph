@@ -88,7 +88,14 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
     const epoch = ++generation.current, expectedRevision = revision.current;
     const config = await sessionCall<RTCConfiguration>("/ice", "GET");
     if (!active.current.alive) return;
-    const pc = new RTCPeerConnection(config); peer.current = pc;
+    // SDP 路径的 UDP 不可达；首次连接和重连均只使用已下发的 TURN/TCP。
+    const iceServers = (config.iceServers ?? []).map(server => ({
+      ...server,
+      urls: (Array.isArray(server.urls) ? server.urls : [server.urls])
+        .filter(url => /^turns?:[^?]+\?transport=tcp$/i.test(url))
+    })).filter(server => server.urls.length > 0);
+    if (!iceServers.length) throw new Error("服务器未提供 TURN/TCP 地址，无法连接云端视频");
+    const pc = new RTCPeerConnection({ ...config, iceServers, iceTransportPolicy: "relay" }); peer.current = pc;
     const channel = pc.createDataChannel("camera", { ordered: false });
     pc.addTransceiver("video", { direction: "recvonly" });
     let lastCamera = "", paused = false;

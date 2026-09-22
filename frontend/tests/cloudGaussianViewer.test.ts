@@ -11,7 +11,10 @@ const code = ts.transpileModule(readFileSync(new URL("../src/CloudGaussianViewer
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
 }).outputText;
 
-function harness(available = true) {
+function harness(available = true, iceServers: RTCIceServer[] = [{
+  urls: ["turn:10.186.96.23:8082?transport=udp", "turn:10.186.96.23:8082?transport=tcp"],
+  username: "temporary-user", credential: "temporary-credential"
+}]) {
   const hooks: any[] = [], effects: (() => void)[] = [], requests: any[] = [], peers: any[] = [];
   const intervals = new Map<number, () => void>();
   let cursor = 0, dirty = true, tree: any, timer = 0, revision = 0, imageNode: any, frameCallback: (() => void) | undefined;
@@ -49,7 +52,8 @@ function harness(available = true) {
   class Peer {
     connectionState = "connected"; iceGatheringState = "complete";
     localDescription = { sdp: "offer" }; ontrack: any; channel: any;
-    constructor() { peers.push(this); }
+    config: RTCConfiguration;
+    constructor(config: RTCConfiguration) { this.config = config; peers.push(this); }
     createDataChannel() { return this.channel = { readyState: "open", bufferedAmount: 0, send() {}, onclose() {} }; }
     addTransceiver() {} async createOffer() { return {}; } async setLocalDescription() {}
     async setRemoteDescription() { this.ontrack({ track: {} }); }
@@ -69,7 +73,7 @@ function harness(available = true) {
       else if (url.includes("gaussian-edits?")) value = { edits: [] };
       else if (url === "/api/gaussian-edits" || url.startsWith("/api/gaussian-edits/")) value = document();
       else if (url === "/api/gaussian-render-sessions") value = { session_id: "session", token: "secret", state: "loading" };
-      else if (url.endsWith("/ice")) value = { iceTransportPolicy: "relay", iceServers: [] };
+      else if (url.endsWith("/ice")) value = { iceTransportPolicy: "relay", iceServers };
       else if (url.endsWith("/offer")) value = { type: "answer", sdp: "answer" };
       else if (url.endsWith("/freeze-frame")) value = { ticket: `ticket-${revision}`, revision, camera_seq: body.sequence, width: 1920, height: 1080, image: "data:image/png;base64,c2FtZQ==" };
       else if (url.endsWith("/selection")) value = { selection_token: "selected", selected_count: 1, visible_count: 8, revision };
@@ -112,6 +116,7 @@ function harness(available = true) {
     imageKey: () => imageNode?.key,
     displayFrame: () => frameCallback?.(),
     image: () => find(tree, n => n.type === "img"),
+    error: () => find(tree, n => n.props?.role === "alert")?.props.children,
     unmount: () => { for (const hook of hooks) hook?.cleanup?.(); }
   };
 }
@@ -140,6 +145,40 @@ test("cloud page never fetches PLY and waits for the decoded new generation afte
   assert.equal(h.intervals.size, 0);
   assert.ok(h.peers.every(p => p.connectionState === "closed"));
   assert.ok(h.requests.some(r => r.method === "DELETE"));
+});
+
+test("cloud connections and reconnects use only supplied TURN/TCP servers", async () => {
+  const servers = [
+    { urls: ["stun:10.186.96.23:8082", "turn:10.186.96.23:8082?transport=udp", "turn:10.186.96.23:8082?transport=tcp"], username: "temporary-user", credential: "temporary-credential" },
+    { urls: "turn:10.186.96.23:8082?transport=tcp", username: "second-user", credential: "second-credential" },
+    { urls: "turn:10.186.96.23:8082?transport=udp" }
+  ];
+  const h = harness(true, servers);
+  try {
+    await h.flush(); h.button("连接云端").onClick(); await h.flush();
+    h.button("重新连接视频").onClick(); await h.flush();
+    assert.equal(h.peers.length, 2);
+    for (const peer of h.peers) {
+      assert.equal(peer.config.iceTransportPolicy, "relay");
+      assert.deepEqual(JSON.parse(JSON.stringify(peer.config.iceServers)), [
+        { ...servers[0], urls: ["turn:10.186.96.23:8082?transport=tcp"] },
+        { ...servers[1], urls: ["turn:10.186.96.23:8082?transport=tcp"] }
+      ]);
+    }
+    assert.equal(servers[0].urls.length, 3, "do not mutate the supplied configuration");
+  } finally { h.unmount(); }
+});
+
+test("missing TURN/TCP configuration fails explicitly without UDP or direct fallback", async () => {
+  for (const servers of [[], [{ urls: "turn:10.186.96.23:8082?transport=udp" }], [{ urls: "stun:10.186.96.23:8082?transport=tcp" }]]) {
+    const h = harness(true, servers);
+    try {
+      await h.flush(); h.button("连接云端").onClick(); await h.flush();
+      assert.match(h.error(), /未提供 TURN\/TCP/);
+      assert.equal(h.peers.length, 0);
+      assert.ok(h.requests.every(r => !r.url.endsWith("/offer")));
+    } finally { h.unmount(); }
+  }
 });
 
 test("missing cloud capability stays unavailable without local fallback", async () => {
