@@ -98,6 +98,16 @@ def test_front_layer_batches_do_not_replace_transparent_foreground_with_backgrou
     assert layer.done[0]
 
 
+def test_sparse_early_floater_does_not_hide_a_dominant_surface():
+    layer = FrontLayer(1, 0.02)
+    layer.add([3], [0], [1], [0.02])
+    layer.add([8], [0], [3], [0.9])
+    ids, confident = layer.result()
+    assert ids.tolist() == [8]
+    assert confident[0]
+    assert layer.candidates[0] == [8]
+
+
 def test_front_layer_same_layer_can_span_batches():
     layer = FrontLayer(1, 0.02)
     layer.add([1], [0], [1], [0.3])

@@ -10,6 +10,7 @@ from .cloud_render import CloudRenderError
 
 MIN_WEIGHT = 1 / 255
 MIN_COVERAGE = 0.5
+MIN_EARLY_COVERAGE = 0.05
 MAX_SECONDS = 20
 MAX_INTERSECTIONS = 24_000_000
 MAX_PAIRS = 16_000_000
@@ -36,53 +37,56 @@ def polygon_pixels(polygon, x, y):
 
 
 class FrontLayer:
-    """Bounded CPU reference reducer shared by the GPU index adapter.
-
-    The first significant contribution anchors a depth layer. Insufficient opacity
-    in that layer abstains; it never searches farther back for an opaque surface.
-    """
+    """Keep the first opaque layer; abstain behind a substantial translucent foreground."""
 
     def __init__(self, pixels, tolerance):
         self.trans = np.ones(pixels, dtype=np.float64)
         self.depth = np.full(pixels, np.inf)
         self.coverage = np.zeros(pixels)
         self.done = np.zeros(pixels, dtype=bool)
-        self.candidates = []
+        self.candidates = {}
         self.tolerance = tolerance
 
     def add(self, ids, pixels, depths, alphas):
         ids, pixels, depths, alphas = map(np.asarray, (ids, pixels, depths, alphas))
         if not len(ids):
             return
-        order = np.lexsort((depths, pixels))
-        ids, pixels, depths, alphas = (a[order] for a in (ids, pixels, depths, alphas))
-        alphas = np.clip(alphas, 0, 0.999)
-        logs = np.log1p(-alphas)
-        sums = np.cumsum(logs)
-        starts = np.r_[0, np.flatnonzero(np.diff(pixels)) + 1]
-        lengths = np.diff(np.r_[starts, len(pixels)])
-        offsets = np.repeat(np.r_[0.0, sums[starts[1:] - 1]], lengths)
-        before = np.exp(sums - logs - offsets) * self.trans[pixels]
-        weights = before * alphas
-        significant = (weights >= MIN_WEIGHT) & ~self.done[pixels]
-        np.minimum.at(self.depth, pixels[significant], depths[significant])
-        width = np.maximum(0.001, self.depth[pixels] * self.tolerance)
-        front = significant & (depths <= self.depth[pixels] + width)
-        np.add.at(self.coverage, pixels[front], weights[front])
-        self.candidates.append((ids[front], pixels[front]))
-        ends = starts + lengths - 1
-        self.trans[pixels[ends]] *= np.exp(sums[ends] - offsets[ends])
-        # Once past the front layer, more distant splats cannot become its substitute.
-        beyond = np.isfinite(self.depth[pixels]) & (depths > self.depth[pixels] + width)
-        self.done[pixels[beyond]] = True
-        self.done |= self.trans <= 1e-4
+        for index in np.lexsort((depths, pixels)):
+            pixel = int(pixels[index])
+            if self.done[pixel]:
+                continue
+            alpha = min(float(alphas[index]), 0.999)
+            weight = self.trans[pixel] * alpha
+            self.trans[pixel] *= 1 - alpha
+            if weight < MIN_WEIGHT:
+                if self.trans[pixel] <= 1e-4:
+                    self.done[pixel] = True
+                continue
+            depth = float(depths[index])
+            if depth > self.depth[pixel] + max(
+                0.001, self.depth[pixel] * self.tolerance
+            ):
+                if self.coverage[pixel] >= MIN_EARLY_COVERAGE:
+                    self.done[pixel] = True
+                    continue
+                self.candidates[pixel] = []
+                self.coverage[pixel] = 0
+                self.depth[pixel] = depth
+            if not np.isfinite(self.depth[pixel]):
+                self.depth[pixel] = depth
+            self.coverage[pixel] += weight
+            self.candidates.setdefault(pixel, []).append(int(ids[index]))
+            if self.coverage[pixel] >= MIN_COVERAGE or self.trans[pixel] <= 1e-4:
+                self.done[pixel] = True
 
     def result(self):
         confident = (self.coverage >= MIN_COVERAGE) & np.isfinite(self.depth)
-        ids = [g[confident[p]] for g, p in self.candidates]
-        return (
-            np.unique(np.concatenate(ids)) if ids else np.empty(0, dtype=np.int64)
-        ), confident
+        ids = [
+            gaussian
+            for pixel in np.flatnonzero(confident)
+            for gaussian in self.candidates.get(int(pixel), ())
+        ]
+        return np.unique(ids).astype(np.int64), confident
 
 
 class VisiblePicker:
