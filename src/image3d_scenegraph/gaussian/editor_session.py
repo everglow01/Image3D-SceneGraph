@@ -102,6 +102,12 @@ class EditorSessions:
             "media": None,
             "renderer": None,
             "render_mask": None,
+            "render_cache": None,
+            "prepared": None,
+            "protected": None,
+            "render_ms": 0.0,
+            "motion_limit": 1280,
+            "quality_samples": 0,
         }
         self.active = session
         session["loader"] = asyncio.create_task(self._load(session))
@@ -128,6 +134,7 @@ class EditorSessions:
                     )
                 else:
                     s["visible"] = await offload(self.edits.visible, s["edit_id"])
+                s["protected"] = np.zeros(source["gaussian_count"], dtype=bool)
                 scratch = self.edits.root / ".render-scratch"
                 scratch.mkdir(exist_ok=True)
                 s["renderer"] = self.renderer_factory(
@@ -174,6 +181,10 @@ class EditorSessions:
             "error": s["error"],
             "revision": s.get("revision"),
             "visible_count": int(s["visible"].sum()) if "visible" in s else None,
+            "protected_count": int(s["protected"].sum())
+            if s.get("protected") is not None
+            else 0,
+            "render_ms": round(s.get("render_ms", 0), 2),
         }
 
     @asynccontextmanager
@@ -242,12 +253,18 @@ class EditorSessions:
         if sequence <= s["seq"]:
             return False
         camera = CloudCamera.from_json(value)
+        s["prepared"] = None
+        s["tickets"].invalidate()
         s.update(camera=camera, seq=sequence, interaction=time.monotonic())
         return True
 
     async def render(self, s, camera, visible):
         mask = s["render_mask"]
         changed = mask is None or not np.array_equal(mask, visible)
+        cached = s.get("render_cache")
+        if not changed and cached and cached[0] == camera.digest:
+            return cached[1]
+        started = time.monotonic()
         try:
             frame = await offload(
                 s["renderer"].render, camera, visible=visible if changed else None
@@ -256,7 +273,9 @@ class EditorSessions:
             s["state"] = "error"
             s["error"] = "渲染进程失败，请关闭会话后重新连接；已确认的编辑仍然保留"
             raise
+        s["render_ms"] = (time.monotonic() - started) * 1000
         s["render_mask"] = visible.copy() if changed else mask
+        s["render_cache"] = (camera.digest, frame["rgb"])
         return frame["rgb"]
 
     async def video_frame(self, s):
@@ -271,7 +290,8 @@ class EditorSessions:
                 async with s["lock"]:
                     camera, sequence = s["camera"], s["seq"]
                     value = camera.to_json()
-                    limit = 1280 if time.monotonic() - s["interaction"] < 0.3 else 1920
+                    moving = time.monotonic() - s["interaction"] < 0.4
+                    limit = s.get("motion_limit", 1280) if moving else 1920
                     ratio = min(1, limit / max(camera.width, camera.height))
                     w, h = (
                         max(16, int(camera.width * ratio)),
@@ -281,12 +301,59 @@ class EditorSessions:
                     k[0] *= w / camera.width
                     k[1] *= h / camera.height
                     value.update(width=w, height=h, intrinsic=k.tolist())
+                    before = s.get("render_cache")
                     rgb = await self.render(
                         s, CloudCamera.from_json(value), s["visible"]
                     )
+                    if moving and s.get("render_cache") is not before:
+                        s["quality_samples"] = s.get("quality_samples", 0) + 1
+                        bands = (640, 960, 1280)
+                        index = bands.index(s.get("motion_limit", 1280))
+                        ms = s.get("render_ms", 0)
+                        if ms > 40 and s["quality_samples"] >= 4 and index:
+                            s["motion_limit"] = bands[index - 1]
+                            s["quality_samples"] = 0
+                        elif ms < 18 and s["quality_samples"] >= 30 and index < 2:
+                            s["motion_limit"] = bands[index + 1]
+                            s["quality_samples"] = 0
                     return rgb, sequence, s["revision"]
             await asyncio.sleep(0.03)
         raise CloudRenderError("会话已结束")
+
+    async def prepare(self, s, sequence, camera_value):
+        async with self.action(s):
+            if s["state"] != "viewing":
+                raise EditConflict("当前不在导航模式")
+            camera = CloudCamera.from_json(camera_value)
+            if sequence < s["seq"] or (
+                sequence == s["seq"]
+                and s["camera"]
+                and camera.digest != s["camera"].digest
+            ):
+                raise EditConflict("相机已变化，等待最新高清画面")
+            s.update(camera=camera, seq=sequence, prepared=None, selection=None)
+            result = await self._frozen(s)
+            s["prepared"] = {
+                key: result[key] for key in ("ticket", "revision", "camera_seq")
+            }
+            return result
+
+    async def freeze_prepared(self, s, ticket, revision):
+        async with self.action(s):
+            prepared = s.get("prepared")
+            if s["state"] != "viewing" or not prepared or prepared["ticket"] != ticket:
+                raise EditConflict("高清画面已变化，请等待最新画面")
+            if revision != s["revision"] or prepared["camera_seq"] != s["seq"]:
+                raise EditConflict("高清画面版本或相机已变化")
+            s["tickets"].validate(
+                ticket,
+                source_sha256=s["source"]["ply_sha256"],
+                revision=revision,
+                camera_seq=s["seq"],
+                camera=s["camera"],
+            )
+            s.update(state="editing_frozen", selection=None, prepared=None)
+            return {"ticket": ticket, "revision": revision, "camera_seq": s["seq"]}
 
     async def freeze(self, s, sequence, camera_value):
         async with self.action(s):
@@ -299,21 +366,31 @@ class EditorSessions:
             return await self._frozen(s)
 
     async def _frozen(self, s):
-        rgb = await self.render(s, s["camera"], s["visible"])
+        camera, sequence, revision = s["camera"], s["seq"], s["revision"]
+        rgb = await self.render(s, camera, s["visible"])
+        image = await offload(png_data, rgb)
+        if (
+            s["seq"] != sequence
+            or s["revision"] != revision
+            or s["camera"].digest != camera.digest
+        ):
+            raise EditConflict("相机已变化，丢弃过期高清画面")
         ticket = s["tickets"].issue(
             source_sha256=s["source"]["ply_sha256"],
-            revision=s["revision"],
-            camera_seq=s["seq"],
-            camera=s["camera"],
+            revision=revision,
+            camera_seq=sequence,
+            camera=camera,
         )
         s["frame_ticket"] = ticket
         return {
             "ticket": ticket,
-            "revision": s["revision"],
-            "camera_seq": s["seq"],
-            "width": s["camera"].width,
-            "height": s["camera"].height,
-            "image": await offload(png_data, rgb),
+            "revision": revision,
+            "camera_seq": sequence,
+            "camera_digest": camera.digest,
+            "width": camera.width,
+            "height": camera.height,
+            "image": image,
+            "render_ms": round(s.get("render_ms", 0), 2),
         }
 
     def validate_frame(self, s, ticket, revision):
@@ -327,6 +404,21 @@ class EditorSessions:
             camera=s["camera"],
         )
 
+    async def visible_pick(self, s, polygon, depth_range, tolerance=0.02):
+        try:
+            return await offload(
+                s["renderer"].pick,
+                s["camera"],
+                visible=s["visible"],
+                polygon=polygon,
+                depth_range=depth_range,
+                tolerance=tolerance,
+            )
+        finally:
+            # A pick may change the renderer's active mask after an isolated preview.
+            s["render_mask"] = None
+            s["render_cache"] = None
+
     async def selection(self, s, request):
         async with self.action(s):
             self.validate_frame(s, request["ticket"], request["expected_revision"])
@@ -334,9 +426,53 @@ class EditorSessions:
             if kind == "clear":
                 selected = np.zeros(len(s["visible"]), dtype=bool)
             elif kind == "box":
+                if request.get("mode", "through") != "through":
+                    raise GaussianEditError("三维盒是穿透体积选择，请显式使用穿透模式")
                 selected = await offload(
                     select_box, s["means"], request["minimum"], request["maximum"]
                 )
+            elif request.get("mode", "through") == "visible":
+                if request["coverage"]:
+                    raise GaussianEditError("可见表层不支持扩大覆盖候选")
+                if any(len(point) != 2 for point in request["polygon"]):
+                    raise GaussianEditError("可见选区顶点必须为二维坐标")
+                polygon = np.asarray(request["polygon"], dtype=np.float64)
+                depth = np.asarray(request["depth_range"], dtype=np.float64)
+                if (
+                    polygon.ndim != 2
+                    or polygon.shape[1:] != (2,)
+                    or not 3 <= len(polygon) <= 128
+                    or not np.isfinite(polygon).all()
+                    or (polygon < 0).any()
+                    or (polygon > [s["camera"].width, s["camera"].height]).any()
+                    or abs(
+                        np.sum(
+                            polygon[:, 0] * np.roll(polygon[:, 1], 1)
+                            - polygon[:, 1] * np.roll(polygon[:, 0], 1)
+                        )
+                    )
+                    < 2
+                    or depth.shape != (2,)
+                    or not np.isfinite(depth).all()
+                    or not 0.01 <= depth[0] < depth[1] <= 1e6
+                ):
+                    raise GaussianEditError("可见选区或深度无效；未启动GPU选择")
+                picked = await self.visible_pick(
+                    s,
+                    request["polygon"],
+                    request["depth_range"],
+                    request.get("layer_tolerance", 0.02),
+                )
+                ids = np.asarray(picked["ids"])
+                if (
+                    ids.ndim != 1
+                    or not np.issubdtype(ids.dtype, np.integer)
+                    or (ids < 0).any()
+                    or (ids >= len(s["visible"])).any()
+                ):
+                    raise GaussianEditError("可见选择返回无效源索引；未应用选择")
+                selected = np.zeros(len(s["visible"]), dtype=bool)
+                selected[ids] = True
             else:
                 selected = await offload(
                     select_polygon,
@@ -365,9 +501,44 @@ class EditorSessions:
             return {
                 "selection_token": token,
                 "selected_count": int(selected.sum()),
+                "deletable_count": int((selected & ~s["protected"]).sum()),
                 "visible_count": int(s["visible"].sum()),
                 "revision": s["revision"],
             }
+
+    async def protection(self, s, request):
+        async with self.action(s):
+            self.validate_frame(s, request["ticket"], request["expected_revision"])
+            if request["kind"] == "clear":
+                s["protected"][:] = False
+            else:
+                selected = self.selected(
+                    s,
+                    request["selection_token"],
+                    request["ticket"],
+                    request["expected_revision"],
+                )
+                if request["kind"] == "add":
+                    s["protected"] |= selected
+                else:
+                    s["protected"] &= ~selected
+            s["selection"] = None
+            return {"protected_count": int(s["protected"].sum())}
+
+    async def depth_pick(self, s, request):
+        async with self.action(s):
+            self.validate_frame(s, request["ticket"], request["expected_revision"])
+            x, y = request["pixel"]
+            if (
+                not 1 <= x < s["camera"].width - 1
+                or not 1 <= y < s["camera"].height - 1
+            ):
+                raise GaussianEditError("请点击固定图片内部")
+            polygon = [[x - 1, y - 1], [x + 1, y - 1], [x + 1, y + 1], [x - 1, y + 1]]
+            result = await self.visible_pick(s, polygon, [0.01, 1e6])
+            if result["depth"] is None:
+                raise GaussianEditError("此处表层深度不确定，请换个位置或手动设置深度")
+            return {"depth": result["depth"]}
 
     def selected(self, s, token, ticket, revision):
         self.validate_frame(s, ticket, revision)
@@ -382,11 +553,14 @@ class EditorSessions:
 
     async def preview(self, s, request):
         async with self.action(s):
-            selected = self.selected(
-                s,
-                request["selection_token"],
-                request["ticket"],
-                request["expected_revision"],
+            selected = (
+                self.selected(
+                    s,
+                    request["selection_token"],
+                    request["ticket"],
+                    request["expected_revision"],
+                )
+                & ~s["protected"]
             )
             kind = request["mode"]
             mask = s["visible"] & ~selected if kind == "after_delete" else selected
@@ -402,7 +576,7 @@ class EditorSessions:
                     original * (1 - strength) + np.array([255, 80, 160]) * strength
                 ).astype(np.uint8)
             image = await offload(png_data, rgb)
-            s["selection"]["previewed"] = True
+            s["selection"]["previewed"] = kind in {"isolated", "after_delete"}
             return {"image": image, "revision": s["revision"]}
 
     async def refresh_committed(self, s):
@@ -428,11 +602,14 @@ class EditorSessions:
             self.validate_frame(s, request["ticket"], request["expected_revision"])
             mask = None
             if request["kind"] == "delete":
-                mask = self.selected(
-                    s,
-                    request["selection_token"],
-                    request["ticket"],
-                    request["expected_revision"],
+                mask = (
+                    self.selected(
+                        s,
+                        request["selection_token"],
+                        request["ticket"],
+                        request["expected_revision"],
+                    )
+                    & ~s["protected"]
                 )
                 if not s["selection"]["previewed"]:
                     raise EditConflict("必须先预览当前选择，再确认删除")

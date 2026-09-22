@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Matrix4, PerspectiveCamera, Vector3 } from "three";
-import { acceptsFrame, imagePoint, nativeCamera, rectangle, renderSize } from "../src/cloudGaussianEditor.ts";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { acceptsFrame, captureView, imagePoint, nativeCamera, rectangle, referenceView, renderSize, restoreView } from "../src/cloudGaussianEditor.ts";
 
 function project(point: Vector3, pose: number[][], k: number[][]): number[] {
   const p = [point.x, point.y, point.z, 1];
@@ -31,6 +32,43 @@ test("letterbox mapping uses CSS pixels independently of DPR", () => {
   assert.deepEqual(imagePoint(260, 270, resized, 1920, 1080), [960, 540]);
   assert.deepEqual(rectangle([3, 5], [1, 2]), [[3, 5], [1, 5], [1, 2], [3, 2]]);
 });
+
+test("Z-up orbit horizontal drag preserves height when controls are created after axis setup", () => {
+  const camera = new PerspectiveCamera(); camera.up.set(0, 0, 1); camera.position.set(3, 4, 2);
+  const controls = new OrbitControls(camera, null);
+  controls.target.set(0, 0, 0); controls.update();
+  const height = camera.position.z;
+  controls.rotateLeft(.15); controls.update();
+  assert.ok(Math.abs(camera.position.z - height) < 1e-12);
+});
+
+test("reference camera uses published pose and saved view restores only its own coordinates", () => {
+  const camera = new PerspectiveCamera(55); camera.up.set(0, 0, 1);
+  const path = { keyframes: [{ center_normalized: [1, 2, 3] as [number, number, number], world_from_camera: [
+    [1, 0, 0, 1], [0, 1, 0, 2], [0, 0, 1, 3], [0, 0, 0, 1]
+  ] as [[number, number, number, number], [number, number, number, number], [number, number, number, number], [number, number, number, number]] }] };
+  const target = referenceView(camera, path, [
+    [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]
+  ], new Matrix4(), new Vector3(), 1);
+  assert.deepEqual(camera.position.toArray(), [1, 2, 3]);
+  assert.ok(target.z > 3);
+  const saved = captureView("model-1", camera, target);
+  camera.position.set(0, 0, 0);
+  assert.deepEqual(restoreView(camera, saved).toArray(), target.toArray());
+  assert.deepEqual(camera.position.toArray(), [1, 2, 3]);
+  const rotated = referenceView(camera, path, [
+    [0, 0, 1, 0], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1]
+  ], new Matrix4(), new Vector3(), 1);
+  assert.ok(rotated.x < camera.position.x, "world +Z points along normalized -X after rotation");
+});
+
+test("zoomed and panned fixed frame maps back to original pixels after CSS resize", () => {
+  const box = { left: 10, top: 20, width: 400, height: 300 };
+  assert.deepEqual(imagePoint(230, 190, box, 800, 600, 2, [20, 20]), [400, 300]);
+  const resized = { left: 20, top: 40, width: 800, height: 600 };
+  assert.deepEqual(imagePoint(440, 360, resized, 800, 600, 2, [20, 20]), [400, 300]);
+});
+
 
 test("render sizes respect edge and total pixel limits; stale generations cannot display", () => {
   for (const [w, h] of [[1920, 1080], [400, 800], [500, 500], [4096, 2160]]) {

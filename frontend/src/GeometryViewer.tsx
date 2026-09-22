@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CameraView } from "./cloudGaussianEditor";
 import { CloudGaussianViewer, type CloudSource } from "./CloudGaussianViewer";
 import { GaussianSplatViewer } from "./GaussianSplatViewer";
 import { MeshViewer } from "./MeshViewer";
@@ -7,6 +8,7 @@ import type { SfmInspectionTab } from "./sfmDiagnostics";
 
 type GeometryViewerProps = {
   cloudSource?: CloudSource;
+  onCloudModeChange?: (cloud: boolean) => void;
   pointCloudUrl: string | null;
   camerasUrl: string | null;
   alignmentDiagnosticsUrl: string | null;
@@ -27,6 +29,7 @@ type GeometryViewerProps = {
 
 export function GeometryViewer({
   cloudSource,
+  onCloudModeChange,
   pointCloudUrl,
   camerasUrl,
   alignmentDiagnosticsUrl,
@@ -45,13 +48,19 @@ export function GeometryViewer({
   navigationReason
 }: GeometryViewerProps) {
   const [cloud, setCloud] = useState(false);
+  const viewRef = useRef<CameraView | null>(null);
+  useEffect(() => {
+    onCloudModeChange?.(!!(cloud && splatUrl && cloudSource));
+    return () => onCloudModeChange?.(false);
+  }, [cloud, splatUrl, !!cloudSource, onCloudModeChange]);
   if (splatUrl) {
     return <>
       {cloudSource && <div className="variant-toggle cloud-mode-toggle" role="group" aria-label="渲染位置">
         <button type="button" aria-pressed={!cloud} className={!cloud ? "active" : ""} onClick={() => setCloud(false)}>本地查看</button>
         <button type="button" aria-pressed={cloud} className={cloud ? "active" : ""} onClick={() => { onInspectionStateChange(null); setCloud(true); }}>云端查看与修剪</button>
       </div>}
-      {cloud && cloudSource ? <CloudGaussianViewer key={splatUrl} source={cloudSource} metadataUrl={splatMetadataUrl} cameraPathUrl={splatCameraPathUrl} alignmentUrl={alignmentDiagnosticsUrl} /> : <GaussianSplatViewer
+      {cloud && cloudSource ? <CloudGaussianViewer key={splatUrl} viewRef={viewRef} viewKey={splatUrl} source={cloudSource} metadataUrl={splatMetadataUrl} cameraPathUrl={splatCameraPathUrl} alignmentUrl={alignmentDiagnosticsUrl} /> : <GaussianSplatViewer
+        viewRef={viewRef}
         sourceUrl={splatUrl}
         metadataUrl={splatMetadataUrl}
         cameraPathUrl={splatCameraPathUrl}

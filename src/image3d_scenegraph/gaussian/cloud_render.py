@@ -244,6 +244,39 @@ class CloudRenderProcess:
                 self._close()
                 raise
 
+    def pick(
+        self, camera, *, visible, polygon, depth_range, tolerance=0.02, timeout=40
+    ):
+        with self._lock:
+            if self._pipe is None:
+                raise CloudRenderError("render process is not started")
+            if (
+                visible.dtype != np.bool_
+                or visible.shape != (self.count,)
+                or not visible.any()
+            ):
+                raise CloudRenderError("invalid visible mask")
+            try:
+                self._pipe.send(
+                    {
+                        "kind": "pick",
+                        "camera": camera.to_json(),
+                        "visible": visible,
+                        "polygon": polygon,
+                        "depth_range": depth_range,
+                        "tolerance": tolerance,
+                    }
+                )
+                result = self._receive(timeout, "selection")
+                if result["camera_hash"] != camera.digest:
+                    raise CloudRenderError("selection camera mismatch")
+            except BaseException:
+                self._close()
+                raise
+            if result.get("error"):
+                raise CloudRenderError(result["error"])
+            return result
+
     def _receive(self, timeout: float, expected: str) -> dict:
         if not self._pipe.poll(timeout):
             raise CloudRenderError("render process timed out")
@@ -310,6 +343,9 @@ def _render_worker(pipe, source, expected_hash, count, lease_path, scratch_root)
             device = torch.device("cuda:0")
             base = load_model_snapshot(snapshot, device).eval().requires_grad_(False)
             active = base
+            active_ids = torch.arange(count, device=device)
+            active_mask = np.ones(count, dtype=bool)
+            picker = None
             pipe.send({"status": "ready", "gaussian_count": count})
             with torch.inference_mode():
                 while True:
@@ -318,19 +354,22 @@ def _render_worker(pipe, source, expected_hash, count, lease_path, scratch_root)
                         break
                     camera = CloudCamera.from_json(request["camera"])
                     visible = request["visible"]
-                    if visible is not None:
+                    if visible is not None and not np.array_equal(visible, active_mask):
                         if (
                             visible.dtype != np.bool_
                             or visible.shape != (count,)
                             or not visible.any()
                         ):
                             raise CloudRenderError("invalid visible mask")
+                        picker = None
+                        active_mask = visible.copy()
+                        active_ids = torch.from_numpy(np.flatnonzero(visible)).to(
+                            device
+                        )
                         if visible.all():
                             active = base
                         else:
-                            indices = torch.from_numpy(np.flatnonzero(visible)).to(
-                                device
-                            )
+                            indices = active_ids
                             state = {
                                 key: value[indices]
                                 for key, value in base.state_dict().items()
@@ -340,6 +379,29 @@ def _render_worker(pipe, source, expected_hash, count, lease_path, scratch_root)
                                 .eval()
                                 .requires_grad_(False)
                             )
+                    if picker is not None and picker.camera.digest != camera.digest:
+                        picker = None
+                    if request.get("kind") == "pick":
+                        from .visible_selection import VisiblePicker
+
+                        try:
+                            if picker is None:
+                                picker = VisiblePicker(active, camera, active_ids)
+                            result = picker.pick(
+                                request["polygon"],
+                                request["depth_range"],
+                                request["tolerance"],
+                            )
+                        except CloudRenderError as exc:
+                            result = {"error": str(exc)}
+                        pipe.send(
+                            {
+                                "status": "selection",
+                                "camera_hash": camera.digest,
+                                **result,
+                            }
+                        )
+                        continue
                     rendered = render_gaussians(
                         active,
                         RenderCamera(

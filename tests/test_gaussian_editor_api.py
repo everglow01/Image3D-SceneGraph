@@ -326,6 +326,181 @@ def test_selection_requires_preview_and_saved_version_is_read_only(tmp_path):
         assert service.active is None
 
 
+def test_prepared_frame_and_protection_are_session_bound(tmp_path):
+    class PickerRenderer(FakeRenderer):
+        def pick(self, camera, *, visible, polygon, depth_range, tolerance=0.02):
+            assert visible.dtype == np.bool_
+            return {
+                "ids": np.array([0, 1]),
+                "depth": 1.0,
+                "confident_pixels": 4,
+                "uncertain_pixels": 0,
+                "selection_ms": 1.0,
+                "projection_ms": 1.0,
+            }
+
+    client, service, original = make_client(tmp_path)
+    service.renderer_factory = PickerRenderer
+    before = sha256_file(original)
+    with client:
+        _, base = opened(client)
+        prepared = client.post(
+            base + "/prepare-frame", json={"sequence": 1, "camera": camera().to_json()}
+        )
+        assert prepared.status_code == 200, prepared.text
+        frame = prepared.json()
+        binding = {"ticket": frame["ticket"], "expected_revision": 0}
+        assert frame["camera_digest"]
+        assert client.post(base + "/freeze-prepared", json=binding).status_code == 200
+        assert client.post(base + "/freeze-prepared", json=binding).status_code == 409
+        polygon = [
+            [2, 2],
+            [camera().width - 2, 2],
+            [camera().width - 2, camera().height - 2],
+            [2, camera().height - 2],
+        ]
+        selected = client.post(
+            base + "/selection",
+            json={**binding, "shape": "polygon", "mode": "visible", "polygon": polygon},
+        ).json()
+        assert selected["selected_count"] == 2
+        assert (
+            client.post(
+                base + "/preview",
+                json={
+                    **binding,
+                    "selection_token": selected["selection_token"],
+                    "mode": "highlight",
+                },
+            ).status_code
+            == 200
+        )
+        operation = {
+            **binding,
+            "kind": "delete",
+            "selection_token": selected["selection_token"],
+            "operation_id": "highlight-not-enough",
+        }
+        assert client.post(base + "/operations", json=operation).status_code == 409
+        protected = client.post(
+            base + "/protection",
+            json={
+                **binding,
+                "kind": "add",
+                "selection_token": selected["selection_token"],
+            },
+        )
+        assert protected.json()["protected_count"] == 2
+        assert client.post(base + "/operations", json=operation).status_code == 409
+        selected = client.post(
+            base + "/selection",
+            json={**binding, "shape": "polygon", "mode": "visible", "polygon": polygon},
+        ).json()
+        assert selected["selected_count"] == 2 and selected["deletable_count"] == 0
+        assert (
+            client.post(
+                base + "/preview",
+                json={
+                    **binding,
+                    "selection_token": selected["selection_token"],
+                    "mode": "isolated",
+                },
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                base + "/protection",
+                json={
+                    **binding,
+                    "kind": "remove",
+                    "selection_token": selected["selection_token"],
+                },
+            ).json()["protected_count"]
+            == 0
+        )
+        assert client.get(base).json()["revision"] == 0
+        service.active["renderer"].pick = lambda *args, **kwargs: {
+            "ids": np.array([-1])
+        }
+        assert (
+            client.post(
+                base + "/selection",
+                json={
+                    **binding,
+                    "shape": "polygon",
+                    "mode": "visible",
+                    "polygon": polygon,
+                },
+            ).status_code
+            == 422
+        )
+        assert client.get(base).json()["revision"] == 0
+        assert client.delete(base).status_code == 200
+        assert sha256_file(original) == before
+        assert service.active is None
+
+
+def test_prepared_frame_expires_when_camera_advances(tmp_path):
+    client, service, _ = make_client(tmp_path)
+    with client:
+        _, base = opened(client)
+        response = client.post(
+            base + "/prepare-frame", json={"sequence": 1, "camera": camera().to_json()}
+        )
+        assert response.status_code == 200
+        ticket = response.json()["ticket"]
+        assert service.camera_input(service.active, 2, camera().to_json())
+        assert (
+            client.post(
+                base + "/freeze-prepared",
+                json={"ticket": ticket, "expected_revision": 0},
+            ).status_code
+            == 409
+        )
+        assert client.delete(base).status_code == 200
+
+
+def test_protection_survives_resume_but_not_new_session(tmp_path):
+    client, _, original = make_client(tmp_path)
+    before = sha256_file(original)
+    with client:
+        edit_id, base = opened(client)
+        frame = freeze(client, base)
+        binding = {"ticket": frame["ticket"], "expected_revision": 0}
+        box = {
+            **binding,
+            "shape": "box",
+            "minimum": [-1, -1, 1],
+            "maximum": [-0.2, 1, 3],
+        }
+        selection = client.post(base + "/selection", json=box).json()
+        response = client.post(
+            base + "/protection",
+            json={
+                **binding,
+                "kind": "add",
+                "selection_token": selection["selection_token"],
+            },
+        )
+        assert response.json()["protected_count"] == 2
+        assert client.post(base + "/resume").status_code == 200
+        assert client.get(base).json()["protected_count"] == 2
+        frame = freeze(client, base, sequence=2)
+        box.update(ticket=frame["ticket"])
+        selection = client.post(base + "/selection", json=box).json()
+        assert selection["selected_count"] == 2 and selection["deletable_count"] == 0
+        client.delete(base)
+        response = client.post(
+            "/api/gaussian-render-sessions", json={"edit_id": edit_id}
+        )
+        client.headers["x-editor-token"] = response.json()["token"]
+        new_base = "/api/gaussian-render-sessions/" + response.json()["session_id"]
+        assert client.get(new_base).json()["protected_count"] == 0
+        client.delete(new_base)
+    assert sha256_file(original) == before
+
+
 def test_optional_media_signaling_is_authenticated_and_recreated(tmp_path, monkeypatch):
     from backend import gaussian_editor
 

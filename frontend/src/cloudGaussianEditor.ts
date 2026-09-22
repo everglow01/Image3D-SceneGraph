@@ -1,4 +1,35 @@
-import { Matrix4, PerspectiveCamera } from "three";
+import { Matrix4, PerspectiveCamera, Vector3 } from "three";
+import type { GaussianCameraPath, Mat4 } from "./gaussianViewerMetadata";
+
+export type CameraView = { key: string; position: number[]; target: number[]; up: number[]; fov: number };
+
+export function captureView(key: string, camera: PerspectiveCamera, target: Vector3): CameraView {
+  return { key, position: camera.position.toArray(), target: target.toArray(), up: camera.up.toArray(), fov: camera.fov };
+}
+
+export function restoreView(camera: PerspectiveCamera, view: CameraView): Vector3 {
+  camera.position.fromArray(view.position); camera.up.fromArray(view.up); camera.fov = view.fov;
+  const target = new Vector3().fromArray(view.target);
+  camera.lookAt(target); camera.updateProjectionMatrix();
+  return target;
+}
+
+export function referenceView(camera: PerspectiveCamera, path: GaussianCameraPath | null, worldFromNormalized: Mat4 | null, upright: Matrix4, center: Vector3, radius: number): Vector3 {
+  const key = worldFromNormalized ? path?.keyframes[0] : null;
+  if (key && worldFromNormalized) {
+    // Published camera rotation is in world space; its center is in normalized space.
+    const normalizedFromWorld = new Matrix4().set(...worldFromNormalized.flat() as Parameters<Matrix4["set"]>).invert();
+    const w = key.world_from_camera;
+    const forward = new Vector3(w[0][2], w[1][2], w[2][2])
+      .transformDirection(normalizedFromWorld).transformDirection(upright);
+    camera.position.set(...key.center_normalized).applyMatrix4(upright);
+    const target = camera.position.clone().addScaledVector(forward, Math.max(radius * 0.2, 0.1));
+    camera.lookAt(target); return target;
+  }
+  camera.position.copy(center).addScaledVector(new Vector3(0.75, 1, 0.45).normalize(), radius * 2.4);
+  camera.lookAt(center); return center.clone();
+}
+
 
 export type CloudCamera = {
   camera_from_normalized: number[][];
@@ -26,7 +57,9 @@ export function nativeCamera(camera: PerspectiveCamera, upright: Matrix4, width:
   };
 }
 
-export function imagePoint(x: number, y: number, box: {left: number; top: number; width: number; height: number}, width: number, height: number): Pixel | null {
+export function imagePoint(x: number, y: number, box: {left: number; top: number; width: number; height: number}, width: number, height: number, zoom = 1, shift: Pixel = [0, 0]): Pixel | null {
+  x = (x - box.left - box.width / 2 - shift[0]) / zoom + box.width / 2 + box.left;
+  y = (y - box.top - box.height / 2 - shift[1]) / zoom + box.height / 2 + box.top;
   const scale = Math.min(box.width / width, box.height / height);
   if (!Number.isFinite(scale) || scale <= 0) return null;
   const px = (x - box.left - (box.width - width * scale) / 2) / scale;

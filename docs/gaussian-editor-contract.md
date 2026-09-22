@@ -1,6 +1,6 @@
 # Gaussian 手动修剪数据合同
 
-日期：2026-09-21。状态：数据核心、API、会话、编辑界面已接通并完成CPU/mock验证；已获准部署，服务器内部完整模型GPU编辑和严格TURN视频冒烟通过。SDP跨网浏览器与完整性能验收未完成，详见 [部署证据](cloud-gaussian-rendering.md)。
+日期：2026-09-22。状态：旧云编辑功能已部署；操作一致性、高清定格、可见前层选择与保护机制的修复已完成本地CPU/mock及浏览器DOM回归，**远端gsplat GPU/真实网络编辑尚未验收**，因此不视为生产可用性通过。部署历史见 [部署证据](cloud-gaussian-rendering.md)。
 
 完整批准计划：[gaussian-editor-cloud-plan.md](gaussian-editor-cloud-plan.md)。论文优化计划保持暂缓。
 
@@ -22,12 +22,14 @@
 ## 选择语义
 
 - `select_box`：按 Gaussian 中心是否在闭区间轴对齐盒中选择。
-- `select_polygon`：3–128 个像素顶点，原生固定帧尺寸内、面积≥1px²；显式 `0.01 ≤ near < far ≤ 1e6` 深度区间。默认按投影中心命中，边界计入。
-- 可选 `radii` 是归一化单位的非负包围球半径。用于 3σ 候选时调用方须从当前 scale 构造相应半径。此模式用包围球投影 bounds 与 polygon 的包围盒保守相交，**不是精确椭圆/套索相交，也不是可见面 picking**，可能多选。
-- 与近裁剪面相交的大包围球保守列为候选。必须在 UI 明示模式并预览，不能自动确认删除。
-- 不根据 expected depth 保证后景绝不被选中。界面已接入深度限制、选中项隔离、删除后预览和恢复观看检查；服务器要求当前选择至少完成一次预览才能删除。
-- “叠色参考”使用隔离渲染亮度在原图上合成粉色提示，**不是遮挡正确的表面高亮**，黑色高斯可能不显色；必须配合隔离检查。选区replace/add/subtract在服务器计算，clear只清空选择。
-- 高清PNG加载完成前不能选择；相机固定、resize显式失效票据；改变工具/区域后前端撤掉旧选择的确认状态。
+- `select_polygon` 仍用于显式“穿透”或“指定深度薄层”：3–128 个像素顶点，原生固定帧尺寸内、面积≥1px²；`0.01 ≤ near < far ≤ 1e6`。按投影中心命中，不做遮挡检测；深度是 normalized arbitrary units，非米。
+- 新默认“仅可见贡献”在渲染子进程使用gsplat投影/瓦片贡献索引和前向alpha透射率，以每像素最先具有显著贡献的深度层为锚；该层累计权重不足0.5则不取后方代替。必须在同一固定相机/版本下完成，失败/超时**不回退穿透**；源行号仍是唯一持久ID。CPU参考算法通过合成遮挡/半透明测试，实际gsplat CUDA和3M资源尚未验收，不能据此宣称精确可见拾取或保证后景零误删。
+- 仅可见贡献不等于语义对象：同一个高斯可能横跨前景和背景、框内也可能有其他可见物；保守高斯选择依然必须预览及多角度复核。点击可信表层可取深度锚点，再手工调前后厚度；失败时提示改位置/手动设置。
+- 可选 `radii` 是归一化单位的非负包围球半径；仅显式穿透模式可开启“扩大覆盖候选（可能多选背景）”，按包围盒保守相交，不是表面拾取。
+- 当前会话“保护选中项”保存服务器生成的源ID mask，删除/预览排除受保护项；保护变更使旧选区及预览失效，跨重连保留、关闭会话后清除。不是永久物体锁，也不改变编辑schema。
+- 自动叠色是图像合成参考，**不能单凭叠色删除**；服务器要求隔离或删除后预览才允许提交。保留50%确认、禁止清空模型、幂等ACK和撤销。
+- 相机停稳后准备无损PNG、票据与camera_seq绑定，浏览器只在已呈现图片上执行 `freeze-prepared`，不在点击时重新采样滞后的WebRTC画面。导航更新/源/revision变更使票据失效；纯CSS缩放或窗口resize只更新图片与SVG的letterbox映射，不使同一固定图失效。
+- API若未提供mode沿用旧穿透语义；新UI明确发送 `visible|depth|through`。新增默认可见模式在未完成远端GPU验收前不能宣布生产就绪。
 
 ## 编辑存储 schema 1
 
@@ -87,9 +89,13 @@ mask 使用 `numpy.packbits(..., bitorder="little")`，长度固定为 `ceil(sou
 | `POST /gaussian-render-sessions` | `{edit_id, version?}`；202返回loading及会话凭证，已有会话409 |
 | `GET /gaussian-render-sessions/{session}` | 状态/错误/当前revision，同时刷新heartbeat |
 | `DELETE /gaussian-render-sessions/{session}` | 等待本会话关闭；最近关闭会话的同凭证重试幂等 |
-| `POST .../{session}/freeze-frame` | `{sequence, camera}`；返回PNG data URI、票据、revision、像素尺寸 |
-| `POST .../{session}/invalidate-frame` | resize时使旧票据/选择失效 |
-| `POST .../{session}/selection` | 票据、expected_revision、polygon/box/clear、depth_range、coverage、combine；返回selection_token及数量 |
+| `POST .../{session}/prepare-frame` | viewing时准备静止高清PNG和票据；相机更新/晚到响应作废，不中断视频 |
+| `POST .../{session}/freeze-prepared` | 仅锁定已准备且已显示的票据，进入editing_frozen，不重新渲染/传输PNG |
+| `POST .../{session}/freeze-frame` | 兼容旧固定/编辑后重新渲染请求，产品首次冻结改走prepare/freeze-prepared |
+| `POST .../{session}/depth-pick` | 基于当前固定相机的可信前层取目标深度；不确定时明确失败 |
+| `POST .../{session}/protection` | 服务器选集加入/移除/清空会话保护，旧选集/预览立即失效 |
+| `POST .../{session}/invalidate-frame` | 相机/版本切换可使旧票据/选择失效；单纯CSS resize不再调用 |
+| `POST .../{session}/selection` | 票据、expected_revision、polygon/box/clear、`mode=visible|depth|through`、depth_range、coverage、combine；返回selection_token、选中数与可删除数 |
 | `POST .../{session}/preview` | 票据/revision/selection_token及highlight/isolated/after_delete，返回PNG |
 | `POST .../{session}/operations` | 票据/revision、operation_id、delete/undo/redo、selection_token、confirm_large；返回已提交ACK |
 | `POST .../{session}/versions` | expected_revision，保存不可变版本 |

@@ -89,6 +89,8 @@ class FrameInput(Input):
 
 
 class Selection(FrameInput):
+    mode: Literal["visible", "depth", "through"] = "through"
+    layer_tolerance: float = Field(default=0.02, ge=0, le=1)
     shape: Literal["polygon", "box", "clear"]
     polygon: list[list[float]] = Field(default_factory=list, max_length=128)
     depth_range: list[float] = Field(
@@ -98,6 +100,15 @@ class Selection(FrameInput):
     maximum: list[float] = Field(default_factory=list, max_length=3)
     coverage: bool = False
     combine: Literal["replace", "add", "subtract"] = "replace"
+
+
+class Protection(FrameInput):
+    kind: Literal["add", "remove", "clear"]
+    selection_token: str | None = Field(default=None, max_length=128)
+
+
+class DepthPick(FrameInput):
+    pixel: list[float] = Field(min_length=2, max_length=2)
 
 
 class Preview(FrameInput):
@@ -166,6 +177,30 @@ def editor_router(service, *, capability_provider=cloud_media.capabilities):
     async def close(request: Request, session_id: str):
         await service.close(session(request, session_id))
         return {"state": "closed"}
+
+    @router.post("/gaussian-render-sessions/{session_id}/prepare-frame")
+    async def prepare(request: Request, session_id: str, value: Freeze):
+        return await service.prepare(
+            session(request, session_id), value.sequence, value.camera
+        )
+
+    @router.post("/gaussian-render-sessions/{session_id}/freeze-prepared")
+    async def freeze_prepared(request: Request, session_id: str, value: FrameInput):
+        return await service.freeze_prepared(
+            session(request, session_id), value.ticket, value.expected_revision
+        )
+
+    @router.post("/gaussian-render-sessions/{session_id}/protection")
+    async def protection(request: Request, session_id: str, value: Protection):
+        return await service.protection(
+            session(request, session_id), value.model_dump()
+        )
+
+    @router.post("/gaussian-render-sessions/{session_id}/depth-pick")
+    async def depth_pick(request: Request, session_id: str, value: DepthPick):
+        return await service.depth_pick(
+            session(request, session_id), value.model_dump()
+        )
 
     @router.post("/gaussian-render-sessions/{session_id}/freeze-frame")
     async def freeze(request: Request, session_id: str, value: Freeze):

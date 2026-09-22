@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { captureView, restoreView, type CameraView } from "./cloudGaussianEditor";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 import gaussianViewerPackage from "@mkkellogg/gaussian-splats-3d/package.json" with { type: "json" };
 import * as THREE from "three";
@@ -36,6 +37,7 @@ import {
 } from "./walkNavigation";
 
 type GaussianSplatViewerProps = {
+  viewRef?: RefObject<CameraView | null>;
   sourceUrl: string | null;
   metadataUrl: string | null;
   cameraPathUrl: string | null;
@@ -238,6 +240,7 @@ function applyViewPreset(viewer: ViewerRuntime, frame: SceneFrame, preset: ViewP
 }
 
 export function GaussianSplatViewer({
+  viewRef,
   sourceUrl,
   metadataUrl,
   cameraPathUrl,
@@ -669,6 +672,10 @@ export function GaussianSplatViewer({
           viewer.controls?.update();
           viewer.controls?.saveState();
         }
+        if (!saved && viewRef?.current?.key === sourceUrl && viewer.camera instanceof THREE.PerspectiveCamera) {
+          const target = restoreView(viewer.camera, viewRef.current);
+          viewer.controls?.target.copy(target); viewer.controls?.update();
+        }
         if (viewer instanceof GaussianSplats3D.Viewer && patchSplatAlphaThreshold(viewer, metadata.viewer_minimum_opacity)) {
           setAlphaControl({ baseline: metadata.viewer_minimum_opacity, value: metadata.viewer_minimum_opacity });
         }
@@ -718,6 +725,9 @@ export function GaussianSplatViewer({
     void load();
 
     return () => {
+      if (viewRef && sourceUrl && viewer?.controls && viewer.camera instanceof THREE.PerspectiveCamera) {
+        viewRef.current = captureView(sourceUrl, viewer.camera, viewer.controls.target);
+      }
       cancelled = true;
       controller.abort();
       void release();

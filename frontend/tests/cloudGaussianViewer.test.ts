@@ -16,9 +16,9 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
   username: "temporary-user", credential: "temporary-credential"
 }]) {
   const hooks: any[] = [], effects: (() => void)[] = [], requests: any[] = [], peers: any[] = [];
-  const intervals = new Map<number, () => void>();
+  const intervals = new Map<number, () => void>(), timeouts = new Map<number, () => void>();
   let cursor = 0, dirty = true, tree: any, timer = 0, revision = 0, imageNode: any, frameCallback: (() => void) | undefined;
-  const stage = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 500 }) };
+  const stage = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 500 }), addEventListener() {}, removeEventListener() {} };
   const video = { srcObject: null, play: async () => {}, requestVideoFrameCallback: (fn: () => void) => { frameCallback = fn; } };
   const source = { job_id: "source", asset_role: "scene_splat", label: "Original" };
   const document = () => ({ edit_id: "a".repeat(32), source, revision, visible_count: 8 - revision, can_undo: revision > 0, can_redo: false, versions: [] });
@@ -48,7 +48,16 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     }
     return node;
   };
-  class Controls { target = new THREE.Vector3(); enabled = true; update() {} dispose() {} }
+  class Controls {
+    target = new THREE.Vector3(); enabled = true;
+    constructor() { orbit = this; }
+    listener?: () => void;
+    update() { this.listener?.(); }
+    dispose() {}
+    addEventListener(_: string, fn: () => void) { this.listener = fn; }
+    removeEventListener() { this.listener = undefined; }
+  }
+  let orbit: Controls;
   class Peer {
     connectionState = "connected"; iceGatheringState = "complete";
     localDescription = { sdp: "offer" }; ontrack: any; channel: any;
@@ -62,7 +71,8 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
   const exports: Record<string, any> = {};
   runInNewContext(code, { exports, crypto: globalThis.crypto, RTCPeerConnection: Peer, MediaStream: class {},
     window: { document: { hidden: false }, setInterval: (fn: () => void) => { intervals.set(++timer, fn); return timer; },
-      clearInterval: (id: number) => intervals.delete(id), setTimeout, clearTimeout },
+      clearInterval: (id: number) => intervals.delete(id), setTimeout: (fn: () => void) => { timeouts.set(++timer, fn); return timer; },
+      clearTimeout: (id: number) => timeouts.delete(id) },
     ResizeObserver: class { observe() {} disconnect() {} },
     fetch: async (url: string, options: any) => {
       const body = options.body ? JSON.parse(options.body) : null;
@@ -75,7 +85,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
       else if (url === "/api/gaussian-render-sessions") value = { session_id: "session", token: "secret", state: "loading" };
       else if (url.endsWith("/ice")) value = { iceTransportPolicy: "relay", iceServers };
       else if (url.endsWith("/offer")) value = { type: "answer", sdp: "answer" };
-      else if (url.endsWith("/freeze-frame")) value = { ticket: `ticket-${revision}`, revision, camera_seq: body.sequence, width: 1920, height: 1080, image: "data:image/png;base64,c2FtZQ==" };
+      else if (url.endsWith("/prepare-frame") || url.endsWith("/freeze-frame")) value = { ticket: `ticket-${revision}`, revision, camera_seq: body.sequence, width: body.camera.width, height: body.camera.height, image: "data:image/png;base64,c2FtZQ==" };
       else if (url.endsWith("/selection")) value = { selection_token: "selected", selected_count: 1, visible_count: 8, revision };
       else if (url.endsWith("/preview")) value = { revision, image: "data:image/png;base64,cHJldmlldw==" };
       else if (url.endsWith("/operations")) { revision++; value = document(); }
@@ -109,7 +119,12 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
       }
     }
   };
-  return { requests, peers, intervals, flush, video,
+  return { requests, peers, intervals, timeouts, flush, video,
+    moveCamera: () => orbit.update(),
+    stage: () => find(tree, n => n.type === "div" && n.props.className === "cloud-stage")?.props,
+    svg: () => find(tree, n => n.type === "svg")?.props,
+    label: () => find(tree, n => n.type === "span" && n.props.className === "cloud-frame-label")?.props.children,
+    tick: async () => { const callbacks = [...timeouts.values()]; timeouts.clear(); for (const fn of callbacks) fn(); await flush(); },
     button: (label: string) => find(tree, n => n.type === "button" && n.props.children === label)?.props,
     tool: () => find(tree, n => n.type === "select" && n.props.value === "rectangle").props,
     loadImage: () => imageNode.props.onLoad({ currentTarget: imageNode }),
@@ -123,17 +138,18 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
 
 test("cloud page never fetches PLY and waits for the decoded new generation after edits", async () => {
   const h = harness(); await h.flush();
-  h.button("连接云端").onClick(); await h.flush(); h.displayFrame(); await h.flush();
-  h.button("固定高清画面，开始修剪").onClick(); await h.flush();
-  assert.equal(h.button("计算选择").disabled, true);
+  h.button("连接云端").onClick(); await h.flush(); h.displayFrame(); await h.flush(); await h.tick();
+  h.loadImage(); await h.flush();
+  h.button("开始选择当前高清画面").onClick(); await h.flush();
+  assert.equal(h.button("重新计算选区").disabled, true);
   h.loadImage(); await h.flush(); h.tool().onChange({ target: { value: "box" } }); await h.flush();
-  h.button("计算选择").onClick(); await h.flush();
+  h.button("应用三维盒").onClick(); await h.flush();
   assert.equal(h.button("确认删除选中项").disabled, true);
   h.button("隔离选中").onClick(); await h.flush(); h.loadImage(); await h.flush();
   assert.equal(h.button("确认删除选中项").disabled, false);
   h.button("确认删除选中项").onClick(); await h.flush();
   const key = h.imageKey(); h.loadImage(); await h.flush();
-  h.button("重新固定高清画面").onClick(); await h.flush();
+  h.button("重新渲染当前固定视角").onClick(); await h.flush();
   assert.notEqual(h.imageKey(), key, "identical PNG still gets a new image-load fence");
   h.loadImage(); await h.flush();
   h.button("恢复交互观看").onClick(); await h.flush();
@@ -180,6 +196,54 @@ test("missing TURN/TCP configuration fails explicitly without UDP or direct fall
     } finally { h.unmount(); }
   }
 });
+
+test("prepared frame must be displayed and is invalidated on navigation before selection", async () => {
+  const h = harness();
+  try {
+    await h.flush(); h.button("连接云端").onClick(); await h.flush();
+    h.displayFrame(); await h.flush(); await h.tick();
+    assert.equal(h.button("开始选择当前高清画面").disabled, true);
+    h.loadImage(); await h.flush();
+    assert.equal(h.button("开始选择当前高清画面").disabled, false);
+    h.moveCamera(); await h.flush();
+    assert.equal(h.image(), null, "a changed camera removes the prepared frame");
+    assert.equal(h.button("开始选择当前高清画面").disabled, true);
+    await h.tick(); h.loadImage(); await h.flush();
+    assert.equal(h.button("开始选择当前高清画面").disabled, false, JSON.stringify({ requests: h.requests.filter(r => /prepare-frame|freeze-prepared/.test(r.url)).map(r => r.url), label: h.label(), error: h.error(), image: !!h.image(), timeouts: h.timeouts.size }));
+    h.button("开始选择当前高清画面").onClick(); await h.flush();
+    assert.equal(h.error(), undefined);
+    assert.ok(h.requests.some(r => r.url.endsWith("/freeze-prepared")));
+    assert.equal(h.requests.filter(r => r.url.endsWith("/freeze-frame")).length, 0);
+  } finally { h.unmount(); }
+});
+
+test("rectangle drag computes selection, keeps delete locked until isolated preview", async () => {
+  const h = harness();
+  try {
+    await h.flush(); h.button("连接云端").onClick(); await h.flush();
+    h.displayFrame(); await h.flush(); await h.tick(); h.loadImage(); await h.flush();
+    h.button("开始选择当前高清画面").onClick(); await h.flush();
+    const svg = h.svg(), element = { setPointerCapture() {}, releasePointerCapture() {} };
+    svg.onPointerDown({ currentTarget: element, pointerId: 1, clientX: 210, clientY: 150, button: 0 });
+    await h.flush();
+    svg.onPointerMove({ currentTarget: element, pointerId: 1, clientX: 490, clientY: 310, button: -1 });
+    await h.flush();
+    svg.onPointerUp({ currentTarget: element, pointerId: 1, clientX: 490, clientY: 310, button: 0 });
+    await h.flush();
+    const request = h.requests.find(r => r.url.endsWith("/selection") && r.body.shape === "polygon");
+    assert.equal(request.body.mode, "visible");
+    assert.equal(request.body.combine, "replace");
+    assert.equal(request.body.coverage, false);
+    assert.equal(request.body.layer_tolerance, 0.02);
+    assert.equal(request.body.polygon.length, 4);
+    assert.equal(h.button("确认删除选中项").disabled, true);
+    h.loadImage(); await h.flush();
+    h.button("隔离选中").onClick(); await h.flush(); h.loadImage(); await h.flush();
+    assert.equal(h.button("确认删除选中项").disabled, false);
+    assert.match(String(h.label()), /可选择/);
+  } finally { h.unmount(); }
+});
+
 
 test("missing cloud capability stays unavailable without local fallback", async () => {
   const h = harness(false); await h.flush();

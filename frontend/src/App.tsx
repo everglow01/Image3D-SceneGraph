@@ -534,6 +534,7 @@ export function App() {
   const [isChangingLifecycle, setIsChangingLifecycle] = useState(false);
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [viewerFocus, setViewerFocus] = useState(false);
+  const [cloudEditing, setCloudEditing] = useState(false);
   const [inspectionRequest, setInspectionRequest] = useState<{
     id: number;
     tab: SfmInspectionTab;
@@ -1289,7 +1290,7 @@ export function App() {
   );
 
   return (
-    <main className={viewerFocus ? "app-shell viewer-focus" : "app-shell"}>
+    <main className={cloudEditing ? "app-shell viewer-focus cloud-editing" : viewerFocus ? "app-shell viewer-focus" : "app-shell"}>
       <header className="topbar">
         <div className="brand-lockup">
           <img className="company-logo" src={companyLogo} alt="越创智数 YUETRON DIGTECH" />
@@ -2154,8 +2155,8 @@ export function App() {
                 className="icon-button"
                 type="button"
                 onClick={() => setViewerFocus((current) => !current)}
-                disabled={!manifest}
-                title={viewerFocus ? "退出专注查看（Esc）" : "隐藏两侧面板，扩大诊断工作区"}
+                disabled={!manifest || cloudEditing}
+                title={cloudEditing ? "云修剪已使用宽视口" : viewerFocus ? "退出专注查看（Esc）" : "隐藏两侧面板，扩大诊断工作区"}
               >
                 {viewerFocus ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
                 <span>{viewerFocus ? "退出专注" : "专注查看"}</span>
@@ -2206,6 +2207,7 @@ export function App() {
             />
           )}
           <GeometryViewer
+            onCloudModeChange={setCloudEditing}
             cloudSource={manifest && selectedSplatVariant ? {
               job_id: manifest.job_id,
               variant_id: manifest.gaussian_variants ? selectedSplatVariant.id : undefined,
