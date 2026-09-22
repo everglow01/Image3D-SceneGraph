@@ -732,7 +732,7 @@ export function GaussianSplatViewer({
       controller.abort();
       void release();
     };
-  }, [sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, navigationStatus, rendererKind]);
+  }, [sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, rendererKind]);
 
   const walkReady = viewerState === "ready" && navigationState === "ready";
   const unavailableMessage =

@@ -121,6 +121,7 @@ function pageHarness() {
     selector: () => find(tree, n => n.type === "select").props,
     hint: () => find(tree, n => n.props?.className === "viewer-hint")?.props.children.flat().join(""),
     changeSource: () => { props.sourceUrl = "/other.ply"; dirty = true; },
+    changeNavigationStatus: (status: string) => { props.navigationStatus = status; dirty = true; },
     unmount: () => { for (const hook of hooks) hook?.cleanup?.(); } };
 }
 
@@ -155,6 +156,15 @@ test("page defaults to legacy, waits for release, and preserves camera/target wh
   assert.match(h.hint(), /浏览器 SH2/);
   h.unmount(); await h.flush();
   assert.equal(h.instances[2].disposed, true);
+});
+
+test("navigation status changes do not download the same splat again", async () => {
+  const h = pageHarness(); await h.flush();
+  assert.equal(h.instances.length, 1);
+  h.changeNavigationStatus("available"); await h.flush();
+  assert.equal(h.instances.length, 1);
+  assert.equal(h.instances[0].disposed, false);
+  h.unmount(); await h.flush();
 });
 
 test("rapid switching cannot bypass pending disposal or restore a camera into another model", async () => {
