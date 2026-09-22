@@ -48,6 +48,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
       initialCameraPosition?: [number, number, number];
       initialCameraLookAt?: [number, number, number];
       sharedMemoryForWorkers?: boolean;
+      gpuAcceleratedSort?: boolean;
       sphericalHarmonicsDegree?: number;
       ignoreDevicePixelRatio?: boolean;
       integerBasedSort?: boolean;

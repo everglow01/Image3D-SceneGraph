@@ -262,6 +262,7 @@ export function GaussianSplatViewer({
   const savedViewRef = useRef<SavedView | null>(null);
   const [rendererKind, setRendererKind] = useState<RendererKind>("legacy");
   const [experimentLevel, setExperimentLevel] = useState<"ply" | "level1" | "level2">("ply");
+  const [sortMode, setSortMode] = useState<"cpu" | "gpu">("cpu");
   const experimentEnabled = sourceUrl === EXPERIMENT_SOURCE && typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("browser-ksplat-ab");
   const activeSourceUrl = experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
@@ -337,8 +338,7 @@ export function GaussianSplatViewer({
     }
   };
 
-  const switchRenderer = (next: RendererKind) => {
-    if (next === rendererKind || viewerModeRef.current !== "orbit") return;
+  const rememberView = () => {
     const viewer = viewerRef.current;
     if (viewerState === "ready" && viewer?.camera instanceof THREE.PerspectiveCamera && viewer.controls) {
       savedViewRef.current = {
@@ -347,21 +347,25 @@ export function GaussianSplatViewer({
         target: viewer.controls.target.clone()
       };
     }
+  };
+
+  const switchRenderer = (next: RendererKind) => {
+    if (next === rendererKind || viewerModeRef.current !== "orbit") return;
+    rememberView();
     setRendererKind(next);
     if (next === "spark") setExperimentLevel("ply");
   };
 
   const switchExperimentLevel = (next: "ply" | "level1" | "level2") => {
     if (next === experimentLevel || rendererKind !== "legacy" || viewerModeRef.current !== "orbit") return;
-    const viewer = viewerRef.current;
-    if (viewerState === "ready" && viewer?.camera instanceof THREE.PerspectiveCamera && viewer.controls) {
-      savedViewRef.current = {
-        sourceKey,
-        camera: viewer.camera.clone(),
-        target: viewer.controls.target.clone()
-      };
-    }
+    rememberView();
     setExperimentLevel(next);
+  };
+
+  const switchSortMode = (next: "cpu" | "gpu") => {
+    if (next === sortMode || rendererKind !== "legacy" || viewerModeRef.current !== "orbit") return;
+    rememberView();
+    setSortMode(next);
   };
 
   const setView = (preset: ViewPreset) => {
@@ -633,6 +637,7 @@ export function GaussianSplatViewer({
             initialCameraPosition: [cameraCenter[0], cameraCenter[1] + 1.2, cameraCenter[2] + 3],
             initialCameraLookAt: cameraCenter,
             sharedMemoryForWorkers: false,
+            gpuAcceleratedSort: experimentEnabled && sortMode === "gpu",
             sphericalHarmonicsDegree: metadata.sh_degree,
             ignoreDevicePixelRatio: true,
             integerBasedSort: false,
@@ -753,7 +758,7 @@ export function GaussianSplatViewer({
       controller.abort();
       void release();
     };
-  }, [sourceUrl, activeSourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, rendererKind]);
+  }, [sourceUrl, activeSourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, rendererKind, sortMode]);
 
   const walkReady = viewerState === "ready" && navigationState === "ready";
   const unavailableMessage =
@@ -791,6 +796,16 @@ export function GaussianSplatViewer({
             <option value="ply">原始 PLY</option>
             <option value="level1">KSPLAT 1（试验）</option>
             <option value="level2">KSPLAT 2（试验）</option>
+          </select>}
+          {experimentEnabled && <select
+            className="viewer-tool-button"
+            aria-label="排序预计算试验"
+            value={sortMode}
+            disabled={viewerMode !== "orbit" || rendererKind !== "legacy"}
+            onChange={(event) => switchSortMode(event.target.value as "cpu" | "gpu")}
+          >
+            <option value="cpu">CPU 距离计算（原配置）</option>
+            <option value="gpu">GPU 距离预计算（试验）</option>
           </select>}
           {viewerMode === "orbit" && (
             <button
@@ -947,6 +962,8 @@ export function GaussianSplatViewer({
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
           {experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
             ? ` · 浏览资产试验 ${experimentLevel}` : ""}
+          {experimentEnabled && rendererKind === "legacy" && sortMode === "gpu"
+            ? " · GPU 距离预计算试验（仍由 WASM 排序）" : ""}
           {rendererIdentity === null
             ? ""
             : ` · ${rendererIdentity.implementation}@${rendererIdentity.version} · 模型 SH${rendererIdentity.requestedShDegree} / 浏览器 SH${rendererIdentity.effectiveShDegree}`}

@@ -57,8 +57,10 @@ function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
     disposal = Promise.resolve();
     disposeError: Error | null = null;
     renderer = { domElement: {} };
-    constructor(options?: { renderer?: Renderer }) {
+    gpuAcceleratedSort = false;
+    constructor(options?: { renderer?: Renderer; gpuAcceleratedSort?: boolean }) {
       if (options?.renderer) this.renderer = options.renderer;
+      this.gpuAcceleratedSort = !!options?.gpuAcceleratedSort;
       instances.push(this);
     }
     async addSplatScene(sourceUrl: string) { this.sourceUrl = sourceUrl; }
@@ -122,6 +124,7 @@ function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
   return { instances, flush,
     selector: () => find(tree, n => n.type === "select").props,
     experimentSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产试验")?.props,
+    sortSelector: () => find(tree, n => n.props?.["aria-label"] === "排序预计算试验")?.props,
     hint: () => find(tree, n => n.props?.className === "viewer-hint")?.props.children.flat().join(""),
     changeSource: () => { props.sourceUrl = "/other.ply"; dirty = true; },
     changeNavigationStatus: (status: string) => { props.navigationStatus = status; dirty = true; },
@@ -194,6 +197,32 @@ test("compact browser assets are opt-in and preserve the same model camera", asy
   const other = pageHarness({ sourceUrl: "/other.ply", search: "?browser-ksplat-ab=1" });
   await other.flush();
   assert.equal(other.experimentSelector(), undefined);
+  other.unmount(); await other.flush();
+});
+
+test("GPU distance precomputation is opt-in only and preserves the camera", async () => {
+  const sourceUrl = "/api/jobs/train_validation_final_fit_v1_comparison/assets/variants/mcmc-final-fit/scene.ply";
+  const h = pageHarness({ sourceUrl, search: "?browser-ksplat-ab=1" }); await h.flush();
+  h.experimentSelector().onChange({ target: { value: "level1" } }); await h.flush();
+  const baseline = h.instances[1];
+  assert.equal(baseline.gpuAcceleratedSort, false);
+  baseline.camera.position.set(4, 5, 6);
+  baseline.controls.target.set(0.2, 0.3, 0.4);
+  h.sortSelector().onChange({ target: { value: "gpu" } }); await h.flush();
+  const accelerated = h.instances[2];
+  assert.equal(baseline.disposed, true);
+  assert.equal(accelerated.gpuAcceleratedSort, true);
+  assert.equal(accelerated.sourceUrl, baseline.sourceUrl);
+  assert.deepEqual(accelerated.camera.position.toArray(), [4, 5, 6]);
+  assert.deepEqual(accelerated.controls.target.toArray(), [0.2, 0.3, 0.4]);
+  h.sortSelector().onChange({ target: { value: "cpu" } }); await h.flush();
+  assert.equal(h.instances[3].gpuAcceleratedSort, false);
+  h.unmount(); await h.flush();
+
+  const other = pageHarness({ sourceUrl: "/other.ply", search: "?browser-ksplat-ab=1" });
+  await other.flush();
+  assert.equal(other.sortSelector(), undefined);
+  assert.equal(other.instances[0].gpuAcceleratedSort, false);
   other.unmount(); await other.flush();
 });
 
