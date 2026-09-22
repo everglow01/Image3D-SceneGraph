@@ -37,7 +37,9 @@ def store_png(frame, path):
     path.write_bytes(base64.b64decode(frame["image"].split(",", 1)[1]))
 
 
-async def check_model(service, jobs, job_id, variant, camera, output, item):
+async def check_model(
+    service, jobs, job_id, variant, camera, output, item, *, diagnose=False
+):
     started = time.monotonic()
     doc = service.edits.create(job_id, variant_id=variant)
     source = doc["source"]
@@ -69,6 +71,7 @@ async def check_model(service, jobs, job_id, variant, camera, output, item):
         }
         # Small candidate rectangles: do not silently switch to through-selection on empty pixels.
         result = None
+        item["probes"] = []
         for cx, cy in ((320, 180), (240, 160), (400, 180)):
             polygon = [
                 [cx - 16, cy - 16],
@@ -87,9 +90,33 @@ async def check_model(service, jobs, job_id, variant, camera, output, item):
                 layer_tolerance=0.02,
             )
             item["phase"] = f"visible_{cx}_{cy}"
+            if diagnose:
+                for tolerance in (0.02, 0.1, 0.3):
+                    picked = await service.visible_pick(
+                        s, polygon, [0.01, 100.0], tolerance
+                    )
+                    item["probes"].append(
+                        {
+                            "center": [cx, cy],
+                            "tolerance": tolerance,
+                            "selected_ids": len(picked["ids"]),
+                            **{
+                                key: value
+                                for key, value in picked.items()
+                                if key != "ids"
+                            },
+                        }
+                    )
+                continue
             result = await service.selection(s, request)
+            item["probes"].append(
+                {"center": [cx, cy], "selected_ids": result["selected_count"]}
+            )
             if 0 < result["selected_count"] < source["gaussian_count"] / 2:
                 break
+        if diagnose:
+            item["phase"] = "diagnostic_only"
+            return
         assert result and 0 < result["selected_count"] < source["gaussian_count"] / 2, (
             "no safe front-layer selection in sampled rectangles"
         )
@@ -164,12 +191,23 @@ async def run(args, report):
     service.edits = GaussianEditStore(jobs, args.output / "edits")
     camera = camera_from_path(jobs.output_root / args.job_id)
     try:
-        for variant in ("project-train-only", "mcmc-train-only"):
+        for variant in (
+            ("project-train-only",)
+            if args.diagnose
+            else ("project-train-only", "mcmc-train-only")
+        ):
             item = {"variant": variant, "phase": "starting"}
             report["models"].append(item)
             await asyncio.wait_for(
                 check_model(
-                    service, jobs, args.job_id, variant, camera, args.output, item
+                    service,
+                    jobs,
+                    args.job_id,
+                    variant,
+                    camera,
+                    args.output,
+                    item,
+                    diagnose=args.diagnose,
                 ),
                 timeout=600,
             )
@@ -182,11 +220,18 @@ def main():
     parser.add_argument("--jobs", type=Path, required=True)
     parser.add_argument("--job-id", default="num4-retake-1080-train-only-comparison")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="One model; read-only selection metrics, no deletion",
+    )
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     report = {
         "status": "running",
-        "scope": "two existing full models, one GPU, independent test documents, no save/export/training/Test",
+        "scope": "one-model read-only front-layer diagnostics"
+        if args.diagnose
+        else "two existing full models, one GPU, independent test documents, no save/export/training/Test",
         "models": [],
     }
     try:

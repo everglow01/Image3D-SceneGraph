@@ -173,6 +173,8 @@ class VisiblePicker:
         started, total = time.monotonic(), 0
         found, depth_samples = [], []
         confident_count = candidate_count = 0
+        coverage_tenths = coverage_quarters = 0
+        coverage_max = 0.0
         trans = torch.zeros((1, c.height, c.width), device=self.means.device)
         x0, y0 = np.floor(p.min(0)).astype(int)
         x1, y1 = np.minimum(np.ceil(p.max(0)).astype(int), [c.width, c.height])
@@ -254,10 +256,15 @@ class VisiblePicker:
                     depths = self.depths[0, ids].cpu().numpy()
                     alphas = alpha.cpu().numpy()
                     if not np.isfinite(depths).all() or not np.isfinite(alphas).all():
-                        raise CloudRenderError("可见选择贡献包含非有限值；未返回部分选择")
+                        raise CloudRenderError(
+                            "可见选择贡献包含非有限值；未返回部分选择"
+                        )
                     layer.add(ids.cpu().numpy(), local, depths, alphas)
                 ids, confident = layer.result()
                 confident_count += int(confident.sum())
+                coverage_tenths += int(((layer.coverage >= 0.1) & roi.ravel()).sum())
+                coverage_quarters += int(((layer.coverage >= 0.25) & roi.ravel()).sum())
+                coverage_max = max(coverage_max, float(layer.coverage.max()))
                 # Depth limits constrain selection, never remove foreground occluders.
                 if len(ids):
                     gpu_ids = torch.as_tensor(
@@ -274,6 +281,12 @@ class VisiblePicker:
             "depth": float(np.median(depth_samples)) if depth_samples else None,
             "confident_pixels": confident_count,
             "uncertain_pixels": candidate_count - confident_count,
+            "candidate_pixels": candidate_count,
+            "contribution_pairs": total,
+            "depth_batches": self.batches,
+            "front_coverage_ge_0_1": coverage_tenths,
+            "front_coverage_ge_0_25": coverage_quarters,
+            "front_coverage_max": round(coverage_max, 4),
             "selection_ms": (time.monotonic() - started) * 1000,
             "projection_ms": self.projection_ms,
         }
