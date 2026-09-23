@@ -131,6 +131,24 @@ def test_asset_route_serves_gzip_json_as_transparent_json(tmp_path):
     assert response.json() == {"schema_version": 1}
 
 
+def test_job_browser_asset_head_and_range_share_get_validation(tmp_path):
+    jobs = tmp_path / "jobs"
+    asset = jobs / "test-job" / "lifecycle" / "browser" / ("a" * 64) / "scene.ksplat"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"published splats")
+    client = TestClient(create_app(jobs, start_worker=False))
+    url = f"/api/jobs/test-job/assets/lifecycle/browser/{'a' * 64}/scene.ksplat"
+    response = client.head(url)
+    assert response.status_code == 200 and response.content == b""
+    assert response.headers["content-length"] == "16"
+    response = client.get(url, headers={"Range": "bytes=0-3"})
+    assert response.status_code == 206 and response.content == b"publ"
+    assert response.headers["content-range"] == "bytes 0-3/16"
+    assert client.head(url.replace("scene.ksplat", "missing.ksplat")).status_code == 404
+    assert client.head("/api/jobs/test-job/assets/colmap/internal.db").status_code == 400
+    assert client.post(url).status_code == 405
+
+
 def test_browser_ksplat_experiment_is_read_only_and_path_limited(tmp_path):
     jobs = tmp_path / "jobs"
     root = tmp_path / "experiments" / "browser-ksplat-20260922-v1"

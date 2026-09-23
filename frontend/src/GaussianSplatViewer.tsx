@@ -667,13 +667,14 @@ export function GaussianSplatViewer({
           legacyResize.observe(mount);
           viewerRef.current = viewer;
           try {
+            // The library's thenable ignores await's rejection callback; await its native promise.
             await viewer.addSplatScene(activeSourceUrl, {
               showLoadingUI: true,
               // Full completion is needed for reliable K2 download/parse failure fallback.
               progressiveLoad: !useK2,
               splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity),
               ...(modelRotation ? { rotation: modelRotation.toArray() } : {})
-            });
+            }).promise;
             if (!cancelled && useK2 && viewer.getSplatMesh().minSphericalHarmonicsDegree !== 2) {
               throw new Error("K2 浏览资产 SH2 身份无效");
             }

@@ -433,6 +433,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
         )
 
     @app.get("/api/jobs/{job_id}/assets/{asset_path:path}")
+    @app.head("/api/jobs/{job_id}/assets/{asset_path:path}")
     def get_asset(job_id: str, asset_path: str) -> FileResponse:
         try:
             path = app.state.job_store.get_asset_path(job_id, asset_path)

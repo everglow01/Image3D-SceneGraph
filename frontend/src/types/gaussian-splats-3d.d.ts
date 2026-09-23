@@ -68,7 +68,7 @@ declare module "@mkkellogg/gaussian-splats-3d" {
         rotation?: [number, number, number, number];
         scale?: [number, number, number];
       }
-    ): Promise<void>;
+    ): { readonly promise: Promise<void> };
 
     start(): void;
     stop(): void;

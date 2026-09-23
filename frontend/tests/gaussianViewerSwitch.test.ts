@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as THREE from "three";
+import { AbortablePromise } from "../node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js";
 import * as metadata from "../src/gaussianViewerMetadata.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer.tsx", import.meta.url), "utf8"), {
@@ -66,9 +67,11 @@ function pageHarness(options: {
       this.gpuAcceleratedSort = !!options?.gpuAcceleratedSort;
       instances.push(this);
     }
-    async addSplatScene(sourceUrl: string, loadOptions: unknown) {
+    addSplatScene(sourceUrl: string, loadOptions: unknown) {
       this.sourceUrl = sourceUrl; this.loadOptions = loadOptions;
-      await options.load?.(sourceUrl);
+      return new AbortablePromise((resolve: () => void, reject: (error: unknown) => void) => {
+        Promise.resolve(options.load?.(sourceUrl)).then(resolve, reject);
+      });
     }
     loadOptions: any;
     sourceUrl = "";
