@@ -271,7 +271,7 @@ export function GaussianSplatViewer({
   const [browserChoice, setBrowserChoice] = useState<{ key: string; value: "k2" | "ply"; failed?: boolean } | null>(null);
   useEffect(() => setBrowserChoice(null), [browserKey]);
   const useK2 = !!browserSourceUrl && !experimentEnabled && rendererKind === "legacy" &&
-    !(browserChoice?.key === browserKey && browserChoice.value === "ply");
+    browserChoice?.key === browserKey && browserChoice.value === "k2";
   const browserFallback = browserChoice?.key === browserKey && browserChoice.failed;
   const activeSourceUrl = experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
     ? `${EXPERIMENT_ASSETS}/${experimentLevel}.ksplat` : useK2 ? browserSourceUrl : sourceUrl;
@@ -824,8 +824,8 @@ export function GaussianSplatViewer({
             disabled={viewerMode !== "orbit"}
             onChange={(event) => switchBrowserAsset(event.target.value as "k2" | "ply")}
           >
-            <option value="k2">K2 · SH2（快速加载）</option>
-            <option value="ply">原始 PLY</option>
+            <option value="ply">原始 PLY（默认）</option>
+            <option value="k2">K2 · SH2（有损压缩，画质待验收）</option>
           </select>}
           {experimentEnabled && <select
             className="viewer-tool-button"
@@ -1004,7 +1004,7 @@ export function GaussianSplatViewer({
             ? "第一人称漫游 · WASD/方向键移动 · 鼠标观察 · Esc 退出"
             : `${uprightAvailable ? "SfM 主平面已摆正 · " : ""}标准归一化坐标 · 任意单位（非米制）`}
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
-          {useK2 ? " · K2 / SH2 浏览派生（高斯数量不变）" : ""}
+          {useK2 ? " · K2 有损压缩 / SH2（高斯数量不变，画质待验收）" : ""}
           {experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
             ? ` · 浏览资产试验 ${experimentLevel}` : ""}
           {experimentEnabled && rendererKind === "legacy" && sortMode === "gpu"
@@ -1012,6 +1012,8 @@ export function GaussianSplatViewer({
           {rendererIdentity === null
             ? ""
             : ` · ${rendererIdentity.implementation}@${rendererIdentity.version} · 模型 SH${rendererIdentity.requestedShDegree} / 浏览器 SH${rendererIdentity.effectiveShDegree}`}
+          {rendererIdentity && rendererKind === "legacy" && rendererIdentity.effectiveShDegree < rendererIdentity.requestedShDegree
+            ? " · 旧查看器未呈现完整模型 SH 阶数（原始 PLY 亦受此限制）" : ""}
           {rendererKind === "spark" ? " · 实验渲染：固定审计配置，不透明度调节仅旧查看器提供" : ""}
           {viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
           {navigationState !== "ready" ? ` · ${unavailableMessage}` : ""}

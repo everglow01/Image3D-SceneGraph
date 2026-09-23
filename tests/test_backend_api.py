@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
@@ -147,6 +149,57 @@ def test_job_browser_asset_head_and_range_share_get_validation(tmp_path):
     assert client.head(url.replace("scene.ksplat", "missing.ksplat")).status_code == 404
     assert client.head("/api/jobs/test-job/assets/colmap/internal.db").status_code == 400
     assert client.post(url).status_code == 405
+
+
+@pytest.mark.parametrize("asset_path", [
+    "geometry/points.ply", f"lifecycle/browser/{'a' * 64}/scene.ksplat",
+])
+def test_model_asset_cache_revalidates_without_changing_bytes_or_access(tmp_path, asset_path):
+    jobs = tmp_path / "jobs"
+    asset = jobs / "test-job" / asset_path
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"original model bytes")
+    client = TestClient(create_app(jobs, start_worker=False))
+    url = f"/api/jobs/test-job/assets/{asset_path}"
+    first = client.get(url)
+    assert first.status_code == 200 and first.content == asset.read_bytes()
+    assert first.headers["cache-control"] == "private, no-cache"
+    etag = first.headers["etag"]
+    modified = first.headers["last-modified"]
+    for method in (client.get, client.head):
+        for headers in (
+            {"If-None-Match": etag},
+            {"If-None-Match": f'"unrelated", W/{etag}'},
+            {"If-None-Match": "*"},
+            {"If-Modified-Since": modified},
+        ):
+            cached = method(url, headers=headers)
+            assert cached.status_code == 304 and cached.content == b""
+            assert cached.headers["etag"] == etag
+            assert cached.headers["cache-control"] == "private, no-cache"
+    changed_validator = client.get(url, headers={
+        "If-None-Match": '"unrelated"', "If-Modified-Since": modified,
+    })
+    assert changed_validator.status_code == 200
+    assert changed_validator.content == first.content
+    assert client.get(url, headers={"If-Modified-Since": "invalid"}).status_code == 200
+    partial = client.get(url, headers={"Range": "bytes=0-3", "If-Range": etag})
+    assert partial.status_code == 206 and partial.content == b"orig"
+    assert partial.headers["content-range"] == f"bytes 0-3/{len(first.content)}"
+    assert client.get(url, headers={"Range": "bytes=0-3", "If-None-Match": etag}).status_code == 304
+
+    before = asset.stat()
+    asset.write_bytes(b"modified model bytes")
+    os.utime(asset, ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+    changed = client.get(url, headers={"If-None-Match": etag})
+    assert changed.status_code == 200 and changed.content == asset.read_bytes()
+    assert changed.headers["etag"] != etag
+    assert client.get(url, headers={"If-Modified-Since": modified}).status_code == 200
+    assert client.get(url, headers={"Range": "bytes=0-3", "If-Range": etag}).status_code == 200
+    asset.unlink()
+    assert client.get(url, headers={"If-None-Match": "*"}).status_code == 404
+    assert client.get("/api/jobs/test-job/assets/colmap/internal.db",
+                      headers={"If-None-Match": "*"}).status_code == 400
 
 
 def test_browser_ksplat_experiment_is_read_only_and_path_limited(tmp_path):

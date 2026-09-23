@@ -258,24 +258,29 @@ test("rapid switching cannot bypass pending disposal or restore a camera into an
   h.unmount(); await h.flush();
 });
 
-test("published K2 is preferred only in legacy and switching preserves the view", async () => {
+test("published K2 requires an explicit choice and switching preserves the view", async () => {
   const h = pageHarness({ browserSourceUrl: "/browser/scene.ksplat" }); await h.flush();
   const first = h.instances[0];
-  assert.equal(first.sourceUrl, "/browser/scene.ksplat");
-  assert.equal(first.loadOptions.progressiveLoad, false);
+  assert.equal(first.sourceUrl, "/scene.ply");
+  assert.equal(h.browserSelector().value, "ply");
+  assert.match(h.hint(), /原始 PLY 亦受此限制/);
   assert.equal(first.gpuAcceleratedSort, false);
   first.camera.position.set(4, 5, 6);
-  h.browserSelector().onChange({ target: { value: "ply" } }); await h.flush();
-  assert.equal(first.disposed, true);
-  assert.equal(h.instances[1].sourceUrl, "/scene.ply");
-  assert.deepEqual(h.instances[1].camera.position.toArray(), [4, 5, 6]);
   h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
-  assert.equal(h.instances[2].sourceUrl, "/browser/scene.ksplat");
+  assert.equal(first.disposed, true);
+  assert.equal(h.instances[1].sourceUrl, "/browser/scene.ksplat");
+  assert.equal(h.instances[1].loadOptions.progressiveLoad, false);
+  assert.deepEqual(h.instances[1].camera.position.toArray(), [4, 5, 6]);
+  assert.match(h.hint(), /有损压缩.*画质待验收/);
+  h.browserSelector().onChange({ target: { value: "ply" } }); await h.flush();
+  assert.equal(h.instances[2].sourceUrl, "/scene.ply");
+  assert.deepEqual(h.instances[2].camera.position.toArray(), [4, 5, 6]);
   h.changeNavigationStatus("available"); await h.flush();
   assert.equal(h.instances.length, 3);
   h.selector().onChange({ target: { value: "spark" } }); await h.flush();
   assert.equal(h.instances[3].sourceUrl, "/scene.ply");
   assert.equal(h.browserSelector(), undefined);
+  assert.doesNotMatch(h.hint(), /原始 PLY 亦受此限制/);
   h.unmount(); await h.flush();
 });
 
@@ -283,17 +288,20 @@ test("K2 failure releases before one PLY fallback and does not leak across model
   const h = pageHarness({ browserSourceUrl: "/bad.ksplat", load: async url => {
     if (url === "/bad.ksplat") throw new Error("bad K2");
   } }); await h.flush();
-  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/bad.ksplat", "/scene.ply"]);
-  assert.equal(h.instances[0].disposed, true);
+  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
+  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/scene.ply", "/bad.ksplat", "/scene.ply"]);
+  assert.equal(h.instances[1].disposed, true);
   assert.match(h.fallback(), /回退原始 PLY/);
   assert.equal(h.browserSelector().value, "ply");
-  await h.flush(); assert.equal(h.instances.length, 2);
+  await h.flush(); assert.equal(h.instances.length, 3);
   h.changeSource("/other.ply", "/good.ksplat"); await h.flush();
-  assert.equal(h.instances[2].sourceUrl, "/good.ksplat");
-  assert.equal(h.fallback(), undefined);
-  h.changeSource(); await h.flush();
   assert.equal(h.instances[3].sourceUrl, "/other.ply");
-  assert.equal(h.browserSelector(), undefined);
+  assert.equal(h.fallback(), undefined);
+  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
+  assert.equal(h.instances[4].sourceUrl, "/good.ksplat");
+  h.changeSource("/third.ply", "/third.ksplat"); await h.flush();
+  assert.equal(h.instances[5].sourceUrl, "/third.ply");
+  assert.equal(h.browserSelector().value, "ply");
   h.unmount(); await h.flush();
 });
 
@@ -302,14 +310,17 @@ test("cancelled K2 and metadata errors do not initiate a PLY fallback", async ()
   const h = pageHarness({ browserSourceUrl: "/pending.ksplat", load: url => url.endsWith(".ksplat")
     ? new Promise<void>((_resolve, no) => { reject = no; }) : Promise.resolve() });
   await h.flush();
+  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
   h.changeSource(); await h.flush();
   reject(new Error("cancelled")); await h.flush();
-  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/pending.ksplat", "/other.ply"]);
+  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/scene.ply", "/pending.ksplat", "/other.ply"]);
   assert.equal(h.fallback(), undefined);
+  assert.equal(h.browserSelector(), undefined);
   h.unmount(); await h.flush();
 
   const failed = pageHarness({ browserSourceUrl: "/good.ksplat", metadataFailure: true });
   await failed.flush();
+  failed.browserSelector().onChange({ target: { value: "k2" } }); await failed.flush();
   assert.equal(failed.instances.length, 0);
   assert.equal(failed.fallback(), undefined);
   assert.match(failed.overlay(), /metadata request failed/);
@@ -317,11 +328,22 @@ test("cancelled K2 and metadata errors do not initiate a PLY fallback", async ()
 });
 
 test("a failing PLY fallback is terminal rather than an automatic retry loop", async () => {
-  const h = pageHarness({ browserSourceUrl: "/bad.ksplat", load: async () => { throw new Error("network"); } });
-  await h.flush(); await h.flush();
-  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/bad.ksplat", "/scene.ply"]);
+  let plyLoads = 0;
+  const h = pageHarness({ browserSourceUrl: "/bad.ksplat", load: async url => {
+    if (url.endsWith(".ksplat") || ++plyLoads > 1) throw new Error("network");
+  } });
+  await h.flush();
+  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush(); await h.flush();
+  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/scene.ply", "/bad.ksplat", "/scene.ply"]);
   assert.match(h.overlay(), /network/);
   h.unmount(); await h.flush();
+
+  const failed = pageHarness({ browserSourceUrl: "/unused.ksplat", load: async () => { throw new Error("network"); } });
+  await failed.flush(); await failed.flush();
+  assert.deepEqual(failed.instances.map(v => v.sourceUrl), ["/scene.ply"]);
+  assert.equal(failed.fallback(), undefined);
+  assert.match(failed.overlay(), /network/);
+  failed.unmount(); await failed.flush();
 });
 
 test("legacy abort rejection allows switching only when its cleanup actually completed", async () => {

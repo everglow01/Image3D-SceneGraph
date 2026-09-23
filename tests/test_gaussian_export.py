@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -102,6 +103,62 @@ def test_canonical_ply_round_trips_all_owned_attributes(tmp_path):
         decoded["rot_0"],
         gaussian.activated()[1][:, 0].detach().numpy(),
     )
+
+
+@pytest.mark.parametrize("layout", ["contiguous", "strided", "fortran", "big_endian", "empty"])
+def test_streamed_ply_matches_previous_writer_byte_for_byte(tmp_path, layout):
+    rows = np.arange(8 * len(PLY_FIELDS), dtype=np.float32).reshape(8, len(PLY_FIELDS)) / 7
+    if layout == "strided":
+        rows = rows[::-2, ::-1]
+    elif layout == "fortran":
+        rows = np.asfortranarray(rows)
+    elif layout == "big_endian":
+        rows = rows.astype(">f8")
+    elif layout == "empty":
+        rows = rows[:0]
+    header = "\n".join([
+        "ply", "format binary_little_endian 1.0",
+        "comment Image3D-SceneGraph canonical Gaussian schema v1",
+        f"element vertex {len(rows)}",
+        *(f"property float {name}" for name in PLY_FIELDS), "end_header", "",
+    ]).encode("ascii")
+    expected = header + rows.astype("<f4", copy=False).tobytes(order="C")
+    path = tmp_path / "scene.ply"
+    write_binary_ply(path, rows)
+    assert path.read_bytes() == expected
+    with pytest.raises(FileExistsError):
+        write_binary_ply(path, rows)
+
+
+def test_streamed_zip_matches_previous_writer_without_whole_file_reads(tmp_path, monkeypatch):
+    source = tmp_path / "scene.ply"
+    source.write_bytes(bytes(range(256)) * (32 * 1024 + 1))
+    empty = tmp_path / "empty"
+    empty.touch()
+    entries = {"gaussian/scene.ply": source, "empty": empty}
+    previous = tmp_path / "previous.zip"
+    with zipfile.ZipFile(previous, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, entries[name].read_bytes())
+
+    def reject_whole_file_read(_path):
+        raise AssertionError("bundle sources must be read in bounded chunks")
+
+    current = tmp_path / "current.zip"
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_bytes", reject_whole_file_read)
+        write_deterministic_zip(current, entries)
+    assert current.read_bytes() == previous.read_bytes()
+    with zipfile.ZipFile(current) as archive:
+        assert archive.read("gaussian/scene.ply") == source.read_bytes()
+        assert archive.read("empty") == b""
+    with pytest.raises(GaussianExportError, match="already exists"):
+        write_deterministic_zip(current, entries)
+    write_deterministic_zip(current, entries, overwrite=True)
+    assert current.read_bytes() == previous.read_bytes()
 
 
 def test_scene_frame_uses_robust_center_and_radius():

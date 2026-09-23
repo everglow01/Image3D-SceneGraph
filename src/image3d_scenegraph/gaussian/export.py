@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -288,7 +289,9 @@ def write_deterministic_zip(
                 info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = 0o100644 << 16
-                archive.writestr(info, entries[name].read_bytes())
+                info.file_size = entries[name].stat().st_size
+                with entries[name].open("rb") as source, archive.open(info, "w") as target:
+                    shutil.copyfileobj(source, target, length=8 * 1024 * 1024)
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -338,7 +341,8 @@ def write_binary_ply(path: Path, rows: np.ndarray) -> None:
     header.extend(("end_header", ""))
     with path.open("xb") as handle:
         handle.write("\n".join(header).encode("ascii"))
-        handle.write(rows.astype("<f4", copy=False).tobytes(order="C"))
+        handle.flush()
+        rows.astype("<f4", copy=False).tofile(handle)
 
 
 def _camera_path(contract: dict[str, Any]) -> dict[str, Any]:

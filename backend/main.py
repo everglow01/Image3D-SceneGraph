@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from starlette.staticfiles import NotModifiedResponse, StaticFiles
 
 from image3d_scenegraph.geometry.backends import get_backend_status_payload
 from image3d_scenegraph.jobs import (
@@ -69,6 +70,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
     store = JobStore(output_root)
     worker = LocalJobWorker(store)
     editor = editor_service or EditorSessions(store)
+    asset_cache = StaticFiles()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -434,13 +436,22 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
 
     @app.get("/api/jobs/{job_id}/assets/{asset_path:path}")
     @app.head("/api/jobs/{job_id}/assets/{asset_path:path}")
-    def get_asset(job_id: str, asset_path: str) -> FileResponse:
+    def get_asset(job_id: str, asset_path: str, request: Request) -> Response:
         try:
             path = app.state.job_store.get_asset_path(job_id, asset_path)
+            stat_result = path.stat()
         except JobError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="asset not found") from exc
+        if path.suffix in {".ply", ".ksplat"}:
+            response = FileResponse(
+                path, stat_result=stat_result, headers={"Cache-Control": "private, no-cache"},
+            )
+            if (request.headers.get("if-none-match") == "*"
+                    or asset_cache.is_not_modified(response.headers, request.headers)):
+                return NotModifiedResponse(response.headers)
+            return response
         if path.name.endswith(".json.gz"):
             return FileResponse(
                 path,
