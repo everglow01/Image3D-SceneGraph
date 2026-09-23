@@ -15,6 +15,7 @@ type GeometryViewerProps = {
   pointCloudVariant: "raw" | "aligned";
   meshUrl: string | null;
   splatUrl: string | null;
+  browserSplatUrl?: string | null;
   splatMetadataUrl: string | null;
   splatCameraPathUrl: string | null;
   jobId: string | null;
@@ -36,6 +37,7 @@ export function GeometryViewer({
   pointCloudVariant,
   meshUrl,
   splatUrl,
+  browserSplatUrl,
   splatMetadataUrl,
   splatCameraPathUrl,
   jobId,
@@ -62,6 +64,7 @@ export function GeometryViewer({
       {cloud && cloudSource ? <CloudGaussianViewer key={splatUrl} viewRef={viewRef} viewKey={splatUrl} source={cloudSource} metadataUrl={splatMetadataUrl} cameraPathUrl={splatCameraPathUrl} alignmentUrl={alignmentDiagnosticsUrl} /> : <GaussianSplatViewer
         viewRef={viewRef}
         sourceUrl={splatUrl}
+        browserSourceUrl={browserSplatUrl}
         metadataUrl={splatMetadataUrl}
         cameraPathUrl={splatCameraPathUrl}
         alignmentUrl={alignmentDiagnosticsUrl}

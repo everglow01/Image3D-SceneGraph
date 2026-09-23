@@ -1,3 +1,13 @@
+export type GaussianBrowserAsset = {
+  source: string;
+  path: string;
+  sha256: string;
+  bytes: number;
+  gaussian_count: number;
+  sh_degree: 2;
+  compression_level: 2;
+};
+
 export type GaussianVariant = {
   id: string;
   label: string;
@@ -12,11 +22,13 @@ export type GaussianVariant = {
   display_ssim?: number;
   gaussian_count?: number;
   model_sha256?: string;
+  browser_asset?: GaussianBrowserAsset;
 };
 
 type VariantManifest = {
   result_kind?: string;
   gaussian_variants?: unknown;
+  gaussian_browser_assets?: unknown;
   default_gaussian_variant?: string;
   assets: {
     scene_splat?: string;
@@ -32,14 +44,31 @@ function relativePath(value: unknown): value is string {
     value.split("/").every(part => part !== ".." && part !== "." && part !== "");
 }
 
+function withBrowserAssets(rows: GaussianVariant[], manifest: VariantManifest): GaussianVariant[] {
+  const assets = manifest.gaussian_browser_assets;
+  return rows.map(row => {
+    const matches = Array.isArray(assets) && assets.length <= 4
+      ? assets.filter(asset => asset?.source === row.scene_splat) : [];
+    const asset = matches.length === 1 ? matches[0] : null;
+    const valid = asset && relativePath(asset.source) && relativePath(asset.path) &&
+      /^lifecycle\/browser\/[a-f0-9]{64}\/scene\.ksplat$/.test(asset.path) &&
+      typeof asset.sha256 === "string" && /^[a-f0-9]{64}$/.test(asset.sha256) &&
+      Number.isSafeInteger(asset.bytes) && asset.bytes > 0 && asset.bytes <= 1_073_741_824 &&
+      Number.isSafeInteger(asset.gaussian_count) && asset.gaussian_count > 0 && asset.gaussian_count <= 3_000_000 &&
+      (row.gaussian_count === undefined || row.gaussian_count === asset.gaussian_count) &&
+      asset.sh_degree === 2 && asset.compression_level === 2;
+    return { ...row, browser_asset: valid ? asset : undefined };
+  });
+}
+
 export function gaussianVariants(manifest: VariantManifest): GaussianVariant[] {
   const rows = manifest.gaussian_variants;
   if (rows === undefined && manifest.result_kind !== "gaussian_comparison") {
     const a = manifest.assets;
-    return [
+    return withBrowserAssets([
       { id: "original", label: "Original", scene_splat: a.scene_splat, export_metadata: a.gaussian_export_metadata },
       { id: "vggt_filtered", label: "VGGT-filtered", scene_splat: a.scene_splat_vggt_filtered, export_metadata: a.gaussian_vggt_filtered_export_metadata }
-    ].filter(row => row.scene_splat && row.export_metadata) as GaussianVariant[];
+    ].filter(row => row.scene_splat && row.export_metadata) as GaussianVariant[], manifest);
   }
   if (!Array.isArray(rows) || rows.length === 0 || rows.length > 4) {
     throw new Error("高斯对比列表缺失或无效");
@@ -67,7 +96,7 @@ export function gaussianVariants(manifest: VariantManifest): GaussianVariant[] {
       selected.export_metadata !== manifest.assets.gaussian_export_metadata) {
     throw new Error("高斯对比默认模型不一致");
   }
-  return rows;
+  return withBrowserAssets(rows, manifest);
 }
 
 export function gaussianVariantMetricLabel(variant: GaussianVariant): string {

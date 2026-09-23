@@ -148,6 +148,32 @@ When final-fit is available, `gaussian_final_fit_*` metrics record profile/hash,
 
 Only roles present in `assets` are available. Generic postprocessing can add existing alignment or mesh assets when an older manifest is loaded; this does not rerun reconstruction.
 
+### 可选 K2 浏览派生（2026-09-23）
+
+已完成 Job 的 manifest **响应**可附加 `gaussian_browser_assets`（最多四项）；磁盘 `manifest.json` 不回写。每项字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `source` | 对应 Original、VGGT-filtered 或 comparison variant 的原始 `scene_splat` 相对路径 |
+| `path` | `lifecycle/browser/<source-ply-sha256>/scene.ksplat`，通过既有 Job asset API 读取 |
+| `sha256`、`bytes` | 发布时完整回读通过的输出 SHA256 和正整数字节数 |
+| `gaussian_count` | 与源 PLY、export metadata 一致的高斯数，1–3,000,000；不是 LOD |
+| `sh_degree`、`compression_level` | 固定为 2、2，即 SH2 / K2 |
+
+同目录 `record.json` 为 schema 1、profile `ksplat_sh2_k2_v1`，固定转换器 `@mkkellogg/gaussian-splats-3d@0.4.7`；记录源相对路径/SHA256、源 export metadata 路径/SHA256、输出路径/SHA256、两份大文件的 bytes/mtime_ns/ctime_ns，以及高斯数、SH/压缩档。发布入口 `scripts/publish_gaussian_browser_asset.py` 只处理显式指定的一份已完成源；转换前后核对源，锁保护同 Job 的发布，完整转换/回读并 fsync 后原子发布，拒绝覆盖。失败的 `.staging-*` 保留诊断但不进入 manifest 响应。只接受既有严格 SH3 PLY，输入上限 1 GiB；Node 转换限时 600 秒、V8 heap 上限 6144 MiB（不是全进程 RSS 上限）。执行前需确认空闲 CPU/内存/磁盘，远端仍须按授权的任务边界启动。
+
+发现阶段只检查小记录、metadata 哈希和大文件 stat 身份，不在每次 GET 重读数百 MiB 进行 SHA256。它依赖本机不可变发布目录，不是恶意文件系统篡改的密码学证明；正常修改、复制导致身份不符、缺文件、损坏记录或 symlink 均不宣告可用。搬迁目录后可能需要重新发布，不能复制旧 stat 记录后当作已验收。前端按 `source` 精确绑定模型；无效/重复声明忽略，保留 PLY。
+
+仅旧查看器默认优先 K2，并提供原始 PLY 选项。正式 K2 等完整下载/构建成功才 ready；加载/格式错误释放实例后只自动回退一次 PLY，取消/切模型和 metadata 错误不触发回退。仍保留显式隔离 A/B 查询入口；它优先采用实验选择，不自动选正式 K2。同模型资产切换保持视角，Spark 与云端查看/编辑继续用原始来源，CPU 距离计算保持默认。`scene_splat`、canonical、模型、训练配置、导出包、历史指标和导航合同不变；K2 的原始高斯数不变，不能宣传为减点或保证 FPS。
+
+这是显式离线附加流程，不是训练后自动生成步骤，也没有创建转换任务的 HTTP 接口。只有完成实际 K2 发布的 Job 才会显示新选项，旧 Job 不会在浏览时自动转换。命令示例（先确认该 Job/源路径并取得执行授权）：
+
+```bash
+uv run --no-sync python scripts/publish_gaussian_browser_asset.py \
+  --job-dir outputs/jobs/JOB_ID \
+  --source variants/VARIANT_ID/scene.ply
+```
+
 ## SfM frontend diagnostics
 
 New `project_3dgs + gaussian_splat` jobs publish the final accepted sparse model as `sfm_sparse_point_cloud` (`geometry/points.ply`) and its camera source as `cameras`. The dedicated role keeps raw `colmap_world` arbitrary-unit geometry independently addressable, while generic postprocessing also aligns that same sparse cloud into `point_cloud_aligned` with `alignment_diagnostics`; the frontend defaults to aligned geometry but preserves Raw/Aligned and display-axis controls. Because a fitted plane normal has an ambiguous sign, viewers use transformed camera-up evidence to choose the initial ±Z display orientation. Nearest-input-view records are separately transformed into the Gaussian normalized frame and never claim metric scale.

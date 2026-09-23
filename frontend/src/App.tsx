@@ -111,6 +111,7 @@ type Manifest = {
   job_id: string;
   result_kind?: ResultKind;
   gaussian_variants?: GaussianVariant[];
+  gaussian_browser_assets?: unknown;
   default_gaussian_variant?: string;
   source_job_id?: string;
   checkpoint_status?: "missing";
@@ -662,6 +663,8 @@ export function App() {
   const selectedSplatVariant = splatVariants.find(row => row.id === gaussianVariant);
   const selectedSplatAsset = selectedSplatVariant?.scene_splat;
   const selectedSplatMetadata = selectedSplatVariant?.export_metadata;
+  const browserSplatUrl = manifest && selectedSplatVariant?.browser_asset
+    ? `/api/jobs/${manifest.job_id}/assets/${selectedSplatVariant.browser_asset.path}` : null;
   const splatUrl = useMemo(() => {
     if (!manifest || !selectedSplatAsset) {
       return null;
@@ -2220,6 +2223,7 @@ export function App() {
             pointCloudVariant={pointCloudVariant}
             meshUrl={visibleMeshUrl}
             splatUrl={visibleSplatUrl}
+            browserSplatUrl={viewerMode === "gaussian_splat" ? browserSplatUrl : null}
             splatMetadataUrl={viewerMode === "gaussian_splat" ? splatMetadataUrl : null}
             splatCameraPathUrl={viewerMode === "gaussian_splat" ? splatCameraPathUrl : null}
             jobId={manifest?.job_id ?? null}

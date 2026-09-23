@@ -39,6 +39,7 @@ import {
 type GaussianSplatViewerProps = {
   viewRef?: RefObject<CameraView | null>;
   sourceUrl: string | null;
+  browserSourceUrl?: string | null;
   metadataUrl: string | null;
   cameraPathUrl: string | null;
   alignmentUrl: string | null;
@@ -244,6 +245,7 @@ function applyViewPreset(viewer: ViewerRuntime, frame: SceneFrame, preset: ViewP
 export function GaussianSplatViewer({
   viewRef,
   sourceUrl,
+  browserSourceUrl,
   metadataUrl,
   cameraPathUrl,
   alignmentUrl,
@@ -265,8 +267,14 @@ export function GaussianSplatViewer({
   const [sortMode, setSortMode] = useState<"cpu" | "gpu">("cpu");
   const experimentEnabled = sourceUrl === EXPERIMENT_SOURCE && typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("browser-ksplat-ab");
+  const browserKey = JSON.stringify([sourceUrl, metadataUrl, browserSourceUrl]);
+  const [browserChoice, setBrowserChoice] = useState<{ key: string; value: "k2" | "ply"; failed?: boolean } | null>(null);
+  useEffect(() => setBrowserChoice(null), [browserKey]);
+  const useK2 = !!browserSourceUrl && !experimentEnabled && rendererKind === "legacy" &&
+    !(browserChoice?.key === browserKey && browserChoice.value === "ply");
+  const browserFallback = browserChoice?.key === browserKey && browserChoice.failed;
   const activeSourceUrl = experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
-    ? `${EXPERIMENT_ASSETS}/${experimentLevel}.ksplat` : sourceUrl;
+    ? `${EXPERIMENT_ASSETS}/${experimentLevel}.ksplat` : useK2 ? browserSourceUrl : sourceUrl;
   const [viewerError, setViewerError] = useState("");
   const sourceKey = JSON.stringify([sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl]);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
@@ -360,6 +368,12 @@ export function GaussianSplatViewer({
     if (next === experimentLevel || rendererKind !== "legacy" || viewerModeRef.current !== "orbit") return;
     rememberView();
     setExperimentLevel(next);
+  };
+
+  const switchBrowserAsset = (next: "k2" | "ply") => {
+    if (rendererKind !== "legacy" || viewerModeRef.current !== "orbit" || (useK2 ? "k2" : "ply") === next) return;
+    rememberView();
+    setBrowserChoice({ key: browserKey, value: next });
   };
 
   const switchSortMode = (next: "cpu" | "gpu") => {
@@ -481,6 +495,7 @@ export function GaussianSplatViewer({
     }
 
     let cancelled = false;
+    let readyToCapture = false;
     const previousRelease = releaseRef.current;
     const controller = new AbortController();
     setViewerState("loading");
@@ -638,7 +653,7 @@ export function GaussianSplatViewer({
             initialCameraLookAt: cameraCenter,
             sharedMemoryForWorkers: false,
             gpuAcceleratedSort: experimentEnabled && sortMode === "gpu",
-            sphericalHarmonicsDegree: metadata.sh_degree,
+            sphericalHarmonicsDegree: useK2 ? 2 : metadata.sh_degree,
             ignoreDevicePixelRatio: true,
             integerBasedSort: false,
             renderMode: GaussianSplats3D.RenderMode.OnChange,
@@ -651,12 +666,26 @@ export function GaussianSplatViewer({
           });
           legacyResize.observe(mount);
           viewerRef.current = viewer;
-          await viewer.addSplatScene(activeSourceUrl, {
-            showLoadingUI: true,
-            progressiveLoad: true,
-            splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity),
-            ...(modelRotation ? { rotation: modelRotation.toArray() } : {})
-          });
+          try {
+            await viewer.addSplatScene(activeSourceUrl, {
+              showLoadingUI: true,
+              // Full completion is needed for reliable K2 download/parse failure fallback.
+              progressiveLoad: !useK2,
+              splatAlphaRemovalThreshold: viewerAlphaThreshold(metadata.viewer_minimum_opacity),
+              ...(modelRotation ? { rotation: modelRotation.toArray() } : {})
+            });
+            if (!cancelled && useK2 && viewer.getSplatMesh().minSphericalHarmonicsDegree !== 2) {
+              throw new Error("K2 浏览资产 SH2 身份无效");
+            }
+          } catch (error) {
+            if (cancelled) return;
+            if (!useK2) throw error;
+            await release();
+            if (cancelled) return;
+            controller.abort();
+            setBrowserChoice({ key: browserKey, value: "ply", failed: true });
+            return;
+          }
           if (cancelled) return;
           effectiveShDegree = viewer.getSplatMesh().minSphericalHarmonicsDegree;
           bounds = viewer.getSplatMesh().computeBoundingBox(true);
@@ -706,6 +735,7 @@ export function GaussianSplatViewer({
           setAlphaControl({ baseline: metadata.viewer_minimum_opacity, value: metadata.viewer_minimum_opacity });
         }
         viewer.start();
+        readyToCapture = true;
         setViewerState("ready");
 
         if (navigationUrl && collisionMeshUrl) {
@@ -751,14 +781,14 @@ export function GaussianSplatViewer({
     void load();
 
     return () => {
-      if (viewRef && sourceUrl && viewer?.controls && viewer.camera instanceof THREE.PerspectiveCamera) {
+      if (readyToCapture && viewRef && sourceUrl && viewer?.controls && viewer.camera instanceof THREE.PerspectiveCamera) {
         viewRef.current = captureView(sourceUrl, viewer.camera, viewer.controls.target);
       }
       cancelled = true;
       controller.abort();
       void release();
     };
-  }, [sourceUrl, activeSourceUrl, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, rendererKind, sortMode]);
+  }, [sourceUrl, activeSourceUrl, browserKey, useK2, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, rendererKind, sortMode]);
 
   const walkReady = viewerState === "ready" && navigationState === "ready";
   const unavailableMessage =
@@ -786,6 +816,16 @@ export function GaussianSplatViewer({
             <option value="legacy">旧查看器（默认）</option>
             <option value="spark">Spark（实验）</option>
           </select>
+          {!!browserSourceUrl && !experimentEnabled && rendererKind === "legacy" && <select
+            className="viewer-tool-button"
+            aria-label="浏览资产"
+            value={useK2 ? "k2" : "ply"}
+            disabled={viewerMode !== "orbit"}
+            onChange={(event) => switchBrowserAsset(event.target.value as "k2" | "ply")}
+          >
+            <option value="k2">K2 · SH2（快速加载）</option>
+            <option value="ply">原始 PLY</option>
+          </select>}
           {experimentEnabled && <select
             className="viewer-tool-button"
             aria-label="浏览资产试验"
@@ -947,7 +987,10 @@ export function GaussianSplatViewer({
           </button>
         </div>
       )}
-      {navigationState === "ready" && viewerMode === "orbit" && (
+      {browserFallback && !experimentEnabled && rendererKind === "legacy" && (
+        <div className="walk-ready-hint" role="status">K2 加载失败，已回退原始 PLY；原始模型未改动。</div>
+      )}
+      {!browserFallback && navigationState === "ready" && viewerMode === "orbit" && (
         <div className="walk-ready-hint">{walkMessage}</div>
       )}
       {boundaryHint && <div className="boundary-hint">已到达导航边界</div>}
@@ -960,6 +1003,7 @@ export function GaussianSplatViewer({
             ? "第一人称漫游 · WASD/方向键移动 · 鼠标观察 · Esc 退出"
             : `${uprightAvailable ? "SfM 主平面已摆正 · " : ""}标准归一化坐标 · 任意单位（非米制）`}
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
+          {useK2 ? " · K2 / SH2 浏览派生（高斯数量不变）" : ""}
           {experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
             ? ` · 浏览资产试验 ${experimentLevel}` : ""}
           {experimentEnabled && rendererKind === "legacy" && sortMode === "gpu"

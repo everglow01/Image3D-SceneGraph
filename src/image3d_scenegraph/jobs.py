@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
 from image3d_scenegraph.file_integrity import sha256_file
+from image3d_scenegraph.gaussian.browser_assets import with_browser_assets
 from image3d_scenegraph.gaussian.config import (
     GaussianConfigError,
     ResolvedGaussianConfig,
@@ -1795,7 +1796,7 @@ class JobStore:
         manifest_path = job_dir / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(job_id)
-        manifest = self._read_json(manifest_path)
+        manifest = with_browser_assets(job_dir, self._read_json(manifest_path))
         if manifest.get("result_kind") in READ_ONLY_RESULT_KINDS:
             return manifest
         manifest = self._with_existing_alignment_assets(job_dir, manifest)

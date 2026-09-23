@@ -52,6 +52,30 @@ test("two Train-only models retain held-out labels and distinct assets", () => {
   }
 });
 
+test("browser assets bind to their own variant without replacing source identity", () => {
+  const m = fixture();
+  const row = m.gaussian_variants[1];
+  const asset = { source: row.scene_splat, path: `lifecycle/browser/${"b".repeat(64)}/scene.ksplat`,
+    sha256: "c".repeat(64), bytes: 100, gaussian_count: 10, sh_degree: 2, compression_level: 2 };
+  const variants = gaussianVariants({ ...m, gaussian_browser_assets: [asset] });
+  assert.equal(variants[0].browser_asset, undefined);
+  assert.deepEqual(variants[1].browser_asset, asset);
+  assert.equal(variants[1].scene_splat, row.scene_splat);
+  assert.equal(m.gaussian_variants[1].scene_splat, row.scene_splat);
+  for (const invalid of [
+    { ...asset, source: "other.ply" }, { ...asset, path: "../scene.ksplat" },
+    { ...asset, path: "https://example.com/scene.ksplat" }, { ...asset, sha256: "bad" },
+    { ...asset, gaussian_count: 9 }, { ...asset, sh_degree: 3 }, { ...asset, compression_level: 1 },
+    { ...asset, bytes: 0 }, { ...asset, bytes: 2 ** 40 }
+  ]) {
+    assert.equal(gaussianVariants({ ...m, gaussian_browser_assets: [invalid] })[1].browser_asset, undefined);
+  }
+  assert.equal(gaussianVariants({ ...m, gaussian_browser_assets: [asset, asset] })[1].browser_asset, undefined);
+  const historical = gaussianVariants({ assets: { scene_splat: row.scene_splat, gaussian_export_metadata: row.export_metadata },
+    gaussian_browser_assets: [asset] });
+  assert.deepEqual(historical[0].browser_asset, asset);
+});
+
 test("historical Original and VGGT default selection remain compatible", () => {
   const m = { assets: { scene_splat: "scene.ply", gaussian_export_metadata: "export.json",
     scene_splat_vggt_filtered: "filtered.ply", gaussian_vggt_filtered_export_metadata: "filtered.json" } };

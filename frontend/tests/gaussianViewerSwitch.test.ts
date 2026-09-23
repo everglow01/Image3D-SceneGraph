@@ -10,7 +10,10 @@ const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
 }).outputText;
 
-function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
+function pageHarness(options: {
+  sourceUrl?: string; search?: string; browserSourceUrl?: string;
+  load?: (url: string) => Promise<void>; metadataFailure?: boolean;
+} = {}) {
   const hooks: any[] = [], effects: (() => void)[] = [], instances: any[] = [];
   let cursor = 0, dirty = true, tree: any;
   const mount = { clientWidth: 800, clientHeight: 400, replaceChildren() {}, appendChild() {} };
@@ -63,7 +66,11 @@ function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
       this.gpuAcceleratedSort = !!options?.gpuAcceleratedSort;
       instances.push(this);
     }
-    async addSplatScene(sourceUrl: string) { this.sourceUrl = sourceUrl; }
+    async addSplatScene(sourceUrl: string, loadOptions: unknown) {
+      this.sourceUrl = sourceUrl; this.loadOptions = loadOptions;
+      await options.load?.(sourceUrl);
+    }
+    loadOptions: any;
     sourceUrl = "";
     getSplatMesh() { return { minSphericalHarmonicsDegree: 2,
       material: new THREE.ShaderMaterial(), computeBoundingBox: () => this.bounds() }; }
@@ -78,13 +85,13 @@ function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
   class Spark extends Viewer {
     kind = "spark";
     constructor(..._args: unknown[]) { super(); this.camera.aspect = 1.5; }
-    async load() {}
+    async load(sourceUrl: string) { this.sourceUrl = sourceUrl; }
     getBoundingBox() { return this.bounds(); }
   }
   const exports: Record<string, any> = {};
   runInNewContext(code, { exports, AbortController, URLSearchParams,
     window: { location: { search: options.search ?? "" } },
-    fetch: async (_url: string, _options: unknown) => ({ ok: true, headers: { get: () => null },
+    fetch: async (_url: string, _options: unknown) => ({ ok: !options.metadataFailure, status: options.metadataFailure ? 500 : 200, headers: { get: () => null },
       json: async () => ({ sh_degree: 3, viewer_minimum_opacity: 0.005, scene_radius_p95: 1 }) }),
     document: { pointerLockElement: null },
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -99,7 +106,8 @@ function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
       return {};
     }
   });
-  const props = { sourceUrl: options.sourceUrl ?? "/scene.ply", metadataUrl: "/export.json", cameraPathUrl: null,
+  const props = { sourceUrl: options.sourceUrl ?? "/scene.ply", browserSourceUrl: options.browserSourceUrl,
+    metadataUrl: "/export.json", cameraPathUrl: null,
     alignmentUrl: null, jobId: "job", sfmDiagnosticsUrl: null, inspectionRequest: null,
     onInspectionStateChange() {}, collisionMeshUrl: null, navigationUrl: null,
     navigationStatus: null, navigationReason: null };
@@ -126,7 +134,12 @@ function pageHarness(options: { sourceUrl?: string; search?: string } = {}) {
     experimentSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产试验")?.props,
     sortSelector: () => find(tree, n => n.props?.["aria-label"] === "排序预计算试验")?.props,
     hint: () => find(tree, n => n.props?.className === "viewer-hint")?.props.children.flat().join(""),
-    changeSource: () => { props.sourceUrl = "/other.ply"; dirty = true; },
+    browserSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产")?.props,
+    fallback: () => find(tree, n => n.props?.role === "status")?.props.children,
+    overlay: () => find(tree, n => n.props?.className === "viewer-overlay")?.props.children.flat().join(""),
+    changeSource: (source = "/other.ply", browser: string | undefined = undefined) => {
+      props.sourceUrl = source; props.browserSourceUrl = browser; dirty = true;
+    },
     changeNavigationStatus: (status: string) => { props.navigationStatus = status; dirty = true; },
     unmount: () => { for (const hook of hooks) hook?.cleanup?.(); } };
 }
@@ -239,6 +252,72 @@ test("rapid switching cannot bypass pending disposal or restore a camera into an
   assert.equal(h.instances.length, 2);
   assert.equal(h.instances[1].kind, "legacy");
   assert.notDeepEqual(h.instances[1].camera.position.toArray(), [40, 50, 60]);
+  h.unmount(); await h.flush();
+});
+
+test("published K2 is preferred only in legacy and switching preserves the view", async () => {
+  const h = pageHarness({ browserSourceUrl: "/browser/scene.ksplat" }); await h.flush();
+  const first = h.instances[0];
+  assert.equal(first.sourceUrl, "/browser/scene.ksplat");
+  assert.equal(first.loadOptions.progressiveLoad, false);
+  assert.equal(first.gpuAcceleratedSort, false);
+  first.camera.position.set(4, 5, 6);
+  h.browserSelector().onChange({ target: { value: "ply" } }); await h.flush();
+  assert.equal(first.disposed, true);
+  assert.equal(h.instances[1].sourceUrl, "/scene.ply");
+  assert.deepEqual(h.instances[1].camera.position.toArray(), [4, 5, 6]);
+  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
+  assert.equal(h.instances[2].sourceUrl, "/browser/scene.ksplat");
+  h.changeNavigationStatus("available"); await h.flush();
+  assert.equal(h.instances.length, 3);
+  h.selector().onChange({ target: { value: "spark" } }); await h.flush();
+  assert.equal(h.instances[3].sourceUrl, "/scene.ply");
+  assert.equal(h.browserSelector(), undefined);
+  h.unmount(); await h.flush();
+});
+
+test("K2 failure releases before one PLY fallback and does not leak across models", async () => {
+  const h = pageHarness({ browserSourceUrl: "/bad.ksplat", load: async url => {
+    if (url === "/bad.ksplat") throw new Error("bad K2");
+  } }); await h.flush();
+  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/bad.ksplat", "/scene.ply"]);
+  assert.equal(h.instances[0].disposed, true);
+  assert.match(h.fallback(), /回退原始 PLY/);
+  assert.equal(h.browserSelector().value, "ply");
+  await h.flush(); assert.equal(h.instances.length, 2);
+  h.changeSource("/other.ply", "/good.ksplat"); await h.flush();
+  assert.equal(h.instances[2].sourceUrl, "/good.ksplat");
+  assert.equal(h.fallback(), undefined);
+  h.changeSource(); await h.flush();
+  assert.equal(h.instances[3].sourceUrl, "/other.ply");
+  assert.equal(h.browserSelector(), undefined);
+  h.unmount(); await h.flush();
+});
+
+test("cancelled K2 and metadata errors do not initiate a PLY fallback", async () => {
+  let reject!: (error: Error) => void;
+  const h = pageHarness({ browserSourceUrl: "/pending.ksplat", load: url => url.endsWith(".ksplat")
+    ? new Promise<void>((_resolve, no) => { reject = no; }) : Promise.resolve() });
+  await h.flush();
+  h.changeSource(); await h.flush();
+  reject(new Error("cancelled")); await h.flush();
+  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/pending.ksplat", "/other.ply"]);
+  assert.equal(h.fallback(), undefined);
+  h.unmount(); await h.flush();
+
+  const failed = pageHarness({ browserSourceUrl: "/good.ksplat", metadataFailure: true });
+  await failed.flush();
+  assert.equal(failed.instances.length, 0);
+  assert.equal(failed.fallback(), undefined);
+  assert.match(failed.overlay(), /metadata request failed/);
+  failed.unmount(); await failed.flush();
+});
+
+test("a failing PLY fallback is terminal rather than an automatic retry loop", async () => {
+  const h = pageHarness({ browserSourceUrl: "/bad.ksplat", load: async () => { throw new Error("network"); } });
+  await h.flush(); await h.flush();
+  assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/bad.ksplat", "/scene.ply"]);
+  assert.match(h.overlay(), /network/);
   h.unmount(); await h.flush();
 });
 
