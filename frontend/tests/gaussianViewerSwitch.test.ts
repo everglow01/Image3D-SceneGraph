@@ -89,7 +89,7 @@ function pageHarness(options: {
     getBoundingBox() { return this.bounds(); }
   }
   const exports: Record<string, any> = {};
-  runInNewContext(code, { exports, AbortController, URLSearchParams,
+  runInNewContext(code, { exports, AbortController, URLSearchParams, Error,
     window: { location: { search: options.search ?? "" } },
     fetch: async (_url: string, _options: unknown) => ({ ok: !options.metadataFailure, status: options.metadataFailure ? 500 : 200, headers: { get: () => null },
       json: async () => ({ sh_degree: 3, viewer_minimum_opacity: 0.005, scene_radius_p95: 1 }) }),
