@@ -29,13 +29,21 @@ def ply_layout(source: Path) -> tuple[bytes, int]:
             if line == b"end_header\n":
                 break
     lines = header.decode("ascii").splitlines()
-    assert lines[0] == "ply" and lines[-1] == "end_header"
-    assert "format binary_little_endian 1.0" in lines
-    assert tuple(line.split()[-1] for line in lines if line.startswith("property ")) == PLY_FIELDS
-    assert all(line.startswith("property float ") for line in lines if line.startswith("property "))
-    count = int(next(line for line in lines if line.startswith("element vertex ")).split()[-1])
-    assert 0 < count <= 3_000_000
-    assert source.stat().st_size == len(header) + count * len(PLY_FIELDS) * 4
+    if not lines or lines[0] != "ply" or lines[-1] != "end_header":
+        raise ValueError("missing or oversized PLY header")
+    if "format binary_little_endian 1.0" not in lines:
+        raise ValueError("PLY must be binary little-endian")
+    properties = [line for line in lines if line.startswith("property ")]
+    if properties != [f"property float {field}" for field in PLY_FIELDS]:
+        raise ValueError("PLY property layout mismatch")
+    vertices = [line for line in lines if line.startswith("element vertex ")]
+    if len(vertices) != 1:
+        raise ValueError("PLY requires one vertex element")
+    count = int(vertices[0].split()[-1])
+    if not 0 < count <= 3_000_000:
+        raise ValueError("PLY Gaussian count is out of bounds")
+    if source.stat().st_size != len(header) + count * len(PLY_FIELDS) * 4:
+        raise ValueError("PLY payload size mismatch")
     return bytes(header), count
 
 
@@ -77,13 +85,17 @@ def main() -> None:
     parser.add_argument("--writer", choices=("previous", "streamed"))
     args = parser.parse_args()
     source, output = args.source.absolute(), args.output.absolute()
-    assert source.is_file() and not source.is_symlink() and source.stat().st_size <= 1_073_741_824
+    if not source.is_file() or source.is_symlink() or source.stat().st_size > 1_073_741_824:
+        raise ValueError("source must be a regular, nonsymlink PLY up to 1 GiB")
     if args.operation:
-        assert args.writer is not None and not output.exists()
+        if args.writer is None or output.exists():
+            raise ValueError("a trial requires a writer and a new output file")
         print(json.dumps(trial(source, output, args.operation, args.writer)))
         return
-    assert args.writer is None and args.lease is not None
-    assert not output.exists() and not output.is_relative_to(source.parent)
+    if args.writer is not None or args.lease is None:
+        raise ValueError("profiling requires a lease and no standalone writer")
+    if output.exists() or output.resolve().is_relative_to(source.resolve().parent):
+        raise ValueError("profiling requires a new directory outside the source directory")
     with FileLease(args.lease):
         require_idle_gpu()
         output.mkdir(parents=True, exist_ok=False)
@@ -108,11 +120,13 @@ def main() -> None:
                     report["trials"].append(metrics)
                     hashes.append(metrics["sha256"])
                     print(json.dumps(metrics), flush=True)
-                assert hashes[0] == hashes[1], f"{operation} output bytes changed"
-                if operation == "ply":
-                    assert hashes[0] == report["source_before_sha256"], "PLY source representation changed"
+                if hashes[0] != hashes[1]:
+                    raise ValueError(f"{operation} output bytes changed")
+                if operation == "ply" and hashes[0] != report["source_before_sha256"]:
+                    raise ValueError("PLY source representation changed")
             report["source_after_sha256"] = sha256_file(source)
-            assert report["source_before_sha256"] == report["source_after_sha256"]
+            if report["source_before_sha256"] != report["source_after_sha256"]:
+                raise ValueError("source changed during profiling")
             report["status"] = "passed"
         except Exception as exc:
             report["status"] = "failed"
