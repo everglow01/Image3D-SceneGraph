@@ -5,6 +5,8 @@ import { captureP0Source, p0FullMask, p0IdentityFixture, P0_PLY_FIELDS, verifyP0
 import type { P0SelectionRequest } from "./localGaussianP0Selection.ts";
 import type { P0WorkerMessage, P0WorkerReply } from "./localGaussianP0Worker.ts";
 
+export const P0_PROBE_YAWS = [0, -0.18] as const;
+
 function requireCheck(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 function maxDifference(a: Uint8Array, b: Uint8Array) {
   requireCheck(a.length === b.length, "P0 像素尺寸不一致");
@@ -80,7 +82,7 @@ export async function runLocalGaussianP0Probe(mount: HTMLElement, signal?: Abort
     worker = new Worker(new URL("./gaussianSelection.worker.ts", import.meta.url), { type: "module" });
     const ready = await workerCall(worker, { type: "source", source, modelGeneration: 1 }, signal, [source.geometry.buffer]);
     requireCheck(ready.type === "ready" && ready.sourceSha256 === sourceSha256, "P0 Worker 源身份不一致");
-    for (const [view, angle] of [0, 0.18].entries()) {
+    for (const [view, angle] of P0_PROBE_YAWS.entries()) {
       camera.rotation.y = angle;
       mesh.rotation.z = view * 0.27;
       const baseline = await render(), repeat = await render();
