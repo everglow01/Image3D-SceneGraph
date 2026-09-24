@@ -1,5 +1,7 @@
 # Gaussian 手动修剪数据合同
 
+2026-09-24 本地编辑P0补充：新增的独立源ID／仅alpha／Worker选择探针不构成产品编辑接口，未通过真实GPU准入前不得接入删除／保存。旧云票据、预览和客户端mask禁入限制不变。见 [本地P0](gaussian-local-editor-p0.md)。
+
 日期：2026-09-22。状态：旧云编辑功能已部署；操作一致性、高清定格、可见前层选择与保护机制的修复已完成本地CPU/mock及浏览器DOM回归，**远端gsplat GPU/真实网络编辑尚未验收**，因此不视为生产可用性通过。部署历史见 [部署证据](cloud-gaussian-rendering.md)。
 
 完整批准计划：[gaussian-editor-cloud-plan.md](gaussian-editor-cloud-plan.md)。论文优化计划保持暂缓。

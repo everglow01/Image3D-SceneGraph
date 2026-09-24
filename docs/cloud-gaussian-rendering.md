@@ -1,5 +1,7 @@
 # 云端 Gaussian 渲染合同
 
+2026-09-24 本地编辑P0补充：本地实验复用Spark/WebGL而非云CUDA选择或WebRTC，不新增本机服务，不改变本合同的会话与部署边界。云端保留原行为；P0尚不是正式替代入口。见 [本地P0](gaussian-local-editor-p0.md)。
+
 日期：2026-09-21，修订于2026-09-22。**旧版云编辑/认证TURN已部署，产品TCP-only连接经独立浏览器短时通过；用户实操暴露轴向、画面、固定帧及后景误删问题。本批可用性修复已有本地代码和回归，但GPU可见选择、真实画质及延迟仍待远端验收。**
 
 总体设计见 [gaussian-editor-cloud-plan.md](gaussian-editor-cloud-plan.md)，编辑接口见 [gaussian-editor-contract.md](gaussian-editor-contract.md)。论文计划继续暂停。
