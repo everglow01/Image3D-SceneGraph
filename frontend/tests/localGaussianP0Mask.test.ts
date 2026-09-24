@@ -6,7 +6,7 @@ import { p0FullMask } from "../src/localGaussianP0Source.ts";
 
 function meshStub() {
   let updates = 0;
-  const mesh = { isInitialized: true, numSplats: 17, maxSh: 3,
+  const mesh = { isInitialized: true, numSplats: 17, maxSh: 3, opacity: 1,
     extSplats: { numSplats: 17, getNumSh: () => 3, maxSh: 3, extra: {} },
     updateGenerator() { updates++; } } as unknown as SplatMesh;
   return { mesh, updates: () => updates };

@@ -44,6 +44,7 @@ export function requireP0Mesh(mesh: SplatMesh) {
   if (!mesh.isInitialized || !ext || mesh.numSplats !== ext.numSplats ||
       ext.getNumSh() !== 3 || mesh.maxSh !== 3 || ext.maxSh !== 3 ||
       mesh.packedSplats || mesh.paged || mesh.covSplats || mesh.enableLod ||
+      (mesh.splats && mesh.splats !== ext) || mesh.opacity !== 1 || mesh.onFrame ||
       ext.lod || ext.lodSplats || ext.extra.lodTree || mesh.edits?.length ||
       mesh.worldModifiers?.length || mesh.objectModifiers?.length || mesh.splatRgba || mesh.skinning) {
     throw new Error("P0 仅支持未经修改的非 LOD SH3 ExtSplats");
@@ -111,7 +112,7 @@ export function verifyP0FixtureRows(source: P0Source, expected: Float32Array) {
     for (let field = 0; field < P0_STRIDE; field++) {
       // ExtSplats quantizes scale/rotation/opacity; positions retain float32 precision.
       const tolerance = field < 3 ? 1e-6 : field < 6 ? 0.0001 : 0.002;
-      if (!Number.isFinite(expected[base + field]) ||
+      if (!Number.isFinite(expected[base + field]) || !Number.isFinite(source.geometry[base + field]) ||
           Math.abs(source.geometry[base + field] - expected[base + field]) > tolerance) {
         throw new Error(`P0 源行 ${id} 字段 ${field} 与解码顺序不符`);
       }

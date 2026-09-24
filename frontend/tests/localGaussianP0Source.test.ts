@@ -11,6 +11,8 @@ test("P0 identity probe distinguishes every source row and rejects shuffled deco
   source.geometry.copyWithin(0, 11, 22);
   assert.throws(() => verifyP0FixtureRows(source, fixture.expected), /源行 0/);
   assert.throws(() => verifyP0FixtureRows({ ...source, count: fixture.count - 1 }, fixture.expected), /不合法/);
+  source.geometry.set(fixture.expected); source.geometry[0] = NaN;
+  assert.throws(() => verifyP0FixtureRows(source, fixture.expected), /源行 0/);
 });
 
 test("P0 fixture is the strict 62-float SH3 layout with a weak first row", () => {
