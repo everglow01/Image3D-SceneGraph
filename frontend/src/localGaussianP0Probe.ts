@@ -30,7 +30,7 @@ function workerCall(worker: Worker, message: P0WorkerMessage, signal?: AbortSign
     worker.addEventListener("message", received); worker.addEventListener("error", failed);
     signal?.addEventListener("abort", aborted, { once: true });
     if (signal?.aborted) { aborted(); return; }
-    worker.postMessage(message, transfer);
+    try { worker.postMessage(message, transfer); } catch (error) { cleanup(); reject(error); }
   });
 }
 

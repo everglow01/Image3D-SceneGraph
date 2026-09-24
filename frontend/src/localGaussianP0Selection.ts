@@ -153,6 +153,7 @@ export async function selectP0Surface(source: P0Source, r: P0SelectionRequest,
     a = ex * ex * v1 + ey * ey * v2; d = ey * ey * v1 + ex * ex * v2;
     cross = ex * ey * (v1 - v2);
     const determinant = a * d - cross * cross;
+    if (!Number.isFinite(determinant) || determinant <= 0) throw new Error("P0 截断后投影协方差退化");
     const cx = r.width * (0.5 + clipX / w / 2), cy = r.height * (0.5 - clipY / w / 2);
     const rx = 3 * Math.sqrt(a), ry = 3 * Math.sqrt(d);
     if (cx + rx < roi.left || cx - rx > roi.right || cy + ry < roi.top || cy - ry > roi.bottom) continue;

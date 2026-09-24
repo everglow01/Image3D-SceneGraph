@@ -53,7 +53,7 @@ uv run pytest tests/test_gaussian_visible_selection.py
 npm --prefix frontend run build
 ```
 
-其中前端新增12项Node检查覆盖源夹具／掩码／选择／Worker；Python新增1项读取同一前层JSON夹具。单元测试中的本地投影／mask检查不启动真实WebGL，浏览准入仍单独运行。真实模型P0尚无通过证据，不进入P1。
+其中前端新增14项Node检查覆盖源夹具／掩码／选择／Worker（包括各向异性旋转与预算耗尽）；Python新增1项读取同一前层JSON夹具。单元测试中的本地投影／mask检查不启动真实WebGL，浏览准入仍单独运行。真实模型P0尚无通过证据，不进入P1。
 
 ## 检查边界
 

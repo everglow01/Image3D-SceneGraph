@@ -71,6 +71,21 @@ test("P0 fails closed for wrong sources, large ROI, unsupported cameras and canc
   await assert.rejects(selectP0Surface(s, r), /非有限/);
 });
 
+test("P0 uses rotated anisotropic covariance for the actual ellipse footprint", async () => {
+  const s = source([[0, 0, -2, 0.6, 0.02, 0.02, 0, 0, 0, 1, 0.95]]), r = request(s);
+  r.polygon = [[37, 32], [38, 32], [38, 33], [37, 33]];
+  assert.equal((await selectP0Surface(s, r)).selectedCount, 1);
+  s.geometry[8] = Math.SQRT1_2; s.geometry[9] = Math.SQRT1_2;
+  assert.equal((await selectP0Surface(s, r)).selectedCount, 0);
+});
+
+test("P0 budget exhaustion rejects the whole request instead of returning a partial selection", async () => {
+  const geometry = new Float32Array(100_001 * 11), one = row(-2, 0.95);
+  for (let i = 0; i < 100_001; i++) geometry.set(one, i * 11);
+  const s = { sha256, count: 100_001, geometry };
+  await assert.rejects(selectP0Surface(s, request(s)), /预算超限|超时/);
+});
+
 test("P0 worker suppresses cancelled and old-source results and rejects sequence replay", async () => {
   const replies: P0WorkerReply[] = [], handle = createP0WorkerHandler(reply => replies.push(reply));
   const s = source([row(-2, 0.9)]), r = request(s);
