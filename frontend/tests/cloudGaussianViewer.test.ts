@@ -17,7 +17,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
 }]) {
   const hooks: any[] = [], effects: (() => void)[] = [], requests: any[] = [], peers: any[] = [];
   const intervals = new Map<number, () => void>(), timeouts = new Map<number, () => void>();
-  let cursor = 0, dirty = true, tree: any, timer = 0, revision = 0, imageNode: any, frameCallback: (() => void) | undefined;
+  let cursor = 0, dirty = true, tree: any, timer = 0, revision = 0, protectedCount = 0, imageNode: any, frameCallback: (() => void) | undefined;
   const stage = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 500 }), addEventListener() {}, removeEventListener() {} };
   const video = { srcObject: null, play: async () => {}, requestVideoFrameCallback: (fn: () => void) => { frameCallback = fn; } };
   const source = { job_id: "source", asset_role: "scene_splat", label: "Original" };
@@ -82,14 +82,15 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
       else if (url === "/metadata.json") value = { sh_degree: 3, scene_radius_p95: 1 };
       else if (url.includes("gaussian-edits?")) value = { edits: [] };
       else if (url === "/api/gaussian-edits" || url.startsWith("/api/gaussian-edits/")) value = document();
-      else if (url === "/api/gaussian-render-sessions") value = { session_id: "session", token: "secret", state: "loading" };
+      else if (url === "/api/gaussian-render-sessions") { protectedCount = 0; value = { session_id: "session", token: "secret", state: "loading" }; }
+      else if (url.endsWith("/protection")) { protectedCount = body.kind === "add" ? 1 : 0; value = { protected_count: protectedCount }; }
       else if (url.endsWith("/ice")) value = { iceTransportPolicy: "relay", iceServers };
       else if (url.endsWith("/offer")) value = { type: "answer", sdp: "answer" };
       else if (url.endsWith("/prepare-frame") || url.endsWith("/freeze-frame")) value = { ticket: `ticket-${revision}`, revision, camera_seq: body.sequence, width: body.camera.width, height: body.camera.height, image: "data:image/png;base64,c2FtZQ==" };
       else if (url.endsWith("/selection")) value = { selection_token: "selected", selected_count: 1, visible_count: 8, revision };
       else if (url.endsWith("/preview")) value = { revision, image: "data:image/png;base64,cHJldmlldw==" };
       else if (url.endsWith("/operations")) { revision++; value = document(); }
-      else value = { state: "viewing", revision, visible_count: 8 - revision };
+      else value = { state: "viewing", revision, visible_count: 8 - revision, protected_count: protectedCount };
       return { ok: true, json: async () => value };
     },
     require: (name: string) => {
@@ -126,6 +127,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     label: () => find(tree, n => n.type === "span" && n.props.className === "cloud-frame-label")?.props.children,
     tick: async () => { const callbacks = [...timeouts.values()]; timeouts.clear(); for (const fn of callbacks) fn(); await flush(); },
     button: (label: string) => find(tree, n => n.type === "button" && n.props.children === label)?.props,
+    protection: () => find(tree, n => n.type === "button" && [n.props.children].flat().join("").startsWith("清空本次会话保护"))?.props,
     tool: () => find(tree, n => n.type === "select" && n.props.value === "rectangle").props,
     selectionMode: () => find(tree, n => n.type === "select" && ["visible", "depth", "through"].includes(n.props.value)).props,
     loadImage: () => imageNode.props.onLoad({ currentTarget: imageNode }),
@@ -245,6 +247,24 @@ test("rectangle drag computes selection, keeps delete locked until isolated prev
   } finally { h.unmount(); }
 });
 
+
+test("closing and reopening a cloud session clears the displayed protection count", async () => {
+  const h = harness();
+  try {
+    await h.flush(); h.button("连接云端").onClick(); await h.flush();
+    h.displayFrame(); await h.flush(); await h.tick(); h.loadImage(); await h.flush();
+    h.button("开始选择当前高清画面").onClick(); await h.flush();
+    h.tool().onChange({ target: { value: "box" } }); await h.flush();
+    h.button("应用三维盒").onClick(); await h.flush();
+    h.button("保护选中项").onClick(); await h.flush();
+    assert.match(h.protection().children.join(""), /（1）/);
+    h.button("关闭会话").onClick(); await h.flush();
+    assert.match(h.protection().children.join(""), /（0）/);
+    h.button("连接云端").onClick(); await h.flush();
+    assert.match(h.protection().children.join(""), /（0）/);
+    assert.equal(h.protection().disabled, true);
+  } finally { h.unmount(); }
+});
 
 test("changing selection mode cancels an armed depth pick", async () => {
   const h = harness();

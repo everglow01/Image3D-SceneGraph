@@ -10,7 +10,7 @@ export type CloudSource = { job_id: string; variant_id?: string; asset_role: "sc
 type Props = { source: CloudSource; metadataUrl: string | null; cameraPathUrl: string | null; alignmentUrl: string | null; viewRef?: RefObject<CameraView | null>; viewKey?: string };
 type Version = { version: string; revision: number; visible_count: number; exported?: boolean };
 type Document = { edit_id: string; source: CloudSource; revision: number; visible_count: number; can_undo: boolean; can_redo: boolean; versions: Version[] };
-type Session = { session_id: string; token: string; state: string; revision: number; visible_count: number; error: string | null };
+type Session = { session_id: string; token: string; state: string; revision: number; visible_count: number; protected_count: number; error: string | null };
 type Frame = { ticket: string; revision: number; camera_seq: number; width: number; height: number; image: string; render_ms?: number };
 type Selection = { selection_token: string; selected_count: number; deletable_count?: number; visible_count: number; revision: number };
 
@@ -208,6 +208,7 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
       if (status.state === "error") { setState("error"); throw new Error(status.error ?? "模型加载失败"); }
       if (status.state === "viewing") {
         revision.current = status.revision;
+        setProtectedCount(status.protected_count);
         setDocument(d => d ? { ...d, revision: status.revision, visible_count: status.visible_count } : d);
         frozenRef.current = false;
         if (controls.current) controls.current.enabled = true;
@@ -224,6 +225,7 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
     if (video.current) video.current.srcObject = null;
     if (session.current) await sessionCall("", "DELETE");
     session.current = null; frozenRef.current = false; frameRef.current = null;
+    setProtectedCount(0);
     setFrame(null); setDisplay(""); setSelection(null); setDepthPick(false); setState("idle");
     if (controls.current) controls.current.enabled = true;
     await refreshDocuments();
