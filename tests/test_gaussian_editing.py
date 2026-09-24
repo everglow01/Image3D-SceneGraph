@@ -136,6 +136,30 @@ def test_local_snapshot_validation_and_atomic_retry(tmp_path, monkeypatch):
         store.submit_snapshot(edit_id, **request, content=b"\x01\x00", confirm_large=True)
 
 
+def test_local_snapshot_history_and_operation_budgets(tmp_path):
+    store, _, _ = setup_source(tmp_path)
+    edit_id = store.create("source")["edit_id"]
+    identity = store.source_identity(edit_id)
+    for revision in range(102):
+        store.submit_snapshot(
+            edit_id, identity=identity, content=b"\xfe" if revision % 2 else b"\xff",
+            expected_revision=revision, operation_id=f"local-{revision}",
+        )
+    state = store.get(edit_id)
+    assert state["revision"] == 102 and len(state["history"]) == 101
+    assert state["cursor"] == 100
+    while len(state["requests"]) < 1000:
+        state["requests"][f"fixture-{len(state['requests'])}"] = {}
+    (store.root / edit_id / "edit.json").write_text(json.dumps(state))
+    with pytest.raises(GaussianEditError, match="budget"):
+        store.submit_snapshot(edit_id, identity=identity, content=b"\xff",
+                              expected_revision=102, operation_id="over-budget")
+    ack = store.submit_snapshot(edit_id, identity=identity, content=b"\xfe",
+                                expected_revision=101, operation_id="local-101")
+    assert ack["revision"] == 102
+    assert store.save_version(edit_id, expected_revision=102)["revision"] == 102
+
+
 def test_local_selection_shared_fixture():
     fixture = json.loads(
         (Path(__file__).parent / "fixtures/gaussian_local_selection.json").read_text()

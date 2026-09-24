@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-24，P2第二小点完成无GPU本地保存HTTP协议：`local-authorization`固定600秒、最多64个单文档token，`local-mask`读回源身份／revision且仅PUT允许512KiB未压缩二进制，其他JSON仍96KiB；校验Origin、请求头、源SHA／metadata／count、实际流长度和CAS／幂等。云会话与本地授权共用持续持有的`.writer.lock`，不同文档独立、同文档冲突409；加载／关闭／过期中的在途线程和重复取消均不提前释放。版本／导出复用原CPU存储及当前服务单在途导出协调器，不启动renderer、CUDA或媒体。新增CPU保存恢复导出、非法输入／跨文档凭证、预算、过期与竞争／取消回归源码；Python AST、Ruff、diff静态检查通过，测试与真实环境均未运行。协议在 `docs/gaussian-local-editor-p2.md`；P1运行验收仍未执行，前端保存／草稿／正式入口留P3/P4，不push/pull/部署，不改源数据或生产默认，用户旧文档不夹带提交。
+
 - 2026-09-24，用户要求继续下一轮，按批准计划进入P2保存协议代码阶段；P1运行验收仍未执行，不将其静态检查当作验收通过。首个小点新增源PLY／metadata SHA和count绑定的完整packed可见mask快照存储，独立于旧delete/undo/redo；允许恢复源行，复用文件锁、原子提交、101状态历史、1000操作上限、单调revision及幂等ACK，拒绝错源、损坏padding、全删、未确认过半删除和CAS冲突。新增恢复／分支／重放／原子失败回归源码，Python AST、Ruff和diff静态检查通过，未运行测试。后续仅完成无GPU授权、云/本地文档互斥与CPU版本/导出协议；不进入P3/P4，不push/pull/部署，不沿用P0运行授权，保留用户原有文档。
 
 - 2026-09-24，P1第三小点完成独立LocalGaussianEditor面板／输入控制和Spark最小适配：矩形／套索、默认表层／薄层／穿透、源轴Three盒平移缩放、新建增减、保护、隔离／删除预览／原始对照及聚焦快捷键；高亮为独立显示RGB修改器，隐藏复用P0仅alpha。适配串行等待排序后安装／更新／释放，交互合并显示更新，不重新下载PLY或重建context；相机签名、源身份、请求序号与编辑revision共同阻断旧结果，已完成选集跨视角保留，派生薄层锚点随相机失效。独立组件未挂产品入口，未实现P2保存／P3恢复／P4切源离开保护。源码和新增/修改回归类型、Node类型擦除、Python AST／JSON／脚本语法及diff静态检查通过；按计划不沿用P0授权，本轮未运行回归、构建或GPU实验，P1运行验收待授权，不沿用P0通过数量。合同见 `docs/gaussian-local-editor-p1.md`；保留期间用户新增74adb06提交和其他未提交文档，不push／pull／部署／训练，不优化已接受的100ms导航表现。

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 import numpy as np
 from PIL import Image
 
-from image3d_scenegraph.gpu_lease import gpu_lease_path
+from image3d_scenegraph.gpu_lease import FileLease, gpu_lease_path
 from .cloud_render import (
     CloudCamera,
     CloudRenderError,
@@ -80,6 +80,22 @@ class RenderSession(SessionIdentity, total=False):
     motion_limit: int
     quality_samples: int
     paused: bool
+    document_lease: FileLease
+
+
+class LocalAuthorization(TypedDict):
+    edit_id: str
+    token: str
+    identity: dict[str, Any]
+    expires: float
+    lock: asyncio.Lock
+    lease: FileLease
+    ready: bool
+    closing: bool
+
+
+LOCAL_AUTH_SECONDS = 600
+LOCAL_AUTH_LIMIT = 64
 
 
 async def offload(function, *args, **kwargs):
@@ -88,7 +104,12 @@ async def offload(function, *args, **kwargs):
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
-        await task
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
         raise
 
 
@@ -109,6 +130,7 @@ class EditorSessions:
         self.export_task = None
         self.export_state = None
         self._reaper = None
+        self.local: dict[str, LocalAuthorization] = {}
 
     def start(self):
         self._reaper = asyncio.create_task(self._expire())
@@ -119,12 +141,15 @@ class EditorSessions:
             await asyncio.gather(self._reaper, return_exceptions=True)
         if self.active:
             await self.close(self.active)
+        for authorization in list(self.local.values()):
+            await self.close_local(authorization)
         if self.export_task:
             await asyncio.shield(self.export_task)
 
     async def _expire(self):
         while True:
             await asyncio.sleep(5)
+            self.expire_local()
             session = self.active
             if session and (
                 time.monotonic() - session["heartbeat"] > 30
@@ -132,9 +157,103 @@ class EditorSessions:
             ):
                 await self.close(session)
 
+    def _document_lease(self, edit_id: str) -> FileLease:
+        self.expire_local()
+        return FileLease(self.edits._directory(edit_id) / ".writer.lock").acquire()
+
+    def _release_local(self, authorization: LocalAuthorization):
+        if self.local.get(authorization["edit_id"]) is authorization:
+            del self.local[authorization["edit_id"]]
+        authorization["lease"].close()
+
+    def expire_local(self):
+        for authorization in list(self.local.values()):
+            if (time.monotonic() >= authorization["expires"]
+                    and not authorization["lock"].locked()):
+                self._release_local(authorization)
+
+    async def open_local(self, edit_id: str, identity: dict):
+        self.expire_local()
+        if len(self.local) >= LOCAL_AUTH_LIMIT:
+            raise EditConflict("本地文档授权已达上限，请关闭闲置文档")
+        lease = self._document_lease(edit_id)
+        authorization: LocalAuthorization = {
+            "edit_id": edit_id, "token": secrets.token_urlsafe(32),
+            "identity": identity.copy(), "expires": time.monotonic() + LOCAL_AUTH_SECONDS,
+            "lock": asyncio.Lock(), "lease": lease, "ready": False, "closing": False,
+        }
+        self.local[edit_id] = authorization
+        try:
+            async with authorization["lock"]:
+                state, _ = await offload(self.edits.local_snapshot, edit_id, identity)
+                authorization["ready"] = True
+                return {
+                    "edit_id": edit_id, "token": authorization["token"],
+                    "identity": identity, **state,
+                    "expires_in_seconds": max(0, int(authorization["expires"] - time.monotonic())),
+                }
+        except BaseException:
+            self._release_local(authorization)
+            raise
+
+    def authenticate_local(self, edit_id: str, token: str | None) -> LocalAuthorization:
+        authorization = self.local.get(edit_id)
+        if (
+            authorization is None or not authorization["ready"]
+            or authorization["closing"] or time.monotonic() >= authorization["expires"]
+            or not isinstance(token, str) or not token.isascii()
+            or not secrets.compare_digest(authorization["token"], token)
+        ):
+            raise PermissionError("本地文档凭证无效、过期或已关闭；请重新授权并核对revision")
+        return authorization
+
+    @asynccontextmanager
+    async def local_action(self, authorization: LocalAuthorization):
+        self.authenticate_local(authorization["edit_id"], authorization["token"])
+        if authorization["lock"].locked():
+            raise EditConflict("本地文档上一项操作尚未完成")
+        try:
+            async with authorization["lock"]:
+                yield
+        finally:
+            self.expire_local()
+
+    async def close_local(self, authorization: LocalAuthorization):
+        authorization["closing"] = True
+        async def close():
+            async with authorization["lock"]:
+                self._release_local(authorization)
+        await asyncio.shield(asyncio.create_task(close()))
+
+    async def read_local(self, authorization: LocalAuthorization):
+        async with self.local_action(authorization):
+            return await offload(
+                self.edits.local_snapshot, authorization["edit_id"], authorization["identity"]
+            )
+
+    async def submit_local(self, authorization: LocalAuthorization, content: bytes, request: dict):
+        async with self.local_action(authorization):
+            return await offload(
+                self.edits.submit_snapshot, authorization["edit_id"],
+                identity=authorization["identity"], content=content, **request,
+            )
+
+    async def save_local(self, authorization: LocalAuthorization, revision: int):
+        async with self.local_action(authorization):
+            await offload(self.edits.check_source, authorization["edit_id"], authorization["identity"])
+            return await offload(
+                self.edits.save_version, authorization["edit_id"], expected_revision=revision
+            )
+
+    async def export_local(self, authorization: LocalAuthorization, version: str):
+        async with self.local_action(authorization):
+            await offload(self.edits.check_source, authorization["edit_id"], authorization["identity"])
+            return await self._start_export(authorization["edit_id"], version)
+
     async def create(self, edit_id, version=None):
         if self.active is not None:
             raise EditConflict("已有云端会话（含加载/关闭中）；请先关闭或等待过期")
+        lease = self._document_lease(edit_id)
         session: RenderSession = {
             "id": uuid.uuid4().hex,
             "token": secrets.token_urlsafe(32),
@@ -158,6 +277,7 @@ class EditorSessions:
             "render_ms": 0.0,
             "motion_limit": 1280,
             "quality_samples": 0,
+            "document_lease": lease,
         }
         self.active = session
         session["loader"] = asyncio.create_task(self._load(session))
@@ -283,6 +403,7 @@ class EditorSessions:
                 "version": s["version"], "state": s["state"], "error": s["error"],
                 "revision": s.get("revision"),
             }
+            s["document_lease"].close()
             if self.active is s:
                 self.active = None
 
@@ -692,23 +813,26 @@ class EditorSessions:
 
     async def start_export(self, s: RenderSession, version):
         async with self.action(s):
-            await offload(self.edits.version, s["edit_id"], version)
-            if self.export_task and not self.export_task.done():
-                if (
-                    self.export_state["edit_id"] == s["edit_id"]
-                    and self.export_state["version"] == version
-                ):
-                    return self.export_state.copy()
-                raise EditConflict("另一个导出正在执行")
-            state = {
-                "edit_id": s["edit_id"],
-                "version": version,
-                "status": "running",
-                "error": None,
-            }
-            self.export_state = state
-            self.export_task = asyncio.create_task(self._export(state))
-            return state.copy()
+            return await self._start_export(s["edit_id"], version)
+
+    async def _start_export(self, edit_id: str, version: str):
+        await offload(self.edits.version, edit_id, version)
+        if self.export_task and not self.export_task.done():
+            if (
+                self.export_state["edit_id"] == edit_id
+                and self.export_state["version"] == version
+            ):
+                return self.export_state.copy()
+            raise EditConflict("另一个导出正在执行")
+        state = {
+            "edit_id": edit_id,
+            "version": version,
+            "status": "running",
+            "error": None,
+        }
+        self.export_state = state
+        self.export_task = asyncio.create_task(self._export(state))
+        return state.copy()
 
     async def _export(self, state):
         try:

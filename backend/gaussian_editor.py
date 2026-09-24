@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -40,11 +40,20 @@ class EditorRoute(APIRoute):
                             403,
                             "页面来源未列入 IMAGE3D_EDITOR_ORIGINS，或缺少编辑请求头",
                         )
+                    binary = request.method == "PUT" and self.path == (
+                        "/api/gaussian-edits/{edit_id}/local-mask"
+                    )
+                    limit = (512 if binary else 96) * 1024
+                    if binary and (
+                        request.headers.get("content-type") != "application/octet-stream"
+                        or request.headers.get("content-encoding", "identity") != "identity"
+                    ):
+                        raise HTTPException(415, "可见mask必须为未压缩的application/octet-stream")
                     body = bytearray()
                     async for chunk in request.stream():
+                        if len(body) + len(chunk) > limit:
+                            raise HTTPException(413, f"编辑请求超过 {limit // 1024} KiB 上限")
                         body.extend(chunk)
-                        if len(body) > 96 * 1024:
-                            raise HTTPException(413, "编辑请求超过 96 KiB 上限")
                     request._body = bytes(body)
                 response = await original(request)
             except PermissionError as exc:
@@ -71,6 +80,19 @@ class Source(Input):
     job_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     variant_id: str | None = Field(default=None, max_length=128)
     asset_role: Literal["scene_splat", "scene_splat_vggt_filtered"] = "scene_splat"
+
+
+class LocalIdentity(Input):
+    ply_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    metadata_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    gaussian_count: int = Field(ge=1, le=3_000_000)
+
+
+class LocalSnapshot(LocalIdentity):
+    gaussian_count: int = Field(ge=1, le=3_000_000, strict=False)
+    expected_revision: int = Field(ge=0, le=2**53 - 1, strict=False)
+    operation_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    confirm_large: bool = Field(default=False, strict=False)
 
 
 class SessionInput(Input):
@@ -161,6 +183,52 @@ def editor_router(service: EditorSessions, *, capability_provider=cloud_media.ca
     @router.get("/gaussian-edits/{edit_id}")
     async def get_edit(edit_id: str):
         return await disk(service.edits.describe, edit_id)
+
+    def local(request: Request, edit_id: str):
+        return service.authenticate_local(edit_id, request.headers.get("x-editor-token"))
+
+    @router.post("/gaussian-edits/{edit_id}/local-authorization", status_code=201)
+    async def authorize_local(edit_id: str, value: LocalIdentity):
+        return await service.open_local(edit_id, value.model_dump())
+
+    @router.delete("/gaussian-edits/{edit_id}/local-authorization")
+    async def release_local(request: Request, edit_id: str):
+        await service.close_local(local(request, edit_id))
+        return {"state": "closed"}
+
+    @router.get("/gaussian-edits/{edit_id}/local-mask")
+    async def read_local(request: Request, edit_id: str):
+        authorization = local(request, edit_id)
+        state, content = await service.read_local(authorization)
+        identity = authorization["identity"]
+        return Response(content, media_type="application/octet-stream", headers={
+            "X-Edit-Revision": str(state["revision"]),
+            "X-Visible-Count": str(state["visible_count"]),
+            "X-Source-Sha256": identity["ply_sha256"],
+            "X-Metadata-Sha256": identity["metadata_sha256"],
+            "X-Gaussian-Count": str(identity["gaussian_count"]),
+        })
+
+    @router.put("/gaussian-edits/{edit_id}/local-mask")
+    async def submit_local(
+        request: Request, edit_id: str, value: Annotated[LocalSnapshot, Query()]
+    ):
+        authorization = local(request, edit_id)
+        parameters = value.model_dump()
+        identity = {key: parameters.pop(key) for key in (
+            "ply_sha256", "metadata_sha256", "gaussian_count"
+        )}
+        if identity != authorization["identity"]:
+            raise EditConflict("提交源与本地文档授权不一致")
+        return await service.submit_local(authorization, await request.body(), parameters)
+
+    @router.post("/gaussian-edits/{edit_id}/local-versions")
+    async def save_local(request: Request, edit_id: str, value: Revision):
+        return await service.save_local(local(request, edit_id), value.expected_revision)
+
+    @router.post("/gaussian-edits/{edit_id}/local-exports/{version}", status_code=202)
+    async def export_local(request: Request, edit_id: str, version: str):
+        return await service.export_local(local(request, edit_id), version)
 
     @router.post("/gaussian-render-sessions", status_code=202)
     async def create_session(value: SessionInput):

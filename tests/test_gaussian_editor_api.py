@@ -52,10 +52,11 @@ def make_client(tmp_path):
     return client, service, original
 
 
-def opened(client):
-    document = client.post("/api/gaussian-edits", json={"job_id": "source"})
-    assert document.status_code == 201, document.text
-    edit_id = document.json()["edit_id"]
+def opened(client, edit_id=None):
+    if edit_id is None:
+        document = client.post("/api/gaussian-edits", json={"job_id": "source"})
+        assert document.status_code == 201, document.text
+        edit_id = document.json()["edit_id"]
     response = client.post("/api/gaussian-render-sessions", json={"edit_id": edit_id})
     assert response.status_code == 202, response.text
     data = response.json()
@@ -77,6 +78,260 @@ def freeze(client, base, sequence=1):
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def local_open(client, edit_id=None):
+    if edit_id is None:
+        response = client.post("/api/gaussian-edits", json={"job_id": "source"})
+        assert response.status_code == 201, response.text
+        document = response.json()
+    else:
+        document = client.get(f"/api/gaussian-edits/{edit_id}").json()
+    base = f"/api/gaussian-edits/{document['edit_id']}"
+    identity = {key: document["source"][key] for key in (
+        "ply_sha256", "metadata_sha256", "gaussian_count"
+    )}
+    response = client.post(base + "/local-authorization", json=identity)
+    assert response.status_code == 201, response.text
+    client.headers["x-editor-token"] = response.json()["token"]
+    return base, identity, response.json()
+
+
+def test_local_cpu_protocol_save_restore_export_without_cloud(tmp_path, monkeypatch):
+    store, original, rows = setup_source(tmp_path)
+    before = sha256_file(original)
+    def no_renderer(**kwargs):
+        raise AssertionError("local protocol must not create a renderer")
+    service = EditorSessions(store.jobs, renderer_factory=no_renderer)
+    app = FastAPI()
+    app.include_router(editor_router(service, capability_provider=lambda: {
+        "cloud_available": False, "reason": "CPU only",
+    }))
+    # Local export uses the same disk gate without allocating its production reserve in this fixture.
+    import image3d_scenegraph.gaussian.editing as editing
+    from collections import namedtuple
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(editing.shutil, "disk_usage", lambda _: usage(10**10, 0, 10**10))
+    with TestClient(app) as client:
+        client.headers.update({"origin": "http://testserver", "x-image3d-editor": "1"})
+        base, identity, authorization = local_open(client)
+        assert authorization["revision"] == 0 and 0 < authorization["expires_in_seconds"] <= 600
+        assert service.active is None
+        mask = client.get(base + "/local-mask")
+        assert mask.content == b"\xff" and mask.headers["x-edit-revision"] == "0"
+        assert mask.headers["cache-control"] == "no-store"
+        params = identity | {"expected_revision": 0, "operation_id": "snapshot"}
+        headers = {"content-type": "application/octet-stream"}
+        response = client.put(base + "/local-mask", params=params, content=b"\xfe", headers=headers)
+        assert response.status_code == 200, response.text
+        ack = response.json()
+        assert ack["revision"] == 1 and ack["visible_count"] == 7
+        assert client.delete(base + "/local-authorization").status_code == 200
+        _, _, reopened = local_open(client, authorization["edit_id"])
+        assert reopened["revision"] == 1
+        assert client.put(base + "/local-mask", params=params, content=b"\xfe", headers=headers).json() == ack
+        assert client.put(base + "/local-mask", params=params | {"operation_id": "stale"},
+                          content=b"\xfd", headers=headers).status_code == 409
+        version = client.post(base + "/local-versions", json={"expected_revision": 1})
+        assert version.status_code == 200, version.text
+        assert client.post(base + "/local-versions", json={"expected_revision": 1}).json() == version.json()
+        name = version.json()["version"]
+        assert client.post(base + "/local-exports/" + name).status_code == 202
+        for _ in range(200):
+            status = client.get(base + f"/versions/{name}/export").json()
+            if status["status"] != "running":
+                break
+            time.sleep(0.01)
+        assert status["status"] == "done", status
+        ply = client.get(base + f"/versions/{name}/assets/scene.ply").content
+        assert ply.split(b"end_header\n", 1)[1] == rows[1:].astype("<f4").tobytes()
+        assert client.get(base + f"/versions/{name}/assets/bundle.zip").content[:2] == b"PK"
+        restore = client.put(base + "/local-mask", params=identity | {
+            "expected_revision": 1, "operation_id": "restore",
+        }, content=b"\xff", headers=headers)
+        assert restore.json()["revision"] == 2 and restore.json()["visible_count"] == 8
+        assert client.get(base + "/local-mask").headers["x-edit-revision"] == "2"
+        large = identity | {"expected_revision": 2, "operation_id": "large", "confirm_large": "true"}
+        confirmed = client.put(base + "/local-mask", params=large, content=b"\x01", headers=headers)
+        assert confirmed.status_code == 200 and confirmed.json()["visible_count"] == 1
+        assert client.put(base + "/local-mask", params=large | {"confirm_large": "false"},
+                          content=b"\x01", headers=headers).status_code == 409
+        assert client.delete(base + "/local-authorization").status_code == 200
+        assert not service.local and service.active is None
+        assert sha256_file(original) == before
+
+
+def test_local_protocol_identity_tokens_body_limits_and_cloud_guards(tmp_path):
+    client, service, _ = make_client(tmp_path)
+    headers = {"content-type": "application/octet-stream"}
+    with client:
+        base, identity, authorization = local_open(client)
+        params = identity | {"expected_revision": 0, "operation_id": "one"}
+        assert client.get(base + "/local-mask", headers={"x-editor-token": "wrong"}).status_code == 403
+        foreign = client.post("/api/gaussian-edits", json={"job_id": "source"}).json()["edit_id"]
+        assert client.get(f"/api/gaussian-edits/{foreign}/local-mask").status_code == 403
+        assert client.post(base + "/local-authorization", json=identity).status_code == 409
+        assert client.post("/api/gaussian-render-sessions", json={"edit_id": authorization["edit_id"]}).status_code == 409
+        assert client.put(base + "/local-mask", params=params, content=b"\xfe").status_code == 415
+        assert client.put(base + "/local-mask", params=params, content=b"\xfe",
+                          headers=headers | {"content-encoding": "gzip"}).status_code == 415
+        for content in (b"", b"\x00", b"\xff\x00"):
+            assert client.put(base + "/local-mask", params=params, content=content, headers=headers).status_code == 422
+        assert client.put(base + "/local-mask", params=params, content=b"\x01", headers=headers).status_code == 422
+        assert client.put(base + "/local-mask", params=params | {"metadata_sha256": "0" * 64},
+                          content=b"\xfe", headers=headers).status_code == 409
+        assert client.put(base + "/local-mask", params=params | {"path": "/untrusted"},
+                          content=b"\xfe", headers=headers).status_code == 422
+        assert client.put(base + "/local-mask", params=params, content=b"\xfe",
+                          headers=headers | {"origin": "http://foreign.example"}).status_code == 403
+        assert client.put(base + "/local-mask", params=params, content=iter([b"x" * (300 * 1024)] * 2),
+                          headers=headers).status_code == 413
+        # Only the binary route exceeds the unchanged 96 KiB JSON ceiling.
+        assert client.put(base + "/local-mask", params=params, content=b"x" * (100 * 1024),
+                          headers=headers).status_code == 422
+        assert client.post(base + "/local-authorization", content=b"x" * (100 * 1024),
+                           headers={"content-type": "application/json"}).status_code == 413
+        service.local[authorization["edit_id"]]["expires"] = time.monotonic() - 1
+        assert client.get(base + "/local-mask").status_code == 403
+        base, _, renewed = local_open(client, authorization["edit_id"])
+        assert renewed["token"] != authorization["token"] and renewed["revision"] == 0
+        assert client.get(base + "/local-mask", headers={"x-editor-token": authorization["token"]}).status_code == 403
+        assert client.delete(base + "/local-authorization").status_code == 200
+        _, cloud = opened(client, renewed["edit_id"])
+        assert client.post(base + "/local-authorization", json=identity).status_code == 409
+        frame = freeze(client, cloud)
+        assert client.post(cloud + "/operations", json={
+            "ticket": frame["ticket"], "expected_revision": 0,
+            "operation_id": "mask-in-old-api", "kind": "delete", "mask": [True],
+        }).status_code == 422
+        assert client.delete(cloud).status_code == 200
+
+
+def test_local_document_fence_survives_expiry_and_repeated_cancellation(tmp_path, monkeypatch):
+    from image3d_scenegraph.gpu_lease import LeaseBusy
+
+    store, _, _ = setup_source(tmp_path)
+    edit_id = store.create("source")["edit_id"]
+    identity = store.source_identity(edit_id)
+    service = EditorSessions(store.jobs, renderer_factory=FakeRenderer)
+    other = EditorSessions(store.jobs, renderer_factory=FakeRenderer)
+    started, release = threading.Event(), threading.Event()
+    submit = service.edits.submit_snapshot
+    def blocked(*args, **kwargs):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("fixture release was not signalled")
+        return submit(*args, **kwargs)
+    monkeypatch.setattr(service.edits, "submit_snapshot", blocked)
+
+    async def scenario():
+        response = await service.open_local(edit_id, identity)
+        authorization = service.authenticate_local(edit_id, response["token"])
+        task = asyncio.create_task(service.submit_local(authorization, b"\xfe", {
+            "expected_revision": 0, "operation_id": "cancelled-ack",
+        }))
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            with pytest.raises(EditConflict):
+                await service.read_local(authorization)
+            for _ in range(2):
+                task.cancel()
+                await asyncio.sleep(0)
+            authorization["expires"] = time.monotonic() - 1
+            service.expire_local()
+            assert edit_id in service.local and not task.done()
+            with pytest.raises(LeaseBusy):
+                await other.open_local(edit_id, identity)
+            with pytest.raises(LeaseBusy):
+                await other.create(edit_id)
+            closing = asyncio.create_task(service.close_local(authorization))
+            await asyncio.sleep(0)
+            assert not closing.done()
+        finally:
+            release.set()
+        result = await asyncio.gather(task, return_exceptions=True)
+        assert isinstance(result[0], asyncio.CancelledError)
+        await closing
+        assert edit_id not in service.local
+        reopened = await other.open_local(edit_id, identity)
+        assert reopened["revision"] == 1
+        await service.shutdown()
+        await other.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_local_authorization_failed_open_and_cloud_loading_hold_same_fence(tmp_path, monkeypatch):
+    from image3d_scenegraph.gpu_lease import LeaseBusy
+
+    store, _, _ = setup_source(tmp_path)
+    edit_id = store.create("source")["edit_id"]
+    identity = store.source_identity(edit_id)
+    service = EditorSessions(store.jobs, renderer_factory=FakeRenderer)
+    other = EditorSessions(store.jobs, renderer_factory=FakeRenderer)
+
+    async def scenario():
+        with pytest.raises(EditConflict):
+            await service.open_local(edit_id, identity | {"ply_sha256": "0" * 64})
+        assert not service.local
+        loader = service._load
+        release = asyncio.Event()
+        async def waiting(session):
+            await release.wait()
+            await loader(session)
+        monkeypatch.setattr(service, "_load", waiting)
+        await service.create(edit_id)
+        with pytest.raises(LeaseBusy):
+            await other.open_local(edit_id, identity)
+        closing = asyncio.create_task(service.close(service.active))
+        await asyncio.sleep(0)
+        with pytest.raises(LeaseBusy):
+            await other.open_local(edit_id, identity)
+        release.set()
+        await closing
+        info = await other.open_local(edit_id, identity)
+        assert info["revision"] == 0
+        await other.shutdown()
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_local_and_cloud_share_export_budget_and_allow_distinct_documents(tmp_path, monkeypatch):
+    store, _, _ = setup_source(tmp_path)
+    first = store.create("source")["edit_id"]
+    second = store.create("source")["edit_id"]
+    for edit_id in (first, second):
+        store.save_version(edit_id, expected_revision=0)
+    service = EditorSessions(store.jobs, renderer_factory=FakeRenderer)
+
+    async def scenario():
+        release = asyncio.Event()
+        async def held_export(state):
+            await release.wait()
+            state["status"] = "done"
+        monkeypatch.setattr(service, "_export", held_export)
+        info = await service.open_local(first, store.source_identity(first))
+        authorization = service.authenticate_local(first, info["token"])
+        await service.create(second)
+        cloud = service.active
+        await cloud["loader"]
+        assert cloud["state"] == "viewing"
+        state = await service.export_local(authorization, "v00000000")
+        assert state == await service.export_local(authorization, "v00000000")
+        with pytest.raises(EditConflict):
+            await service.start_export(cloud, "v00000000")
+        release.set()
+        await service.export_task
+        release.clear()
+        await service.start_export(cloud, "v00000000")
+        with pytest.raises(EditConflict):
+            await service.export_local(authorization, "v00000000")
+        release.set()
+        await service.shutdown()
+        assert not service.local and service.active is None
+
+    asyncio.run(scenario())
 
 
 def test_editor_api_complete_cycle_and_guards(tmp_path):
