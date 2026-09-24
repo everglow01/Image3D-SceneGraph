@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from image3d_scenegraph.gaussian import cloud_media
 from image3d_scenegraph.gaussian.cloud_render import CloudRenderError
 from image3d_scenegraph.gaussian.editing import EditConflict, GaussianEditError
-from image3d_scenegraph.gaussian.editor_session import offload
+from image3d_scenegraph.gaussian.editor_session import EditorSessions, offload
 from image3d_scenegraph.gpu_lease import LeaseBusy
 
 
@@ -132,7 +132,7 @@ class Offer(Input):
     sdp: str = Field(min_length=1, max_length=65536)
 
 
-def editor_router(service, *, capability_provider=cloud_media.capabilities):
+def editor_router(service: EditorSessions, *, capability_provider=cloud_media.capabilities):
     router = APIRouter(prefix="/api", route_class=EditorRoute)
     disk_lock = asyncio.Lock()
 
@@ -222,10 +222,7 @@ def editor_router(service, *, capability_provider=cloud_media.capabilities):
 
     @router.post("/gaussian-render-sessions/{session_id}/invalidate-frame")
     async def invalidate(request: Request, session_id: str):
-        s = session(request, session_id)
-        async with service.action(s):
-            s["tickets"].invalidate()
-            s["selection"] = None
+        await service.invalidate_frame(session(request, session_id))
         return {"invalidated": True}
 
     @router.post("/gaussian-render-sessions/{session_id}/resume")

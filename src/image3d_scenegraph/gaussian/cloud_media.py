@@ -11,9 +11,13 @@ import json
 import os
 import re
 import time
+from typing import TYPE_CHECKING
 
 from image3d_scenegraph.gpu_lease import cloud_enabled
 from .cloud_render import CloudRenderError
+
+if TYPE_CHECKING:
+    from .editor_session import EditorSessions, RenderSession
 
 
 def turn_settings():
@@ -72,7 +76,7 @@ def browser_ice(session_id):
 
 
 class CloudMedia:
-    def __init__(self, service, session):
+    def __init__(self, service: EditorSessions, session: RenderSession):
         from aiortc import RTCPeerConnection, RTCConfiguration, VideoStreamTrack
         from av import VideoFrame
 

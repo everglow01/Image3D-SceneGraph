@@ -11,6 +11,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import numpy as np
 from PIL import Image
@@ -30,6 +31,55 @@ from .editing import (
     select_box,
     select_polygon,
 )
+
+
+if TYPE_CHECKING:
+    from .cloud_media import CloudMedia
+
+
+class SessionIdentity(TypedDict):
+    id: str
+    token: str
+    edit_id: str
+    version: str | None
+    state: Literal["loading", "viewing", "editing_frozen", "error", "closing", "closed"]
+    error: str | None
+
+
+class SelectionState(TypedDict):
+    token: str
+    mask: np.ndarray
+    ticket: str
+    previewed: bool
+
+
+class RenderSession(SessionIdentity, total=False):
+    # Loading sessions and retained closed identities do not contain model state.
+    revision: int | None
+    heartbeat: float
+    interaction: float
+    lock: asyncio.Lock
+    loader: asyncio.Task[None]
+    closer: asyncio.Task[None]
+    action_pending: bool
+    tickets: FrozenFrameTickets
+    camera: CloudCamera | None
+    seq: int
+    selection: SelectionState | None
+    media: CloudMedia | None
+    renderer: CloudRenderProcess | None
+    source: dict[str, Any]
+    means: np.ndarray
+    radii: np.ndarray
+    visible: np.ndarray
+    protected: np.ndarray | None
+    render_mask: np.ndarray | None
+    render_cache: tuple[str, np.ndarray] | None
+    prepared: dict[str, Any] | None
+    render_ms: float
+    motion_limit: int
+    quality_samples: int
+    paused: bool
 
 
 async def offload(function, *args, **kwargs):
@@ -54,8 +104,8 @@ class EditorSessions:
     def __init__(self, jobs, *, renderer_factory=CloudRenderProcess):
         self.edits = GaussianEditStore(jobs)
         self.renderer_factory = renderer_factory
-        self.active = None
-        self.last_closed = None
+        self.active: RenderSession | None = None
+        self.last_closed: RenderSession | None = None
         self.export_task = None
         self.export_state = None
         self._reaper = None
@@ -85,7 +135,7 @@ class EditorSessions:
     async def create(self, edit_id, version=None):
         if self.active is not None:
             raise EditConflict("已有云端会话（含加载/关闭中）；请先关闭或等待过期")
-        session = {
+        session: RenderSession = {
             "id": uuid.uuid4().hex,
             "token": secrets.token_urlsafe(32),
             "edit_id": edit_id,
@@ -113,7 +163,7 @@ class EditorSessions:
         session["loader"] = asyncio.create_task(self._load(session))
         return self.status(session) | {"token": session["token"]}
 
-    async def _load(self, s):
+    async def _load(self, s: RenderSession):
         try:
             async with s["lock"]:
                 document = await offload(self.edits.get, s["edit_id"])
@@ -155,7 +205,7 @@ class EditorSessions:
             if s["renderer"]:
                 await offload(s["renderer"].close)
 
-    def authenticate(self, session_id, token):
+    def authenticate(self, session_id, token) -> RenderSession:
         s = (
             self.active
             if self.active and self.active["id"] == session_id
@@ -172,7 +222,7 @@ class EditorSessions:
         s["heartbeat"] = time.monotonic()
         return s
 
-    def status(self, s):
+    def status(self, s: RenderSession):
         return {
             "session_id": s["id"],
             "edit_id": s["edit_id"],
@@ -188,7 +238,7 @@ class EditorSessions:
         }
 
     @asynccontextmanager
-    async def action(self, s, *, writable=False):
+    async def action(self, s: RenderSession, *, writable=False):
         if s is not self.active or s["state"] not in {"viewing", "editing_frozen"}:
             raise EditConflict("会话尚未就绪或正在关闭")
         if writable and s["version"]:
@@ -205,7 +255,7 @@ class EditorSessions:
         finally:
             s["action_pending"] = False
 
-    async def close(self, s):
+    async def close(self, s: RenderSession):
         if s["state"] == "closed":
             return
         if s.get("closer"):
@@ -214,7 +264,7 @@ class EditorSessions:
         s["closer"] = asyncio.create_task(self._close(s))
         await asyncio.shield(s["closer"])
 
-    async def _close(self, s):
+    async def _close(self, s: RenderSession):
         await asyncio.shield(s["loader"])
         s["state"] = "closing"
         if s["media"]:
@@ -229,21 +279,14 @@ class EditorSessions:
             s.pop("radii", None)
             s["state"] = "closed"
             self.last_closed = {
-                key: s.get(key)
-                for key in (
-                    "id",
-                    "token",
-                    "edit_id",
-                    "version",
-                    "state",
-                    "error",
-                    "revision",
-                )
+                "id": s["id"], "token": s["token"], "edit_id": s["edit_id"],
+                "version": s["version"], "state": s["state"], "error": s["error"],
+                "revision": s.get("revision"),
             }
             if self.active is s:
                 self.active = None
 
-    def camera_input(self, s, sequence, value):
+    def camera_input(self, s: RenderSession, sequence, value):
         if (
             s["state"] != "viewing"
             or type(sequence) is not int
@@ -258,7 +301,7 @@ class EditorSessions:
         s.update(camera=camera, seq=sequence, interaction=time.monotonic())
         return True
 
-    async def render(self, s, camera, visible):
+    async def render(self, s: RenderSession, camera, visible):
         mask = s["render_mask"]
         changed = mask is None or not np.array_equal(mask, visible)
         cached = s.get("render_cache")
@@ -278,7 +321,7 @@ class EditorSessions:
         s["render_cache"] = (camera.digest, frame["rgb"])
         return frame["rgb"]
 
-    async def video_frame(self, s):
+    async def video_frame(self, s: RenderSession):
         while s is self.active and s["state"] in {"viewing", "editing_frozen"}:
             if (
                 s["state"] == "viewing"
@@ -320,7 +363,7 @@ class EditorSessions:
             await asyncio.sleep(0.03)
         raise CloudRenderError("会话已结束")
 
-    async def prepare(self, s, sequence, camera_value):
+    async def prepare(self, s: RenderSession, sequence, camera_value):
         async with self.action(s):
             if s["state"] != "viewing":
                 raise EditConflict("当前不在导航模式")
@@ -338,7 +381,7 @@ class EditorSessions:
             }
             return result
 
-    async def freeze_prepared(self, s, ticket, revision):
+    async def freeze_prepared(self, s: RenderSession, ticket, revision):
         async with self.action(s):
             prepared = s.get("prepared")
             if s["state"] != "viewing" or not prepared or prepared["ticket"] != ticket:
@@ -355,7 +398,7 @@ class EditorSessions:
             s.update(state="editing_frozen", selection=None, prepared=None)
             return {"ticket": ticket, "revision": revision, "camera_seq": s["seq"]}
 
-    async def freeze(self, s, sequence, camera_value):
+    async def freeze(self, s: RenderSession, sequence, camera_value):
         async with self.action(s):
             camera = CloudCamera.from_json(camera_value)
             if type(sequence) is not int or sequence < s["seq"] or sequence < 0:
@@ -365,7 +408,7 @@ class EditorSessions:
             )
             return await self._frozen(s)
 
-    async def _frozen(self, s):
+    async def _frozen(self, s: RenderSession):
         camera, sequence, revision = s["camera"], s["seq"], s["revision"]
         rgb = await self.render(s, camera, s["visible"])
         image = await offload(png_data, rgb)
@@ -381,7 +424,6 @@ class EditorSessions:
             camera_seq=sequence,
             camera=camera,
         )
-        s["frame_ticket"] = ticket
         return {
             "ticket": ticket,
             "revision": revision,
@@ -393,7 +435,12 @@ class EditorSessions:
             "render_ms": round(s.get("render_ms", 0), 2),
         }
 
-    def validate_frame(self, s, ticket, revision):
+    async def invalidate_frame(self, s: RenderSession):
+        async with self.action(s):
+            s["tickets"].invalidate()
+            s["selection"] = None
+
+    def validate_frame(self, s: RenderSession, ticket, revision):
         if s["state"] != "editing_frozen" or revision != s["revision"]:
             raise EditConflict("固定帧或编辑版本已变化，请重新固定画面")
         s["tickets"].validate(
@@ -404,7 +451,7 @@ class EditorSessions:
             camera=s["camera"],
         )
 
-    async def visible_pick(self, s, polygon, depth_range, tolerance=0.02):
+    async def visible_pick(self, s: RenderSession, polygon, depth_range, tolerance=0.02):
         try:
             return await offload(
                 s["renderer"].pick,
@@ -419,7 +466,7 @@ class EditorSessions:
             s["render_mask"] = None
             s["render_cache"] = None
 
-    async def selection(self, s, request):
+    async def selection(self, s: RenderSession, request):
         async with self.action(s):
             self.validate_frame(s, request["ticket"], request["expected_revision"])
             kind = request["shape"]
@@ -506,7 +553,7 @@ class EditorSessions:
                 "revision": s["revision"],
             }
 
-    async def protection(self, s, request):
+    async def protection(self, s: RenderSession, request):
         async with self.action(s):
             self.validate_frame(s, request["ticket"], request["expected_revision"])
             if request["kind"] == "clear":
@@ -525,7 +572,7 @@ class EditorSessions:
             s["selection"] = None
             return {"protected_count": int(s["protected"].sum())}
 
-    async def depth_pick(self, s, request):
+    async def depth_pick(self, s: RenderSession, request):
         async with self.action(s):
             self.validate_frame(s, request["ticket"], request["expected_revision"])
             x, y = request["pixel"]
@@ -540,7 +587,7 @@ class EditorSessions:
                 raise GaussianEditError("此处表层深度不确定，请换个位置或手动设置深度")
             return {"depth": result["depth"]}
 
-    def selected(self, s, token, ticket, revision):
+    def selected(self, s: RenderSession, token, ticket, revision):
         self.validate_frame(s, ticket, revision)
         selection = s["selection"]
         if (
@@ -551,7 +598,7 @@ class EditorSessions:
             raise EditConflict("选择已失效，请重新预览")
         return selection["mask"]
 
-    async def preview(self, s, request):
+    async def preview(self, s: RenderSession, request):
         async with self.action(s):
             selected = (
                 self.selected(
@@ -579,7 +626,7 @@ class EditorSessions:
             s["selection"]["previewed"] = kind in {"isolated", "after_delete"}
             return {"image": image, "revision": s["revision"]}
 
-    async def refresh_committed(self, s):
+    async def refresh_committed(self, s: RenderSession):
         document = await offload(self.edits.get, s["edit_id"])
         if document["revision"] != s["revision"]:
             s["visible"] = await offload(self.edits.visible, s["edit_id"])
@@ -587,7 +634,7 @@ class EditorSessions:
             s["selection"] = None
             s["tickets"].invalidate()
 
-    async def operation(self, s, request):
+    async def operation(self, s: RenderSession, request):
         async with self.action(s, writable=True):
             key = request["operation_id"]
             digest = hashlib.sha256(
@@ -628,7 +675,7 @@ class EditorSessions:
                 await self.refresh_committed(s)
             return ack
 
-    async def resume(self, s):
+    async def resume(self, s: RenderSession):
         async with self.action(s):
             if s["media"]:
                 await s["media"].close()
@@ -637,13 +684,13 @@ class EditorSessions:
             s["tickets"].invalidate()
             s["state"] = "viewing"
 
-    async def save(self, s, revision):
+    async def save(self, s: RenderSession, revision):
         async with self.action(s, writable=True):
             return await offload(
                 self.edits.save_version, s["edit_id"], expected_revision=revision
             )
 
-    async def start_export(self, s, version):
+    async def start_export(self, s: RenderSession, version):
         async with self.action(s):
             await offload(self.edits.version, s["edit_id"], version)
             if self.export_task and not self.export_task.done():
