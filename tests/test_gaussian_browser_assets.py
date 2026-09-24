@@ -107,6 +107,10 @@ def test_missing_publication_is_quiet_but_invalid_record_is_diagnosable(tmp_path
     assert "gaussian_browser_assets" not in browser.with_browser_assets(root, manifest)
     assert "sample/original/scene.ply" in caplog.text
     assert "fingerprint mismatch" in caplog.text
+    caplog.clear()
+    (root / "original/export.json").write_text("{}")
+    assert "gaussian_browser_assets" not in browser.with_browser_assets(root, manifest)
+    assert "hash-bound SH3 export" in caplog.text
 
 
 def test_failure_and_concurrent_publication_leave_no_complete_asset(tmp_path, monkeypatch):

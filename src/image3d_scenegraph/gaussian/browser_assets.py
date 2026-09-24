@@ -119,7 +119,9 @@ def with_browser_assets(root: Path, manifest: dict) -> dict:
                 "gaussian_count": meta["gaussian_count"], "sh_degree": 2, "compression_level": 2,
             })
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            if record_path is not None and (record_path.exists() or record_path.is_symlink()):
+            publication_present = record_path is not None and (record_path.exists() or record_path.is_symlink())
+            metadata_failed = record_path is None and source and metadata and (root / "lifecycle/browser").is_dir()
+            if publication_present or metadata_failed:
                 logger.warning("Ignoring invalid browser publication for %s/%s: %s", root.name, source, exc)
             continue
     # Ignore persisted/unverified declarations; only complete local publications are advertised.
