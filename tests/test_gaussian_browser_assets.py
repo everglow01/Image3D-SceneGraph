@@ -97,6 +97,18 @@ def test_invalid_or_changed_publication_is_not_advertised(tmp_path, monkeypatch,
     assert response["assets"]["scene_splat"] == "original/scene.ply"
 
 
+def test_missing_publication_is_quiet_but_invalid_record_is_diagnosable(tmp_path, monkeypatch, caplog):
+    root, manifest = job(tmp_path)
+    assert "gaussian_browser_assets" not in browser.with_browser_assets(root, manifest)
+    assert not caplog.records
+    monkeypatch.setattr(browser.subprocess, "run", fake_converter)
+    destination = browser.publish_browser_asset(root, "original/scene.ply", Path("converter.mjs"))
+    (destination / "scene.ksplat").write_bytes(b"changed")
+    assert "gaussian_browser_assets" not in browser.with_browser_assets(root, manifest)
+    assert "sample/original/scene.ply" in caplog.text
+    assert "fingerprint mismatch" in caplog.text
+
+
 def test_failure_and_concurrent_publication_leave_no_complete_asset(tmp_path, monkeypatch):
     root, manifest = job(tmp_path)
     def failed(command, **kwargs):

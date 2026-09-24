@@ -138,7 +138,7 @@ function pageHarness(options: {
     sortSelector: () => find(tree, n => n.props?.["aria-label"] === "排序预计算试验")?.props,
     hint: () => find(tree, n => n.props?.className === "viewer-hint")?.props.children.flat().join(""),
     browserSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产")?.props,
-    fallback: () => find(tree, n => n.props?.role === "status")?.props.children,
+    fallback: () => find(tree, n => n.props?.role === "status")?.props.children.flat().join(""),
     overlay: () => find(tree, n => n.props?.className === "viewer-overlay")?.props.children.flat().join(""),
     changeSource: (source = "/other.ply", browser: string | undefined = undefined) => {
       props.sourceUrl = source; props.browserSourceUrl = browser; dirty = true;
@@ -291,7 +291,7 @@ test("K2 failure releases before one PLY fallback and does not leak across model
   h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
   assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/scene.ply", "/bad.ksplat", "/scene.ply"]);
   assert.equal(h.instances[1].disposed, true);
-  assert.match(h.fallback(), /回退原始 PLY/);
+  assert.match(h.fallback(), /回退原始 PLY.*原因：bad K2/);
   assert.equal(h.browserSelector().value, "ply");
   await h.flush(); assert.equal(h.instances.length, 3);
   h.changeSource("/other.ply", "/good.ksplat"); await h.flush();

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 import os
 import re
 import subprocess
@@ -14,6 +15,7 @@ from image3d_scenegraph.file_integrity import sha256_file
 
 PROFILE = "ksplat_sh2_k2_v1"
 RENDERER = "@mkkellogg/gaussian-splats-3d@0.4.7"
+logger = logging.getLogger(__name__)
 
 
 def contained_path(root: Path, relative: str) -> Path:
@@ -87,9 +89,11 @@ def with_browser_assets(root: Path, manifest: dict) -> dict:
     """Discover complete source-bound assets without hashing large files on GET."""
     assets = []
     for source, metadata in source_pairs(manifest):
+        record_path = None
         try:
             ply, meta_path, meta = source_metadata(root, source, metadata)
             folder = f"lifecycle/browser/{meta['browser_sha256']}"
+            record_path = root / folder / "record.json"
             record = read_record(contained_path(root, f"{folder}/record.json"))
             output = contained_path(root, f"{folder}/scene.ksplat")
             if (
@@ -108,13 +112,15 @@ def with_browser_assets(root: Path, manifest: dict) -> dict:
                 or not 0 < output.stat().st_size <= 1_073_741_824
                 or not re.fullmatch(r"[a-f0-9]{64}", str(record["output"]["sha256"]))
             ):
-                continue
+                raise ValueError("publication identity or source/output fingerprint mismatch")
             assets.append({
                 "source": source, "path": f"{folder}/scene.ksplat",
                 "sha256": record["output"]["sha256"], "bytes": output.stat().st_size,
                 "gaussian_count": meta["gaussian_count"], "sh_degree": 2, "compression_level": 2,
             })
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            if record_path is not None and (record_path.exists() or record_path.is_symlink()):
+                logger.warning("Ignoring invalid browser publication for %s/%s: %s", root.name, source, exc)
             continue
     # Ignore persisted/unverified declarations; only complete local publications are advertised.
     result = {key: value for key, value in manifest.items() if key != "gaussian_browser_assets"}

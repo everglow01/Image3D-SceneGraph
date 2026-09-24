@@ -268,7 +268,7 @@ export function GaussianSplatViewer({
   const experimentEnabled = sourceUrl === EXPERIMENT_SOURCE && typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("browser-ksplat-ab");
   const browserKey = JSON.stringify([sourceUrl, metadataUrl, browserSourceUrl]);
-  const [browserChoice, setBrowserChoice] = useState<{ key: string; value: "k2" | "ply"; failed?: boolean } | null>(null);
+  const [browserChoice, setBrowserChoice] = useState<{ key: string; value: "k2" | "ply"; failed?: string } | null>(null);
   useEffect(() => setBrowserChoice(null), [browserKey]);
   const useK2 = !!browserSourceUrl && !experimentEnabled && rendererKind === "legacy" &&
     browserChoice?.key === browserKey && browserChoice.value === "k2";
@@ -684,7 +684,7 @@ export function GaussianSplatViewer({
             await release();
             if (cancelled) return;
             controller.abort();
-            setBrowserChoice({ key: browserKey, value: "ply", failed: true });
+            setBrowserChoice({ key: browserKey, value: "ply", failed: (error instanceof Error ? error.message : String(error)) || "未知加载错误" });
             return;
           }
           if (cancelled) return;
@@ -989,7 +989,7 @@ export function GaussianSplatViewer({
         </div>
       )}
       {browserFallback && !experimentEnabled && rendererKind === "legacy" && (
-        <div className="walk-ready-hint" role="status">K2 加载失败，已回退原始 PLY；原始模型未改动。</div>
+        <div className="walk-ready-hint" role="status">K2 加载失败，已回退原始 PLY；原始模型未改动。原因：{browserFallback}</div>
       )}
       {!browserFallback && navigationState === "ready" && viewerMode === "orbit" && (
         <div className="walk-ready-hint">{walkMessage}</div>
