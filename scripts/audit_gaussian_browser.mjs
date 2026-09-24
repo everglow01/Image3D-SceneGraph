@@ -78,8 +78,8 @@ window.loadScene = async (view, degree, mode) => {
   window.viewer = viewer; window.camera = camera; window.renderer = renderer;
   const threshold = mode==='product' ? Math.floor(0.005*255) : 0;
   await viewer.addSplatScene('/scene.ply', {showLoadingUI:false, progressiveLoad:${selfTest ? 'false' : 'true'},
-    splatAlphaRemovalThreshold:threshold});
-  if(viewer.splatSceneDownloadAndBuildPromise) await viewer.splatSceneDownloadAndBuildPromise;
+    splatAlphaRemovalThreshold:threshold}).promise;
+  if(viewer.splatSceneDownloadAndBuildPromise) await viewer.splatSceneDownloadAndBuildPromise.promise;
   if(treeReady) {
     let treeTimer;
     try { await Promise.race([treeReady,new Promise((_,reject)=>{treeTimer=setTimeout(()=>reject(Error('splat tree build timeout')),300000);})]); }
