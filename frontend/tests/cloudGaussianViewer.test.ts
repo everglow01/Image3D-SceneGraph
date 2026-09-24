@@ -127,6 +127,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     tick: async () => { const callbacks = [...timeouts.values()]; timeouts.clear(); for (const fn of callbacks) fn(); await flush(); },
     button: (label: string) => find(tree, n => n.type === "button" && n.props.children === label)?.props,
     tool: () => find(tree, n => n.type === "select" && n.props.value === "rectangle").props,
+    selectionMode: () => find(tree, n => n.type === "select" && ["visible", "depth", "through"].includes(n.props.value)).props,
     loadImage: () => imageNode.props.onLoad({ currentTarget: imageNode }),
     imageKey: () => imageNode?.key,
     displayFrame: () => frameCallback?.(),
@@ -244,6 +245,23 @@ test("rectangle drag computes selection, keeps delete locked until isolated prev
   } finally { h.unmount(); }
 });
 
+
+test("changing selection mode cancels an armed depth pick", async () => {
+  const h = harness();
+  try {
+    await h.flush(); h.button("连接云端").onClick(); await h.flush();
+    h.displayFrame(); await h.flush(); await h.tick(); h.loadImage(); await h.flush();
+    h.button("开始选择当前高清画面").onClick(); await h.flush();
+    h.selectionMode().onChange({ target: { value: "depth" } }); await h.flush();
+    h.button("点击画面拾取深度").onClick(); await h.flush();
+    h.selectionMode().onChange({ target: { value: "visible" } }); await h.flush();
+    h.svg().onPointerDown({ currentTarget: { setPointerCapture() {} }, pointerId: 1, clientX: 210, clientY: 150, button: 0 });
+    await h.flush();
+    assert.equal(h.requests.some(r => r.url.endsWith("/depth-pick")), false);
+    h.selectionMode().onChange({ target: { value: "depth" } }); await h.flush();
+    assert.ok(h.button("点击画面拾取深度"));
+  } finally { h.unmount(); }
+});
 
 test("missing cloud capability stays unavailable without local fallback", async () => {
   const h = harness(false); await h.flush();

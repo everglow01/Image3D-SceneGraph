@@ -85,7 +85,7 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
   function showFrame(value: Frame) {
     frameRef.current = value; setFrame(value); setDisplay(value.image); setImageReady(false); setImageSerial(v => v + 1);
     setFrameZoom(1); setFrameShift([0, 0]);
-    setSelection(null); setPolygon([]); setPreviewed(false); setConfirmed(false);
+    setSelection(null); setPolygon([]); setPreviewed(false); setConfirmed(false); setDepthPick(false);
   }
   async function prepareFrame() {
     if (preparingNow.current || !session.current || frozenRef.current || !video.current) return;
@@ -224,7 +224,7 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
     if (video.current) video.current.srcObject = null;
     if (session.current) await sessionCall("", "DELETE");
     session.current = null; frozenRef.current = false; frameRef.current = null;
-    setFrame(null); setDisplay(""); setSelection(null); setState("idle");
+    setFrame(null); setDisplay(""); setSelection(null); setDepthPick(false); setState("idle");
     if (controls.current) controls.current.enabled = true;
     await refreshDocuments();
   }
@@ -364,7 +364,7 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
   }, [metadataUrl, cameraPathUrl, alignmentUrl, source.job_id, source.variant_id, source.asset_role]);
 
   useEffect(() => {
-    setSelection(null); setPreviewed(false); setConfirmed(false);
+    setSelection(null); setPreviewed(false); setConfirmed(false); setDepthPick(false);
   }, [tool, selectionMode, near, far, layerTolerance, minimum, maximum, coverage, combine]);
 
   function pointer(event: ReactPointerEvent<SVGSVGElement>, phase: "start" | "move" | "end") {
