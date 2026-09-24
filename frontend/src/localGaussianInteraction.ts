@@ -5,6 +5,7 @@ import { LocalGaussianEditing, localEditorShortcut, type LocalPreview, type Sele
 import { LocalSelectionClient } from "./localGaussianSelectionClient.ts";
 import type { LocalSelectionMode } from "./localGaussianSelection.ts";
 import type { SparkLocalEdit, SparkPageViewer } from "./SparkPageViewer.ts";
+import { validateP0Mask } from "./localGaussianP0Source.ts";
 
 export type LocalTool = "navigate" | "rectangle" | "lasso" | "pick" | "box";
 
@@ -19,6 +20,8 @@ export class LocalGaussianInteraction {
   selecting = false;
   error = "";
   polygon: Pixel[] = [];
+  inputEnabled = true;
+  private historicalMask: Uint8Array | null = null;
   private disposed = false;
   private failed = false;
   private serial = 0;
@@ -56,6 +59,18 @@ export class LocalGaussianInteraction {
   }
 
   get ready() { return !this.disposed && !this.failed; }
+  get editable() { return this.ready && this.inputEnabled && this.historicalMask === null; }
+  get viewingHistory() { return this.historicalMask !== null; }
+
+  async showHistoricalMask(mask: Uint8Array | null) {
+    if (!this.ready) throw new Error("本地编辑已关闭或显示失败");
+    if (mask) validateP0Mask(mask, this.state.count);
+    this.cancel(); this.endDrag(); this.restoreGizmoNavigation();
+    this.gizmo?.detach(); this.box.visible = false; this.polygon = [];
+    this.historicalMask = mask?.slice() ?? null;
+    if (!mask && this.tool === "box") this.showBox();
+    this.notify(); await this.refresh();
+  }
   get displayBusy() { return this.rendering !== null; }
 
   private watchView = () => {
@@ -84,8 +99,9 @@ export class LocalGaussianInteraction {
       while (this.dirty && !this.disposed) {
         this.dirty = false;
         const masks = this.state.masks;
-        await this.viewer.updateLocalEdit(this.handle, this.state.displayMask, masks.selected, masks.protected,
-          this.highlight && this.state.previewMode === "none");
+        const empty = this.historicalMask ? new Uint8Array(masks.visible.length) : null;
+        await this.viewer.updateLocalEdit(this.handle, this.historicalMask ?? this.state.displayMask, empty ?? masks.selected, empty ?? masks.protected,
+          !this.historicalMask && this.highlight && this.state.previewMode === "none");
       }
     })().catch(error => { this.failed = true; this.report(error); throw error; }).finally(() => {
       this.rendering = null; if (!this.disposed) this.notify();
@@ -95,7 +111,7 @@ export class LocalGaussianInteraction {
   }
 
   async act(action: () => unknown) {
-    if (!this.ready) throw new Error("本地编辑已关闭或显示失败");
+    if (!this.editable) throw new Error("当前为只读状态，或编辑已关闭");
     this.cancel(); this.endDrag(); this.error = "";
     action(); this.notify(); await this.refresh();
   }
@@ -114,7 +130,7 @@ export class LocalGaussianInteraction {
   async preview(mode: LocalPreview) { await this.act(() => this.state.setPreview(mode)); }
 
   async selectPolygon(polygon: Pixel[], pick = false) {
-    if (!this.ready || this.state.previewMode !== "none") throw new Error("请先返回编辑画面再选择");
+    if (!this.editable || this.state.previewMode !== "none") throw new Error("请先返回编辑画面再选择");
     this.cancel();
     const serial = this.serial, revision = this.state.revision;
     await this.refresh();
@@ -154,7 +170,7 @@ export class LocalGaussianInteraction {
   }
 
   private pointerDown = (event: PointerEvent) => {
-    if (!this.ready || event.button !== 0 || event.altKey || this.tool === "navigate" || this.tool === "box") return;
+    if (!this.editable || event.button !== 0 || event.altKey || this.tool === "navigate" || this.tool === "box") return;
     event.preventDefault(); event.stopImmediatePropagation(); this.canvas.focus();
     if (this.state.previewMode !== "none") { this.report(new Error("请先返回编辑画面")); return; }
     if (this.drag) return;
@@ -217,7 +233,7 @@ export class LocalGaussianInteraction {
 
   keyDown = (event: KeyboardEvent) => {
     const action = localEditorShortcut(event);
-    if (!action || !this.ready) return;
+    if (!action || !this.editable) return;
     event.preventDefault(); event.stopPropagation();
     const work = action === "delete" ? this.deleteSelection() : this.act(() => {
       if (action === "undo") this.state.undo();

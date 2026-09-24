@@ -79,6 +79,18 @@ test("保存只确认点击快照，期间修改仍脏；保留undo并将已保�
   await sync.dispose();
 });
 
+test("仅保护或重复保存不产生快照revision，已有导出下载身份保留", async t => {
+  const { state, sync, server } = setup(t); await sync.open();
+  state.select(new Uint8Array([1]), "replace"); state.protectSelected(true);
+  assert.equal(sync.dirty, false); assert.equal(sync.hasUnsavedWork, true);
+  await sync.save(() => true); assert.equal(server.revision, 0); assert.equal(state.canUndo, true);
+  await sync.startExport("v00000000"); server.exportStatus = "done"; await sync.pollExport();
+  await sync.save(() => true);
+  assert.equal(server.calls.filter(c => c.method === "PUT").length, 0);
+  assert.match(sync.downloadUrl("v00000000", "scene.ply"), /scene.ply$/);
+  assert.equal(state.masks.protected[0], 1); await sync.dispose();
+});
+
 test("ACK丢失后原ID原内容重放，过期重新授权也不把新修改夹入重试", async t => {
   const { state, sync, server } = setup(t); await sync.open(); remove(state, 1);
   server.loseAck = true; await assert.rejects(sync.save(() => true), /ACK丢失/);
@@ -148,12 +160,21 @@ test("断网草稿先恢复本地，重连核对原revision；远端变化不能
   await sync.dispose();
 });
 
-test("导入等待网络时新本地修改不被覆盖，保存待确认时不能导入替换", async t => {
+test("导入等待网络时新本地修改不被覆盖", async t => {
   const { state, sync, server } = setup(t);
   server.authWait = deferred(); const text = encodeLocalDraft(editId, identity, 0, new Uint8Array([253]), new Uint8Array([0]), null);
   const restore = sync.restoreDraft(text); remove(state, 1); server.authWait.resolve();
   await assert.rejects(restore, /本地状态已变化/); assert.equal(state.masks.visible[0], 254);
   await sync.dispose();
+});
+
+test("保存待确认时不能用草稿替换原请求", async t => {
+  const { state, sync, server } = setup(t); await sync.open(); remove(state, 1);
+  server.loseAck = true; await assert.rejects(sync.save(() => true), /ACK丢失/);
+  const text = encodeLocalDraft(editId, identity, 0, new Uint8Array([253]), new Uint8Array([0]), null);
+  await assert.rejects(sync.restoreDraft(text), /尚未确认/);
+  assert.equal(state.masks.visible[0], 254); assert.equal(sync.needsRetry, true);
+  await sync.save(() => true); assert.equal(server.revision, 1); await sync.dispose();
 });
 
 test("历史版本只读mask和导出不提交当前本地修改，下载使用普通链接", async t => {

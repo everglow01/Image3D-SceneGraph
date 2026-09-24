@@ -44,6 +44,25 @@ function harness() {
 }
 const polygon: [number, number][] = [[10, 10], [20, 10], [20, 20], [10, 20]];
 
+test("历史只读显示不改当前mask或撤销历史，快捷键和旧选择不能写入", async () => {
+  const h = harness();
+  try {
+    h.session.state.select(new Uint8Array([1]), "replace");
+    await h.session.deleteSelection();
+    const current = h.session.state.masks.visible, history = h.session.state.historyBytes;
+    const pending = h.session.selectPolygon(polygon); await h.requested;
+    await h.session.showHistoricalMask(new Uint8Array([63]));
+    h.reply(2); await pending;
+    assert.equal(h.session.editable, false); assert.equal(h.displays.at(-1)![0], 63);
+    h.session.keyDown({ key: "z", ctrlKey: true, target: null, preventDefault() { assert.fail("只读快捷键不应拦截"); } } as unknown as KeyboardEvent);
+    await assert.rejects(h.session.act(() => h.session.state.undo()), /只读/);
+    assert.deepEqual(h.session.state.masks.visible, current); assert.equal(h.session.state.historyBytes, history);
+    await h.session.showHistoricalMask(null);
+    assert.equal(h.session.editable, true); assert.equal(h.displays.at(-1)![0], current[0]);
+    await h.session.act(() => h.session.state.undo()); assert.equal(h.session.state.masks.visible[0], 63);
+  } finally { await h.close(); }
+});
+
 test("相机变化即使尚未被动画帧观察，也拒绝旧选择响应", async () => {
   const h = harness();
   try {

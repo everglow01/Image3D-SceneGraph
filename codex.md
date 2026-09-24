@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-24，P3第二小点完成独立LocalGaussianEditor文档绑定与保存面板：自动授权／权威基线读取、保存版本与原请求重试、草稿下载／严格导入／断网基线复核、历史版本只读显示和返回当前历史、共用CPU导出与直接下载链接。初始基线暂停输入，保存中允许本地操作；选集不误标为未保存，可见ACK只确认提交代次，保护仍提示需草稿。历史查看取消旧选择并禁用写入快捷键，不改当前mask/undo，不重载PLY；卸载串行等待旧授权和显示释放，原生beforeunload仅尽力保护。补充控制器、面板、只读交互、授权生命周期及API回归源码，产品／变更回归TypeScript、Node类型擦除语法、Python AST／Ruff、diff静态检查通过，未运行任何新增回归、构建或GPU验收。合同 `docs/gaussian-local-editor-p3.md` 明确未知／陈旧草稿基线不能自动覆盖、无浏览器持久缓存；P1/P2运行仍未验收。P4正式入口／App切源保护、P5双模型长时实机均未开始，不优化已接受100ms导航，不push/pull/部署，用户旧文档仅追加本批段落并独立暂存。
+
 - 2026-09-24，按用户“继续完成下一轮”推进P3，先实现源绑定前端持久化控制器与严格草稿编解码：本地可见代次独立于服务端revision，点击快照后继续编辑不会被旧ACK标为已保存；快照／版本失败保留原操作ID和内容，重新授权读回基线、冲突停止同步，保存不清本地undo/redo。草稿只含源身份、文档、基线revision、visible/protected及相机，拒绝错源／未知字段／非法mask，离线恢复后必须核对服务器基线。GET local-mask增补已保存version只读查询，复用源校验与不可变版本mask，不启动GPU。新增前端状态／故障回归与Python只读版本回归源码；产品及回归TypeScript、Python AST、Ruff、diff静态检查通过，测试未执行（首次回归类型检查使用NodeNext与项目不符，改用现有bundler解析及Node类型后通过，无依赖改动）。后续接独立面板保存／导出／恢复，不进入P4正式入口，不push/pull/部署，不沿用P0运行授权，用户原文件保留。
 
 - 2026-09-24，P2第二小点完成无GPU本地保存HTTP协议：`local-authorization`固定600秒、最多64个单文档token，`local-mask`读回源身份／revision且仅PUT允许512KiB未压缩二进制，其他JSON仍96KiB；校验Origin、请求头、源SHA／metadata／count、实际流长度和CAS／幂等。云会话与本地授权共用持续持有的`.writer.lock`，不同文档独立、同文档冲突409；加载／关闭／过期中的在途线程和重复取消均不提前释放。版本／导出复用原CPU存储及当前服务单在途导出协调器，不启动renderer、CUDA或媒体。新增CPU保存恢复导出、非法输入／跨文档凭证、预算、过期与竞争／取消回归源码；Python AST、Ruff、diff静态检查通过，测试与真实环境均未运行。协议在 `docs/gaussian-local-editor-p2.md`；P1运行验收仍未执行，前端保存／草稿／正式入口留P3/P4，不push/pull/部署，不改源数据或生产默认，用户旧文档不夹带提交。

@@ -5,11 +5,17 @@ import { LocalGaussianInteraction, type LocalTool } from "./localGaussianInterac
 import { LocalSelectionClient } from "./localGaussianSelectionClient.ts";
 import type { SelectionOperation } from "./localGaussianEditing.ts";
 import type { LocalSelectionMode } from "./localGaussianSelection.ts";
+import { LocalGaussianPersistence } from "./localGaussianPersistence.ts";
+import { LocalGaussianSavePanel } from "./LocalGaussianSavePanel.tsx";
 import "./localGaussianEditor.css";
 
 // Explicit mount only: the product's source switching and unsaved-work gate belong to P4.
-export function LocalGaussianEditor({ viewer, sourceSha256 }: { viewer: SparkPageViewer; sourceSha256: string }) {
+export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
+  viewer: SparkPageViewer; sourceSha256: string; documentBinding?: { editId: string; metadataSha256: string };
+}) {
   const [editor, setEditor] = useState<LocalGaussianInteraction | null>(null);
+  const [persistence, setPersistence] = useState<LocalGaussianPersistence | null>(null);
+  const editId = documentBinding?.editId, metadataSha256 = documentBinding?.metadataSha256;
   const [error, setError] = useState("");
   const [, redraw] = useState(0);
   const lifecycle = useRef<Promise<void>>(Promise.resolve());
@@ -17,30 +23,47 @@ export function LocalGaussianEditor({ viewer, sourceSha256 }: { viewer: SparkPag
   useEffect(() => {
     const abort = new AbortController();
     let handle: SparkLocalEdit | undefined, client: LocalSelectionClient | undefined, session: LocalGaussianInteraction | undefined;
-    setEditor(null); setError("");
+    let storage: LocalGaussianPersistence | undefined;
+    const notify = () => { if (!abort.signal.aborted) redraw(n => n + 1); };
+    const release = async () => {
+      const oldStorage = storage, oldSession = session, oldHandle = handle, oldClient = client;
+      storage = undefined; session = undefined; handle = undefined; client = undefined;
+      try { await oldStorage?.dispose(); }
+      finally {
+        if (oldSession) await oldSession.dispose();
+        else { oldClient?.dispose(); if (oldHandle) await viewer.endLocalEdit(oldHandle); }
+      }
+    };
+    setEditor(null); setPersistence(null); setError("");
     const initialized = lifecycle.current.then(async () => {
       abort.signal.throwIfAborted();
       handle = await viewer.beginLocalEdit(sourceSha256, abort.signal);
       abort.signal.throwIfAborted();
       client = new LocalSelectionClient(new Worker(new URL("./gaussianSelection.worker.ts", import.meta.url), { type: "module" }), sourceSha256, handle.source);
       await client.ready; abort.signal.throwIfAborted();
-      session = new LocalGaussianInteraction(viewer, handle, client, () => { if (!abort.signal.aborted) redraw(n => n + 1); });
-      setEditor(session); await session.refresh();
+      session = new LocalGaussianInteraction(viewer, handle, client, notify);
+      session.inputEnabled = !editId;
+      if (editId !== undefined) storage = new LocalGaussianPersistence(session.state, editId, metadataSha256 ?? "", notify);
+      setEditor(session); setPersistence(storage ?? null);
+      if (storage) {
+        try { await storage.open(); }
+        catch (e) { if (!abort.signal.aborted) session.report(e); }
+      }
+      abort.signal.throwIfAborted();
+      session.inputEnabled = true;
+      await session.refresh();
     }).catch(async e => {
       if (!abort.signal.aborted) setError(e instanceof Error ? e.message : String(e));
-      if (session) await session.dispose();
-      else { client?.dispose(); if (handle) await viewer.endLocalEdit(handle); }
-      session = undefined; handle = undefined; client = undefined;
+      await release();
     });
     lifecycle.current = initialized.catch(() => {});
     return () => {
       abort.abort(); client?.dispose();
-      lifecycle.current = initialized.catch(() => {}).then(async () => {
-        if (session) await session.dispose();
-        else if (handle) await viewer.endLocalEdit(handle);
-      }).catch(e => { console.error("本地编辑资源释放失败", e); });
+      if (session) { session.inputEnabled = false; session.cancel(); }
+      lifecycle.current = initialized.catch(() => {}).then(release)
+        .catch(e => { console.error("本地编辑资源释放失败", e); });
     };
-  }, [viewer, sourceSha256]);
+  }, [viewer, sourceSha256, editId, metadataSha256]);
 
   useEffect(() => {
     let frame = 0;
@@ -62,12 +85,12 @@ export function LocalGaussianEditor({ viewer, sourceSha256 }: { viewer: SparkPag
   const counts = useMemo(() => editor?.state.counts, [editor, revision]);
   const run = (action: () => Promise<unknown>) => { void action().catch(e => editor?.report(e)); };
   const toolNames: [LocalTool, string][] = [["navigate", "导航"], ["rectangle", "矩形"], ["lasso", "套索"], ["pick", "拾取薄层深度"], ["box", "三维盒"]];
-  return <section className="local-gaussian-editor" aria-label="本地编辑 P1" onKeyDown={e => editor?.keyDown(e.nativeEvent)}>
-    <strong>本地编辑 · P1 独立组件</strong>
-    <p>仅内存编辑，尚无保存与导出；卸载组件会丢失修改。表层选择不是物体分割。</p>
+  return <section className="local-gaussian-editor" aria-label="本地编辑 P3" onKeyDown={e => editor?.keyDown(e.nativeEvent)}>
+    <strong>本地编辑 · 实验性独立组件</strong>
+    <p>{documentBinding ? "读回初始基线后，本地交互不等待服务器；保存版本与导出分开。" : "未绑定编辑文档，仅内存编辑，卸载组件会丢失修改。"}表层选择不是物体分割。</p>
     {!editor && !error && <p role="status">正在准备源行几何与选择 Worker…</p>}
     {(error || editor?.error) && <p role="alert">{error || editor?.error}</p>}
-    <fieldset disabled={!editor?.ready}>
+    <fieldset disabled={!editor?.editable}>
       <legend>选择与导航</legend>
       <div className="local-editor-actions">{toolNames.map(([value, label]) => <button key={value} type="button"
         aria-pressed={editor?.tool === value} onClick={() => editor && run(() => editor.changeTool(value))}>{label}</button>)}</div>
@@ -97,9 +120,9 @@ export function LocalGaussianEditor({ viewer, sourceSha256 }: { viewer: SparkPag
       <p>左拖选择；Alt＋左拖或“导航”工具转动视角，右键平移。拖选时暂锁导航，松开即释放。</p>
     </fieldset>
     {editor && counts && <>
-      <p role="status">可见 {counts.visible.toLocaleString()} · 选中 {counts.selected.toLocaleString()} · 受保护 {counts.protected.toLocaleString()} · 可删除 {counts.deletable.toLocaleString()}
+      <p role="status">{editor.viewingHistory ? "当前编辑状态（非正在查看的历史版本）：" : ""}可见 {counts.visible.toLocaleString()} · 选中 {counts.selected.toLocaleString()} · 受保护 {counts.protected.toLocaleString()} · 可删除 {counts.deletable.toLocaleString()}
         {editor.selecting ? " · 正在选择…" : editor.displayBusy ? " · 正在更新画面…" : ""}</p>
-      <fieldset disabled={!editor.ready}><legend>非破坏操作</legend>
+      <fieldset disabled={!editor.editable}><legend>非破坏操作</legend>
         <div className="local-editor-actions">
           <button type="button" disabled={!counts.deletable || editor.state.previewMode === "original"} onClick={() => run(() => editor.deleteSelection())}>隐藏选中项（Delete）</button>
           <button type="button" disabled={!editor.state.canUndo} onClick={() => run(() => editor.act(() => editor.state.undo()))}>撤销</button>
@@ -120,6 +143,7 @@ export function LocalGaussianEditor({ viewer, sourceSha256 }: { viewer: SparkPag
         <p>预览不修改可见状态；Ctrl/Cmd＋Z 撤销，Shift＋Ctrl/Cmd＋Z 重做，Esc 取消／清空。历史最多100步，不含选集与临时预览。</p>
       </fieldset>
     </>}
+    {editor && persistence && <LocalGaussianSavePanel key={`${editId}:${sourceSha256}`} editor={editor} persistence={persistence} viewer={viewer} />}
     {createPortal(<svg ref={overlay} className="local-editor-selection" aria-hidden="true">
       {editor && editor.polygon.length > 1 && <polygon points={editor.polygon.map(p => p.join(",")).join(" ")} />}
     </svg>, document.body)}

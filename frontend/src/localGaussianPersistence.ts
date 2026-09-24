@@ -149,9 +149,11 @@ export class LocalGaussianPersistence {
       if (version.revision !== p.ackRevision || version.visible_count !== maskCount(p.visible)) throw new Error("版本响应与保存快照不一致");
       const remote = await this.readSnapshot();
       if (remote.revision !== p.ackRevision || !sameMask(remote.visible, p.visible)) this.stopConflict();
-      this.base = remote; this.savedGeneration = p.generation; this.lastVersion = version;
+      const saved = { ...this.versions.find(v => v.version === version.version), ...version } as LocalVersion;
+      this.base = remote; this.savedGeneration = p.generation; this.lastVersion = saved;
       this.pending = null;
-      this.versions = [...this.versions.filter(v => v.version !== version.version), version];
+      this.versions = [...this.versions.filter(v => v.version !== saved.version), saved];
+      return saved;
     });
   }
 

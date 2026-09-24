@@ -12,7 +12,7 @@
 |---|---|
 | `POST /local-authorization` | JSON `{ply_sha256, metadata_sha256, gaussian_count}`；返回 201、单文档 token、相同 identity、当前 revision／visible_count、剩余授权秒数 |
 | `DELETE /local-authorization` | 关闭授权，等待正在执行的 CPU 操作结束再释放文档锁 |
-| `GET /local-mask` | 返回 `application/octet-stream` packed mask 和权威 revision／源身份响应头 |
+| `GET /local-mask` | 返回 `application/octet-stream` packed mask 和权威 revision／源身份响应头；P3 增补可选 `version=v00000001`，只读获取不可变版本 mask |
 | `PUT /local-mask` | 二进制完整可见 mask；控制字段为下述 query 参数；返回已提交 ACK |
 | `POST /local-versions` | JSON `{expected_revision}`；保存或复用该 revision 的不可变版本 |
 | `POST /local-exports/{version}` | 返回 202，复用云端单在途 CPU 导出协调器 |
@@ -78,4 +78,4 @@ GET mask 通过同一个存储文件锁读取 revision 与数据，返回：
 
 回归源码扩展于 `tests/test_gaussian_editing.py`、`tests/test_gaussian_editor_api.py`：源绑定、padding／长度／全删／大比例、恢复与旧版本不变、CAS／重放／原子失败、历史与操作预算、CPU-only 保存导出及保留行逐字节、跨文档 token、body 实际上限、旧云 mask 禁入、过期／加载关闭竞争、重复取消时的锁占用及共用导出预算。**这些用例尚未运行，不能宣称通过。**
 
-P3 才接前端保存／导出、ACK 丢失恢复和草稿；P4 才接正式页面与全局离开保护；P5 完整验收仍独立。当前 P1 运行验收也仍待执行。
+后续 [P3](gaussian-local-editor-p3.md) 已实现独立组件的前端保存／导出、ACK 丢失恢复和草稿代码，仍未运行验收；本文的 P2 历史验证状态不变。P4 才接正式页面与全局离开保护；P5 完整验收仍独立。当前 P1／P2 运行验收也仍待执行。
