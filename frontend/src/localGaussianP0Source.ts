@@ -1,4 +1,4 @@
-import type { SplatMesh } from "@sparkjsdev/spark";
+import type { ExtSplats, SplatMesh } from "@sparkjsdev/spark";
 
 export const P0_MAX_SPLATS = 3_000_000;
 export const P0_STRIDE = 11;
@@ -50,6 +50,24 @@ export function requireP0Mesh(mesh: SplatMesh) {
     throw new Error("P0 仅支持未经修改的非 LOD SH3 ExtSplats");
   }
   return ext;
+}
+
+// The reference must be decoded independently from exactly one original PLY row.
+export function verifyP0EncodedRow(actual: ExtSplats, sourceId: number, reference: ExtSplats) {
+  if (!Number.isSafeInteger(sourceId) || sourceId < 0 || sourceId >= actual.numSplats || reference.numSplats !== 1 ||
+      actual.extArrays.length !== 2 || reference.extArrays.length !== 2) {
+    throw new Error("P0 原行编码参照不合法");
+  }
+  const arrays = (ext: ExtSplats) => [...ext.extArrays, ...["sh1", "sh2", "sh3a", "sh3b"].map(k => ext.extra[k])];
+  const expected = arrays(reference);
+  arrays(actual).forEach((array, index) => {
+    const ref = expected[index];
+    if (!(array instanceof Uint32Array) || !(ref instanceof Uint32Array) ||
+        array.length < (sourceId + 1) * 4 || ref.length < 4) throw new Error("P0 缺少完整原行几何／SH编码");
+    for (let word = 0; word < 4; word++) {
+      if (array[sourceId * 4 + word] !== ref[word]) throw new Error(`P0 源行 ${sourceId} 编码与独立原行不符`);
+    }
+  });
 }
 
 export async function captureP0Source(mesh: SplatMesh, sha256: string, signal?: AbortSignal): Promise<P0Source> {

@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { p0FullMask, p0IdentityFixture, p0Visible, validateP0Mask, verifyP0FixtureRows } from "../src/localGaussianP0Source.ts";
+import type { ExtSplats } from "@sparkjsdev/spark";
+import { verifyP0EncodedRow, p0FullMask, p0IdentityFixture, p0Visible, validateP0Mask, verifyP0FixtureRows } from "../src/localGaussianP0Source.ts";
+
+test("P0 exact row references include every geometry and SH word, including coincident centers", () => {
+  const make = (count: number) => ({ numSplats: count, extArrays: [new Uint32Array(count * 4), new Uint32Array(count * 4)],
+    extra: Object.fromEntries(["sh1", "sh2", "sh3a", "sh3b"].map(k => [k, new Uint32Array(count * 4)])) }) as unknown as ExtSplats;
+  const actual = make(2), reference = make(1);
+  verifyP0EncodedRow(actual, 0, reference);
+  verifyP0EncodedRow(actual, 1, reference);
+  const arrays = [...actual.extArrays, ...["sh1", "sh2", "sh3a", "sh3b"].map(k => actual.extra[k] as Uint32Array)];
+  for (const array of arrays) for (let word = 0; word < 4; word++) {
+    array[4 + word] = 1;
+    assert.throws(() => verifyP0EncodedRow(actual, 1, reference), /源行 1 编码/);
+    verifyP0EncodedRow(actual, 0, reference);
+    array[4 + word] = 0;
+  }
+  assert.throws(() => verifyP0EncodedRow(actual, -1, reference), /不合法/);
+  assert.throws(() => verifyP0EncodedRow(actual, 2, reference), /不合法/);
+  assert.throws(() => verifyP0EncodedRow(actual, 0, actual), /不合法/);
+  delete reference.extra.sh3b;
+  assert.throws(() => verifyP0EncodedRow(actual, 0, reference), /完整/);
+});
 
 const sha256 = "a".repeat(64);
 
