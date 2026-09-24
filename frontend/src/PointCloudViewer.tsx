@@ -3,7 +3,6 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import {
-  applyAxisSigns as applyCameraAxisSigns,
   cameraLinePositions,
   cameraTrajectoryPositions,
   parseAlignmentTransform,

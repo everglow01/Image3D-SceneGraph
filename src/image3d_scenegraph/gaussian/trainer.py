@@ -16,7 +16,6 @@ from typing import Any, Callable
 
 import numpy as np
 import torch
-from PIL import Image
 
 from image3d_scenegraph.file_integrity import sha256_file
 
@@ -1075,21 +1074,6 @@ def evaluate_views(
         "mean_psnr": evaluated["psnr"]["mean"],
         "mean_ssim": evaluated["ssim"]["mean"],
     }
-
-
-def save_validation_previews(
-    model: GaussianModel,
-    views: Sequence[TrainingView],
-    output_dir: Path,
-    config: dict[str, Any],
-) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    degree = active_sh_degree(int(config["iterations"]), config["sh_schedule"])
-    with torch.no_grad():
-        for view in views:
-            rendered = render_gaussians(model, view.camera, sh_degree=degree, background=None)
-            pixels = rendered.image.detach().clamp(0, 1).mul(255).byte().cpu().numpy()
-            Image.fromarray(pixels).save(output_dir / f"validation_{view.camera.image_id}.png")
 
 
 def _build_strategy(
