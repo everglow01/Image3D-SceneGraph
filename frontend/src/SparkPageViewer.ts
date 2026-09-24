@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls, type ViewerControls } from "@mkkellogg/gaussian-splats-3d";
 import { SparkRenderer, SplatFileType, SplatMesh } from "@sparkjsdev/spark";
+import { captureP0Source, type P0Source } from "./localGaussianP0Source.ts";
+import { LocalGaussianDisplay } from "./localGaussianDisplay.ts";
+
+export type SparkLocalEdit = { source: P0Source; sourceRoot: THREE.Group; overlay: THREE.Group; bounds: THREE.Box3 };
 
 export class SparkPageViewer {
   readonly camera = new THREE.PerspectiveCamera(50, 1, 0.01, 1000);
@@ -16,6 +20,9 @@ export class SparkPageViewer {
   private disposal: Promise<void> | null = null;
   private frame: number | null = null;
   private disposed = false;
+  private editQueue: Promise<void> = Promise.resolve();
+  private editsPending = 0;
+  private editor: { handle: SparkLocalEdit; display: LocalGaussianDisplay } | null = null;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -134,9 +141,9 @@ export class SparkPageViewer {
     this.frame = null;
     if (this.disposed) return;
     try {
-      this.controls?.update();
+      if (this.controls?.enabled) this.controls.update();
       // A camera update may still be sorting while the previous complete frame is drawn.
-      if (!this.pending) {
+      if (!this.pending && !this.editsPending) {
         this.pending = this.spark.update({ scene: this.scene, camera: this.camera })
           .catch((error: unknown) => this.fail(error))
           .finally(() => { this.pending = null; });
@@ -149,6 +156,67 @@ export class SparkPageViewer {
       this.fail(error);
     }
   };
+
+  private serializeEdit<T>(action: () => T | Promise<T>): Promise<T> {
+    this.editsPending++;
+    const work = this.editQueue.then(async () => {
+      await this.loading;
+      await this.pending;
+      if (this.disposed) throw new Error("查看器已释放");
+      return action();
+    });
+    this.editQueue = work.then(() => {}, () => {}).finally(() => { this.editsPending--; });
+    return work;
+  }
+
+  beginLocalEdit(sha256: string, signal: AbortSignal): Promise<SparkLocalEdit> {
+    return this.serializeEdit(async () => {
+      if (this.editor || !this.mesh || this.controls !== this.orbit) throw new Error("请在已加载的 Spark 轨道模式进入本地编辑");
+      const source = await captureP0Source(this.mesh, sha256, signal);
+      signal.throwIfAborted();
+      if (this.disposed) throw new Error("查看器已释放");
+      this.mesh.updateMatrixWorld(true);
+      const sourceRoot = new THREE.Group(), overlay = new THREE.Group();
+      sourceRoot.matrixAutoUpdate = false;
+      sourceRoot.matrix.copy(this.mesh.matrixWorld);
+      const handle = { source, sourceRoot, overlay, bounds: this.mesh.getBoundingBox().clone() };
+      const display = new LocalGaussianDisplay(this.mesh);
+      this.editor = { handle, display };
+      this.scene.add(sourceRoot, overlay);
+      return handle;
+    });
+  }
+
+  localEditView(handle: SparkLocalEdit) {
+    if (this.disposed || this.editor?.handle !== handle || !this.mesh) throw new Error("本地编辑源已失效");
+    this.scene.updateMatrixWorld(true); this.camera.updateMatrixWorld(true);
+    handle.sourceRoot.matrix.copy(this.mesh.matrixWorld);
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const modelToView = new THREE.Matrix4().multiplyMatrices(this.camera.matrixWorldInverse, this.mesh.matrixWorld).elements;
+    const projection = this.camera.projectionMatrix.elements.slice();
+    return { width: size.x, height: size.y, modelToView, projection,
+      signature: JSON.stringify([size.x, size.y, modelToView, projection]) };
+  }
+
+  updateLocalEdit(handle: SparkLocalEdit, visible: Uint8Array, selected: Uint8Array, protectedMask: Uint8Array, highlight: boolean) {
+    const masks = [visible.slice(), selected.slice(), protectedMask.slice()];
+    return this.serializeEdit(async () => {
+      if (this.editor?.handle !== handle) throw new Error("本地编辑源已失效");
+      this.editor.display.update(masks[0], masks[1], masks[2], highlight);
+      await this.spark.update({ scene: this.scene, camera: this.camera });
+    });
+  }
+
+  private releaseEditor() {
+    if (!this.editor) return;
+    this.editor.handle.sourceRoot.removeFromParent(); this.editor.handle.overlay.removeFromParent();
+    this.editor.display.dispose(); this.editor = null;
+  }
+
+  endLocalEdit(handle: SparkLocalEdit) {
+    if (this.disposed) return this.disposal ?? Promise.resolve();
+    return this.serializeEdit(() => { if (this.editor?.handle === handle) this.releaseEditor(); });
+  }
 
   stop() {
     if (this.frame !== null) cancelAnimationFrame(this.frame);
@@ -165,8 +233,9 @@ export class SparkPageViewer {
     this.renderer.domElement.removeEventListener("webglcontextlost", this.contextLost);
     this.disposal = (async () => {
       // Decoding and sorting must settle before their textures and workers are released.
-      await Promise.allSettled([this.loading, this.pending]);
+      await Promise.allSettled([this.loading, this.pending, this.editQueue]);
       try {
+        this.releaseEditor();
         this.mesh?.removeFromParent();
         this.mesh?.dispose();
         this.spark.removeFromParent();

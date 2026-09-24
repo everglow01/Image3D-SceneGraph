@@ -12,7 +12,11 @@ export class LocalSelectionClient {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: { request: LocalSelectionRequest; resolve: (r: P0SelectionResult | null) => void; reject: (e: Error) => void } | null = null;
 
-  constructor(private readonly worker: Worker, private readonly sha256: string, source: P0Source) {
+  private readonly worker: Worker;
+  private readonly sha256: string;
+
+  constructor(worker: Worker, sha256: string, source: P0Source) {
+    this.worker = worker; this.sha256 = sha256;
     this.ready = new Promise<void>((resolve, reject) => {
       this.rejectReady = reject;
       this.timer = setTimeout(() => this.fail(new Error("选择 Worker 准备超时")), 6000);
@@ -33,9 +37,10 @@ export class LocalSelectionClient {
           this.pending = null; this.clearTimer(); pending.resolve(r);
         }
       };
-      worker.onerror = e => this.fail(new Error(e.message || "选择 Worker 错误"));
-      worker.onmessageerror = () => this.fail(new Error("选择 Worker 消息无法解码"));
-      this.post({ type: "source", source, modelGeneration: 1 }, [source.geometry.buffer as ArrayBuffer]);
+      worker.onerror = e => { this.initialized = false; this.fail(new Error(e.message || "选择 Worker 错误")); };
+      worker.onmessageerror = () => { this.initialized = false; this.fail(new Error("选择 Worker 消息无法解码")); };
+      try { this.post({ type: "source", source, modelGeneration: 1 }, [source.geometry.buffer as ArrayBuffer]); }
+      catch (error) { this.fail(error as Error); }
     });
   }
 

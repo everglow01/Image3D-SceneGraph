@@ -1,0 +1,10 @@
+.local-gaussian-editor { display: grid; gap: 8px; min-width: 0; padding: 12px; }
+.local-gaussian-editor fieldset { display: grid; gap: 8px; min-width: 0; border: 1px solid #64748b; border-radius: 6px; }
+.local-gaussian-editor p { margin: 4px 0; font-size: 13px; }
+.local-gaussian-editor label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.local-gaussian-editor select, .local-gaussian-editor input { max-width: 100%; }
+.local-editor-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.local-editor-actions button[aria-pressed="true"] { outline: 2px solid #38bdf8; outline-offset: 1px; }
+.local-editor-depth input { width: 120px; }
+.local-editor-selection { position: fixed; z-index: 100; pointer-events: none; overflow: hidden; }
+.local-editor-selection polygon { fill: #38bdf833; stroke: #38bdf8; stroke-width: 2; vector-effect: non-scaling-stroke; }

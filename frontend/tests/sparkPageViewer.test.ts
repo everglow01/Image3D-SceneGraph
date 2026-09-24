@@ -19,6 +19,7 @@ function harness(options: { initialization?: Promise<void>; sh?: number; constru
   const frames = new Map<number, () => void>();
   const events = new Map<string, (event: Event) => void>();
   let frameId = 0, disposed = 0, observerDisconnected = false, updateCount = 0;
+  let displays = 0, masks = 0, displaysDisposed = 0;
   let update: () => Promise<void> = () => Promise.resolve();
   let signal: AbortSignal | undefined;
   let meshOptions: Record<string, unknown> = {}, rendererOptions: Record<string, unknown> = {};
@@ -31,11 +32,13 @@ function harness(options: { initialization?: Promise<void>; sh?: number; constru
     domElement = canvas;
     setPixelRatio() {} setClearColor() {}
     setSize(w: number, h: number) { sizes.push([w, h]); }
+    getDrawingBufferSize(v: THREE.Vector2) { return v.set(mount.clientWidth, mount.clientHeight); }
     render() {}
     getContext() { return { NO_ERROR: 0, isContextLost: () => false, getError: () => 0 }; }
     dispose() { disposed++; } forceContextLoss() { disposed++; }
   }
   class Controls {
+    enabled = true;
     target = new THREE.Vector3();
     update() {} dispose() { disposed++; }
   }
@@ -62,6 +65,14 @@ function harness(options: { initialization?: Promise<void>; sh?: number; constru
     exports, AbortController,
     require: (name: string) => name === "three" ? { ...THREE, WebGLRenderer: Renderer }
       : name === "@mkkellogg/gaussian-splats-3d" ? { OrbitControls: Controls }
+      : name === "./localGaussianP0Source.ts" ? { captureP0Source: async (_mesh: unknown, sha256: string, signal: AbortSignal) => {
+        signal.throwIfAborted(); return { sha256, count: 6, geometry: new Float32Array(66) };
+      } }
+      : name === "./localGaussianDisplay.ts" ? { LocalGaussianDisplay: class {
+        constructor() { displays++; }
+        update() { masks++; }
+        dispose() { displaysDisposed++; }
+      } }
       : { SparkRenderer: Spark, SplatMesh: Mesh, SplatFileType: { PLY: "ply" } },
     fetch: async (_url: string, opts: { signal: AbortSignal }) => {
       signal = opts.signal; return { ok: true, body: { cancel: async () => {} } };
@@ -78,7 +89,7 @@ function harness(options: { initialization?: Promise<void>; sh?: number; constru
   return { create, scene, errors, mount, sizes, frames, events,
     resized: () => resized(), setUpdate: (f: () => Promise<void>) => { update = f; },
     tick: () => { const [id, f] = frames.entries().next().value!; frames.delete(id); f(); },
-    state: () => ({ disposed, signal, observerDisconnected, updateCount, meshOptions, rendererOptions }) };
+    state: () => ({ disposed, signal, observerDisconnected, updateCount, meshOptions, rendererOptions, displays, masks, displaysDisposed }) };
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
@@ -145,6 +156,43 @@ test("SH mismatch and rendering/context errors stay visible, never silently fall
   h.events.get("webglcontextlost")!({ preventDefault() {} } as Event);
   assert.match(String(h.errors[1]), /WebGL/);
   await viewer.dispose();
+});
+
+test("P1 掩码安装更新和释放等待排序，不重新加载或重建上下文", async () => {
+  const h = harness(), viewer = h.create();
+  await viewer.load("/scene.ply", 3, null);
+  const sorting = deferred(); h.setUpdate(() => sorting.promise);
+  viewer.start(); h.tick();
+  const opening = viewer.beginLocalEdit("a".repeat(64), new AbortController().signal);
+  await settle(); assert.equal(h.state().displays, 0);
+  h.tick(); assert.equal(h.state().updateCount, 2);
+  sorting.resolve(); const handle = await opening;
+  assert.equal(h.state().displays, 1);
+  const before = viewer.localEditView(handle).signature;
+  viewer.camera.position.x = 1;
+  assert.notEqual(viewer.localEditView(handle).signature, before);
+  const updating = deferred(); h.setUpdate(() => updating.promise);
+  const work = viewer.updateLocalEdit(handle, new Uint8Array([61]), new Uint8Array([2]), new Uint8Array([0]), true);
+  await settle(); assert.equal(h.state().masks, 1);
+  const closing = viewer.endLocalEdit(handle); await settle(); assert.equal(h.state().displaysDisposed, 0);
+  updating.resolve(); await Promise.all([work, closing]);
+  assert.equal(h.state().displaysDisposed, 1); assert.equal(h.state().disposed, 0);
+  await assert.rejects(viewer.updateLocalEdit(handle, new Uint8Array([63]), new Uint8Array([0]), new Uint8Array([0]), false), /失效/);
+  await viewer.dispose(); assert.equal(h.state().disposed, 6);
+});
+
+test("P1 初始化中取消不遗留修改器，卸载等待在途编辑更新", async () => {
+  const h = harness(), viewer = h.create(); await viewer.load("/scene.ply", 3, null);
+  const abort = new AbortController(); abort.abort();
+  await assert.rejects(viewer.beginLocalEdit("a".repeat(64), abort.signal));
+  assert.equal(h.state().displays, 0);
+  const handle = await viewer.beginLocalEdit("a".repeat(64), new AbortController().signal);
+  const update = deferred(); h.setUpdate(() => update.promise);
+  const work = viewer.updateLocalEdit(handle, new Uint8Array([63]), new Uint8Array([0]), new Uint8Array([0]), false);
+  await settle(); const closing = viewer.dispose(); await settle();
+  assert.equal(h.state().displaysDisposed, 0);
+  update.resolve(); await Promise.all([work, closing]);
+  assert.equal(h.state().displaysDisposed, 1); assert.equal(h.scene.children.length, 0);
 });
 
 test("constructor failure also releases the canvas and WebGL context", () => {

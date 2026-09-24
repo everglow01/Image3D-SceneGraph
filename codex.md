@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-24，P1第三小点完成独立LocalGaussianEditor面板／输入控制和Spark最小适配：矩形／套索、默认表层／薄层／穿透、源轴Three盒平移缩放、新建增减、保护、隔离／删除预览／原始对照及聚焦快捷键；高亮为独立显示RGB修改器，隐藏复用P0仅alpha。适配串行等待排序后安装／更新／释放，交互合并显示更新，不重新下载PLY或重建context；相机签名、源身份、请求序号与编辑revision共同阻断旧结果，已完成选集跨视角保留，派生薄层锚点随相机失效。独立组件未挂产品入口，未实现P2保存／P3恢复／P4切源离开保护。源码和新增/修改回归类型、Node类型擦除、Python AST／JSON／脚本语法及diff静态检查通过；按计划不沿用P0授权，本轮未运行回归、构建或GPU实验，P1运行验收待授权，不沿用P0通过数量。合同见 `docs/gaussian-local-editor-p1.md`；保留期间用户新增74adb06提交和其他未提交文档，不push／pull／部署／训练，不优化已接受的100ms导航表现。
+
 - 2026-09-24，P1第二小点补Worker本地选择：默认表层复用P0投影/贡献算法，P0默认128²预算不变，P1显式允许≤1024² ROI按16²瓦片遍历，仍受100k候选/8M访问/2秒整次失败约束；单像素可信前层可返回薄层深度，不可信不吸附背景。深度/穿透按中心、三维盒按源normalized闭区间，与Python select_polygon/select_box共用旋转相机金样；几何模式独立32M多边形边访问/2秒预算，不回退穿透。新增Worker客户端取消结算、源/相机/序号核对与释放，审计器白名单补新依赖。源码及新增测试TypeScript、Python AST、JSON和脚本语法静态检查通过；回归和GPU未执行，不宣称普通大框性能通过。
 
 - 2026-09-24，用户要求开始P1，按已批准的本地编辑计划继续；首先实现独立源绑定的visible／selected／protected状态、选集增减、隔离／删除预览／原始对照、删除过半确认与禁止全删、保护和可见性共用最多100步／80MiB packed快照历史及文本输入快捷键保护。新增回归但不沿用P0执行授权，本批仅静态检查；后续补Worker深度／穿透／盒选、独立面板与Spark适配，不提前进入P2保存／P4入口，不训练、GPU实验、远端或push，保留用户旧改动。
