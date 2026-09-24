@@ -24,6 +24,7 @@ from image3d_scenegraph.jobs import (
 from image3d_scenegraph.worker import LocalJobWorker
 from image3d_scenegraph.gaussian.editor_session import EditorSessions
 from backend.gaussian_editor import editor_router
+from backend.browser_experiments import browser_experiment_router
 
 
 class MeshVariantRequest(BaseModel):
@@ -89,6 +90,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
     app.state.job_worker = worker
     app.state.gaussian_editor = editor
     app.include_router(editor_router(editor))
+    app.include_router(browser_experiment_router(store.output_root))
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -412,27 +414,6 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             raise HTTPException(status_code=404, detail="job not found") from exc
         except JobError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    @app.get(
-        "/api/gaussian-browser-experiments/browser-ksplat-20260922-v1/{filename}"
-    )
-    @app.head(
-        "/api/gaussian-browser-experiments/browser-ksplat-20260922-v1/{filename}"
-    )
-    def get_browser_experiment(
-        filename: Literal["level1.ksplat", "level2.ksplat"],
-    ) -> FileResponse:
-        experiments = app.state.job_store.output_root.resolve().parent / "experiments"
-        root = experiments / "browser-ksplat-20260922-v1"
-        path = root / filename
-        if (experiments.is_symlink() or root.is_symlink() or path.is_symlink()
-                or not path.is_file()):
-            raise HTTPException(status_code=404, detail="experiment asset not found")
-        return FileResponse(
-            path,
-            media_type="application/octet-stream",
-            headers={"Cache-Control": "private, max-age=300"},
-        )
 
     @app.get("/api/jobs/{job_id}/assets/{asset_path:path}")
     @app.head("/api/jobs/{job_id}/assets/{asset_path:path}")

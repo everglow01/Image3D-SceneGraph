@@ -4,6 +4,7 @@ import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 import gaussianViewerPackage from "@mkkellogg/gaussian-splats-3d/package.json" with { type: "json" };
 import * as THREE from "three";
 import type { SparkPageViewer } from "./SparkPageViewer";
+import { browserExperimentUrl, type BrowserExperimentLevel } from "./gaussianBrowserExperiment";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Capsule } from "three/examples/jsm/math/Capsule.js";
 import { Octree } from "three/examples/jsm/math/Octree.js";
@@ -109,8 +110,6 @@ const FALLBACK_FRAME: SceneFrame = {
   up: new THREE.Vector3(0, 0, 1)
 };
 const WALK_SETTINGS_KEY = "image3d.walk-settings.v1";
-const EXPERIMENT_SOURCE = "/api/jobs/train_validation_final_fit_v1_comparison/assets/variants/mcmc-final-fit/scene.ply";
-const EXPERIMENT_ASSETS = "/api/gaussian-browser-experiments/browser-ksplat-20260922-v1";
 const FIXED_STEP_SECONDS = 1 / 120;
 const MAX_FRAME_SECONDS = 0.1;
 
@@ -263,18 +262,19 @@ export function GaussianSplatViewer({
   const releaseRef = useRef<Promise<void>>(Promise.resolve());
   const savedViewRef = useRef<SavedView | null>(null);
   const [rendererKind, setRendererKind] = useState<RendererKind>("legacy");
-  const [experimentLevel, setExperimentLevel] = useState<"ply" | "level1" | "level2">("ply");
+  const [experimentLevel, setExperimentLevel] = useState<BrowserExperimentLevel>("ply");
   const [sortMode, setSortMode] = useState<"cpu" | "gpu">("cpu");
-  const experimentEnabled = sourceUrl === EXPERIMENT_SOURCE && typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("browser-ksplat-ab");
+  const experimentalSourceUrl = browserExperimentUrl(sourceUrl, experimentLevel,
+    typeof window === "undefined" ? "" : window.location.search);
+  const experimentEnabled = experimentalSourceUrl !== null;
   const browserKey = JSON.stringify([sourceUrl, metadataUrl, browserSourceUrl]);
   const [browserChoice, setBrowserChoice] = useState<{ key: string; value: "k2" | "ply"; failed?: string } | null>(null);
   useEffect(() => setBrowserChoice(null), [browserKey]);
   const useK2 = !!browserSourceUrl && !experimentEnabled && rendererKind === "legacy" &&
     browserChoice?.key === browserKey && browserChoice.value === "k2";
   const browserFallback = browserChoice?.key === browserKey && browserChoice.failed;
-  const activeSourceUrl = experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"
-    ? `${EXPERIMENT_ASSETS}/${experimentLevel}.ksplat` : useK2 ? browserSourceUrl : sourceUrl;
+  const activeSourceUrl = experimentEnabled && rendererKind === "legacy"
+    ? experimentalSourceUrl : useK2 ? browserSourceUrl : sourceUrl;
   const [viewerError, setViewerError] = useState("");
   const sourceKey = JSON.stringify([sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl]);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
@@ -364,7 +364,7 @@ export function GaussianSplatViewer({
     if (next === "spark") setExperimentLevel("ply");
   };
 
-  const switchExperimentLevel = (next: "ply" | "level1" | "level2") => {
+  const switchExperimentLevel = (next: BrowserExperimentLevel) => {
     if (next === experimentLevel || rendererKind !== "legacy" || viewerModeRef.current !== "orbit") return;
     rememberView();
     setExperimentLevel(next);
@@ -832,7 +832,7 @@ export function GaussianSplatViewer({
             aria-label="浏览资产试验"
             value={experimentLevel}
             disabled={viewerMode !== "orbit" || rendererKind !== "legacy"}
-            onChange={(event) => switchExperimentLevel(event.target.value as "ply" | "level1" | "level2")}
+            onChange={(event) => switchExperimentLevel(event.target.value as BrowserExperimentLevel)}
           >
             <option value="ply">原始 PLY</option>
             <option value="level1">KSPLAT 1（试验）</option>
