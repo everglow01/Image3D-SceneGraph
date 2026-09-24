@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as THREE from "three";
 import * as metadata from "../src/gaussianViewerMetadata.ts";
 import * as editor from "../src/cloudGaussianEditor.ts";
+import { createHookHarness, findNode as find } from "./hookHarness.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/CloudGaussianViewer.tsx", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
@@ -15,30 +16,13 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
   urls: ["turn:10.186.96.23:8082?transport=udp", "turn:10.186.96.23:8082?transport=tcp"],
   username: "temporary-user", credential: "temporary-credential"
 }]) {
-  const hooks: any[] = [], effects: (() => void)[] = [], requests: any[] = [], peers: any[] = [];
+  const hooks = createHookHarness(), requests: any[] = [], peers: any[] = [];
   const intervals = new Map<number, () => void>(), timeouts = new Map<number, () => void>();
-  let cursor = 0, dirty = true, tree: any, timer = 0, revision = 0, protectedCount = 0, imageNode: any, frameCallback: (() => void) | undefined;
+  let tree: any, timer = 0, revision = 0, protectedCount = 0, imageNode: any, frameCallback: (() => void) | undefined;
   const stage = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 500 }), addEventListener() {}, removeEventListener() {} };
   const video = { srcObject: null, play: async () => {}, requestVideoFrameCallback: (fn: () => void) => { frameCallback = fn; } };
   const source = { job_id: "source", asset_role: "scene_splat", label: "Original" };
   const document = () => ({ edit_id: "a".repeat(32), source, revision, visible_count: 8 - revision, can_undo: revision > 0, can_redo: false, versions: [] });
-  const react = {
-    useRef: (initial: unknown) => { const index = cursor++; return hooks[index] ??= { current: initial }; },
-    useState: (initial: unknown) => {
-      const index = cursor++;
-      if (!(index in hooks)) hooks[index] = initial;
-      return [hooks[index], (next: any) => {
-        const value = typeof next === "function" ? next(hooks[index]) : next;
-        if (!Object.is(value, hooks[index])) { hooks[index] = value; dirty = true; }
-      }];
-    },
-    useEffect: (callback: () => (() => void) | void, deps: unknown[]) => {
-      const index = cursor++, previous = hooks[index];
-      if (!previous || deps.some((d, i) => !Object.is(d, previous.deps[i]))) effects.push(() => {
-        previous?.cleanup?.(); hooks[index] = { deps, cleanup: callback() };
-      });
-    }
-  };
   const jsx = (type: unknown, props: any, key: any) => {
     const node = { type, props, key };
     if (props.ref) {
@@ -69,7 +53,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     close() { this.connectionState = "closed"; this.channel?.onclose(); }
   }
   const exports: Record<string, any> = {};
-  runInNewContext(code, { exports, crypto: globalThis.crypto, RTCPeerConnection: Peer, MediaStream: class {},
+  runInNewContext(code, { exports, Error, crypto: globalThis.crypto, RTCPeerConnection: Peer, MediaStream: class {},
     window: { document: { hidden: false }, setInterval: (fn: () => void) => { intervals.set(++timer, fn); return timer; },
       clearInterval: (id: number) => intervals.delete(id), setTimeout: (fn: () => void) => { timeouts.set(++timer, fn); return timer; },
       clearTimeout: (id: number) => timeouts.delete(id) },
@@ -94,7 +78,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
       return { ok: true, json: async () => value };
     },
     require: (name: string) => {
-      if (name === "react") return react;
+      if (name === "react") return hooks.react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
       if (name === "three") return THREE;
       if (name.includes("OrbitControls")) return { OrbitControls: Controls };
@@ -104,22 +88,9 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
-  function find(node: any, predicate: (n: any) => boolean): any {
-    if (!node || typeof node !== "object") return null;
-    if (predicate(node)) return node;
-    for (const child of [node.props?.children].flat(Infinity)) { const result = find(child, predicate); if (result) return result; }
-    return null;
-  }
-  const flush = async () => {
-    for (let i = 0; i < 100; i++) {
-      await Promise.resolve();
-      if (dirty) {
-        dirty = false; cursor = 0;
-        tree = exports.CloudGaussianViewer({ source, metadataUrl: "/metadata.json", alignmentUrl: null, cameraPathUrl: null });
-        while (effects.length) effects.shift()!();
-      }
-    }
-  };
+  const flush = (until?: () => boolean) => hooks.flush(() => {
+    tree = exports.CloudGaussianViewer({ source, metadataUrl: "/metadata.json", alignmentUrl: null, cameraPathUrl: null });
+  }, until);
   return { requests, peers, intervals, timeouts, flush, video,
     moveCamera: () => orbit.update(),
     stage: () => find(tree, n => n.type === "div" && n.props.className === "cloud-stage")?.props,
@@ -135,7 +106,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     displayFrame: () => frameCallback?.(),
     image: () => find(tree, n => n.type === "img"),
     error: () => find(tree, n => n.props?.role === "alert")?.props.children,
-    unmount: () => { for (const hook of hooks) hook?.cleanup?.(); }
+    unmount: hooks.unmount
   };
 }
 
@@ -256,7 +227,8 @@ test("closing and reopening a cloud session clears the displayed protection coun
     h.button("开始选择当前高清画面").onClick(); await h.flush();
     h.tool().onChange({ target: { value: "box" } }); await h.flush();
     h.button("应用三维盒").onClick(); await h.flush();
-    h.button("保护选中项").onClick(); await h.flush();
+    h.button("保护选中项").onClick();
+    await h.flush(() => /（1）/.test(h.protection().children.join("")) && !h.button("关闭会话").disabled);
     assert.match(h.protection().children.join(""), /（1）/);
     h.button("关闭会话").onClick(); await h.flush();
     assert.match(h.protection().children.join(""), /（0）/);

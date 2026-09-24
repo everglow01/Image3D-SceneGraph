@@ -7,6 +7,13 @@ import * as THREE from "three";
 import { AbortablePromise } from "../node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js";
 import * as metadata from "../src/gaussianViewerMetadata.ts";
 import * as browserExperiment from "../src/gaussianBrowserExperiment.ts";
+import * as editor from "../src/cloudGaussianEditor.ts";
+import * as sfm from "../src/sfmDiagnostics.ts";
+import * as walk from "../src/walkNavigation.ts";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { Capsule } from "three/examples/jsm/math/Capsule.js";
+import { Octree } from "three/examples/jsm/math/Octree.js";
+import { createHookHarness, findNode as find } from "./hookHarness.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer.tsx", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
@@ -16,8 +23,8 @@ function pageHarness(options: {
   sourceUrl?: string; search?: string; browserSourceUrl?: string;
   load?: (url: string) => Promise<void>; metadataFailure?: boolean;
 } = {}) {
-  const hooks: any[] = [], effects: (() => void)[] = [], instances: any[] = [];
-  let cursor = 0, dirty = true, tree: any;
+  const hooks = createHookHarness(), instances: any[] = [];
+  let tree: any;
   const mount = { clientWidth: 800, clientHeight: 400, replaceChildren() {}, appendChild() {} };
   class Renderer {
     domElement = { remove() {} };
@@ -27,28 +34,6 @@ function pageHarness(options: {
     dispose() { this.disposed = true; }
     forceContextLoss() { this.contextLost = true; }
   }
-  const react = {
-    useRef: (initial: unknown) => {
-      const index = cursor++;
-      return hooks[index] ??= { current: initial };
-    },
-    useState: (initial: unknown) => {
-      const index = cursor++;
-      if (!(index in hooks)) hooks[index] = initial;
-      return [hooks[index], (next: any) => {
-        const value = typeof next === "function" ? next(hooks[index]) : next;
-        if (!Object.is(value, hooks[index])) { hooks[index] = value; dirty = true; }
-      }];
-    },
-    useEffect: (callback: () => (() => void) | void, deps: unknown[]) => {
-      const index = cursor++, previous = hooks[index];
-      if (!previous || deps.some((d, i) => !Object.is(d, previous.deps[i]))) {
-        effects.push(() => {
-          previous?.cleanup?.(); hooks[index] = { deps, cleanup: callback() };
-        });
-      }
-    }
-  };
   const jsx = (type: unknown, props: any) => {
     if (props.ref) props.ref.current = mount;
     return { type, props };
@@ -100,7 +85,7 @@ function pageHarness(options: {
     document: { pointerLockElement: null },
     ResizeObserver: class { observe() {} disconnect() {} },
     require: (name: string) => {
-      if (name === "react") return react;
+      if (name === "react") return hooks.react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
       if (name === "three") return { ...THREE, WebGLRenderer: Renderer };
       if (name === "@mkkellogg/gaussian-splats-3d") return { Viewer, RenderMode: { OnChange: 1 } };
@@ -108,7 +93,14 @@ function pageHarness(options: {
       if (name === "./gaussianViewerMetadata") return metadata;
       if (name === "./gaussianBrowserExperiment") return browserExperiment;
       if (name === "./SparkPageViewer") return { SparkPageViewer: Spark };
-      return {};
+      if (name === "./cloudGaussianEditor") return editor;
+      if (name === "./sfmDiagnostics") return sfm;
+      if (name === "./walkNavigation") return walk;
+      if (name === "./SfmInspectionPanel") return { SfmInspectionPanel: () => null };
+      if (name.endsWith("/GLTFLoader.js")) return { GLTFLoader };
+      if (name.endsWith("/Capsule.js")) return { Capsule };
+      if (name.endsWith("/Octree.js")) return { Octree };
+      throw new Error(`Unexpected dependency: ${name}`);
     }
   });
   const props = { sourceUrl: options.sourceUrl ?? "/scene.ply", browserSourceUrl: options.browserSourceUrl,
@@ -116,24 +108,7 @@ function pageHarness(options: {
     alignmentUrl: null, jobId: "job", sfmDiagnosticsUrl: null, inspectionRequest: null,
     onInspectionStateChange() {}, collisionMeshUrl: null, navigationUrl: null,
     navigationStatus: null, navigationReason: null };
-  const find = (node: any, predicate: (node: any) => boolean): any => {
-    if (!node || typeof node !== "object") return null;
-    if (predicate(node)) return node;
-    for (const child of [node.props?.children].flat(Infinity)) {
-      const result = find(child, predicate); if (result) return result;
-    }
-    return null;
-  };
-  const flush = async () => {
-    for (let i = 0; i < 40; i++) {
-      await Promise.resolve();
-      if (dirty) {
-        dirty = false; cursor = 0;
-        tree = exports.GaussianSplatViewer(props);
-        while (effects.length) effects.shift()!();
-      }
-    }
-  };
+  const flush = (until?: () => boolean) => hooks.flush(() => { tree = exports.GaussianSplatViewer(props); }, until);
   return { instances, flush,
     selector: () => find(tree, n => n.type === "select").props,
     experimentSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产试验")?.props,
@@ -143,10 +118,10 @@ function pageHarness(options: {
     fallback: () => find(tree, n => n.props?.role === "status")?.props.children.flat().join(""),
     overlay: () => find(tree, n => n.props?.className === "viewer-overlay")?.props.children.flat().join(""),
     changeSource: (source = "/other.ply", browser: string | undefined = undefined) => {
-      props.sourceUrl = source; props.browserSourceUrl = browser; dirty = true;
+      props.sourceUrl = source; props.browserSourceUrl = browser; hooks.invalidate();
     },
-    changeNavigationStatus: (status: string) => { props.navigationStatus = status; dirty = true; },
-    unmount: () => { for (const hook of hooks) hook?.cleanup?.(); } };
+    changeNavigationStatus: (status: string) => { props.navigationStatus = status; hooks.invalidate(); },
+    unmount: hooks.unmount };
 }
 
 test("page defaults to legacy, waits for release, and preserves camera/target when switching", async () => {
@@ -161,7 +136,7 @@ test("page defaults to legacy, waits for release, and preserves camera/target wh
   h.selector().onChange({ target: { value: "spark" } }); await h.flush();
   assert.equal(old.stopped, true);
   assert.equal(h.instances.length, 1);
-  release(); await h.flush();
+  release(); await h.flush(() => h.instances[1]?.kind === "spark" && h.hint()?.includes("浏览器 SH3") === true);
   assert.equal(old.disposed, true);
   assert.equal(old.renderer.disposed, true);
   assert.equal(old.renderer.contextLost, true);
@@ -290,7 +265,8 @@ test("K2 failure releases before one PLY fallback and does not leak across model
   const h = pageHarness({ browserSourceUrl: "/bad.ksplat", load: async url => {
     if (url === "/bad.ksplat") throw new Error("bad K2");
   } }); await h.flush();
-  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
+  h.browserSelector().onChange({ target: { value: "k2" } });
+  await h.flush(() => h.instances.length === 3 && !!h.fallback());
   assert.deepEqual(h.instances.map(v => v.sourceUrl), ["/scene.ply", "/bad.ksplat", "/scene.ply"]);
   assert.equal(h.instances[1].disposed, true);
   assert.match(h.fallback(), /回退原始 PLY.*原因：bad K2/);
