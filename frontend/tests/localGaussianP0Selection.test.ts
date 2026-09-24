@@ -86,6 +86,17 @@ test("P0 budget exhaustion rejects the whole request instead of returning a part
   await assert.rejects(selectP0Surface(s, request(s)), /预算超限|超时/);
 });
 
+test("P0 cooperative scanning does not accumulate nested timer delays", async () => {
+  const original = globalThis.setTimeout;
+  let timers = 0;
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => { timers++; return original(...args); }) as typeof setTimeout;
+  try {
+    const s = source(Array.from({ length: 4097 }, () => row(2, 0.9)));
+    assert.equal((await selectP0Surface(s, request(s))).selectedCount, 0);
+    assert.equal(timers, 0);
+  } finally { globalThis.setTimeout = original; }
+});
+
 test("P0 worker suppresses cancelled and old-source results and rejects sequence replay", async () => {
   const replies: P0WorkerReply[] = [], handle = createP0WorkerHandler(reply => replies.push(reply));
   const s = source([row(-2, 0.9)]), r = request(s);
