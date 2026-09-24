@@ -495,6 +495,107 @@ class GaussianEditStore:
             _replace_json(directory / "edit.json", state)
             return result
 
+    def source_identity(self, edit_id: str) -> dict:
+        source = self.get(edit_id)["source"]
+        return {key: source[key] for key in (
+            "ply_sha256", "metadata_sha256", "gaussian_count"
+        )}
+
+    def check_source(self, edit_id: str, identity: dict) -> dict:
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"ply_sha256", "metadata_sha256", "gaussian_count"}
+            or type(identity["gaussian_count"]) is not int
+            or any(not isinstance(identity[key], str) or not re.fullmatch(
+                r"[0-9a-f]{64}", identity[key]
+            ) for key in ("ply_sha256", "metadata_sha256"))
+        ):
+            raise GaussianEditError("invalid local source identity")
+        source = self.get(edit_id)["source"]
+        if identity != self.source_identity(edit_id):
+            raise EditConflict("local source identity does not match document")
+        current = resolve_edit_source(
+            self.jobs, source["job_id"], variant_id=source["variant_id"],
+            asset_role=source["asset_role"],
+        )
+        if current != source:
+            raise EditConflict("the frozen source has changed")
+        return source
+
+    def local_snapshot(self, edit_id: str, identity: dict) -> tuple[dict, bytes]:
+        directory = self._directory(edit_id)
+        with FileLease(directory / ".edit.lock"):
+            self.check_source(edit_id, identity)
+            state = self.get(edit_id)
+            visible = self._read_mask(
+                directory, state["history"][state["cursor"]],
+                state["source"]["gaussian_count"],
+            )
+            return {
+                "revision": state["revision"], "visible_count": int(visible.sum()),
+            }, np.packbits(visible, bitorder="little").tobytes()
+
+    def submit_snapshot(
+        self, edit_id: str, *, identity: dict, content: bytes,
+        expected_revision: int, operation_id: str, confirm_large: bool = False,
+    ) -> dict:
+        if (
+            type(expected_revision) is not int or expected_revision < 0
+            or type(confirm_large) is not bool
+            or not isinstance(operation_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", operation_id)
+            or not isinstance(content, bytes) or len(content) > 512 * 1024
+        ):
+            raise GaussianEditError("invalid local snapshot request")
+        directory = self._directory(edit_id)
+        with FileLease(directory / ".edit.lock"):
+            source = self.check_source(edit_id, identity)
+            count = source["gaussian_count"]
+            if len(content) != (count + 7) // 8:
+                raise GaussianEditError("mask size/count mismatch")
+            visible = np.unpackbits(
+                np.frombuffer(content, dtype=np.uint8), bitorder="little", count=count
+            ).astype(bool)
+            if np.packbits(visible, bitorder="little").tobytes() != content:
+                raise GaussianEditError("mask has nonzero padding")
+            if not visible.any():
+                raise GaussianEditError("local snapshot cannot hide the entire model")
+            digest = hashlib.sha256(_json_bytes({
+                "kind": "local_snapshot_v1", "identity": identity,
+                "expected_revision": expected_revision, "confirm_large": confirm_large,
+                "mask_sha256": hashlib.sha256(content).hexdigest(),
+            })).hexdigest()
+            state = self.get(edit_id)
+            previous = state["requests"].get(operation_id)
+            if previous is not None:
+                if previous["request_hash"] != digest:
+                    raise EditConflict("operation ID was reused with different parameters")
+                return previous["result"]
+            if state["revision"] != expected_revision:
+                raise EditConflict("edit revision has changed")
+            if len(state["requests"]) >= 1000:
+                raise GaussianEditError("document operation budget reached")
+            old = self._read_mask(directory, state["history"][state["cursor"]], count)
+            if (old & ~visible).sum() > old.sum() / 2 and not confirm_large:
+                raise GaussianEditError(
+                    "deleting more than half the visible model requires confirmation"
+                )
+            state["history"] = (state["history"][:state["cursor"] + 1] + [
+                self._new_mask(directory, visible)
+            ])[-101:]
+            state["cursor"] = len(state["history"]) - 1
+            state["revision"] += 1
+            result = {
+                "edit_id": edit_id, "revision": state["revision"],
+                "visible_count": int(visible.sum()),
+                "can_undo": state["cursor"] > 0, "can_redo": False,
+            }
+            state["requests"][operation_id] = {
+                "request_hash": digest, "result": result,
+            }
+            _replace_json(directory / "edit.json", state)
+            return result
+
     def acknowledged_request(
         self, edit_id: str, operation_id: str, digest: str
     ) -> dict | None:

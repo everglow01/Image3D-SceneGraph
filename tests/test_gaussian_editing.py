@@ -76,6 +76,66 @@ def setup_source(tmp_path, count=8):
     return GaussianEditStore(jobs), original, rows
 
 
+def test_local_snapshot_restore_replay_and_branch(tmp_path):
+    store, original, _ = setup_source(tmp_path)
+    before = sha256_file(original)
+    edit_id = store.create("source")["edit_id"]
+    identity = store.source_identity(edit_id)
+    request = dict(identity=identity, content=b"\xfe", expected_revision=0,
+                   operation_id="local-1")
+    first = store.submit_snapshot(edit_id, **request)
+    assert first["revision"] == 1 and first["visible_count"] == 7
+    version = store.save_version(edit_id, expected_revision=1)
+    restored = store.submit_snapshot(edit_id, identity=identity, content=b"\xff",
+                                     expected_revision=1, operation_id="restore")
+    assert restored["revision"] == 2 and restored["visible_count"] == 8
+    assert store.submit_snapshot(edit_id, **request) == first
+    with pytest.raises(EditConflict):
+        store.submit_snapshot(edit_id, **(request | {"content": b"\xfc"}))
+    with pytest.raises(EditConflict):
+        store.submit_snapshot(edit_id, **(request | {"operation_id": "stale"}))
+    store.apply(edit_id, expected_revision=2, operation_id="undo", kind="undo")
+    store.submit_snapshot(edit_id, identity=identity, content=b"\xfd",
+                          expected_revision=3, operation_id="branch")
+    assert not store.describe(edit_id)["can_redo"]
+    assert store.version(edit_id, version["version"]) == version
+    state, content = store.local_snapshot(edit_id, identity)
+    assert state == {"revision": 4, "visible_count": 7} and content == b"\xfd"
+    assert sha256_file(original) == before
+
+
+def test_local_snapshot_validation_and_atomic_retry(tmp_path, monkeypatch):
+    import image3d_scenegraph.gaussian.editing as editing
+
+    store, _, _ = setup_source(tmp_path, count=9)
+    edit_id = store.create("source")["edit_id"]
+    identity = store.source_identity(edit_id)
+    request = dict(identity=identity, expected_revision=0, operation_id="snapshot")
+    for content in (b"", b"\xff", b"\xff\x03", b"\x00\x00", b"x" * (512 * 1024 + 1)):
+        with pytest.raises(GaussianEditError):
+            store.submit_snapshot(edit_id, **request, content=content)
+    with pytest.raises(EditConflict):
+        store.submit_snapshot(edit_id, **(request | {
+            "identity": identity | {"metadata_sha256": "0" * 64}
+        }), content=b"\xfe\x01")
+    with pytest.raises(GaussianEditError):
+        store.submit_snapshot(edit_id, **request, content=b"\x01\x00")
+    replace = editing._replace_json
+    def fail(*args):
+        raise OSError("simulated pre-commit failure")
+    monkeypatch.setattr(editing, "_replace_json", fail)
+    with pytest.raises(OSError):
+        store.submit_snapshot(edit_id, **request, content=b"\x01\x00", confirm_large=True)
+    assert store.get(edit_id)["revision"] == 0
+    monkeypatch.setattr(editing, "_replace_json", replace)
+    result = store.submit_snapshot(edit_id, **request, content=b"\x01\x00", confirm_large=True)
+    assert result["revision"] == 1 and result["visible_count"] == 1
+    metadata = store.jobs.output_root / "source" / "export.json"
+    metadata.write_text(metadata.read_text() + "\n")
+    with pytest.raises(EditConflict):
+        store.submit_snapshot(edit_id, **request, content=b"\x01\x00", confirm_large=True)
+
+
 def test_local_selection_shared_fixture():
     fixture = json.loads(
         (Path(__file__).parent / "fixtures/gaussian_local_selection.json").read_text()
