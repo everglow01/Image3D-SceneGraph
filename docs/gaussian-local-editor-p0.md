@@ -1,6 +1,6 @@
 # 本地 Gaussian 编辑 P0
 
-日期：2026-09-24。状态：P0源／掩码／Worker及合成浏览探针代码已提供，**运行准入未通过、没有产品入口**。
+日期：2026-09-24。状态：相关回归及RTX4060合成探针通过；真实2,999,577高斯的选择速度／可逆隐藏已有证据，但重复源身份与跨视角选择安全尚未闭合，**P0整体未通过，不进入P1、没有产品入口**。
 
 ## 范围与身份
 
@@ -43,18 +43,34 @@
 
 获单独授权后，可在既有Vite开发页中显式导入 `/src/localGaussianP0Probe.ts`，给它一个单独创建的空div并await调用，保存返回的JSON；禁止占用产品画布或关闭用户窗口。生产构建没有该实验按钮，也不保证开发模块URL存在。真实3M源身份、视角边界及500ms/2s预算仍须独立验收，不能用17行结果代替。
 
-## 待运行的回归
+## 回归执行记录
 
-在明确获准的环境中执行（本次未执行）：
+用户另行明确授权本机回归与本机4060 P0验收后，本轮运行：
 
 ```bash
 npm --prefix frontend test
-uv run pytest tests/test_gaussian_visible_selection.py
+CUDA_VISIBLE_DEVICES='' .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_gaussian_visible_selection.py tests/test_gaussian_editing.py tests/test_gaussian_editor_api.py tests/test_gaussian_export.py
+node --test tests/test_gaussian_browser_loading.mjs tests/test_gaussian_browser_motion.mjs tests/test_gaussian_spark_audit.mjs
 npm --prefix frontend run build
 ```
 
-其中前端新增14项Node检查覆盖源夹具／掩码／选择／Worker（包括各向异性旋转与预算耗尽）；Python新增1项读取同一前层JSON夹具。单元测试中的本地投影／mask检查不启动真实WebGL，浏览准入仍单独运行。真实模型P0尚无通过证据，不进入P1。
+最终前端 **107/107**（本批共16项新增检查）、相关Python **54/54**、Node **15/15**，合计176项；生产构建通过。Python实际使用独立basetemp并限制CPU线程，未使用CUDA。保留既有Starlette/httpx弃用及Vite大chunk警告。完整日志在 `outputs/analysis/local-gaussian-p0-20260924-v1/final-regression/`。
 
-## 检查边界
+## RTX4060实测结果与失败保留
 
-新增Node测试只覆盖夹具结构、逐行检查器和packed little-endian掩码。真实Spark解码和WebGL必须另外执行浏览探针，mock通过不能替代它。依用户持续规则，本机当前仅执行静态TypeScript／语法／diff检查；单元测试、真实GPU和远端执行没有本批授权，不称通过。
+本轮只绑定loopback启动临时只读审计HTTP服务及独立Chrome profile，不启动产品API、CUDA训练或远端服务，不读取真实数据集RGB／Test。实际renderer是 `ANGLE (NVIDIA, Vulkan 1.3.242 (NVIDIA NVIDIA GeForce RTX 4060 Laptop GPU (0x000028E0)), NVIDIA)`。七份自建临时profile均确认退出后清理；源模型、所有日志、失败JSON及截图保留。
+
+- **合成v1失败**：第二测试相机把固定目标投影到x=266.33，超出256像素画布；选择器正确拒绝非法多边形。修正相机方向并增加视口回归（717cd84），没有放宽选择校验。v2及最终v3通过：两个视角均选中原始ID12，全保留／撤销恢复最大通道差0，源几何与SH数组不变。
+- **真实源**：本机既有 `outputs/analysis/mcmc-render-audit-20260910/scene.ply`，2,999,577高斯，743,896,684字节，SHA256 `59cf39a46948ef447d35b299d77ffc14878a9e902a3e7460df0700a0b1df3a38`。这是与历史Spark审核相机同源的本机模型，不混用后来的c8b793…模型。冻结描述见本轮 `real-protocol.json`：相机1022/1111/1192，1280×720、DPR1，每视角三个128×128 ROI；只读取相机描述，不读RGB。
+- **真实v1参考检查失败**：原始四元数与Ext量化结果在一行相差0.002385，不能套用合成夹具的0.002容差来认定行错乱。后续将属性差异作为量化诊断单独报告，未扩大容差后宣布身份通过。全量2,999,577行中心逐项完全匹配，但三对中心重复且属性近似，身份仍标为incomplete，不算已证实错误重排，也不算精确身份准入通过。
+- **真实v2九个选择全部超时**：Chrome Worker单独诊断512次`setTimeout(0)`让出耗时2086ms，MessageChannel让出1.9ms。嵌套timer的4ms限速本身就超过3M扫描预算。144c5ac改为MessageChannel并在成功／失败／取消时关闭端口；2秒预算和选择算法不变。
+- **真实v3选择速度样本通过**：九个固定ROI全部完成，Worker内部212.2–443.0ms（9样本nearest-rank P95=443.0ms），无超时。选中数量为33/268/520、3/31/0、976/591/251；零命中是保守结果，不扩大选择。八次有命中的隐藏＋渲染＋读回为64.2–79.4ms；撤销后全部逐像素恢复。三视角全保留mask与原图最大通道差0。此单场景样本不是跨场景性能保证或正式页面端到端测量。
+- 每次真实执行前后源SHA一致，无模型保存／导出；本机加载约4.2s是本地loopback读文件，不代表远端网络加载优化。
+
+## 尚未通过的门槛
+
+1. 重复中心行 `[793798,1440771]`、`[2216493,2976869]`、`[1615456,1701443]` 不能仅凭位置和近似量化属性完成一对一源行证明；须补显式来源身份／重复高斯验证，不允许把count与位置匹配当完整证明。
+2. 同视角可逆隐藏不能证明多视角背景安全。真实删除后画面有框外变化，当前样本未完成跨视角误删验收。
+3. 连续导航P95／编辑额外开销、长时资源和产品交互尚未验收；本轮未进入P1/P5完整产品验收。
+
+因此真实v3保留 `status=failed`（身份门槛未闭合），最终结论为**部分验证通过、P0仍阻塞**。结果索引见本轮 `summary.json`，失败v1/v2不覆盖，不改门槛、不降SH/点数、不推广入口。

@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-24，用户另行明确授权回归与本机4060 P0验收。独立目录 `outputs/analysis/local-gaussian-p0-20260924-v1/`；最终本机前端107/Python54/Node15合计176项通过，构建通过，保留Starlette/Vite既有警告。真实RTX4060合成v1因第二视角选点越界失败，717cd84修正相机并加回归；v2/v3两视角均选ID12，原行参照、SH3响应、全保留和撤销像素恢复／源属性完整性通过。真实本机历史模型59cf39…、2,999,577高斯，三个冻结相机各三128×128 ROI：v1属性比较把Ext四元数量化差异当身份失败，后续只单列差异，不放宽后宣告通过；所有源中心逐行相等，但三对近重复行身份仍未闭合。v2九次均2秒超时；独立Worker诊断512次timer让出2086ms、消息让出1.9ms，144c5ac改MessageChannel且保留原预算。v3九次完成212.2–443.0ms，八个非空选集隐藏＋读回64.2–79.4ms、撤销最大像素差0，全保留mask三视角差0；真实v3仍failed，不能把速度样本当完整P0通过。跨视角误删、持续导航及长时资源未验收，停在P0不进P1。每次源SHA不变；无保存／导出、训练、RGB/Test、远端操作或push，七份自建Chrome profile确认退出后清理，失败证据保留。汇总 `summary.json`，合同 `docs/gaussian-local-editor-p0.md`。
+
 - 2026-09-24，本地编辑P0代码分小点完成：dacb339源行顺序合成夹具／紧凑几何快照，0423b93仅alpha的R8UI掩码修改器，b6c5d9d有界Worker表层选择和Python/TS共享前层夹具，f86d846补强非有限／替代源管线拒绝，2eef1ed显式RTX4060合成浏览探针，0453302投影退化／各向异性与预算回归。新增14项前端检查和1项Python共享夹具检查，但**均未运行**；产品及新增测试TypeScript静态类型检查、Python AST／JSON格式及diff检查通过。未改产品查看器／编辑入口，未启动本机GPU／真实3M／远端任务，未push／pull／部署；P0运行准入仍阻塞在独立执行授权，不进入P1。合成探针即使将来通过，也不能替代真实源ID及性能验收；用户既有文档保持未提交。
 
 - 2026-09-24，用户批准仅实施RTX4060本地编辑P0，逐小点commit。复用Three/Spark2.2.0，先做源行ID合成解码检查、只alpha可见性修改和有界Worker表层选择探针；不接正式编辑入口、不进入P1，不改变原PLY／SH3／LOD默认或旧云协议。P0代码和静态检查不是本机GPU、真实3M源顺序或选择性能验收；CPU/mock回归与真实浏览实验均须按现行执行边界另行授权，未获准前不宣称准入通过。现有用户未提交文档仅追加本批条目，提交时独立暂存。具体边界见 `docs/gaussian-local-editor-p0.md`。
