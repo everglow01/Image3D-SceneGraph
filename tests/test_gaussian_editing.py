@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -73,6 +74,24 @@ def setup_source(tmp_path, count=8):
     }
     (directory / "manifest.json").write_text(json.dumps(manifest))
     return GaussianEditStore(jobs), original, rows
+
+
+def test_local_selection_shared_fixture():
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/gaussian_local_selection.json").read_text()
+    )
+    view = CloudCamera(
+        np.array(fixture["camera_from_normalized"]),
+        np.array(fixture["intrinsic"]), fixture["width"], fixture["height"],
+    )
+    for case in fixture["cases"]:
+        if case["mode"] == "box":
+            selected = select_box(fixture["points"], case["min"], case["max"])
+        else:
+            selected = select_polygon(
+                fixture["points"], view, case["polygon"], case["depth"]
+            )
+        assert np.flatnonzero(selected).tolist() == case["selected"], case["name"]
 
 
 def test_selection_center_depth_and_conservative_extent():

@@ -33,7 +33,7 @@ const files = new Map([
   ['/three.js', 'frontend/node_modules/three/build/three.module.js'], ['/three.core.js', 'frontend/node_modules/three/build/three.core.js'],
   ['/spark.js', 'frontend/node_modules/@sparkjsdev/spark/dist/spark.module.js'], ['/Pass.js', 'frontend/node_modules/three/examples/jsm/postprocessing/Pass.js'],
   ['/real-probe.js', 'scripts/local_gaussian_p0_browser.mjs'],
-  ...['localGaussianP0Probe', 'localGaussianP0OcclusionProbe', 'localGaussianP0Source', 'localGaussianP0Mask', 'localGaussianP0Selection', 'localGaussianP0Worker', 'gaussianSelection.worker']
+  ...['localGaussianP0Probe', 'localGaussianP0OcclusionProbe', 'localGaussianP0Source', 'localGaussianP0Mask', 'localGaussianP0Selection', 'localGaussianP0Worker', 'localGaussianSelection', 'gaussianSelection.worker']
     .map(n => [`/src/${n}.ts`, `frontend/src/${n}.ts`])
 ]);
 const rewrite = s => s.replace(/from\s*(["'])three\1/g, "from '/three.js'").replace(/from\s*(["'])@sparkjsdev\/spark\1/g, "from '/spark.js'")

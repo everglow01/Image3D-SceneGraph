@@ -25,6 +25,7 @@ export type P0SelectionResult = {
   candidates: number;
   contributions: number;
   elapsedMs: number;
+  surfaceDepth?: number | null;
 };
 
 export const P0_SELECTION_LIMITS = Object.freeze({ maxRoiPixels: 128 * 128, maxCandidates: 100_000,
@@ -44,7 +45,7 @@ export function p0PolygonContains(polygon: [number, number][], x: number, y: num
   return inside;
 }
 
-export function validateP0Selection(source: P0Source, r: P0SelectionRequest) {
+export function validateP0Selection(source: P0Source, r: P0SelectionRequest, maxRoiPixels = P0_SELECTION_LIMITS.maxRoiPixels) {
   validateP0Source(source);
   validateP0Mask(r.visible, source.count);
   if (r.sourceSha256 !== source.sha256 ||
@@ -73,7 +74,7 @@ export function validateP0Selection(source: P0Source, r: P0SelectionRequest) {
   if (Math.abs(area) < 2) throw new Error("P0 选区面积不足一个像素");
   const left = Math.floor(Math.min(...r.polygon.map(p => p[0]))), top = Math.floor(Math.min(...r.polygon.map(p => p[1])));
   const right = Math.ceil(Math.max(...r.polygon.map(p => p[0]))), bottom = Math.ceil(Math.max(...r.polygon.map(p => p[1])));
-  if ((right - left) * (bottom - top) > P0_SELECTION_LIMITS.maxRoiPixels) throw new Error("P0 选区超过 128×128 像素面积预算，请缩小选区");
+  if ((right - left) * (bottom - top) > maxRoiPixels) throw new Error("选区超过像素面积预算，请缩小选区");
   return { left, top, right, bottom };
 }
 
@@ -105,8 +106,8 @@ export class P0FrontLayer {
 }
 
 export async function selectP0Surface(source: P0Source, r: P0SelectionRequest,
-  cancelled: () => boolean = () => false): Promise<P0SelectionResult> {
-  const roi = validateP0Selection(source, r), start = performance.now();
+  cancelled: () => boolean = () => false, maxRoiPixels = P0_SELECTION_LIMITS.maxRoiPixels): Promise<P0SelectionResult> {
+  const roi = validateP0Selection(source, r, maxRoiPixels), start = performance.now();
   const limits = P0_SELECTION_LIMITS;
   const check = () => {
     if (cancelled()) throw new Error("P0 选择已取消");
@@ -172,6 +173,7 @@ export async function selectP0Surface(source: P0Source, r: P0SelectionRequest,
     await yieldTask();
     const selected = new Uint8Array(Math.ceil(source.count / 8));
     let visits = 0, contributions = 0, confidentPixels = 0;
+    let surfaceDepth: number | null = null;
     for (let ty = roi.top; ty < roi.bottom; ty += limits.tileSize) {
       for (let tx = roi.left; tx < roi.right; tx += limits.tileSize) {
         await yieldTask();
@@ -200,7 +202,10 @@ export async function selectP0Surface(source: P0Source, r: P0SelectionRequest,
               if (layer.done) break;
             }
             const ids = layer.result();
-            if (ids.length) confidentPixels++;
+            if (ids.length) {
+              confidentPixels++;
+              if (roi.right - roi.left === 1 && roi.bottom - roi.top === 1) surfaceDepth = layer.depth;
+            }
             for (const id of ids) selected[id >> 3] |= 1 << (id & 7);
           }
         }
@@ -211,6 +216,6 @@ export async function selectP0Surface(source: P0Source, r: P0SelectionRequest,
     for (let i = 0; i < selected.length; i++) { let v = selected[i]; while (v) { selectedCount++; v &= v - 1; } }
     check();
     return { sourceSha256: source.sha256, modelGeneration: r.modelGeneration, cameraGeneration: r.cameraGeneration,
-      sequence: r.sequence, selected, selectedCount, confidentPixels, candidates: count, contributions, elapsedMs: performance.now() - start };
+      sequence: r.sequence, selected, selectedCount, confidentPixels, candidates: count, contributions, elapsedMs: performance.now() - start, surfaceDepth };
   } finally { channel.port1.close(); channel.port2.close(); }
 }
