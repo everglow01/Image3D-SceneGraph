@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import numpy as np
 import torch
 
@@ -73,6 +76,18 @@ def test_picker_adapter_uses_front_contributors_and_maps_active_to_original_ids(
     assert result["ids"].tolist() == [5]
     assert result["confident_pixels"] == 1
     assert result["uncertain_pixels"] == 15
+
+
+def test_local_p0_uses_the_same_front_layer_reference_cases():
+    cases = json.loads(
+        (Path(__file__).parent / "fixtures/gaussian_front_layers.json").read_text()
+    )
+    for case in cases:
+        layer = FrontLayer(1, case["tolerance"])
+        for source_id, depth, alpha in case["contributions"]:
+            layer.add([source_id], [0], [depth], [alpha])
+        ids, _ = layer.result()
+        assert ids.tolist() == case["selected"], case["name"]
 
 
 def test_front_layer_occlusion_and_transparency_abstention():

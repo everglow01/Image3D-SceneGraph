@@ -18,6 +18,14 @@
 
 测试使用安装包的真实Dyno着色器构造器检查采样器绑定和仅alpha写入，以及纹理副本、撤销、拒绝非法管线和幂等释放；没有把shader字符串检查称为GPU编译／像素验收。产品查看器尚未接入本探针。
 
+## 有界 Worker 表层选择
+
+`localGaussianP0Selection.ts` 固定到当前Spark渲染配置：无斜切透视、刚体模型相机矩阵、preBlur=0.3、blur=0、maxStdDev=3、clipXY=1.4、focalAdjustment=1、falloff=1、alpha阈值1/255，不支持2DGS、景深或LOD。使用投影椭圆与前向透明贡献，而非中心点或期望深度；输出ID仍为输入几何的行号。JS双精度投影与GPU浮点及accumulator再次量化的差异须实测，不宣称原生像素完全一致。
+
+首个技术探针只接受多边形包围矩形面积≤16,384实际绘图像素，最多100,000候选、8,000,000候选／贡献访问、2秒；超过任何预算整次失败、不应用部分结果。每批主动让出Worker事件循环，以处理取消／换源；失败不降采样或退回穿透。16×16瓦片的按深度贡献遍历复用Python `FrontLayer` 的语义，弱于5%前层可能跳过寻找主表层；5%–50%的半透明前景弃权，达到50%才形成可信选集。这不是物体分割，也不保证背景绝不受影响。
+
+`gaussianSelection.worker.ts` 不在产品中自动启动。控制器拒绝旧model generation／重复sequence，换源和取消阻断在途结果；返回camera generation供调用方在实际应用前再次核对。共享夹具 `tests/fixtures/gaussian_front_layers.json` 同时供Python与TS回归使用。
+
 ## 检查边界
 
 新增Node测试只覆盖夹具结构、逐行检查器和packed little-endian掩码。真实Spark解码和WebGL必须另外执行浏览探针，mock通过不能替代它。依用户持续规则，本机当前仅执行静态TypeScript／语法／diff检查；单元测试、真实GPU和远端执行没有本批授权，不称通过。

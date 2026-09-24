@@ -1,0 +1,8 @@
+[
+  {"name":"opaque-front", "tolerance":0.02, "contributions":[[10,1,0.9],[20,3,0.9]], "selected":[10]},
+  {"name":"translucent-abstention", "tolerance":0.02, "contributions":[[11,1,0.2],[21,3,0.9]], "selected":[]},
+  {"name":"same-layer-accumulation", "tolerance":0.02, "contributions":[[12,1,0.3],[13,1.01,0.4],[22,3,0.9]], "selected":[12,13]},
+  {"name":"weak-floater-skip", "tolerance":0.02, "contributions":[[3,1,0.02],[8,3,0.9]], "selected":[8]},
+  {"name":"five-percent-abstention", "tolerance":0.02, "contributions":[[3,1,0.05],[8,3,0.9]], "selected":[]},
+  {"name":"no-confident-surface", "tolerance":0.02, "contributions":[[3,1,0.01],[8,3,0.02]], "selected":[]}
+]
