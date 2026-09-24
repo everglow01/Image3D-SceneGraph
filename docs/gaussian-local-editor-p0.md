@@ -1,6 +1,6 @@
 # 本地 Gaussian 编辑 P0
 
-日期：2026-09-24。状态：独立技术探针开发中，**运行准入未通过、没有产品入口**。
+日期：2026-09-24。状态：P0源／掩码／Worker及合成浏览探针代码已提供，**运行准入未通过、没有产品入口**。
 
 ## 范围与身份
 
@@ -25,6 +25,35 @@
 首个技术探针只接受多边形包围矩形面积≤16,384实际绘图像素，最多100,000候选、8,000,000候选／贡献访问、2秒；超过任何预算整次失败、不应用部分结果。每批主动让出Worker事件循环，以处理取消／换源；失败不降采样或退回穿透。16×16瓦片的按深度贡献遍历复用Python `FrontLayer` 的语义，弱于5%前层可能跳过寻找主表层；5%–50%的半透明前景弃权，达到50%才形成可信选集。这不是物体分割，也不保证背景绝不受影响。
 
 `gaussianSelection.worker.ts` 不在产品中自动启动。控制器拒绝旧model generation／重复sequence，换源和取消阻断在途结果；返回camera generation供调用方在实际应用前再次核对。共享夹具 `tests/fixtures/gaussian_front_layers.json` 同时供Python与TS回归使用。
+
+## 合成浏览准入入口
+
+`localGaussianP0Probe.ts::runLocalGaussianP0Probe(emptyMount, signal?)` 仅显式调用时运行；导入模块不启动渲染或Worker。它要求真实NVIDIA RTX4060 WebGL（拒绝软件回退）及现有localhost／HTTPS的Web Crypto；不通过浏览器安全开关绕过。
+
+探针只生成17行小型合成PLY，不请求真实Job／云会话、不写模型／保存接口。两个相机／模型姿态分别检查：
+
+1. 实际Spark解码后逐行核对11项几何属性，包含不显示的弱首行；
+2. SH3与SH0实际画面有响应差异；
+3. 全保留mask对原画面无额外>1/255通道差；
+4. 原始第12行单独显示与从原PLY直接提取该行重新解码的画面一致，核对GPU source ID而非只看总画面变化；
+5. Worker选择→隐藏→全隐藏→撤销，确认画面变化／全黑／恢复及源几何与SH数组哈希不变；
+6. 重排后再次核对源行，结束释放mask、两个模型、Spark、WebGL和Worker。
+
+返回JSON的 `status=passed` **仅指这个合成探针**，仍明确 `realModelAcceptance=not_run`、`productionEditor=not_enabled`。失败抛出原因，调用者必须保留失败记录，不能当作通过。像素采集包含readback，不是正式性能基准。
+
+获单独授权后，可在既有Vite开发页中显式导入 `/src/localGaussianP0Probe.ts`，给它一个单独创建的空div并await调用，保存返回的JSON；禁止占用产品画布或关闭用户窗口。生产构建没有该实验按钮，也不保证开发模块URL存在。真实3M源身份、视角边界及500ms/2s预算仍须独立验收，不能用17行结果代替。
+
+## 待运行的回归
+
+在明确获准的环境中执行（本次未执行）：
+
+```bash
+npm --prefix frontend test
+uv run pytest tests/test_gaussian_visible_selection.py
+npm --prefix frontend run build
+```
+
+其中前端新增12项Node检查覆盖源夹具／掩码／选择／Worker；Python新增1项读取同一前层JSON夹具。单元测试中的本地投影／mask检查不启动真实WebGL，浏览准入仍单独运行。真实模型P0尚无通过证据，不进入P1。
 
 ## 检查边界
 
