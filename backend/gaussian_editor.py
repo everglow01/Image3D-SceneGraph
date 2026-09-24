@@ -197,9 +197,12 @@ def editor_router(service: EditorSessions, *, capability_provider=cloud_media.ca
         return {"state": "closed"}
 
     @router.get("/gaussian-edits/{edit_id}/local-mask")
-    async def read_local(request: Request, edit_id: str):
+    async def read_local(
+        request: Request, edit_id: str,
+        version: Annotated[str | None, Query(pattern=r"^v[0-9]{8}$")] = None,
+    ):
         authorization = local(request, edit_id)
-        state, content = await service.read_local(authorization)
+        state, content = await service.read_local(authorization, version)
         identity = authorization["identity"]
         return Response(content, media_type="application/octet-stream", headers={
             "X-Edit-Revision": str(state["revision"]),

@@ -522,15 +522,17 @@ class GaussianEditStore:
             raise EditConflict("the frozen source has changed")
         return source
 
-    def local_snapshot(self, edit_id: str, identity: dict) -> tuple[dict, bytes]:
+    def local_snapshot(
+        self, edit_id: str, identity: dict, version: str | None = None,
+    ) -> tuple[dict, bytes]:
         directory = self._directory(edit_id)
         with FileLease(directory / ".edit.lock"):
             self.check_source(edit_id, identity)
-            state = self.get(edit_id)
+            state = self.get(edit_id) if version is None else self.version(edit_id, version)
             visible = self._read_mask(
                 directory, state["history"][state["cursor"]],
                 state["source"]["gaussian_count"],
-            )
+            ) if version is None else self.version_visible(edit_id, version)
             return {
                 "revision": state["revision"], "visible_count": int(visible.sum()),
             }, np.packbits(visible, bitorder="little").tobytes()

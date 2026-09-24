@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-24，按用户“继续完成下一轮”推进P3，先实现源绑定前端持久化控制器与严格草稿编解码：本地可见代次独立于服务端revision，点击快照后继续编辑不会被旧ACK标为已保存；快照／版本失败保留原操作ID和内容，重新授权读回基线、冲突停止同步，保存不清本地undo/redo。草稿只含源身份、文档、基线revision、visible/protected及相机，拒绝错源／未知字段／非法mask，离线恢复后必须核对服务器基线。GET local-mask增补已保存version只读查询，复用源校验与不可变版本mask，不启动GPU。新增前端状态／故障回归与Python只读版本回归源码；产品及回归TypeScript、Python AST、Ruff、diff静态检查通过，测试未执行（首次回归类型检查使用NodeNext与项目不符，改用现有bundler解析及Node类型后通过，无依赖改动）。后续接独立面板保存／导出／恢复，不进入P4正式入口，不push/pull/部署，不沿用P0运行授权，用户原文件保留。
+
 - 2026-09-24，P2第二小点完成无GPU本地保存HTTP协议：`local-authorization`固定600秒、最多64个单文档token，`local-mask`读回源身份／revision且仅PUT允许512KiB未压缩二进制，其他JSON仍96KiB；校验Origin、请求头、源SHA／metadata／count、实际流长度和CAS／幂等。云会话与本地授权共用持续持有的`.writer.lock`，不同文档独立、同文档冲突409；加载／关闭／过期中的在途线程和重复取消均不提前释放。版本／导出复用原CPU存储及当前服务单在途导出协调器，不启动renderer、CUDA或媒体。新增CPU保存恢复导出、非法输入／跨文档凭证、预算、过期与竞争／取消回归源码；Python AST、Ruff、diff静态检查通过，测试与真实环境均未运行。协议在 `docs/gaussian-local-editor-p2.md`；P1运行验收仍未执行，前端保存／草稿／正式入口留P3/P4，不push/pull/部署，不改源数据或生产默认，用户旧文档不夹带提交。
 
 - 2026-09-24，用户要求继续下一轮，按批准计划进入P2保存协议代码阶段；P1运行验收仍未执行，不将其静态检查当作验收通过。首个小点新增源PLY／metadata SHA和count绑定的完整packed可见mask快照存储，独立于旧delete/undo/redo；允许恢复源行，复用文件锁、原子提交、101状态历史、1000操作上限、单调revision及幂等ACK，拒绝错源、损坏padding、全删、未确认过半删除和CAS冲突。新增恢复／分支／重放／原子失败回归源码，Python AST、Ruff和diff静态检查通过，未运行测试。后续仅完成无GPU授权、云/本地文档互斥与CPU版本/导出协议；不进入P3/P4，不push/pull/部署，不沿用P0运行授权，保留用户原有文档。

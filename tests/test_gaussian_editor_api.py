@@ -97,6 +97,33 @@ def local_open(client, edit_id=None):
     return base, identity, response.json()
 
 
+def test_local_historical_mask_is_source_bound_and_does_not_change_current(tmp_path):
+    client, service, original = make_client(tmp_path)
+    before = sha256_file(original)
+    with client:
+        base, identity, authorization = local_open(client)
+        headers = {"content-type": "application/octet-stream"}
+        params = identity | {"expected_revision": 0, "operation_id": "hide"}
+        assert client.put(base + "/local-mask", params=params, content=b"\xfe", headers=headers).status_code == 200
+        version = client.post(base + "/local-versions", json={"expected_revision": 1}).json()["version"]
+        assert client.put(base + "/local-mask", params=identity | {
+            "expected_revision": 1, "operation_id": "restore",
+        }, content=b"\xff", headers=headers).status_code == 200
+        historical = client.get(base + "/local-mask", params={"version": version})
+        assert historical.status_code == 200
+        assert historical.content == b"\xfe" and historical.headers["x-edit-revision"] == "1"
+        assert historical.headers["x-source-sha256"] == identity["ply_sha256"]
+        assert historical.headers["cache-control"] == "no-store"
+        current = client.get(base + "/local-mask")
+        assert current.content == b"\xff" and current.headers["x-edit-revision"] == "2"
+        assert client.get(base + "/local-mask", params={"version": "../edit.json"}).status_code == 422
+        assert client.get(base + "/local-mask", params={"version": "v99999999"}).status_code == 404
+        assert client.get(base + "/local-mask", params={"version": version}, headers={"x-editor-token": "wrong"}).status_code == 403
+        assert service.edits.get(authorization["edit_id"])["revision"] == 2
+        assert service.active is None and sha256_file(original) == before
+        assert client.delete(base + "/local-authorization").status_code == 200
+
+
 def test_local_cpu_protocol_save_restore_export_without_cloud(tmp_path, monkeypatch):
     store, original, rows = setup_source(tmp_path)
     before = sha256_file(original)

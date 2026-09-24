@@ -225,10 +225,11 @@ class EditorSessions:
                 self._release_local(authorization)
         await asyncio.shield(asyncio.create_task(close()))
 
-    async def read_local(self, authorization: LocalAuthorization):
+    async def read_local(self, authorization: LocalAuthorization, version: str | None = None):
         async with self.local_action(authorization):
             return await offload(
-                self.edits.local_snapshot, authorization["edit_id"], authorization["identity"]
+                self.edits.local_snapshot, authorization["edit_id"], authorization["identity"],
+                version=version,
             )
 
     async def submit_local(self, authorization: LocalAuthorization, content: bytes, request: dict):

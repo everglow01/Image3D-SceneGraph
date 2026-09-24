@@ -22,6 +22,8 @@ export class LocalGaussianEditing {
   private cursor = 0;
   private preview: LocalPreview = "none";
   private generation = 0;
+  private visibleGeneration = 0;
+  private contentGeneration = 0;
 
   constructor(sourceSha256: string, count: number) {
     if (!/^[a-f0-9]{64}$/.test(sourceSha256)) throw new Error("编辑源 SHA 不合法");
@@ -36,6 +38,17 @@ export class LocalGaussianEditing {
   private snapshot(): Snapshot { return { visible: this.visible.slice(), protected: this.protected.slice() }; }
   get masks() { return { ...this.snapshot(), selected: this.selected.slice() }; }
   get revision() { return this.generation; }
+  get visibilityRevision() { return this.visibleGeneration; }
+  get contentRevision() { return this.contentGeneration; }
+
+  loadSnapshot(visible: Uint8Array, protectedMask = new Uint8Array(visible.length)) {
+    validateP0Mask(visible, this.count); validateP0Mask(protectedMask, this.count);
+    if (!maskCount(visible)) throw new Error("禁止载入全隐藏模型");
+    this.visible = visible.slice(); this.protected = protectedMask.slice(); this.selected.fill(0);
+    this.history = [this.snapshot()]; this.cursor = 0;
+    this.visibleGeneration++; this.contentGeneration++;
+    this.afterHistoryChange();
+  }
   get previewMode() { return this.preview; }
   get canUndo() { return this.cursor > 0; }
   get canRedo() { return this.cursor + 1 < this.history.length; }
@@ -66,6 +79,8 @@ export class LocalGaussianEditing {
 
   private commit(visible: Uint8Array, protectedMask: Uint8Array) {
     if (visible.every((v, i) => v === this.visible[i]) && protectedMask.every((v, i) => v === this.protected[i])) return false;
+    if (!visible.every((v, i) => v === this.visible[i])) this.visibleGeneration++;
+    this.contentGeneration++;
     this.visible = visible; this.protected = protectedMask;
     this.history.splice(this.cursor + 1);
     this.history.push(this.snapshot());
@@ -101,6 +116,8 @@ export class LocalGaussianEditing {
     if (next < 0 || next >= this.history.length) return false;
     this.cursor = next;
     const entry = this.history[this.cursor];
+    if (!entry.visible.every((v, i) => v === this.visible[i])) this.visibleGeneration++;
+    this.contentGeneration++;
     this.visible = entry.visible.slice(); this.protected = entry.protected.slice();
     this.afterHistoryChange();
     return true;
