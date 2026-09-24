@@ -643,6 +643,52 @@ def test_project_gaussian_colmap_uses_gpu_and_bounded_cpu_resources(
     assert "--gaussian-baseline" in command
 
 
+@pytest.mark.parametrize("video_profile", [None, "standard_v2"])
+def test_multi_image_geometry_does_not_require_video_expansion(tmp_path, monkeypatch, video_profile):
+    from image3d_scenegraph.geometry import adapters
+
+    timing = {
+        "schema_version": 1, "profile": "colmap_timing_v1",
+        "requested_mapper": "incremental", "mapper": "incremental",
+        "effective_database_sha256": "a" * 64,
+        "effective_database_path": "colmap/database.db",
+        "sfm_pose_health_path": "diagnostics/sfm_pose_health.json",
+        "sfm_pose_recovery_path": "diagnostics/sfm_pose_recovery.json",
+        "stage_elapsed_seconds": {}, "total_elapsed_seconds": 0,
+    }
+    records = {
+        "diagnostics/colmap_timing.json": timing,
+        "diagnostics/sfm_pose_health.json": {},
+        "diagnostics/sfm_pose_recovery.json": {"status": "not_needed", "recovery_applied": False},
+        "diagnostics/sfm_camera_calibration.json": {},
+        "geometry/cameras.json": {},
+    }
+    for relative, value in records.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value))
+    for relative in ("colmap/database.db", "geometry/points.ply", "colmap/undistorted/sparse_txt/points3D.txt"):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(adapters, "_run_adapter_command", lambda *args, **kwargs: None)
+    monkeypatch.setattr(adapters, "_camera_calibration_diagnostics_metrics", lambda *args: {})
+    monkeypatch.setattr(adapters, "_validate_colmap_pose_evidence", lambda **kwargs: 0)
+
+    def reached_dataset(**kwargs):
+        assert kwargs["temporal_timestamps"] is None
+        raise RuntimeError("reached multi-image dataset preparation")
+
+    monkeypatch.setattr("image3d_scenegraph.gaussian.dataset.build_colmap_contract", reached_dataset)
+    options = {} if video_profile is None else {"video_keyframe_profile": video_profile}
+    context = ReconstructionContext(
+        job_id="job", job_dir=tmp_path, mode="multi_image", input_assets=[], options=options,
+    )
+    with pytest.raises(RuntimeError, match="reached multi-image dataset preparation"):
+        ProjectGaussianAdapter().run(context)
+    assert not (tmp_path / "diagnostics/video_initial_registration_expansion.json").exists()
+
+
 def test_project_gaussian_passes_explicit_global_mapper(tmp_path, monkeypatch):
     captured = []
 

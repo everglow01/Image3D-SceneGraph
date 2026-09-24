@@ -753,7 +753,7 @@ class ProjectGaussianAdapter:
             ).as_posix()
             geometry_metrics["sfm_pose_health_status"] = "passed"
             pose_log_lines = ["sfm_pose_health_status=passed"]
-        if geometry_source == "colmap" and video_profile == "standard_v2":
+        if context.mode == "video" and geometry_source == "colmap" and video_profile == "standard_v2":
             colmap_timing_path = (
                 context.job_dir / "diagnostics" / "colmap_timing.json"
             )
