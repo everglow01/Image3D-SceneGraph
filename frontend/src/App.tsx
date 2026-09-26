@@ -1,4 +1,5 @@
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { leaveGaussianViewer } from "./gaussianViewerLeave";
 import {
   Download,
   FileArchive,
@@ -536,6 +537,13 @@ export function App() {
   const [backendStatuses, setBackendStatuses] = useState<Record<GeometryBackend, BackendStatus> | null>(null);
   const [viewerFocus, setViewerFocus] = useState(false);
   const [cloudEditing, setCloudEditing] = useState(false);
+  const [localEditing, setLocalEditing] = useState(false);
+  const viewerLeaveRef = useRef<(() => Promise<boolean>) | null>(null);
+  const editingRef = useRef(false); editingRef.current = localEditing || cloudEditing;
+  const manifestRef = useRef(manifest); manifestRef.current = manifest;
+  const variantRef = useRef(gaussianVariant); variantRef.current = gaussianVariant;
+  const jobLoadSerial = useRef(0);
+  const changingView = useRef(false);
   const [inspectionRequest, setInspectionRequest] = useState<{
     id: number;
     tab: SfmInspectionTab;
@@ -799,10 +807,11 @@ export function App() {
         if (cancelled) {
           return;
         }
-        applyManifest(nextManifest);
+        if (!await applyManifest(nextManifest, false, false, true)) return;
         setJobStatus(nextManifest);
         if (nextManifest.status === "done") {
-          setScene(await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`));
+          const nextScene = await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`);
+          if (!cancelled && manifestRef.current?.job_id === manifest.job_id) setScene(nextScene);
         }
       } catch (caught) {
         if (!cancelled) {
@@ -834,26 +843,62 @@ export function App() {
     setActiveInspectionTab(null);
   }, [manifest?.job_id]);
 
+  async function changeView(action: () => void) {
+    if (changingView.current) return;
+    changingView.current = true;
+    try { if (await leaveGaussianViewer(viewerLeaveRef)) action(); }
+    finally { changingView.current = false; }
+  }
+
   function selectViewerMode(mode: ViewerMode) {
-    setInspectionRequest(null);
-    setActiveInspectionTab(null);
-    setViewerMode(mode);
+    if (mode === viewerMode) return;
+    void changeView(() => {
+      setInspectionRequest(null);
+      setActiveInspectionTab(null);
+      setViewerMode(mode);
+    });
+  }
+
+  function selectGaussianVariant(variant: string) {
+    if (variant !== gaussianVariant) void changeView(() => setGaussianVariant(variant));
   }
 
   function requestEvidence(stage: EvidenceStageId) {
-    if (stage === "input" || stage === "matching") {
-      setViewerMode("gaussian_splat");
-      const tab: SfmInspectionTab = stage === "matching" ? "matches" : "nearest";
-      setInspectionRequest((current) => ({ id: (current?.id ?? 0) + 1, tab }));
-      return;
-    }
-    setInspectionRequest(null);
-    setActiveInspectionTab(null);
-    setViewerMode(stage === "sparse" ? "point_cloud" : "gaussian_splat");
+    void changeView(() => {
+      if (stage === "input" || stage === "matching") {
+        setViewerMode("gaussian_splat");
+        const tab: SfmInspectionTab = stage === "matching" ? "matches" : "nearest";
+        setInspectionRequest((current) => ({ id: (current?.id ?? 0) + 1, tab }));
+        return;
+      }
+      setInspectionRequest(null);
+      setActiveInspectionTab(null);
+      setViewerMode(stage === "sparse" ? "point_cloud" : "gaussian_splat");
+    });
   }
 
-  function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false) {
-    const defaultVariant = defaultGaussianVariant(nextManifest);
+  async function applyManifest(nextManifest: Manifest, selectNewestMeshVariant = false, preferPointCloud = false, background = false) {
+    // A delayed refresh/navigation response must not replace a newer Job or silently reset its variant.
+    if (manifestRef.current?.job_id !== manifest?.job_id) return false;
+    const sameJob = nextManifest.job_id === manifestRef.current?.job_id;
+    const currentVariant = variantRef.current;
+    const nextVariants = gaussianVariants(nextManifest);
+    const defaultVariant = sameJob && nextVariants.some(v => v.id === currentVariant) ? currentVariant : defaultGaussianVariant(nextManifest);
+    const sourceIdentity = (value: Manifest | null, variant: string) => {
+      const selected = value && gaussianVariants(value).find(v => v.id === variant);
+      return JSON.stringify([value?.job_id, selected?.id, selected?.scene_splat, selected?.export_metadata, selected?.browser_asset?.path,
+        value?.assets.gaussian_camera_path, value?.assets.alignment_diagnostics, value?.assets.collision_mesh, value?.assets.navigation]);
+    };
+    if (!sameJob || sourceIdentity(manifestRef.current, currentVariant) !== sourceIdentity(nextManifest, defaultVariant)) {
+      // Polling must not repeatedly prompt or close an active editor; an explicit refresh can apply the new assets.
+      if (background && editingRef.current) return false;
+      if (changingView.current) return false;
+      changingView.current = true;
+      try { if (!await leaveGaussianViewer(viewerLeaveRef)) return false; }
+      finally { changingView.current = false; }
+      if (manifestRef.current?.job_id !== manifest?.job_id) return false;
+    }
+    manifestRef.current = nextManifest;
     setManifest(nextManifest);
     setPointCloudVariant(nextManifest.assets.point_cloud_aligned ? "aligned" : "raw");
     setGaussianVariant(defaultVariant);
@@ -901,6 +946,7 @@ export function App() {
       }
       return variants[0]?.id ?? null;
     });
+    return true;
   }
 
   function onModeChange(nextMode: Mode) {
@@ -1119,9 +1165,8 @@ export function App() {
         method: "POST",
         body: form
       });
-      applyManifest(created, false, true);
-      setJobStatus(created);
-      setScene(null);
+      const displayed = await applyManifest(created, false, true);
+      if (displayed) { setJobStatus(created); setScene(null); }
       setJobs((current) => [
         {
           job_id: created.job_id,
@@ -1132,7 +1177,7 @@ export function App() {
         },
         ...current.filter((job) => job.job_id !== created.job_id)
       ]);
-      setSelectedJobId(created.job_id);
+      if (displayed) setSelectedJobId(created.job_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "创建任务失败");
     } finally {
@@ -1150,10 +1195,11 @@ export function App() {
         requestJson<JobStatus>(`/api/jobs/${manifest.job_id}`),
         requestJson<Manifest>(`/api/jobs/${manifest.job_id}/manifest`)
       ]);
+      if (!await applyManifest(nextManifest)) return;
       setJobStatus(status);
-      applyManifest(nextManifest);
       if (nextManifest.status === "done") {
-        setScene(await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`));
+        const nextScene = await requestJson<SceneGraph>(`/api/jobs/${manifest.job_id}/scene`);
+        if (manifestRef.current?.job_id === manifest.job_id) setScene(nextScene);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "刷新任务失败");
@@ -1165,7 +1211,7 @@ export function App() {
       return;
     }
 
-    setSelectedJobId(jobId);
+    const serial = ++jobLoadSerial.current;
     setIsLoadingJob(true);
     setError(null);
     try {
@@ -1173,13 +1219,11 @@ export function App() {
         requestJson<JobStatus>(`/api/jobs/${jobId}`),
         requestJson<Manifest>(`/api/jobs/${jobId}/manifest`)
       ]);
+      if (serial !== jobLoadSerial.current || !await applyManifest(nextManifest, false, true)) return;
+      setSelectedJobId(jobId);
       setJobStatus(status);
-      applyManifest(nextManifest, false, true);
-      setScene(
-        nextManifest.status === "done"
-          ? await requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`)
-          : null
-      );
+      const nextScene = nextManifest.status === "done" ? await requestJson<SceneGraph>(`/api/jobs/${jobId}/scene`) : null;
+      if (manifestRef.current?.job_id === jobId) setScene(nextScene);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "加载任务失败");
     } finally {
@@ -1198,7 +1242,7 @@ export function App() {
         `/api/jobs/${manifest.job_id}/${action}`,
         { method: "POST" }
       );
-      applyManifest(nextManifest);
+      if (!await applyManifest(nextManifest)) return;
       setJobStatus(nextManifest);
       if (action === "retry") {
         setScene(null);
@@ -1221,7 +1265,7 @@ export function App() {
         `/api/jobs/${manifest.job_id}/navigation-assets`,
         { method: "POST" }
       );
-      applyManifest(nextManifest);
+      if (!await applyManifest(nextManifest)) return;
       setJobStatus(nextManifest);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "生成导航资产失败");
@@ -1252,7 +1296,7 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(meshSettings)
       });
-      applyManifest(nextManifest, true);
+      await applyManifest(nextManifest, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "生成网格方案失败");
     } finally {
@@ -1293,7 +1337,7 @@ export function App() {
   );
 
   return (
-    <main className={cloudEditing ? "app-shell viewer-focus cloud-editing" : viewerFocus ? "app-shell viewer-focus" : "app-shell"}>
+    <main className={cloudEditing ? "app-shell viewer-focus cloud-editing" : viewerFocus || localEditing ? "app-shell viewer-focus" : "app-shell"}>
       <header className="topbar">
         <div className="brand-lockup">
           <img className="company-logo" src={companyLogo} alt="越创智数 YUETRON DIGTECH" />
@@ -2148,7 +2192,7 @@ export function App() {
                   {splatVariants.map(variant => (
                     <button className={gaussianVariant === variant.id ? "active" : ""}
                       type="button" key={variant.id} aria-pressed={gaussianVariant === variant.id}
-                      onClick={() => setGaussianVariant(variant.id)}>
+                      onClick={() => selectGaussianVariant(variant.id)}>
                       {variant.label}
                     </button>
                   ))}
@@ -2158,8 +2202,8 @@ export function App() {
                 className="icon-button"
                 type="button"
                 onClick={() => setViewerFocus((current) => !current)}
-                disabled={!manifest || cloudEditing}
-                title={cloudEditing ? "云修剪已使用宽视口" : viewerFocus ? "退出专注查看（Esc）" : "隐藏两侧面板，扩大诊断工作区"}
+                disabled={!manifest || cloudEditing || localEditing}
+                title={localEditing ? "本地编辑已使用宽视口" : cloudEditing ? "云修剪已使用宽视口" : viewerFocus ? "退出专注查看（Esc）" : "隐藏两侧面板，扩大诊断工作区"}
               >
                 {viewerFocus ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
                 <span>{viewerFocus ? "退出专注" : "专注查看"}</span>
@@ -2210,11 +2254,13 @@ export function App() {
             />
           )}
           <GeometryViewer
+            leaveRef={viewerLeaveRef}
+            onLocalModeChange={setLocalEditing}
             onCloudModeChange={setCloudEditing}
             cloudSource={manifest && selectedSplatVariant ? {
               job_id: manifest.job_id,
               variant_id: manifest.gaussian_variants ? selectedSplatVariant.id : undefined,
-              asset_role: selectedSplatVariant.id === "vggt_filtered" ? "scene_splat_vggt_filtered" : "scene_splat",
+              asset_role: !manifest.gaussian_variants && selectedSplatVariant.id === "vggt_filtered" ? "scene_splat_vggt_filtered" : "scene_splat",
               label: selectedSplatVariant.label
             } : undefined}
             pointCloudUrl={visiblePointCloudUrl}

@@ -1,5 +1,6 @@
 import "./cloudGaussianEditor.css";
 import { useEffect, useRef, useState, type RefObject } from "react";
+import type { ViewerLeaveRef } from "./gaussianViewerLeave";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { Matrix4, PerspectiveCamera, Vector3 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -7,7 +8,7 @@ import { acceptsFrame, captureView, imagePoint, nativeCamera, operationId, recta
 import { deriveGaussianViewerFrame, deriveUprightRotation, parseGaussianCameraPath, parseGaussianExportMetadata, signedUprightAxis } from "./gaussianViewerMetadata";
 
 export type CloudSource = { job_id: string; variant_id?: string; asset_role: "scene_splat" | "scene_splat_vggt_filtered"; label: string };
-type Props = { source: CloudSource; metadataUrl: string | null; cameraPathUrl: string | null; alignmentUrl: string | null; viewRef?: RefObject<CameraView | null>; viewKey?: string };
+type Props = { leaveRef?: ViewerLeaveRef; source: CloudSource; metadataUrl: string | null; cameraPathUrl: string | null; alignmentUrl: string | null; viewRef?: RefObject<CameraView | null>; viewKey?: string };
 type Version = { version: string; revision: number; visible_count: number; exported?: boolean };
 type Document = { edit_id: string; source: CloudSource; revision: number; visible_count: number; can_undo: boolean; can_redo: boolean; versions: Version[] };
 type Session = { session_id: string; token: string; state: string; revision: number; visible_count: number; protected_count: number; error: string | null };
@@ -26,7 +27,7 @@ async function request<T>(url: string, method = "GET", body?: unknown, token?: s
   return response.json() as Promise<T>;
 }
 
-export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignmentUrl, viewRef, viewKey }: Props) {
+export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignmentUrl, viewRef, viewKey, leaveRef }: Props) {
   const stage = useRef<HTMLDivElement>(null), video = useRef<HTMLVideoElement>(null), image = useRef<HTMLImageElement>(null);
   const session = useRef<Session | null>(null), peer = useRef<RTCPeerConnection | null>(null);
   const controls = useRef<OrbitControls | null>(null), camera = useRef(new PerspectiveCamera(55, 1, 0.01, 1000000));
@@ -57,6 +58,18 @@ export function CloudGaussianViewer({ source, metadataUrl, cameraPathUrl, alignm
   const [minimum, setMinimum] = useState([-1, -1, -1]), [maximum, setMaximum] = useState([1, 1, 1]);
   const [confirmed, setConfirmed] = useState(false), [exportState, setExportState] = useState("");
   const [previewed, setPreviewed] = useState(false);
+
+  useEffect(() => {
+    const leave = async () => {
+      if (working.current || session.current) {
+        window.alert("请先等待云端操作完成，并明确点击“关闭会话”后再切换模型或进入本地；不会后台抢占云会话。");
+        return false;
+      }
+      return true;
+    };
+    if (leaveRef) leaveRef.current = leave;
+    return () => { if (leaveRef?.current === leave) leaveRef.current = null; };
+  }, [leaveRef]);
 
   function sessionCall<T>(suffix: string, method = "POST", body?: unknown) {
     const s = session.current;

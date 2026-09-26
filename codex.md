@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-26，P4第二小点完成App/Geometry正式实验入口与全局实时离开门禁：切Job/variant/几何/证据、切云模式/renderer及退出编辑均在改源前检查未保存内容，取消不卸载，确认后等待关闭；在途文档操作拒绝切换。普通刷新保留当前variant，旧Job响应不覆盖新Job，自动轮询的换源资产更新在活跃编辑期间暂缓，避免反复弹确认。云端在途／活跃会话要求先明确关闭，不由门禁后台抢占；Geometry持续持有本地release Promise，快速云/本地重挂仍串行释放。补App实际组件hook、Geometry及云关闭回归源码；产品、五份变更回归TypeScript及Node语法、diff静态检查通过，未运行测试/构建/真实浏览器/GPU。独立类型检查首次暴露既有无声明JS导入、缺少Vite CSS声明及旧测试null推断，已最小标注/补输入/明确类型，未增加依赖。合同 `docs/gaussian-local-editor-p4.md` 明确首次文档入口需CPU API、同Spark不重载、源身份验证依据与原生离页保护边界；P1–P4运行验收仍未执行，P5未开始，不推送/拉取/部署、不改模型/默认renderer/100ms导航，用户旧文件仅两份合同新增段落独立暂存。
+
 - 2026-09-26，按“继续完成下一轮”推进P4，首个小点在GaussianSplatViewer内部接入可选本地编辑文档面板：既有Spark同源进出不把编辑开关加入load依赖；旧viewer/K2需明确确认原始SH3 Spark加载并保留相机。文档列表／创建复用CPU API，校验加载时metadata文本、Job/variant/role、资产URL、源SHA/count与实际解码count；创建响应未知不自动重复POST。新增实时离开／幂等关闭句柄，授权、Worker和显示先释放，跨重挂共享查看器release Promise；退出等待原始显示恢复，编辑禁用Walk及迟到pointer lock，渲染失败保留草稿面板。界面折叠保护/对照并使用独立滚动面板。产品及相关回归源码TypeScript和Node语法静态检查通过，测试未运行；旧库无声明的AbortablePromise测试导入显式标记、使用既有Vite声明，无依赖安装。下一小点接Geometry/App全局门禁与云会话显式关闭，不进入P5、不优化100ms导航、不push/pull/部署，用户原文件保持不动。
 
 - 2026-09-24，P3第二小点完成独立LocalGaussianEditor文档绑定与保存面板：自动授权／权威基线读取、保存版本与原请求重试、草稿下载／严格导入／断网基线复核、历史版本只读显示和返回当前历史、共用CPU导出与直接下载链接。初始基线暂停输入，保存中允许本地操作；选集不误标为未保存，可见ACK只确认提交代次，保护仍提示需草稿。历史查看取消旧选择并禁用写入快捷键，不改当前mask/undo，不重载PLY；卸载串行等待旧授权和显示释放，原生beforeunload仅尽力保护。补充控制器、面板、只读交互、授权生命周期及API回归源码，产品／变更回归TypeScript、Node类型擦除语法、Python AST／Ruff、diff静态检查通过，未运行任何新增回归、构建或GPU验收。合同 `docs/gaussian-local-editor-p3.md` 明确未知／陈旧草稿基线不能自动覆盖、无浏览器持久缓存；P1/P2运行仍未验收。P4正式入口／App切源保护、P5双模型长时实机均未开始，不优化已接受100ms导航，不push/pull/部署，用户旧文档仅追加本批段落并独立暂存。

@@ -5,10 +5,13 @@ import { GaussianSplatViewer } from "./GaussianSplatViewer";
 import { MeshViewer } from "./MeshViewer";
 import { PointCloudViewer } from "./PointCloudViewer";
 import type { SfmInspectionTab } from "./sfmDiagnostics";
+import { leaveGaussianViewer, type ViewerLeaveRef } from "./gaussianViewerLeave";
 
 type GeometryViewerProps = {
   cloudSource?: CloudSource;
   onCloudModeChange?: (cloud: boolean) => void;
+  onLocalModeChange?: (editing: boolean) => void;
+  leaveRef?: ViewerLeaveRef;
   pointCloudUrl: string | null;
   camerasUrl: string | null;
   alignmentDiagnosticsUrl: string | null;
@@ -31,6 +34,8 @@ type GeometryViewerProps = {
 export function GeometryViewer({
   cloudSource,
   onCloudModeChange,
+  onLocalModeChange,
+  leaveRef,
   pointCloudUrl,
   camerasUrl,
   alignmentDiagnosticsUrl,
@@ -51,6 +56,18 @@ export function GeometryViewer({
 }: GeometryViewerProps) {
   const [cloud, setCloud] = useState(false);
   const viewRef = useRef<CameraView | null>(null);
+  const modelRelease = useRef<Promise<void>>(Promise.resolve());
+  const ownGate = useRef<(() => Promise<boolean>) | null>(null);
+  const gate = leaveRef ?? ownGate;
+  const switching = useRef(false);
+  async function switchCloud(next: boolean) {
+    if (next === cloud || switching.current) return;
+    switching.current = true;
+    try {
+      if (!await leaveGaussianViewer(gate)) return;
+      onInspectionStateChange(null); setCloud(next);
+    } finally { switching.current = false; }
+  }
   useEffect(() => {
     onCloudModeChange?.(!!(cloud && splatUrl && cloudSource));
     return () => onCloudModeChange?.(false);
@@ -58,10 +75,14 @@ export function GeometryViewer({
   if (splatUrl) {
     return <>
       {cloudSource && <div className="variant-toggle cloud-mode-toggle" role="group" aria-label="渲染位置">
-        <button type="button" aria-pressed={!cloud} className={!cloud ? "active" : ""} onClick={() => setCloud(false)}>本地查看</button>
-        <button type="button" aria-pressed={cloud} className={cloud ? "active" : ""} onClick={() => { onInspectionStateChange(null); setCloud(true); }}>云端查看与修剪</button>
+        <button type="button" aria-pressed={!cloud} className={!cloud ? "active" : ""} onClick={() => void switchCloud(false)}>本地查看</button>
+        <button type="button" aria-pressed={cloud} className={cloud ? "active" : ""} onClick={() => void switchCloud(true)}>云端查看与修剪</button>
       </div>}
-      {cloud && cloudSource ? <CloudGaussianViewer key={splatUrl} viewRef={viewRef} viewKey={splatUrl} source={cloudSource} metadataUrl={splatMetadataUrl} cameraPathUrl={splatCameraPathUrl} alignmentUrl={alignmentDiagnosticsUrl} /> : <GaussianSplatViewer
+      {cloud && cloudSource ? <CloudGaussianViewer key={splatUrl} leaveRef={gate} viewRef={viewRef} viewKey={splatUrl} source={cloudSource} metadataUrl={splatMetadataUrl} cameraPathUrl={splatCameraPathUrl} alignmentUrl={alignmentDiagnosticsUrl} /> : <GaussianSplatViewer
+        editSource={cloudSource}
+        releaseRef={modelRelease}
+        leaveRef={gate}
+        onLocalModeChange={onLocalModeChange}
         viewRef={viewRef}
         sourceUrl={splatUrl}
         browserSourceUrl={browserSplatUrl}

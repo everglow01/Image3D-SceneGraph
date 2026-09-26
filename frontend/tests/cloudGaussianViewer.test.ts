@@ -17,6 +17,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
   username: "temporary-user", credential: "temporary-credential"
 }]) {
   const hooks = createHookHarness(), requests: any[] = [], peers: any[] = [];
+  const leaveRef = { current: null as null | (() => Promise<boolean>) };
   const intervals = new Map<number, () => void>(), timeouts = new Map<number, () => void>();
   let tree: any, timer = 0, revision = 0, protectedCount = 0, imageNode: any, frameCallback: (() => void) | undefined;
   const stage = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 500 }), addEventListener() {}, removeEventListener() {} };
@@ -54,7 +55,7 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
   }
   const exports: Record<string, any> = {};
   runInNewContext(code, { exports, Error, crypto: globalThis.crypto, RTCPeerConnection: Peer, MediaStream: class {},
-    window: { document: { hidden: false }, setInterval: (fn: () => void) => { intervals.set(++timer, fn); return timer; },
+    window: { alert() {}, document: { hidden: false }, setInterval: (fn: () => void) => { intervals.set(++timer, fn); return timer; },
       clearInterval: (id: number) => intervals.delete(id), setTimeout: (fn: () => void) => { timeouts.set(++timer, fn); return timer; },
       clearTimeout: (id: number) => timeouts.delete(id) },
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -89,9 +90,9 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     }
   });
   const flush = (until?: () => boolean) => hooks.flush(() => {
-    tree = exports.CloudGaussianViewer({ source, metadataUrl: "/metadata.json", alignmentUrl: null, cameraPathUrl: null });
+    tree = exports.CloudGaussianViewer({ leaveRef, source, metadataUrl: "/metadata.json", alignmentUrl: null, cameraPathUrl: null });
   }, until);
-  return { requests, peers, intervals, timeouts, flush, video,
+  return { requests, peers, intervals, timeouts, flush, video, leaveRef,
     moveCamera: () => orbit.update(),
     stage: () => find(tree, n => n.type === "div" && n.props.className === "cloud-stage")?.props,
     svg: () => find(tree, n => n.type === "svg")?.props,
@@ -109,6 +110,16 @@ function harness(available = true, iceServers: RTCIceServer[] = [{
     unmount: hooks.unmount
   };
 }
+
+test("云端加载与活跃会话阻止切源，显式关闭后才允许进入本地", async () => {
+  const h = harness(); await h.flush(); assert.equal(await h.leaveRef.current!(), true);
+  h.button("连接云端").onClick(); assert.equal(await h.leaveRef.current!(), false);
+  await h.flush(); assert.equal(await h.leaveRef.current!(), false);
+  assert.equal(h.requests.some(r => r.method === "DELETE"), false);
+  h.button("关闭会话").onClick(); await h.flush(); assert.equal(await h.leaveRef.current!(), true);
+  assert.equal(h.requests.filter(r => r.method === "DELETE").length, 1);
+  h.unmount(); assert.equal(h.leaveRef.current, null);
+});
 
 test("cloud page never fetches PLY and waits for the decoded new generation after edits", async () => {
   const h = harness(); await h.flush();
