@@ -215,7 +215,12 @@ export class SparkPageViewer {
 
   endLocalEdit(handle: SparkLocalEdit) {
     if (this.disposed) return this.disposal ?? Promise.resolve();
-    return this.serializeEdit(() => { if (this.editor?.handle === handle) this.releaseEditor(); });
+    return this.serializeEdit(async () => {
+      if (this.editor?.handle === handle) {
+        this.releaseEditor();
+        await this.spark.update({ scene: this.scene, camera: this.camera });
+      }
+    });
   }
 
   stop() {

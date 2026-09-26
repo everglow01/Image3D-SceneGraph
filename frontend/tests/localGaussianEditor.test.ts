@@ -26,7 +26,10 @@ for (const bound of [false, true]) test(`独立面板快速换源串行释放查
     .replaceAll("import.meta.url", JSON.stringify(new URL("../src/LocalGaussianEditor.tsx", import.meta.url).href)),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const frames = new Map<number, () => void>(); let nextFrame = 0;
+  const handleRef = { current: null as any }, listeners = new Map<string, unknown>();
+  let confirmLeave = false, state!: LocalGaussianEditing, storage: any;
   runInNewContext(code, { exports, AbortController, URL, console, document: { body: {} },
+    window: { alert() {}, confirm: () => confirmLeave, addEventListener: (name: string, fn: unknown) => listeners.set(name, fn), removeEventListener: (name: string) => listeners.delete(name) },
     requestAnimationFrame: (callback: () => void) => { frames.set(++nextFrame, callback); return nextFrame; },
     cancelAnimationFrame: (id: number) => frames.delete(id),
     Worker: class { terminated = false; constructor() { workers.push(this); } terminate() { this.terminated = true; } },
@@ -40,8 +43,9 @@ for (const bound of [false, true]) test(`独立面板快速换源串行释放查
         dispose() { this.worker.terminate(); }
       } };
       if (name === "./localGaussianPersistence.ts") return { LocalGaussianPersistence: class {
-        state: LocalGaussianEditing;
-        constructor(state: LocalGaussianEditing) { this.state = state; }
+        state: LocalGaussianEditing; busy = false;
+        get hasUnsavedWork() { return this.state.contentRevision > 0; }
+        constructor(state: LocalGaussianEditing) { this.state = state; storage = this; }
         async open() { authorizations.push(this.state.sourceSha256); }
         async dispose() { released.push(this.state.sourceSha256); await authorizationClosing.promise; }
       } };
@@ -49,7 +53,7 @@ for (const bound of [false, true]) test(`独立面板快速换源串行释放查
       if (name === "./localGaussianInteraction.ts") return { LocalGaussianInteraction: class {
         state: LocalGaussianEditing; ready = true; mode = "surface"; operation = "replace"; tool = "rectangle"; polygon = []; highlight = true;
         private handle: any; private client: any;
-        constructor(_viewer: unknown, h: any, client: any) { this.handle = h; this.client = client; this.state = new LocalGaussianEditing(h.source.sha256, h.source.count); }
+        constructor(_viewer: unknown, h: any, client: any) { this.handle = h; this.client = client; this.state = state = new LocalGaussianEditing(h.source.sha256, h.source.count); }
         async refresh() {}
         cancel() {}
         get editable() { return this.ready; }
@@ -60,7 +64,7 @@ for (const bound of [false, true]) test(`独立面板快速换源串行释放查
     }
   });
   let sha = a, tree: any;
-  const render = () => { tree = exports.LocalGaussianEditor({ viewer, sourceSha256: sha,
+  const render = () => { tree = exports.LocalGaussianEditor({ viewer, sourceSha256: sha, handleRef,
     documentBinding: bound ? { editId: "c".repeat(32), metadataSha256: "d".repeat(64) } : undefined }); };
   await hooks.flush(render, () => opened.length === 1);
   sha = b; hooks.invalidate(); await hooks.flush(render);
@@ -70,6 +74,11 @@ for (const bound of [false, true]) test(`独立面板快速换源串行释放查
   closing.resolve();
   await hooks.flush(render, () => Boolean(findNode(tree, n => n.type === "button" && n.props.children === "隐藏选中项（Delete）")));
   assert.deepEqual(opened, [a, b]); assert.deepEqual(closed, [a]); assert.equal(workers.length, 1);
+  state.select(new Uint8Array([1]), "replace"); state.deleteSelected();
+  assert.equal(await handleRef.current.leave(), false); assert.equal(workers[0].terminated, false);
+  confirmLeave = true;
+  if (bound) { storage.busy = true; assert.equal(await handleRef.current.leave(), false); storage.busy = false; }
+  const leaving = handleRef.current.leave();
   hooks.unmount();
   if (bound) {
     await hooks.flush(() => {}, () => released.length === 1);
@@ -78,4 +87,5 @@ for (const bound of [false, true]) test(`独立面板快速换源串行释放查
   }
   await hooks.flush(() => {}, () => closed.length === 2);
   assert.deepEqual(closed, [a, b]); assert.equal(workers[0].terminated, true); assert.equal(frames.size, 0);
+  assert.equal(await leaving, true); assert.equal(listeners.size, 0); await handleRef.current.dispose(); assert.deepEqual(closed, [a, b]);
 });

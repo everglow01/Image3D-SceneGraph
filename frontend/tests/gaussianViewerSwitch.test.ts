@@ -4,10 +4,12 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as THREE from "three";
+// @ts-expect-error 锁定库的公开 JS 构建没有 AbortablePromise 声明，回归仍使用其真实实现。
 import { AbortablePromise } from "../node_modules/@mkkellogg/gaussian-splats-3d/build/gaussian-splats-3d.module.js";
 import * as metadata from "../src/gaussianViewerMetadata.ts";
 import * as browserExperiment from "../src/gaussianBrowserExperiment.ts";
 import * as editor from "../src/cloudGaussianEditor.ts";
+import * as leave from "../src/gaussianViewerLeave.ts";
 import * as sfm from "../src/sfmDiagnostics.ts";
 import * as walk from "../src/walkNavigation.ts";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -21,9 +23,12 @@ const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer
 
 function pageHarness(options: {
   sourceUrl?: string; search?: string; browserSourceUrl?: string;
-  load?: (url: string) => Promise<void>; metadataFailure?: boolean;
+  load?: (url: string) => Promise<void>; metadataFailure?: boolean; releaseRef?: { current: Promise<void> };
 } = {}) {
   const hooks = createHookHarness(), instances: any[] = [];
+  const leaveRef = { current: null as null | (() => Promise<boolean>) };
+  let confirmed = true;
+  const LocalGaussianDocumentPanel = () => null;
   let tree: any;
   const mount = { clientWidth: 800, clientHeight: 400, replaceChildren() {}, appendChild() {} };
   class Renderer {
@@ -79,9 +84,10 @@ function pageHarness(options: {
   }
   const exports: Record<string, any> = {};
   runInNewContext(code, { exports, AbortController, URLSearchParams, Error,
-    window: { location: { search: options.search ?? "" } },
+    window: { location: { search: options.search ?? "" }, confirm: () => confirmed, alert() {} },
     fetch: async (_url: string, _options: unknown) => ({ ok: !options.metadataFailure, status: options.metadataFailure ? 500 : 200, headers: { get: () => null },
-      json: async () => ({ sh_degree: 3, viewer_minimum_opacity: 0.005, scene_radius_p95: 1 }) }),
+      text: async () => JSON.stringify({ sh_degree: 3, viewer_minimum_opacity: 0.005, scene_radius_p95: 1,
+        coordinate_frame: "normalized", world_units: "arbitrary", browser_sha256: "a".repeat(64), gaussian_count: 8 }) }),
     document: { pointerLockElement: null },
     ResizeObserver: class { observe() {} disconnect() {} },
     require: (name: string) => {
@@ -90,6 +96,8 @@ function pageHarness(options: {
       if (name === "three") return { ...THREE, WebGLRenderer: Renderer };
       if (name === "@mkkellogg/gaussian-splats-3d") return { Viewer, RenderMode: { OnChange: 1 } };
       if (name.endsWith("package.json")) return { name: "legacy", version: "0.4.7" };
+      if (name === "./LocalGaussianDocumentPanel") return { LocalGaussianDocumentPanel };
+      if (name === "./gaussianViewerLeave") return leave;
       if (name === "./gaussianViewerMetadata") return metadata;
       if (name === "./gaussianBrowserExperiment") return browserExperiment;
       if (name === "./SparkPageViewer") return { SparkPageViewer: Spark };
@@ -103,13 +111,16 @@ function pageHarness(options: {
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
-  const props = { sourceUrl: options.sourceUrl ?? "/scene.ply", browserSourceUrl: options.browserSourceUrl,
+  const props = { releaseRef: options.releaseRef, leaveRef, editSource: { job_id: "job", asset_role: "scene_splat", label: "原模型" }, sourceUrl: options.sourceUrl ?? "/scene.ply", browserSourceUrl: options.browserSourceUrl,
     metadataUrl: "/export.json", cameraPathUrl: null,
     alignmentUrl: null, jobId: "job", sfmDiagnosticsUrl: null, inspectionRequest: null,
     onInspectionStateChange() {}, collisionMeshUrl: null, navigationUrl: null,
-    navigationStatus: null, navigationReason: null };
+    navigationStatus: null as string | null, navigationReason: null };
   const flush = (until?: () => boolean) => hooks.flush(() => { tree = exports.GaussianSplatViewer(props); }, until);
-  return { instances, flush,
+  return { instances, flush, leaveRef,
+    confirm: (value: boolean) => { confirmed = value; },
+    editButton: () => find(tree, n => n.type === "button" && ["本地编辑（实验）", "退出本地编辑"].includes(n.props.children))?.props,
+    editPanel: () => find(tree, n => n.type === LocalGaussianDocumentPanel)?.props,
     selector: () => find(tree, n => n.type === "select").props,
     experimentSelector: () => find(tree, n => n.props?.["aria-label"] === "浏览资产试验")?.props,
     sortSelector: () => find(tree, n => n.props?.["aria-label"] === "排序预计算试验")?.props,
@@ -123,6 +134,43 @@ function pageHarness(options: {
     changeNavigationStatus: (status: string) => { props.navigationStatus = status; hooks.invalidate(); },
     unmount: hooks.unmount };
 }
+
+test("跨本地组件卸载重挂仍等待旧WebGL实例释放", async () => {
+  const releaseRef = { current: Promise.resolve() };
+  const old = pageHarness({ releaseRef }); await old.flush();
+  let done!: () => void; old.instances[0].disposal = new Promise<void>(resolve => { done = resolve; });
+  old.unmount(); await old.flush();
+  const next = pageHarness({ releaseRef }); await next.flush(); assert.equal(next.instances.length, 0);
+  done(); await next.flush(() => next.instances.length === 1); assert.equal(old.instances[0].disposed, true);
+  next.unmount(); await next.flush();
+});
+
+test("本地编辑明确切换原始Spark，同源进出不重载且全局离开等待编辑释放", async () => {
+  const h = pageHarness({ browserSourceUrl: "/browser/scene.ksplat" }); await h.flush();
+  h.browserSelector().onChange({ target: { value: "k2" } }); await h.flush();
+  h.instances[1].camera.position.set(4, 5, 6);
+  h.confirm(false); h.editButton().onClick(); await h.flush();
+  assert.equal(h.instances.length, 2); assert.equal(h.editPanel(), undefined);
+  h.confirm(true); h.editButton().onClick(); await h.flush(() => !!h.editPanel());
+  assert.equal(h.instances.length, 3); assert.equal(h.instances[2].sourceUrl, "/scene.ply");
+  assert.deepEqual(h.instances[2].camera.position.toArray(), [4, 5, 6]);
+  const handle = h.editPanel().handleRef;
+  handle.current = { leave: async () => false, dispose: async () => {} };
+  assert.equal(await h.leaveRef.current!(), false); await h.flush(); assert.ok(h.editPanel());
+  h.selector().onChange({ target: { value: "legacy" } }); await h.flush();
+  assert.equal(h.instances.length, 3); assert.ok(h.editPanel());
+  let done!: () => void;
+  handle.current.leave = () => new Promise<boolean>(resolve => { done = () => resolve(true); });
+  const leaving = h.leaveRef.current!(); await h.flush();
+  assert.ok(h.editPanel()); assert.equal(await h.leaveRef.current!(), false);
+  done(); assert.equal(await leaving, true); await h.flush();
+  assert.equal(h.editPanel(), undefined); assert.equal(h.instances.length, 3);
+  h.editButton().onClick(); await h.flush(); assert.ok(h.editPanel()); assert.equal(h.instances.length, 3);
+  let release!: () => void; let disposed = false;
+  h.editPanel().handleRef.current = { leave: async () => true, dispose: () => new Promise<void>(resolve => { release = () => { disposed = true; resolve(); }; }) };
+  h.unmount(); await h.flush(); assert.equal(h.instances[2].disposed, false);
+  release(); await h.flush(() => h.instances[2].disposed); assert.equal(disposed, true);
+});
 
 test("page defaults to legacy, waits for release, and preserves camera/target when switching", async () => {
   const h = pageHarness(); await h.flush();

@@ -6,5 +6,18 @@
 .local-editor-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .local-editor-actions button[aria-pressed="true"] { outline: 2px solid #38bdf8; outline-offset: 1px; }
 .local-editor-depth input { width: 120px; }
+.viewer-surface.local-editing { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto minmax(360px, 1fr); }
+.local-editing > .splat-root { grid-column: 1; grid-row: 2; min-width: 0; min-height: 360px; }
+.local-editing > .splat-toolbar { position: static; grid-column: 1; grid-row: 1; padding: 8px; }
+.local-editing > .local-gaussian-editor { grid-column: 2; grid-row: 1 / 3; align-content: start; overflow: auto; max-height: calc(100vh - 180px); border-left: 1px solid #d6dddf; background: #f6f7f8; }
+.local-editing > .viewer-hint { right: 350px; pointer-events: none; }
+.local-editing > .viewer-overlay { right: 340px; }
+.local-gaussian-editor summary { cursor: pointer; }
+@media (max-width: 800px) {
+  .viewer-surface.local-editing { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 50vh auto; overflow: auto; }
+  .local-editing > .local-gaussian-editor { grid-column: 1; grid-row: 3; max-height: 360px; border-left: 0; }
+  .local-editing > .viewer-hint { display: none; }
+  .local-editing > .viewer-overlay { right: 0; bottom: 360px; }
+}
 .local-editor-selection { position: fixed; z-index: 100; pointer-events: none; overflow: hidden; }
 .local-editor-selection polygon { fill: #38bdf833; stroke: #38bdf8; stroke-width: 2; vector-effect: non-scaling-stroke; }

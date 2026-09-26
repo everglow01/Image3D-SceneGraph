@@ -4,6 +4,10 @@ import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 import gaussianViewerPackage from "@mkkellogg/gaussian-splats-3d/package.json" with { type: "json" };
 import * as THREE from "three";
 import type { SparkPageViewer } from "./SparkPageViewer";
+import type { CloudSource } from "./CloudGaussianViewer";
+import { LocalGaussianDocumentPanel } from "./LocalGaussianDocumentPanel";
+import type { LoadedLocalSource } from "./localGaussianDocument";
+import { leaveGaussianViewer, type LocalEditorHandle, type ViewerLeaveRef } from "./gaussianViewerLeave";
 import { browserExperimentUrl, type BrowserExperimentLevel } from "./gaussianBrowserExperiment";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Capsule } from "three/examples/jsm/math/Capsule.js";
@@ -38,6 +42,10 @@ import {
 } from "./walkNavigation";
 
 type GaussianSplatViewerProps = {
+  editSource?: CloudSource;
+  leaveRef?: ViewerLeaveRef;
+  onLocalModeChange?: (editing: boolean) => void;
+  releaseRef?: RefObject<Promise<void>>;
   viewRef?: RefObject<CameraView | null>;
   sourceUrl: string | null;
   browserSourceUrl?: string | null;
@@ -242,6 +250,7 @@ function applyViewPreset(viewer: ViewerRuntime, frame: SceneFrame, preset: ViewP
 }
 
 export function GaussianSplatViewer({
+  editSource, leaveRef, onLocalModeChange, releaseRef: sharedRelease,
   viewRef,
   sourceUrl,
   browserSourceUrl,
@@ -259,7 +268,8 @@ export function GaussianSplatViewer({
 }: GaussianSplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ViewerRuntime | null>(null);
-  const releaseRef = useRef<Promise<void>>(Promise.resolve());
+  const ownRelease = useRef<Promise<void>>(Promise.resolve());
+  const releaseRef = sharedRelease ?? ownRelease;
   const savedViewRef = useRef<SavedView | null>(null);
   const [rendererKind, setRendererKind] = useState<RendererKind>("legacy");
   const [experimentLevel, setExperimentLevel] = useState<BrowserExperimentLevel>("ply");
@@ -277,6 +287,33 @@ export function GaussianSplatViewer({
     ? experimentalSourceUrl : useK2 ? browserSourceUrl : sourceUrl;
   const [viewerError, setViewerError] = useState("");
   const sourceKey = JSON.stringify([sourceUrl, metadataUrl, cameraPathUrl, alignmentUrl]);
+  const [localKey, setLocalKey] = useState<string | null>(null);
+  const editing = localKey === sourceKey;
+  const editingRef = useRef(false); editingRef.current = editing;
+  const localHandle = useRef<LocalEditorHandle | null>(null);
+  const localGate = useRef<(() => Promise<boolean>) | null>(null);
+  const leaving = useRef(false);
+  const [loadedLocal, setLoadedLocal] = useState<LoadedLocalSource | null>(null);
+  useEffect(() => {
+    const leave = async () => {
+      if (leaving.current) return false;
+      leaving.current = true;
+      try {
+        if (localHandle.current && !await localHandle.current.leave()) return false;
+        editingRef.current = false; setLocalKey(null); return true;
+      } finally { leaving.current = false; }
+    };
+    localGate.current = leave;
+    if (leaveRef) leaveRef.current = leave;
+    return () => {
+      if (leaveRef?.current === leave) leaveRef.current = null;
+      if (localGate.current === leave) localGate.current = null;
+    };
+  }, [leaveRef]);
+  useEffect(() => {
+    onLocalModeChange?.(editing);
+    return () => onLocalModeChange?.(false);
+  }, [editing, onLocalModeChange]);
   const sceneFrameRef = useRef<SceneFrame>(FALLBACK_FRAME);
   const uprightRotationRef = useRef<THREE.Matrix3 | null>(null);
   const walkRuntimeRef = useRef<WalkRuntime | null>(null);
@@ -357,8 +394,9 @@ export function GaussianSplatViewer({
     }
   };
 
-  const switchRenderer = (next: RendererKind) => {
+  const switchRenderer = async (next: RendererKind) => {
     if (next === rendererKind || viewerModeRef.current !== "orbit") return;
+    if (!await leaveGaussianViewer(localGate)) return;
     rememberView();
     setRendererKind(next);
     if (next === "spark") setExperimentLevel("ply");
@@ -401,7 +439,7 @@ export function GaussianSplatViewer({
   const enterWalk = () => {
     const viewer = viewerRef.current;
     const runtime = walkRuntimeRef.current;
-    if (!viewer || !runtime || navigationState !== "ready") {
+    if (editingRef.current || !viewer || !runtime || navigationState !== "ready") {
       return;
     }
     const canvas = viewer.renderer?.domElement;
@@ -427,6 +465,21 @@ export function GaussianSplatViewer({
         setWalkMessage
       );
     }
+  };
+
+  const enterLocalEdit = () => {
+    if (!editSource || viewerState !== "ready" || !loadedLocal || leaving.current) return;
+    if (rendererKind !== "spark" && !window.confirm("本地编辑使用原始 SH3 PLY＋Spark，需要释放旧查看器并加载一次原始模型（不使用 K2／LOD）。保留当前相机并退出漫游，继续？")) return;
+    if (viewerModeRef.current === "walk") {
+      if (document.pointerLockElement) document.exitPointerLock();
+      leaveWalkMode(viewerRef.current, walkRuntimeRef.current, viewerModeRef, setViewerMode, setWalkMessage);
+    }
+    setDebugVisible(false);
+    setSfmQuery(null); onInspectionStateChange(null);
+    rememberView();
+    localHandle.current = null;
+    editingRef.current = true; setLocalKey(sourceKey);
+    setRendererKind("spark"); setExperimentLevel("ply");
   };
 
   const resetWalk = () => {
@@ -499,6 +552,7 @@ export function GaussianSplatViewer({
     const previousRelease = releaseRef.current;
     const controller = new AbortController();
     setViewerState("loading");
+    setLoadedLocal(null);
     setViewerError("");
     setNavigationState(navigationUrl && collisionMeshUrl ? "loading" : "idle");
     setViewerMode("orbit");
@@ -542,7 +596,8 @@ export function GaussianSplatViewer({
       if (document.pointerLockElement === viewer?.renderer?.domElement) document.exitPointerLock();
       viewer?.stop();
       if (viewerRef.current === viewer) viewerRef.current = null;
-      disposal = previousRelease.then(async () => {
+      const editorRelease = localHandle.current?.dispose();
+      disposal = Promise.all([previousRelease, editorRelease]).then(async () => {
         legacyResize?.disconnect();
         try {
           await viewer?.dispose();
@@ -569,6 +624,8 @@ export function GaussianSplatViewer({
         setViewerState("error");
         setViewerMode("orbit");
         viewerModeRef.current = "orbit";
+        // Keep masks and draft download available after a render failure; leaving owns cleanup.
+        if (editingRef.current && localHandle.current) { viewer?.stop(); return; }
         cancelled = true;
         controller.abort();
         void release();
@@ -583,7 +640,12 @@ export function GaussianSplatViewer({
         if (!response.ok) {
           throw new Error(`Gaussian export metadata request failed: ${response.status}`);
         }
-        const metadata = parseGaussianExportMetadata(await response.json());
+        const metadataText = await response.text(), rawMetadata = JSON.parse(metadataText);
+        const metadata = parseGaussianExportMetadata(rawMetadata);
+        const localSource = rawMetadata.coordinate_frame === "normalized" && rawMetadata.world_units === "arbitrary" &&
+          metadata.sh_degree === 3 && /^[a-f0-9]{64}$/.test(rawMetadata.browser_sha256) &&
+          Number.isSafeInteger(rawMetadata.gaussian_count) && rawMetadata.gaussian_count > 0 && rawMetadata.gaussian_count <= 3_000_000
+          ? { plySha256: rawMetadata.browser_sha256 as string, count: rawMetadata.gaussian_count as number, metadataText } : null;
         const [cameraFrame, uprightRotation] = await Promise.all([
           cameraPathUrl
             ? fetch(cameraPathUrl, { signal: controller.signal })
@@ -737,6 +799,7 @@ export function GaussianSplatViewer({
         }
         viewer.start();
         readyToCapture = true;
+        setLoadedLocal(localSource);
         setViewerState("ready");
 
         if (navigationUrl && collisionMeshUrl) {
@@ -764,7 +827,8 @@ export function GaussianSplatViewer({
               settingsRef,
               setViewerMode,
               setWalkMessage,
-              setBoundaryHint
+              setBoundaryHint,
+              () => editingRef.current
             );
             setNavigationState("ready");
             setWalkMessage("漫游已就绪 · 点击“进入漫游”锁定鼠标");
@@ -791,7 +855,7 @@ export function GaussianSplatViewer({
     };
   }, [sourceUrl, activeSourceUrl, browserKey, useK2, metadataUrl, cameraPathUrl, alignmentUrl, collisionMeshUrl, navigationUrl, rendererKind, sortMode]);
 
-  const walkReady = viewerState === "ready" && navigationState === "ready";
+  const walkReady = !editing && viewerState === "ready" && navigationState === "ready";
   const unavailableMessage =
     navigationStatus === "available" && navigationState === "error"
       ? walkMessage
@@ -802,10 +866,16 @@ export function GaussianSplatViewer({
           : "尚未生成漫游资产";
 
   return (
-    <div className="viewer-surface">
+    <div className={editing ? "viewer-surface local-editing" : "viewer-surface"}>
       <div className="splat-root" ref={mountRef} />
+      {editing && rendererKind === "spark" && rendererIdentity?.implementation === "@sparkjsdev/spark" && loadedLocal && editSource && sourceUrl && metadataUrl && viewerRef.current &&
+        <LocalGaussianDocumentPanel key={sourceKey} viewer={viewerRef.current as SparkPageViewer} source={editSource}
+          loaded={loadedLocal} sourceUrl={sourceUrl} metadataUrl={metadataUrl} handleRef={localHandle} />}
       {sourceUrl && (
         <div className="splat-toolbar" aria-label="高斯泼溅控制">
+          {editSource && <button type="button" className="viewer-tool-button" disabled={!editing && (viewerState !== "ready" || !loadedLocal)}
+            title={loadedLocal ? "本机选择与渲染，原模型只读；保存和导出使用 CPU" : "需要完整 normalized/arbitrary SH3 导出及源身份"}
+            onClick={() => editing ? void leaveGaussianViewer(localGate) : enterLocalEdit()}>{editing ? "退出本地编辑" : "本地编辑（实验）"}</button>}
           <select
             className="viewer-tool-button"
             aria-label="高斯查看器"
@@ -848,7 +918,7 @@ export function GaussianSplatViewer({
             <option value="cpu">CPU 距离计算（原配置）</option>
             <option value="gpu">GPU 距离预计算（试验）</option>
           </select>}
-          {viewerMode === "orbit" && (
+          {!editing && <>{viewerMode === "orbit" && (
             <button
               className={uprightAvailable ? "viewer-tool-button active" : "viewer-tool-button"}
               disabled={viewerState !== "ready" || !uprightAvailable}
@@ -904,7 +974,7 @@ export function GaussianSplatViewer({
             type="button"
           >
             调试显示
-          </button>
+          </button></>}
         </div>
       )}
       {sfmDiagnostics && sfmQuery && jobId && (
@@ -991,7 +1061,7 @@ export function GaussianSplatViewer({
       {browserFallback && !experimentEnabled && rendererKind === "legacy" && (
         <div className="walk-ready-hint" role="status">K2 加载失败，已回退原始 PLY；原始模型未改动。原因：{browserFallback}</div>
       )}
-      {!browserFallback && navigationState === "ready" && viewerMode === "orbit" && (
+      {!editing && !browserFallback && navigationState === "ready" && viewerMode === "orbit" && (
         <div className="walk-ready-hint">{walkMessage}</div>
       )}
       {boundaryHint && <div className="boundary-hint">已到达导航边界</div>}
@@ -1015,7 +1085,7 @@ export function GaussianSplatViewer({
           {rendererIdentity && rendererKind === "legacy" && rendererIdentity.effectiveShDegree < rendererIdentity.requestedShDegree
             ? " · 旧查看器未呈现完整模型 SH 阶数（原始 PLY 亦受此限制）" : ""}
           {rendererKind === "spark" ? " · 实验渲染：固定审计配置，不透明度调节仅旧查看器提供" : ""}
-          {viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
+          {editing ? " · 本地编辑：漫游已禁用，修剪结果不继承导航" : viewerMode === "orbit" ? " · 左键环绕 · Shift/右键平移 · 滚轮缩放" : ""}
           {navigationState !== "ready" ? ` · ${unavailableMessage}` : ""}
         </div>
       )}
@@ -1165,7 +1235,8 @@ function installWalkHandlers(
   activeSettingsRef: { current: WalkSettings | null },
   setViewerMode: (mode: ViewerMode) => void,
   setWalkMessage: (message: string) => void,
-  setBoundaryHint: (visible: boolean) => void
+  setBoundaryHint: (visible: boolean) => void,
+  editing: () => boolean
 ) {
   const canvas = viewer.renderer?.domElement;
   if (!canvas) {
@@ -1202,6 +1273,7 @@ function installWalkHandlers(
   };
   const onPointerLockChange = () => {
     if (document.pointerLockElement === canvas) {
+      if (editing()) { document.exitPointerLock(); return; }
       modeRef.current = "walk";
       setViewerMode("walk");
       const controls = viewer.controls;

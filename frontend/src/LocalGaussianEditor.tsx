@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import type { LocalEditorHandle } from "./gaussianViewerLeave";
 import { createPortal } from "react-dom";
 import type { SparkLocalEdit, SparkPageViewer } from "./SparkPageViewer.ts";
 import { LocalGaussianInteraction, type LocalTool } from "./localGaussianInteraction.ts";
@@ -9,9 +10,9 @@ import { LocalGaussianPersistence } from "./localGaussianPersistence.ts";
 import { LocalGaussianSavePanel } from "./LocalGaussianSavePanel.tsx";
 import "./localGaussianEditor.css";
 
-// Explicit mount only: the product's source switching and unsaved-work gate belong to P4.
-export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
-  viewer: SparkPageViewer; sourceSha256: string; documentBinding?: { editId: string; metadataSha256: string };
+export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding, handleRef }: {
+  viewer: SparkPageViewer; sourceSha256: string; documentBinding?: { editId: string; metadataSha256: string; gaussianCount?: number };
+  handleRef?: RefObject<LocalEditorHandle | null>;
 }) {
   const [editor, setEditor] = useState<LocalGaussianInteraction | null>(null);
   const [persistence, setPersistence] = useState<LocalGaussianPersistence | null>(null);
@@ -39,6 +40,9 @@ export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
       abort.signal.throwIfAborted();
       handle = await viewer.beginLocalEdit(sourceSha256, abort.signal);
       abort.signal.throwIfAborted();
+      if (documentBinding?.gaussianCount !== undefined && handle.source.count !== documentBinding.gaussianCount) {
+        throw new Error("已加载模型数量与编辑文档不符，未开启编辑");
+      }
       client = new LocalSelectionClient(new Worker(new URL("./gaussianSelection.worker.ts", import.meta.url), { type: "module" }), sourceSha256, handle.source);
       await client.ready; abort.signal.throwIfAborted();
       session = new LocalGaussianInteraction(viewer, handle, client, notify);
@@ -57,13 +61,34 @@ export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
       await release();
     });
     lifecycle.current = initialized.catch(() => {});
-    return () => {
+    let closing: Promise<void> | null = null;
+    const dispose = () => {
+      if (closing) return closing;
       abort.abort(); client?.dispose();
       if (session) { session.inputEnabled = false; session.cancel(); }
-      lifecycle.current = initialized.catch(() => {}).then(release)
-        .catch(e => { console.error("本地编辑资源释放失败", e); });
+      closing = initialized.catch(() => {}).then(release);
+      lifecycle.current = closing.catch(() => {});
+      return closing;
     };
-  }, [viewer, sourceSha256, editId, metadataSha256]);
+    const control: LocalEditorHandle = { dispose, async leave() {
+      if (storage?.busy) {
+        window.alert("文档操作尚未完成，请等待后再离开；当前仍可下载草稿。"); return false;
+      }
+      const unsaved = storage ? storage.hasUnsavedWork : !!session?.state.contentRevision;
+      if (unsaved && !window.confirm("有未保存修改、待确认保存或仅保存在本地的保护状态。请取消并保存版本／下载草稿；确定将放弃本地状态并离开。")) return false;
+      await dispose(); return true;
+    } };
+    if (handleRef) handleRef.current = control;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!storage && session?.state.contentRevision) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      // The owner may run its cleanup after ours; retain the idempotent close handle until replaced.
+      void dispose().catch(e => { console.error("本地编辑资源释放失败", e); });
+    };
+  }, [viewer, sourceSha256, editId, metadataSha256, documentBinding?.gaussianCount, handleRef]);
 
   useEffect(() => {
     let frame = 0;
@@ -85,8 +110,8 @@ export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
   const counts = useMemo(() => editor?.state.counts, [editor, revision]);
   const run = (action: () => Promise<unknown>) => { void action().catch(e => editor?.report(e)); };
   const toolNames: [LocalTool, string][] = [["navigate", "导航"], ["rectangle", "矩形"], ["lasso", "套索"], ["pick", "拾取薄层深度"], ["box", "三维盒"]];
-  return <section className="local-gaussian-editor" aria-label="本地编辑 P3" onKeyDown={e => editor?.keyDown(e.nativeEvent)}>
-    <strong>本地编辑 · 实验性独立组件</strong>
+  return <section className="local-gaussian-editor" aria-label="本地编辑" onKeyDown={e => editor?.keyDown(e.nativeEvent)}>
+    <strong>本地编辑 · 实验</strong>
     <p>{documentBinding ? "读回初始基线后，本地交互不等待服务器；保存版本与导出分开。" : "未绑定编辑文档，仅内存编辑，卸载组件会丢失修改。"}表层选择不是物体分割。</p>
     {!editor && !error && <p role="status">正在准备源行几何与选择 Worker…</p>}
     {(error || editor?.error) && <p role="alert">{error || editor?.error}</p>}
@@ -127,6 +152,9 @@ export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
           <button type="button" disabled={!counts.deletable || editor.state.previewMode === "original"} onClick={() => run(() => editor.deleteSelection())}>隐藏选中项（Delete）</button>
           <button type="button" disabled={!editor.state.canUndo} onClick={() => run(() => editor.act(() => editor.state.undo()))}>撤销</button>
           <button type="button" disabled={!editor.state.canRedo} onClick={() => run(() => editor.act(() => editor.state.redo()))}>重做</button>
+        </div>
+        <details><summary>保护、隔离与前后对照</summary>
+        <div className="local-editor-actions">
           <button type="button" disabled={!counts.selected} onClick={() => run(() => editor.act(() => editor.state.protectSelected(true)))}>保护选中项</button>
           <button type="button" disabled={!counts.selected} onClick={() => run(() => editor.act(() => editor.state.protectSelected(false)))}>解除保护</button>
           <button type="button" onClick={() => run(() => editor.act(() => editor.state.clearSelection()))}>清空选集</button>
@@ -141,6 +169,7 @@ export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding }: {
           <button type="button" aria-pressed={editor.state.previewMode === "none"} onClick={() => run(() => editor.preview("none"))}>返回编辑画面</button>
         </div>
         <p>预览不修改可见状态；Ctrl/Cmd＋Z 撤销，Shift＋Ctrl/Cmd＋Z 重做，Esc 取消／清空。历史最多100步，不含选集与临时预览。</p>
+        </details>
       </fieldset>
     </>}
     {editor && persistence && <LocalGaussianSavePanel key={`${editId}:${sourceSha256}`} editor={editor} persistence={persistence} viewer={viewer} />}

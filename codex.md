@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-09-26，按“继续完成下一轮”推进P4，首个小点在GaussianSplatViewer内部接入可选本地编辑文档面板：既有Spark同源进出不把编辑开关加入load依赖；旧viewer/K2需明确确认原始SH3 Spark加载并保留相机。文档列表／创建复用CPU API，校验加载时metadata文本、Job/variant/role、资产URL、源SHA/count与实际解码count；创建响应未知不自动重复POST。新增实时离开／幂等关闭句柄，授权、Worker和显示先释放，跨重挂共享查看器release Promise；退出等待原始显示恢复，编辑禁用Walk及迟到pointer lock，渲染失败保留草稿面板。界面折叠保护/对照并使用独立滚动面板。产品及相关回归源码TypeScript和Node语法静态检查通过，测试未运行；旧库无声明的AbortablePromise测试导入显式标记、使用既有Vite声明，无依赖安装。下一小点接Geometry/App全局门禁与云会话显式关闭，不进入P5、不优化100ms导航、不push/pull/部署，用户原文件保持不动。
+
 - 2026-09-24，P3第二小点完成独立LocalGaussianEditor文档绑定与保存面板：自动授权／权威基线读取、保存版本与原请求重试、草稿下载／严格导入／断网基线复核、历史版本只读显示和返回当前历史、共用CPU导出与直接下载链接。初始基线暂停输入，保存中允许本地操作；选集不误标为未保存，可见ACK只确认提交代次，保护仍提示需草稿。历史查看取消旧选择并禁用写入快捷键，不改当前mask/undo，不重载PLY；卸载串行等待旧授权和显示释放，原生beforeunload仅尽力保护。补充控制器、面板、只读交互、授权生命周期及API回归源码，产品／变更回归TypeScript、Node类型擦除语法、Python AST／Ruff、diff静态检查通过，未运行任何新增回归、构建或GPU验收。合同 `docs/gaussian-local-editor-p3.md` 明确未知／陈旧草稿基线不能自动覆盖、无浏览器持久缓存；P1/P2运行仍未验收。P4正式入口／App切源保护、P5双模型长时实机均未开始，不优化已接受100ms导航，不push/pull/部署，用户旧文档仅追加本批段落并独立暂存。
 
 - 2026-09-24，按用户“继续完成下一轮”推进P3，先实现源绑定前端持久化控制器与严格草稿编解码：本地可见代次独立于服务端revision，点击快照后继续编辑不会被旧ACK标为已保存；快照／版本失败保留原操作ID和内容，重新授权读回基线、冲突停止同步，保存不清本地undo/redo。草稿只含源身份、文档、基线revision、visible/protected及相机，拒绝错源／未知字段／非法mask，离线恢复后必须核对服务器基线。GET local-mask增补已保存version只读查询，复用源校验与不可变版本mask，不启动GPU。新增前端状态／故障回归与Python只读版本回归源码；产品及回归TypeScript、Python AST、Ruff、diff静态检查通过，测试未执行（首次回归类型检查使用NodeNext与项目不符，改用现有bundler解析及Node类型后通过，无依赖改动）。后续接独立面板保存／导出／恢复，不进入P4正式入口，不push/pull/部署，不沿用P0运行授权，用户原文件保留。
