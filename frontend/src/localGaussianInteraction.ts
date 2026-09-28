@@ -30,6 +30,8 @@ export class LocalGaussianInteraction {
   private frame = 0;
   private dirty = false;
   private rendering: Promise<void> | null = null;
+  private selectionNavigationLocks = 0;
+  private selectionNavigationEnabled = false;
   private drag: { id: number; start: Pixel; points: Pixel[]; controlsEnabled: boolean } | null = null;
   private readonly canvas: HTMLCanvasElement;
   private readonly oldTabIndex: number;
@@ -129,38 +131,58 @@ export class LocalGaussianInteraction {
 
   async preview(mode: LocalPreview) { await this.act(() => this.state.setPreview(mode)); }
 
+  private holdSelectionNavigation() {
+    const controls = this.viewer.controls;
+    if (!controls) return () => {};
+    if (this.selectionNavigationLocks++ === 0) {
+      this.selectionNavigationEnabled = controls.enabled;
+      controls.enabled = false;
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (--this.selectionNavigationLocks === 0 && !this.disposed && this.viewer.controls === controls) {
+        controls.enabled = this.selectionNavigationEnabled;
+      }
+    };
+  }
+
   async selectPolygon(polygon: Pixel[], pick = false) {
     if (!this.editable || this.state.previewMode !== "none") throw new Error("请先返回编辑画面再选择");
+    const releaseNavigation = this.holdSelectionNavigation();
     this.cancel();
     const serial = this.serial, revision = this.state.revision;
-    await this.refresh();
-    if (!this.ready || serial !== this.serial || revision !== this.state.revision) return;
-    const view = this.viewer.localEditView(this.handle);
-    if (view.signature !== this.signature) {
-      this.signature = view.signature; this.cameraGeneration++;
-      if (this.anchor !== null) this.depthRange = [NaN, NaN];
-      this.anchor = null;
-    }
-    const operation = this.operation;
-    this.selecting = true; this.error = ""; if (pick) this.anchor = null; this.notify();
     try {
-      const result = await this.client.select({ ...view, cameraGeneration: this.cameraGeneration, polygon,
-        visible: this.state.masks.visible, layerTolerance: 0.02, mode: pick ? "surface" : this.tool === "box" ? "box" : this.mode,
-        depthRange: [...this.depthRange], box: this.tool === "box" ? this.boxBounds() : undefined });
-      if (!result || !this.ready || serial !== this.serial || revision !== this.state.revision ||
-          view.signature !== this.viewer.localEditView(this.handle).signature) return;
-      if (pick) {
-        this.anchor = result.surfaceDepth ?? null;
-        if (this.anchor === null) throw new Error("此处没有可信表层，请换位置、手动设置深度或使用三维盒；不会吸附背景");
-        const thickness = Math.max(0.001, this.anchor * 0.02);
-        this.depthRange = [Math.max(0.01, this.anchor - thickness), this.anchor + thickness];
-        this.mode = "depth";
-      } else {
-        this.state.select(result.selected, operation);
-        if (!result.selectedCount) this.error = "本次没有命中高斯；未扩大范围或切换为穿透";
-        await this.refresh();
+      await this.refresh();
+      if (!this.ready || serial !== this.serial || revision !== this.state.revision) return;
+      const view = this.viewer.localEditView(this.handle);
+      if (view.signature !== this.signature) {
+        this.signature = view.signature; this.cameraGeneration++;
+        if (this.anchor !== null) this.depthRange = [NaN, NaN];
+        this.anchor = null;
       }
-    } finally { if (serial === this.serial) { this.selecting = false; this.notify(); } }
+      const operation = this.operation;
+      this.selecting = true; this.error = ""; if (pick) this.anchor = null; this.notify();
+      try {
+        const result = await this.client.select({ ...view, cameraGeneration: this.cameraGeneration, polygon,
+          visible: this.state.masks.visible, layerTolerance: 0.02, mode: pick ? "surface" : this.tool === "box" ? "box" : this.mode,
+          depthRange: [...this.depthRange], box: this.tool === "box" ? this.boxBounds() : undefined });
+        if (!result || !this.ready || serial !== this.serial || revision !== this.state.revision ||
+            view.signature !== this.viewer.localEditView(this.handle).signature) return;
+        if (pick) {
+          this.anchor = result.surfaceDepth ?? null;
+          if (this.anchor === null) throw new Error("此处没有可信表层，请换位置、手动设置深度或使用三维盒；不会吸附背景");
+          const thickness = Math.max(0.001, this.anchor * 0.02);
+          this.depthRange = [Math.max(0.01, this.anchor - thickness), this.anchor + thickness];
+          this.mode = "depth";
+        } else {
+          this.state.select(result.selected, operation);
+          if (!result.selectedCount) this.error = "本次没有命中高斯；未扩大范围或切换为穿透";
+          await this.refresh();
+        }
+      } finally { if (serial === this.serial) { this.selecting = false; this.notify(); } }
+    } finally { releaseNavigation(); }
   }
 
   private point(event: PointerEvent): Pixel {

@@ -142,7 +142,7 @@ export function LocalGaussianEditor({ viewer, sourceSha256, documentBinding, han
         <button type="button" onClick={() => run(() => editor.selectBox())}>选择盒内中心</button>
         <p>盒轴跟随源 normalized 坐标，显示摆正不会改变盒选语义。</p>
       </div>}
-      <p>左拖选择；Alt＋左拖或“导航”工具转动视角，右键平移。拖选时暂锁导航，松开即释放。</p>
+      <p>左拖选择；Alt＋左拖或“导航”工具转动视角，右键平移。选择计算期间暂锁导航，完成后释放。</p>
     </fieldset>
     {editor && counts && <>
       <p role="status">{editor.viewingHistory ? "当前编辑状态（非正在查看的历史版本）：" : ""}可见 {counts.visible.toLocaleString()} · 选中 {counts.selected.toLocaleString()} · 受保护 {counts.protected.toLocaleString()} · 可删除 {counts.deletable.toLocaleString()}

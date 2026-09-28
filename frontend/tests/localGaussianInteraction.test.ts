@@ -86,15 +86,28 @@ test("完成的选集跨视角保留；保护或换工具后旧结果不落地",
   } finally { await h2.close(); }
 });
 
-test("CSS坐标转换到实际绘图像素，拖选锁导航而松开释放", async () => {
+test("CSS坐标转换到实际绘图像素，选择计算完成后才释放导航", async () => {
   const h = harness();
   try {
     h.event("pointerdown", 20, 30); assert.equal(h.viewer.controls!.enabled, false);
     h.event("pointermove", 40, 50); h.event("pointerup", 40, 50);
-    assert.equal(h.viewer.controls!.enabled, true);
+    assert.equal(h.viewer.controls!.enabled, false);
     await h.requested;
     assert.deepEqual(h.requests[0].polygon, [[20, 20], [60, 20], [60, 60], [20, 60]]);
-    h.reply(2);
+    h.reply(2); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.session.state.counts.selected, 1);
+    assert.equal(h.viewer.controls!.enabled, true);
+  } finally { await h.close(); }
+});
+
+test("选择计算期间保持导航冻结，避免阻尼相机使结果静默失效", async () => {
+  const h = harness();
+  try {
+    const pending = h.session.selectPolygon(polygon); await h.requested;
+    assert.equal(h.viewer.controls!.enabled, false);
+    h.tick(); h.reply(2); await pending;
+    assert.equal(h.session.state.counts.selected, 1);
+    assert.equal(h.viewer.controls!.enabled, true);
   } finally { await h.close(); }
 });
 
