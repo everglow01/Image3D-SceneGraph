@@ -56,7 +56,7 @@ export function validateP0Selection(source: P0Source, r: P0SelectionRequest, max
     throw new Error("P0 选择身份、相机或参数不合法");
   }
   const m = new THREE.Matrix4().fromArray(r.modelToView), e = m.elements;
-  if (Math.abs(m.determinant() - 1) > 1e-5 || e[3] !== 0 || e[7] !== 0 || e[11] !== 0 || e[15] !== 1) {
+  if (Math.abs(m.determinant() - 1) > 1e-5 || e[3] !== 0 || e[7] !== 0 || e[11] !== 0 || Math.abs(e[15] - 1) > 8 * Number.EPSILON) {
     throw new Error("P0 仅支持刚体模型相机变换");
   }
   for (let i = 0; i < 3; i++) for (let j = i; j < 3; j++) {

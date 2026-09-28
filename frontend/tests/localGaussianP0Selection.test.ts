@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
-import { P0FrontLayer, p0PolygonContains, selectP0Surface, type P0SelectionRequest } from "../src/localGaussianP0Selection.ts";
+import { P0FrontLayer, p0PolygonContains, selectP0Surface, validateP0Selection, type P0SelectionRequest } from "../src/localGaussianP0Selection.ts";
 import { p0FullMask, type P0Source } from "../src/localGaussianP0Source.ts";
 import { createP0WorkerHandler, type P0WorkerReply } from "../src/localGaussianP0Worker.ts";
 
@@ -58,6 +58,22 @@ test("P0 respects screen Y orientation and transformed cameras", async () => {
   assert.deepEqual([...(await selectP0Surface(s, r)).selected], [1]);
   r.modelToView = new THREE.Matrix4().makeRotationZ(Math.PI).elements;
   assert.deepEqual([...(await selectP0Surface(s, r)).selected], [2]);
+});
+
+test("P0 accepts camera inverse roundoff but rejects a non-affine homogeneous row", () => {
+  const s = source([row(-2, 0.9)]), r = request(s);
+  r.modelToView = [-0.7167647951274697, -0.2639949876166395, 0.6454106250900794, 0,
+    0.6973150137964023, -0.271358438395774, 0.6634126690420754, 0,
+    -2.2204460492503126e-16, 0.9255653647499441, 0.3785878439349351, 0,
+    -0.018437065338907762, -0.2780242144713311, -2.454416241227722, 1.0000000000000002];
+  assert.doesNotThrow(() => validateP0Selection(s, r));
+  r.modelToView[15] = 1 - Number.EPSILON;
+  assert.doesNotThrow(() => validateP0Selection(s, r));
+  r.modelToView[15] = 1 + 1e-8;
+  assert.throws(() => validateP0Selection(s, r), /刚体/);
+  r.modelToView[15] = 1;
+  r.modelToView[3] = 1e-8;
+  assert.throws(() => validateP0Selection(s, r), /刚体/);
 });
 
 test("P0 fails closed for wrong sources, large ROI, unsupported cameras and cancellation", async () => {
