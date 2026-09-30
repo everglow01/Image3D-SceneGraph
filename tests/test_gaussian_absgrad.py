@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+import runpy
 import sys
 import types
 
@@ -85,6 +87,19 @@ def test_absgrad_reverse_exchange_preserves_owner_camera_order(monkeypatch, rank
             "project_absgrad_means2d": rasterized,
             "project_absgrad_counts": counts,
         })
+
+
+def test_overlay_patch_targets_only_audited_distributed_3dgs():
+    gsplat = pytest.importorskip("gsplat")
+    script = Path(__file__).resolve().parents[1] / "scripts/prepare_gsplat_absgrad.py"
+    patch = runpy.run_path(str(script))["patch_rendering"]
+    source = (Path(gsplat.__file__).parent / "rendering.py").read_text()
+    patched = patch(source)
+    compile(patched, "isolated_gsplat_rendering.py", "exec")
+    assert patched.count('meta["project_absgrad_means2d"] = means2d') == 1
+    assert patched.count("    # Rasterize to pixels\n") == source.count("    # Rasterize to pixels\n")
+    with pytest.raises(ValueError, match="does not match"):
+        patch(source + "\n")
 
 
 def test_strategy_and_training_render_share_absgrad_flag(monkeypatch):

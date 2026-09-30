@@ -24,7 +24,7 @@ def patch_rendering(source: str) -> str:
         assert not packed and C == 1, "Project AbsGrad requires unpacked, one camera per rank."
         assert not with_ut and not with_eval3d, "Project AbsGrad requires classic 3DGS."
 '''
-    anchor = "    # Rasterize to pixels\n"
+    anchor = "            colors = reshape_view(C, colors, N_world)\n\n"
     capture = '''    if absgrad and distributed:
         assert colors.shape[-1] <= channel_chunk, "Project AbsGrad forbids channel chunking."
         meta["project_absgrad_means2d"] = means2d
@@ -34,7 +34,7 @@ def patch_rendering(source: str) -> str:
     if source.count(guard) != 1 or source.count(anchor) != 1:
         raise ValueError("gsplat AbsGrad patch anchors are not unique")
     return (
-        source.replace(guard, replacement).replace(anchor, capture + anchor)
+        source.replace(guard, replacement).replace(anchor, anchor + capture)
         + "\nPROJECT_DISTRIBUTED_ABSGRAD_VERSION = 1\n"
     )
 
