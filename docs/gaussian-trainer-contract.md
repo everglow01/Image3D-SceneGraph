@@ -36,6 +36,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 远端小测试入口 `scripts/smoke_distributed_absgrad.py`：先以未补丁库 `--baseline-only` 保存双卡有符号参考，再以隔离副本 `--reference-dir` 核对关闭态／参数梯度、单卡全模型逐相机参考、不等长分片、不可见分片及梯度抵消；最后运行 64×64、13 个初始点、12 步的双卡合成 trainer，覆盖增密、增密结束、Validation、checkpoint 与模型合并。数值容差预声明 `atol=2e-6, rtol=2e-4`。不是正式场景质量实验，不读取真实 Test，失败目录保留，输出不覆盖。
 
+2026-09-30 远端两张 L2 实现冒烟通过：代码 `b27fb2d`，任务 `20260930-104232-f8e3` exit 0，产物 `outputs/analysis/distributed-absgrad-smoke-20260930-v2/`。93 项 CPU 回归、每 rank 58 项数值对照通过；关闭态与原库图像差 0，所有对照最大绝对误差 `9.31e-10`，绝对梯度对全模型逐相机参考最大误差 `5.82e-11`。抵消样例有符号范数约 `1.69e-7–3.58e-7`、绝对统计范数约 `15.98`。真实 trainer 完成 12 更新／24 样本、3 次增密（13→104）、增密结束、Validation、最终 checkpoint 和模型合并。原库源码 SHA 未变；首次 v1 在准备副本时因补丁锚点不唯一而失败，保留失败目录并收窄锚点后以 v2 复验。此结果仅为实现门禁：合成 loss 从约 0.90985 到 0.91134，未证明收敛或质量改善；未验证大场景资源、SH3 数值、恢复续训或正式场景 A/B，不能宣称候选质量通过。
+
 ## Experimental Train+Validation final-fit
 
 `gaussian_final_fit=train_validation_v1` is an explicit post-selection delivery phase for native Project/MCMC only; default `off` preserves all historical behavior. The ordinary trainer first selects its best model using held-out Validation, common SOR runs if enabled, and that source model receives the unchanged held-out `gaussian_evaluation`. Final-fit then loads exactly Train∪Validation, verifies disjoint Test IDs, and runs 2,000 updates from the hash-bound source. It uses fresh Adam, the configured final position LR, 0.1× configured feature/opacity/scale/rotation LRs, maximum SH, and the source L1/SSIM/clamp policy. Topology is frozen: no Default/MCMC strategy step, split/duplicate/prune/reset, MCMC relocation/noise, or method regularizer may run; source/final Gaussian counts must match.
