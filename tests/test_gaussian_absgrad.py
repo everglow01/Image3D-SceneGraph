@@ -129,3 +129,39 @@ def test_strategy_and_training_render_share_absgrad_flag(monkeypatch):
             distributed=distributed, gradient_statistics=True,
         )
     assert all(call["gradient_statistics"] is True for call in calls)
+
+
+def test_sh3_smoke_preserves_nonzero_coefficients_across_shards(monkeypatch):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("gsplat")
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    make_model = runpy.run_path(str(scripts / "smoke_distributed_absgrad.py"))["model_for"]
+    full = make_model(list(range(7)), torch.device("cpu"), False, 3)
+    assert full.params["shN"].shape == (7, 15, 3)
+    assert torch.count_nonzero(full.params["shN"]) > 300
+    for rank in (0, 1):
+        ids = list(range(rank, 7, 2))
+        shard = make_model(ids, torch.device("cpu"), False, 3)
+        torch.testing.assert_close(shard.params["shN"], full.params["shN"][ids], rtol=0, atol=0)
+
+
+def test_signed_baseline_freezes_only_absgrad_and_resource_boundaries(monkeypatch):
+    pytest.importorskip("torch")
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    script = runpy.run_path(str(scripts / "run_absgrad_signed_baseline.py"))
+    original = resolved_config_record(resolve_internal_config("standard_v1", {
+        "resolution": {"longest_edge": 1920},
+        "opacity_reset": {"recovery_prune": {"enabled": True}},
+    }))
+    records = script["paired_configs"](original)
+    assert records["signed"]["effective_config_hash"] == "190188a12ce750da6455bbb67347846e9f3f22ab1b2a8bdc370b48af8b8ad942"
+    assert records["absolute"]["effective_config_hash"] == "865aa98a29f2f4271289a6c20ca0771a93e8019d787e58877f7cec75924b01cc"
+    original["effective_config"]["seed"] += 1
+    with pytest.raises(ValueError, match="source Project configuration"):
+        script["paired_configs"](original)
+    guard = script["stop_reason"]
+    assert guard(4 * 1024**3, 6 * 3600) is None
+    assert guard(4 * 1024**3 - 1, 0) == "free_disk_below_4_gib"
+    assert guard(4 * 1024**3, 6 * 3600 + 1) == "stage_exceeded_6_hours"

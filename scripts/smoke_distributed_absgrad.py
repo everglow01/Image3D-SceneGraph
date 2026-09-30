@@ -41,7 +41,7 @@ def camera(index: int, device: torch.device) -> RenderCamera:
     )
 
 
-def model_for(indices: list[int], device: torch.device, invisible_owner: bool) -> GaussianModel:
+def model_for(indices: list[int], device: torch.device, invisible_owner: bool, sh_degree: int = 0) -> GaussianModel:
     points = torch.tensor([
         [-0.2, 0, 2], [0.2, 0.1, 2.2], [0, -0.1, 2.4],
         [100, 0, 2], [0, 0.2, 2], [-0.1, 0.1, 2.6], [0, 0, -2],
@@ -49,10 +49,15 @@ def model_for(indices: list[int], device: torch.device, invisible_owner: bool) -
     if invisible_owner:
         points[1::2, 2] = -2
     colors = torch.tensor([[0.8, 0.3, 0.2]] * 7, device=device)
-    return GaussianModel.from_points(
+    model = GaussianModel.from_points(
         points[indices], colors[indices], torch.full((len(indices),), 0.12, device=device),
-        initial_opacity=0.6, max_sh_degree=0,
+        initial_opacity=0.6, max_sh_degree=sh_degree,
     )
+    if sh_degree:
+        coefficients = torch.arange(7 * 15 * 3, device=device, dtype=torch.float32)
+        with torch.no_grad():
+            model.params["shN"].copy_(0.03 * coefficients.reshape(7, 15, 3)[indices].sin())
+    return model
 
 
 def loss(image: torch.Tensor) -> torch.Tensor:
@@ -60,8 +65,8 @@ def loss(image: torch.Tensor) -> torch.Tensor:
     return (image * weights).mean() / 2
 
 
-def full_reference(device: torch.device, invisible_owner: bool):
-    model = model_for(list(range(7)), device, invisible_owner)
+def full_reference(device: torch.device, invisible_owner: bool, sh_degree: int):
+    model = model_for(list(range(7)), device, invisible_owner, sh_degree)
     means = []
     absolute = []
     state = DefaultStrategy(absgrad=True).initialize_state()
@@ -70,7 +75,7 @@ def full_reference(device: torch.device, invisible_owner: bool):
         cam = camera(index, device)
         image, _, info = rasterization(
             *model.activated(), cam.camera_from_normalized[None], cam.intrinsic[None],
-            width=64, height=64, sh_degree=0, packed=False, absgrad=True,
+            width=64, height=64, sh_degree=sh_degree, packed=False, absgrad=True,
         )
         info["means2d"].retain_grad()
         loss(image[0]).backward()
@@ -106,13 +111,13 @@ def micro_checks(rank: int, args, device: torch.device) -> dict:
             config = resolve_internal_config(
                 "absgrad_ablation_v1", {"densification": {"absgrad": absolute}}
             ).effective_config
-            model = model_for(ids, device, invisible_owner)
+            model = model_for(ids, device, invisible_owner, args.sh_degree)
             strategy = _build_strategy(DefaultStrategy, config)
             optimizers = model.optimizers(config["learning_rate"])
             state = strategy.initialize_state()
             strategy.check_sanity(model.params, optimizers)
             rendered = render_gaussians(
-                model, camera(rank, device), sh_degree=0,
+                model, camera(rank, device), sh_degree=args.sh_degree,
                 distributed=True, gradient_statistics=absolute,
             )
             strategy.step_pre_backward(model.params, optimizers, state, 1, rendered.metadata)
@@ -129,7 +134,7 @@ def micro_checks(rank: int, args, device: torch.device) -> dict:
                 if not absolute or key != "grad2d":
                     compare(value, baseline[key], errors, f"{case}/{absolute}/pristine/{key}")
             if absolute:
-                ref_model, signed, abs_stats, ref_state = full_reference(device, invisible_owner)
+                ref_model, signed, abs_stats, ref_state = full_reference(device, invisible_owner, args.sh_degree)
                 compare(rendered.metadata["means2d"].grad, signed[:, ids], errors, f"{case}/signed_reference")
                 compare(rendered.metadata["means2d"].absgrad, abs_stats[:, ids], errors, f"{case}/absolute_reference")
                 for key, value in model.params.items():
@@ -179,7 +184,7 @@ def trainer_smoke(rank: int, args, device: torch.device) -> dict:
     config = resolve_internal_config("absgrad_ablation_v1", {
         "iterations": 12,
         "resolution": {"longest_edge": 64},
-        "sh_schedule": {"initial_degree": 0, "max_degree": 0, "increase_every_iterations": 1},
+        "sh_schedule": {"initial_degree": args.sh_degree, "max_degree": args.sh_degree, "increase_every_iterations": 1},
         "densification": {
             "absgrad": True, "start_iteration": 2, "end_iteration": 10,
             "every_iterations": 2, "gradient_threshold": 1e-7,
@@ -232,15 +237,20 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--reference-dir", type=Path)
+    parser.add_argument("--sh-degree", type=int, choices=(0, 3), default=0)
     args = parser.parse_args()
     if torch.cuda.device_count() != 2:
         raise SystemExit("This smoke requires exactly two visible GPUs")
     if not args.baseline_only and args.reference_dir is None:
         raise SystemExit("--reference-dir is required for the patched run")
+    if not args.baseline_only:
+        reference = json.loads((args.reference_dir / "summary.json").read_text())
+        if reference.get("sh_degree", 0) != args.sh_degree:
+            raise SystemExit("reference SH degree does not match the requested check")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     cli(worker, args, verbose=True)
     records = [json.loads((args.output_dir / f"rank-{rank}.json").read_text()) for rank in range(2)]
-    summary = {"status": "passed", "world_size": 2, "ranks": records,
+    summary = {"status": "passed", "world_size": 2, "sh_degree": args.sh_degree, "ranks": records,
                "real_scene_training": "not_run", "test_rgb": "not_loaded"}
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({"status": "passed", "output_dir": str(args.output_dir)}))
