@@ -12,7 +12,10 @@ from typing import Any
 
 CONFIG_SCHEMA_VERSION = 10
 PUBLIC_PROFILES = ("standard_v1",)
-INTERNAL_PROFILES = ("standard_v1", "rtx4060_8gb_development_v1", "mcmc_v1")
+INTERNAL_PROFILES = (
+    "standard_v1", "rtx4060_8gb_development_v1", "mcmc_v1", "absgrad_ablation_v1"
+)
+ABSGRAD_CONFIG_SCHEMA_VERSION = 11
 
 _STANDARD_V1: dict[str, Any] = {
     "schema_version": CONFIG_SCHEMA_VERSION,
@@ -177,7 +180,7 @@ def resolved_config_record(resolved: ResolvedGaussianConfig) -> dict[str, Any]:
     if resolved.effective_config_hash != expected_hash:
         raise GaussianConfigError("resolved Gaussian config hash mismatch")
     return {
-        "schema_version": CONFIG_SCHEMA_VERSION,
+        "schema_version": resolved.effective_config["schema_version"],
         "requested_profile": resolved.requested_profile,
         "effective_config": copy.deepcopy(resolved.effective_config),
         "effective_config_hash": expected_hash,
@@ -204,7 +207,8 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "evaluation",
         },
     )
-    if _integer(root["schema_version"], "schema_version") != CONFIG_SCHEMA_VERSION:
+    schema_version = _integer(root["schema_version"], "schema_version")
+    if schema_version not in {CONFIG_SCHEMA_VERSION, ABSGRAD_CONFIG_SCHEMA_VERSION}:
         raise GaussianConfigError(f"unsupported Gaussian config schema version: {root['schema_version']}")
     _integer(root["seed"], "seed", minimum=0, maximum=2**63 - 1)
     iterations = _integer(root["iterations"], "iterations", minimum=1, maximum=1_000_000)
@@ -338,8 +342,11 @@ def validate_effective_config(config: dict[str, Any]) -> None:
             "every_iterations",
             "gradient_threshold",
             "scale_threshold",
-        },
+        } | ({"absgrad"} if schema_version == ABSGRAD_CONFIG_SCHEMA_VERSION else set()),
     )
+    absgrad = _boolean(densification.get("absgrad", False), "densification.absgrad")
+    if absgrad and strategy_name != "default_v1":
+        raise GaussianConfigError("densification.absgrad requires default_v1 strategy")
     _boolean(densification["enabled"], "densification.enabled")
     start = _integer(densification["start_iteration"], "densification.start_iteration", minimum=1, maximum=iterations)
     end = _integer(densification["end_iteration"], "densification.end_iteration", minimum=1, maximum=iterations)
@@ -451,6 +458,9 @@ def assert_single_field_ablation(baseline: dict[str, Any], candidate: dict[str, 
 
 def _resolve(profile: str, overrides: dict[str, Any] | None) -> ResolvedGaussianConfig:
     effective = copy.deepcopy(_STANDARD_V1)
+    if profile == "absgrad_ablation_v1":
+        effective["schema_version"] = ABSGRAD_CONFIG_SCHEMA_VERSION
+        effective["densification"]["absgrad"] = False
     if profile == "mcmc_v1":
         _apply_overrides(effective, _MCMC_V1_OVERRIDES, "")
     if overrides:

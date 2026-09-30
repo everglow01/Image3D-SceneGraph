@@ -26,6 +26,16 @@ The 2026-09-15 UHD extension permits an explicit longest edge through 3840px whi
 
 Gaussian evaluation schema 2 preserves the historical top-level and per-view `psnr`/`ssim` fields as the primary `raw_float_v1` profile: metrics are computed directly from the unclamped gsplat float render and the float reference. It additionally reports `display_psnr`/`display_ssim` under `display_clamped_uint8_v1`, applying the preview path independently to prediction and reference (`clamp(0,1)`, multiply by 255, floor to uint8, divide by 255) before scoring. `quality_profiles` records both identities. These profiles are parallel reports: display metrics do not replace raw metrics, change Validation selection, or rewrite historical evaluation artifacts. Frozen-candidate and Test-consumption records remain schema 1 so previously frozen candidates retain their authorization identity.
 
+## 双卡绝对梯度实验（2026-09-30）
+
+内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。
+
+双卡仍按高斯分片、每 rank 每步一个相机、`packed=False`，参数梯度仍使用 `(loss / world_size).backward()`。绝对梯度只用于增密：CUDA 按像素取绝对值后累加，在 backward 完成后、策略更新前，把相机所属卡的 `[1, N_global, 2]` 统计反向 All-to-All 回传并还原成 `[world_size, N_local, 2]`。相机维度不提前求和、不额外乘除 world size，保留 DefaultStrategy 的屏幕归一化、可见性计数和逐相机范数累积。每次重用该次前向记录的分片长度，支持增密后的不等长分片；任一卡缺失／非法统计则集体失败，不能以零或 `.grad.abs()` 代替。增密结束后停止生成／回传统计，Validation 和固定拓扑 final-fit 保持原路径。
+
+安装的 gsplat 1.5.3 不支持此模式。`scripts/prepare_gsplat_absgrad.py --output-dir <新的独立目录>` 只对审计 SHA 匹配的 `rendering.py` 创建独立包副本：保留通信后张量和分片长度，限定非 packed、每卡一个相机、经典 3DGS、无颜色分块，不改 CUDA 内核。仅实验进程通过 `PYTHONPATH` 选择副本；不修改 `.venv` 或生产环境。副本有明确能力标记，原库拒绝开启态；`overlay.json` 记录前后源码与 CUDA 二进制哈希，checkpoint 的 environment hash 额外绑定副本渲染源码 SHA。
+
+远端小测试入口 `scripts/smoke_distributed_absgrad.py`：先以未补丁库 `--baseline-only` 保存双卡有符号参考，再以隔离副本 `--reference-dir` 核对关闭态／参数梯度、单卡全模型逐相机参考、不等长分片、不可见分片及梯度抵消；最后运行 64×64、13 个初始点、12 步的双卡合成 trainer，覆盖增密、增密结束、Validation、checkpoint 与模型合并。数值容差预声明 `atol=2e-6, rtol=2e-4`。不是正式场景质量实验，不读取真实 Test，失败目录保留，输出不覆盖。
+
 ## Experimental Train+Validation final-fit
 
 `gaussian_final_fit=train_validation_v1` is an explicit post-selection delivery phase for native Project/MCMC only; default `off` preserves all historical behavior. The ordinary trainer first selects its best model using held-out Validation, common SOR runs if enabled, and that source model receives the unchanged held-out `gaussian_evaluation`. Final-fit then loads exactly Train∪Validation, verifies disjoint Test IDs, and runs 2,000 updates from the hash-bound source. It uses fresh Adam, the configured final position LR, 0.1× configured feature/opacity/scale/rotation LRs, maximum SH, and the source L1/SSIM/clamp policy. Topology is frozen: no Default/MCMC strategy step, split/duplicate/prune/reset, MCMC relocation/noise, or method regularizer may run; source/final Gaussian counts must match.

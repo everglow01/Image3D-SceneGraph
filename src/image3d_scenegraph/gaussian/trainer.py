@@ -32,7 +32,11 @@ from .evaluation import evaluate_model
 from .initialization import InitializationResult
 from .model import GaussianModel, GaussianModelError
 from .readiness import project_initialization_keep_mask
-from .render import render_gaussians
+from .render import (
+    collect_distributed_absgrad,
+    render_gaussians,
+    require_distributed_absgrad,
+)
 from .runtime import TrainingView, TrainingViews, load_training_views, view_cameras
 from .training_math import active_sh_degree, exponential_learning_rate, l1_ssim_loss
 
@@ -155,6 +159,9 @@ def train_gaussians(
     validate_effective_config(config)
     strategy_name = str(config["strategy"]["name"])
     is_mcmc = strategy_name == "mcmc_v1"
+    absgrad = bool(config["densification"].get("absgrad", False))
+    if absgrad and world_size > 1:
+        require_distributed_absgrad()
     global_cap = (
         int(config["strategy"]["gaussian_cap"])
         if config["strategy"]["gaussian_cap"] is not None
@@ -331,12 +338,14 @@ def train_gaussians(
             )
             for optimizer in optimizers.values():
                 optimizer.zero_grad(set_to_none=True)
+            collect_absgrad = absgrad and iteration < int(config["densification"]["end_iteration"])
             view, rendered = _render_visible_training_view(
                 model,
                 train_views,
                 view_index,
                 active_sh_degree(iteration, config["sh_schedule"]),
                 distributed=world_size > 1,
+                gradient_statistics=collect_absgrad,
             )
             strategy.step_pre_backward(
                 model.params, optimizers, strategy_state, iteration, rendered.metadata
@@ -357,6 +366,8 @@ def train_gaussians(
             if not torch.isfinite(loss):
                 raise TrainingError(f"non-finite training loss at iteration {iteration}")
             (loss / world_size).backward()
+            if collect_absgrad and world_size > 1:
+                collect_distributed_absgrad(rendered.metadata)
             model.validate_gradients()
             for optimizer in optimizers.values():
                 optimizer.step()
@@ -1109,7 +1120,7 @@ def _build_strategy(
         refine_stop_iter=int(densify["end_iteration"]) if densify["enabled"] else 0,
         reset_every=int(config["opacity_reset"]["every_iterations"]),
         refine_every=int(densify["every_iterations"]),
-        absgrad=False,
+        absgrad=bool(densify.get("absgrad", False)),
         revised_opacity=False,
         verbose=False,
     )
@@ -1247,6 +1258,7 @@ def _render_visible_training_view(
     sh_degree: int,
     *,
     distributed: bool = False,
+    gradient_statistics: bool = False,
 ):
     if distributed:
         view = views[first_index].to(model.means.device)
@@ -1256,6 +1268,7 @@ def _render_visible_training_view(
             sh_degree=sh_degree,
             background=None,
             distributed=True,
+            gradient_statistics=gradient_statistics,
         )
     for offset in range(len(views)):
         view = views[(first_index + offset) % len(views)].to(model.means.device)
@@ -1264,6 +1277,7 @@ def _render_visible_training_view(
             view.camera,
             sh_degree=sh_degree,
             background=None,
+            gradient_statistics=gradient_statistics,
         )
         radii = rendered.metadata.get("radii")
         if radii is not None and bool((radii > 0).any()):
@@ -1599,4 +1613,10 @@ def _gsplat_version() -> str:
         import gsplat
     except ImportError:
         return "missing"
-    return str(gsplat.__version__)
+    version = str(gsplat.__version__)
+    from gsplat import rendering
+
+    if getattr(rendering, "PROJECT_DISTRIBUTED_ABSGRAD_VERSION", None) == 1:
+        digest = hashlib.sha256(Path(rendering.__file__).read_bytes()).hexdigest()
+        return f"{version};project_absgrad_v1_sha256={digest}"
+    return version
