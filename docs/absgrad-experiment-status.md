@@ -13,7 +13,7 @@
 | 磁盘准入 | 2026-10-08 01:56:33Z可用302.30GiB，原20GiB线通过；每次执行仍须复核 |
 | 质量／资源增长门禁 | 用户授权按上述计划验证后训练；新建批准合同，历史草案保持原样；不提供训练seed方差 |
 | absolute执行控制 | 31项本地轻量回归、132项远端回归及SH3／真实双rank遥测冒烟通过 |
-| absolute正式臂 | 已从冻结初始化fresh启动；08:33:50Z观察640更新，尚未完成或作质量判断 |
+| absolute正式臂 | 已中断：5418步，高斯数及rank 0显存越界；取消期间发生主机OOM。无完整质量结果，不自动重试 |
 | Test、生产默认推广 | 未执行、未授权 |
 
 ## signed证据
@@ -46,9 +46,9 @@
 ## 已授权执行顺序
 
 1. 按用户授权另建批准合同：主目标Train/Validation两ROI各+0.5dB/+0.01 SSIM等为本轮工程门禁；不能冒充统计置信界。推理稳定性与视觉门禁可用于限定单场景探索，但训练波动仍未知。
-2. 资源增长限制采用高斯数、主训练wall和每rank reserved相对signed的2倍。终止/失败门禁不得变成新的剪枝或高斯cap算法。既有signed runner保持原样；新候选入口已实现数量、逐rank显存与主阶段时间保护，已通过远端合成GPU与遥测验证，正式场景仍在运行。
+2. 资源增长限制采用高斯数、主训练wall和每rank reserved相对signed的2倍。终止/失败门禁不得变成新的剪枝或高斯cap算法。既有signed runner保持原样；新候选入口已实现数量、逐rank显存与主阶段时间保护，已通过远端合成GPU与遥测验证；正式场景已资源越界并被主机OOM中断，见下方终态。
 3. 用户已授权absolute fresh 30k/60k、SOR、Validation和2k/4k；须先通过验证。不从signed成品续训，不重复跑signed runner（它始终只跑关闭态）。
-4. Git同步和远端验证已完成，正式臂已启动；所有6个Validation与24个Train ROI、377个全局逐视角结果及失败均保留，不能事后改框/挑阶段。
+4. Git同步和远端验证已完成，正式臂曾启动但已在5418步中断；所有6个Validation与24个Train ROI、377个全局逐视角结果及失败均保留，不能事后改框/挑阶段。
 5. 全部门禁通过至多`PASS_FOR_REPLICATION`；第二seed/场景、Test与默认推广均需独立授权。
 
 此前4d673b4仅同步文档与结果。当前候选准备新增执行入口和资源监控，并为主训练／final-fit CLI增加显式启用的遥测参数；训练核心、配置、隔离库与signed执行脚本未改。未来协议分别记录实际执行提交和signed历史提交，并核对源码/配置/隔离库身份；不得重写旧实验protocol以伪造相同Git HEAD。
@@ -90,3 +90,11 @@
 - 产物：`outputs/experiments/absgrad-absolute-20261008-v1/`；启动审计：`outputs/analysis/absgrad-candidate-launch-20261008-v1/startup.json`。
 - 2026-10-08 08:33:50Z观察640更新、1,038,293高斯，两rank峰值reserved为1,486,880,768／1,507,852,288 bytes；两次观察从7步推进到640步。
 - 132项远端回归、每rank58项SH3数值检查、12步/24样本合成trainer及真实显存遥测均通过。主训练、SOR、全Validation和Train-only是否完成，仍以之后的退出记录及完整评估为准。
+
+## 最新终态：资源越界及主机OOM中断
+
+2026-10-08 09:01:50Z复核，本轮已停止，GPU空闲，服务恢复。第5400步高斯数达到3,048,410（上限2,975,056）；最后rank 0 reserved为8.75GiB（上限约7.60GiB）。08:51:35取消标记已写入，08:52:17内核global_oom杀死rank 0 PID306870；面板服务随后以oom-kill退出并自动重启。不是助手重启，也不是整机重启。
+
+最后记录5418更新／10836样本，无训练result、阶段exit记录或完整checkpoint；SOR、完整Validation和Train-only未执行。外层shell留下的exit-code=0不能替代完成证据，面板任务实际无正常结束标志。资源门禁已不通过，质量无法评估；不降低门禁、不自动resume或重跑。
+
+证据入口：`outputs/analysis/absgrad-candidate-interruption-20261008-v1/{REPORT.md,terminal-audit.json}`。原启动观察保留为历史。运行中主机RAM保护和面板服务cgroup隔离暴露缺口；目前只做审计，未修改服务/训练逻辑，也未证明具体哪次内存分配导致OOM。

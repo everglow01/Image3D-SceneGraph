@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-08，原候选任务终态复核：5418更新／10836样本后中断。第5400步高斯数3,048,410超过2,975,056，最后rank 0 reserved9,395,240,960 bytes超过8,162,115,584；08:51:35Z取消标记已写入，08:52:17Z内核global_oom杀死rank 0 PID306870（anon-rss15,244,488KiB），面板所属cgroup受影响，08:53:47以oom-kill失败并自动重启。机器未重启，助手未停止/重启服务或任务。执行/监控均无正常结束标志；shell EXIT trap写出的0不构成成功，train.exit.json、result.json、complete.json及完整checkpoint缺失，SOR/完整Validation/Train-only未执行。资源门禁已越界，质量不可评估，不自动重试/resume或放宽阈值。证据位于`outputs/analysis/absgrad-candidate-interruption-20261008-v1/`。已确认运行中主机RAM停止保护缺失，且tmux训练仍归gpu-panel.service cgroup（KillMode=control-group），不能认为与面板服务隔离；OOM发生于取消等待期但具体分配来源未定位，不武断归因checkpoint。GPU已空闲，服务恢复；本轮仅审计/同步证据与状态，不追加训练或改系统配置。
+
 - 2026-10-08，65513f1候选代码已提交、推送main并在i-94B8D131经Git快进同步；132项远端回归通过，SH3原库/隔离库每rank58项数值检查及12步/24样本（13→104高斯）合成trainer、真实逐rank遥测检查通过，生产gsplat哈希不变。批准合同SHA313dc2cb9f5b901a8c94879141a63d8fe710461f0c002f83877e2e982876f86f，另存`outputs/analysis/absgrad-candidate-launch-20261008-v1/gate.approved.json`，旧草案未改。执行任务20261008-163110-7086与只读监控20261008-163110-d0f7已创建，fresh输出`outputs/experiments/absgrad-absolute-20261008-v1/`；08:33:50Z观察主训练640更新、1,038,293高斯、两rank reserved约1.49/1.51GB，遥测新鲜且服务active，未触发资源保护。这只证明正式训练已启动并推进，非完整训练或质量通过；最小证据已取回并核对SHA，启动快照`startup.json`与协议记录训练提交65513f1，后续文档提交不改该身份。
 
 - 2026-10-08，用户明确要求“提交并同步到远端，然后进行验证,允许开始训练”，授权将候选准备提交并经Git同步到i-94B8D131既有仓库，验证通过后运行absolute正式30k/60k→SOR→377-view Validation→2k/4k Train-only。按已说明的单场景工程质量门禁、两倍资源及20/8/4GiB运行限制另建批准合同，不改历史草案；Test、默认推广与额外seed/场景仍排除。验证链为远端CPU回归、生产库SH3参考、隔离库SH3/12步合成trainer及新增双rank遥测检查，任一步失败不启动正式训练。执行与只读监控采用独立双任务、全新目录、flock及.once防重入；代码/任务/门禁SHA与实际结果写入独立启动审计，未观察到正式训练开始前不宣称已启动。
