@@ -12,8 +12,8 @@
 | 重复推理 | 同模型同16个Train视角一次额外推理，显示uint8逐通道与raw/display指标差均0 |
 | 磁盘准入 | 2026-10-08 01:56:33Z可用302.30GiB，原20GiB线通过；每次执行仍须复核 |
 | 质量／资源增长门禁 | 用户授权按上述计划验证后训练；新建批准合同，历史草案保持原样；不提供训练seed方差 |
-| absolute执行控制 | 候选入口与运行保护已实现，31项轻量回归通过；尚未远端验证或执行 |
-| absolute正式臂 | 已授权验证通过后启动；实际任务状态以独立启动审计为准，不从signed续训 |
+| absolute执行控制 | 31项本地轻量回归、132项远端回归及SH3／真实双rank遥测冒烟通过 |
+| absolute正式臂 | 已从冻结初始化fresh启动；08:33:50Z观察640更新，尚未完成或作质量判断 |
 | Test、生产默认推广 | 未执行、未授权 |
 
 ## signed证据
@@ -46,9 +46,9 @@
 ## 已授权执行顺序
 
 1. 按用户授权另建批准合同：主目标Train/Validation两ROI各+0.5dB/+0.01 SSIM等为本轮工程门禁；不能冒充统计置信界。推理稳定性与视觉门禁可用于限定单场景探索，但训练波动仍未知。
-2. 资源增长限制采用高斯数、主训练wall和每rank reserved相对signed的2倍。终止/失败门禁不得变成新的剪枝或高斯cap算法。既有signed runner保持原样；新候选入口已实现数量、逐rank显存与主阶段时间保护，尚未完成远端GPU验证。
+2. 资源增长限制采用高斯数、主训练wall和每rank reserved相对signed的2倍。终止/失败门禁不得变成新的剪枝或高斯cap算法。既有signed runner保持原样；新候选入口已实现数量、逐rank显存与主阶段时间保护，已通过远端合成GPU与遥测验证，正式场景仍在运行。
 3. 用户已授权absolute fresh 30k/60k、SOR、Validation和2k/4k；须先通过验证。不从signed成品续训，不重复跑signed runner（它始终只跑关闭态）。
-4. 候选执行控制的本地轻量回归已完成；经授权Git同步并完成远端验证后才启动正式臂；所有6个Validation与24个Train ROI、377个全局逐视角结果及失败均保留，不能事后改框/挑阶段。
+4. Git同步和远端验证已完成，正式臂已启动；所有6个Validation与24个Train ROI、377个全局逐视角结果及失败均保留，不能事后改框/挑阶段。
 5. 全部门禁通过至多`PASS_FOR_REPLICATION`；第二seed/场景、Test与默认推广均需独立授权。
 
 此前4d673b4仅同步文档与结果。当前候选准备新增执行入口和资源监控，并为主训练／final-fit CLI增加显式启用的遥测参数；训练核心、配置、隔离库与signed执行脚本未改。未来协议分别记录实际执行提交和signed历史提交，并核对源码/配置/隔离库身份；不得重写旧实验protocol以伪造相同Git HEAD。
@@ -82,3 +82,11 @@
 完成标记为`absolute_training_complete_quality_pending`，不是质量通过。六个Validation ROI、24个Train ROI、全部视角指标与视觉否决仍须在获得候选结果后完整评审；本入口不自动渲染额外ROI、不挑选最好阶段、不自动产生`PASS_FOR_REPLICATION`。
 
 2026-10-08授权补充：用户明确要求提交、Git同步、远端验证并允许开始训练。旧草案不改写；批准合同另存于`outputs/analysis/absgrad-candidate-launch-20261008-v1/`。现有SH3冒烟新增显式`--resource-telemetry`，验证真实双rank累计reserved、12步/24样本进度与结束记录后才进入正式训练。最新运行状态由该独立目录及面板任务记录确认，不能把授权或本地测试当作已启动证据。
+
+### 正式启动观察
+
+- 训练提交：`65513f129e99e2cc906bd52d7b75cb73b8700300`；后续文档更新不改变实验protocol。
+- 执行任务：`20261008-163110-7086`；只读监控：`20261008-163110-d0f7`。
+- 产物：`outputs/experiments/absgrad-absolute-20261008-v1/`；启动审计：`outputs/analysis/absgrad-candidate-launch-20261008-v1/startup.json`。
+- 2026-10-08 08:33:50Z观察640更新、1,038,293高斯，两rank峰值reserved为1,486,880,768／1,507,852,288 bytes；两次观察从7步推进到640步。
+- 132项远端回归、每rank58项SH3数值检查、12步/24样本合成trainer及真实显存遥测均通过。主训练、SOR、全Validation和Train-only是否完成，仍以之后的退出记录及完整评估为准。

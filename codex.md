@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-08，65513f1候选代码已提交、推送main并在i-94B8D131经Git快进同步；132项远端回归通过，SH3原库/隔离库每rank58项数值检查及12步/24样本（13→104高斯）合成trainer、真实逐rank遥测检查通过，生产gsplat哈希不变。批准合同SHA313dc2cb9f5b901a8c94879141a63d8fe710461f0c002f83877e2e982876f86f，另存`outputs/analysis/absgrad-candidate-launch-20261008-v1/gate.approved.json`，旧草案未改。执行任务20261008-163110-7086与只读监控20261008-163110-d0f7已创建，fresh输出`outputs/experiments/absgrad-absolute-20261008-v1/`；08:33:50Z观察主训练640更新、1,038,293高斯、两rank reserved约1.49/1.51GB，遥测新鲜且服务active，未触发资源保护。这只证明正式训练已启动并推进，非完整训练或质量通过；最小证据已取回并核对SHA，启动快照`startup.json`与协议记录训练提交65513f1，后续文档提交不改该身份。
+
 - 2026-10-08，用户明确要求“提交并同步到远端，然后进行验证,允许开始训练”，授权将候选准备提交并经Git同步到i-94B8D131既有仓库，验证通过后运行absolute正式30k/60k→SOR→377-view Validation→2k/4k Train-only。按已说明的单场景工程质量门禁、两倍资源及20/8/4GiB运行限制另建批准合同，不改历史草案；Test、默认推广与额外seed/场景仍排除。验证链为远端CPU回归、生产库SH3参考、隔离库SH3/12步合成trainer及新增双rank遥测检查，任一步失败不启动正式训练。执行与只读监控采用独立双任务、全新目录、flock及.once防重入；代码/任务/门禁SHA与实际结果写入独立启动审计，未观察到正式训练开始前不宣称已启动。
 
 - 2026-10-08，用户要求“开始按计划工作”，本轮落实候选代码准备，不将其扩大为正式GPU训练或阈值批准。新增absolute独立入口（草案生成/只读预检/显式执行）、外层资源保护和仅显式启用的逐rank显存遥测，复用现有四阶段训练/评估CLI；训练核心、配置、signed runner、默认与生产依赖不改。合同精确绑定已有质量/ROI证据和两倍资源草案，保持20/8/4GiB、120s+30s取消保护；600s遥测启动等待/120s过期检查写入待批准模板。新入口核对代码/环境/数据/隔离库身份、fresh目录、30k/60k与2k/4k及signed采样序列；每10秒监控高斯数和逐rank累计reserved，短任务退出仍完整校验，结果只标记quality_pending。显存遥测窗口含合并，比signed原result宽；SOR/独立selection仅磁盘/6h保护，轮询不保证先于OOM拦截。31项轻量CPU/模拟子进程回归及Ruff通过，未加载模型、未使用GPU、未运行Test；新代码尚未提交/同步/远端验证，absolute未启动。草案与检查记录位于`outputs/analysis/absgrad-candidate-preparation-20261008-v1/`；个人未跟踪草稿和旧结果不动。
