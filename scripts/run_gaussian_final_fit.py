@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
+from image3d_scenegraph.gaussian.absgrad_resources import memory_telemetry
 from image3d_scenegraph.gaussian.config import (
     ResolvedGaussianConfig,
     resolved_config_record,
@@ -25,6 +26,7 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--resource-telemetry-dir", type=Path)
     parser.add_argument(
         "--train-only-control", action="store_true",
         help="Research-only equal-budget control; exclude Validation from optimization.",
@@ -40,6 +42,11 @@ def main() -> None:
         effective_config_hash=config_record["effective_config_hash"],
     )
     resolved_config_record(resolved)
+    if args.resource_telemetry_dir is not None and (
+        not args.distributed or not args.train_only_control
+        or resolved.requested_profile != "absgrad_ablation_v1"
+    ):
+        parser.error("resource telemetry requires distributed AbsGrad Train-only control")
     payload = {
         "contract": contract,
         "dataset_root": args.dataset_root,
@@ -57,7 +64,8 @@ def main() -> None:
 
         cli(
             _distributed_final_fit,
-            {"payload": payload, "cancel_file": args.cancel_file},
+            {"payload": payload, "cancel_file": args.cancel_file,
+             "resource_telemetry_dir": args.resource_telemetry_dir},
             verbose=True,
         )
         result = json.loads(
@@ -84,7 +92,8 @@ def _distributed_final_fit(
             (lambda: cancel_file.exists()) if cancel_file is not None else None
         ),
     )
-    final_fit_gaussians(**arguments)
+    with memory_telemetry(payload.get("resource_telemetry_dir"), local_rank, world_rank):
+        final_fit_gaussians(**arguments)
 
 
 if __name__ == "__main__":

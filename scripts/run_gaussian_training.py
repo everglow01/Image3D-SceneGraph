@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from image3d_scenegraph.gaussian.absgrad_resources import memory_telemetry
 from image3d_scenegraph.gaussian.config import (
     ResolvedGaussianConfig,
     resolve_internal_config,
@@ -62,6 +63,7 @@ def main() -> None:
     parser.add_argument("--resume-iteration", type=int)
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--resource-telemetry-dir", type=Path)
     parser.add_argument("--readiness-only", action="store_true")
     parser.add_argument("--prepare-only", action="store_true", help="Freeze initialization and replay without optimization.")
     parser.add_argument("--no-intermediate-previews", action="store_true", help="Keep Validation metrics at every scheduled step but PNGs only at the final step.")
@@ -90,6 +92,12 @@ def main() -> None:
             overrides=overrides,
         )
     validate_trainer_strategy(args.trainer, resolved.effective_config)
+    if args.resource_telemetry_dir is not None and (
+        not args.distributed or args.trainer != "project"
+        or resolved.requested_profile != "absgrad_ablation_v1"
+        or args.prepare_only or args.readiness_only
+    ):
+        parser.error("resource telemetry requires distributed Project AbsGrad training")
     if args.initialization == "frozen":
         if args.trainer not in {"project", "mcmc"}:
             raise SystemExit("frozen initialization is supported only by project and mcmc trainers")
@@ -220,7 +228,8 @@ def main() -> None:
 
             cli(
                 _distributed_native_train,
-                {"trainer_args": trainer_args, "cancel_file": args.cancel_file},
+                {"trainer_args": trainer_args, "cancel_file": args.cancel_file,
+                 "resource_telemetry_dir": args.resource_telemetry_dir},
                 verbose=True,
             )
             result_path = (
@@ -276,7 +285,8 @@ def _distributed_native_train(
             (lambda: cancel_file.exists()) if cancel_file is not None else None
         ),
     )
-    train_gaussians(**trainer_args)
+    with memory_telemetry(payload.get("resource_telemetry_dir"), local_rank, world_rank):
+        train_gaussians(**trainer_args)
 
 
 if __name__ == "__main__":

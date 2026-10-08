@@ -42,6 +42,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 2026-10-08 状态补充：signed正式基线、SH3门禁、16个固定Train视角/24ROI诊断和同模型重复推理校准已完成；absolute正式臂仍未授权/未启动。原20GiB磁盘准入已通过，不降低门槛。完整指标、产物索引与仍未批准的质量/资源增长门禁见[绝对梯度实验状态](absgrad-experiment-status.md)。此前按日期记录的未验证项保留为历史边界，不代表本次状态。
 
+2026-10-08 候选准备补充：`scripts/run_absgrad_candidate.py`新增草案生成、只读预检与显式执行入口；主训练/final-fit CLI仅在显式`--resource-telemetry-dir`时记录逐rank累计reserved显存。训练核心、signed runner与默认路径不变。候选每10秒检查逐步高斯数、逐rank遥测及主训练两倍wall；遥测缺失/过期/损坏或预算、采样序列不一致均拒绝完成，不以cap/剪枝代替停止。遥测含合并阶段，统计窗口比signed原result更宽；SOR/独立selection仅保留磁盘/硬超时保护。31项不加载模型的本地回归及Ruff通过，尚未远端GPU验证、批准门禁或启动absolute；详见上述状态索引的候选入口和运行限制。 用户随后已明确授权提交、Git同步、远端验证及通过后启动正式候选；另建批准合同，历史草案保留。实际执行成败以启动审计和任务记录为准。
+
 ## Experimental Train+Validation final-fit
 
 `gaussian_final_fit=train_validation_v1` is an explicit post-selection delivery phase for native Project/MCMC only; default `off` preserves all historical behavior. The ordinary trainer first selects its best model using held-out Validation, common SOR runs if enabled, and that source model receives the unchanged held-out `gaussian_evaluation`. Final-fit then loads exactly Train∪Validation, verifies disjoint Test IDs, and runs 2,000 updates from the hash-bound source. It uses fresh Adam, the configured final position LR, 0.1× configured feature/opacity/scale/rotation LRs, maximum SH, and the source L1/SSIM/clamp policy. Topology is frozen: no Default/MCMC strategy step, split/duplicate/prune/reset, MCMC relocation/noise, or method regularizer may run; source/final Gaussian counts must match.

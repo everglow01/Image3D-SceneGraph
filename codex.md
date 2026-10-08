@@ -600,6 +600,10 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-08，用户明确要求“提交并同步到远端，然后进行验证,允许开始训练”，授权将候选准备提交并经Git同步到i-94B8D131既有仓库，验证通过后运行absolute正式30k/60k→SOR→377-view Validation→2k/4k Train-only。按已说明的单场景工程质量门禁、两倍资源及20/8/4GiB运行限制另建批准合同，不改历史草案；Test、默认推广与额外seed/场景仍排除。验证链为远端CPU回归、生产库SH3参考、隔离库SH3/12步合成trainer及新增双rank遥测检查，任一步失败不启动正式训练。执行与只读监控采用独立双任务、全新目录、flock及.once防重入；代码/任务/门禁SHA与实际结果写入独立启动审计，未观察到正式训练开始前不宣称已启动。
+
+- 2026-10-08，用户要求“开始按计划工作”，本轮落实候选代码准备，不将其扩大为正式GPU训练或阈值批准。新增absolute独立入口（草案生成/只读预检/显式执行）、外层资源保护和仅显式启用的逐rank显存遥测，复用现有四阶段训练/评估CLI；训练核心、配置、signed runner、默认与生产依赖不改。合同精确绑定已有质量/ROI证据和两倍资源草案，保持20/8/4GiB、120s+30s取消保护；600s遥测启动等待/120s过期检查写入待批准模板。新入口核对代码/环境/数据/隔离库身份、fresh目录、30k/60k与2k/4k及signed采样序列；每10秒监控高斯数和逐rank累计reserved，短任务退出仍完整校验，结果只标记quality_pending。显存遥测窗口含合并，比signed原result宽；SOR/独立selection仅磁盘/6h保护，轮询不保证先于OOM拦截。31项轻量CPU/模拟子进程回归及Ruff通过，未加载模型、未使用GPU、未运行Test；新代码尚未提交/同步/远端验证，absolute未启动。草案与检查记录位于`outputs/analysis/absgrad-candidate-preparation-20261008-v1/`；个人未跟踪草稿和旧结果不动。
+
 - 2026-10-08，用户要求将本轮结果/文档同步远端并继续准备。本轮同步范围仅codex与Gaussian训练合同、当前实验状态索引，以及signed完成/Train ROI/重复推理/门禁草案的选定JSON/报告；个人草稿、模型/图像大文件和操作源码不入提交或文件上传。文档经Git推送/快进同步到i-94B8D131项目目录；生成产物通过文件API按缺失项同步，同路径同SHA跳过、异SHA拒绝覆盖，清单/校验保存在`outputs/analysis/absgrad-results-sync-20261008-v1/`。状态索引`docs/absgrad-experiment-status.md`区分历史低磁盘/首次拒绝与现状，下一步合同仍未批准、absolute未授权。本次不改训练源码、不重写9cf78ad历史协议；实际同步结果以后置校验为准，不因文档HEAD改变伪称两臂已同提交运行。
 
 - 2026-10-08，用户随后精确授权在i-94B8D131项目目录对现有signed模型/同16个Train视角做重复推理校准，允许执行与只读监控、不训练/Test、不改默认或服务。复核主机/路径、9cf78ad、两张L2空闲和全新输出目录后，执行`20261008-095427-1eb3`、监控`20261008-095544-63c2`均exit0，校准14.510283秒。独立`outputs/analysis/absgrad-signed-render-repeatability-20261008-v1/`仅保存合同/JSON/运行状态、不复制PNG；16视角显示uint8逐通道差0、不同通道数0，raw/display PSNR与SSIM指标差均0，6个核心保护源哈希前后不变，取回合同/结果SHA与远端一致。只验证同模型同相机一次额外推理，未保留旧raw张量故未做raw像素逐元素比较，不是训练seed方差/增密轨迹稳定性或AbsGrad质量结论。现场01:56:33Z根文件系统约489.87GiB、可用302.30GiB、36%使用，较此前容量增加但本任务未扩容；原20GiB准入现已通过，无需18GiB可选草案。GPU空闲、后端/面板/TURN active、8000/8081健康，生产gsplat哈希未变。质量/资源增长门禁仍未批准、absolute正式臂仍未授权/未启动；草案目录新增calibration-update.json/CALIBRATION_UPDATE.md，保留原拒绝与低磁盘历史记录，不改阈值或默认。报告和codex仅本地未提交。

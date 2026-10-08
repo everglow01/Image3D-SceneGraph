@@ -14,6 +14,7 @@ from gsplat.distributed import cli
 from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy
 
+from image3d_scenegraph.gaussian.absgrad_resources import memory_telemetry, TrainingMonitor
 from image3d_scenegraph.gaussian.config import resolve_internal_config
 from image3d_scenegraph.gaussian.initialization import InitializationResult
 from image3d_scenegraph.gaussian.model import GaussianModel
@@ -225,7 +226,9 @@ def worker(local_rank: int, rank: int, world_size: int, args) -> None:
               "atol": ATOL, "rtol": RTOL, "baseline_only": args.baseline_only}
     if not args.baseline_only:
         record["cancellation"] = cancellation_check(device)
-        record["trainer"] = trainer_smoke(rank, args, device)
+        telemetry = args.output_dir / "memory" if args.resource_telemetry else None
+        with memory_telemetry(telemetry, local_rank, rank):
+            record["trainer"] = trainer_smoke(rank, args, device)
     record["elapsed_seconds"] = time.perf_counter() - started
     record["peak_allocated_bytes"] = torch.cuda.max_memory_allocated(device)
     (args.output_dir / f"rank-{rank}.json").write_text(json.dumps(record, indent=2) + "\n")
@@ -236,9 +239,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--baseline-only", action="store_true")
+    parser.add_argument("--resource-telemetry", action="store_true")
     parser.add_argument("--reference-dir", type=Path)
     parser.add_argument("--sh-degree", type=int, choices=(0, 3), default=0)
     args = parser.parse_args()
+    if args.baseline_only and args.resource_telemetry:
+        parser.error("resource telemetry requires the candidate trainer smoke")
     if torch.cuda.device_count() != 2:
         raise SystemExit("This smoke requires exactly two visible GPUs")
     if not args.baseline_only and args.reference_dir is None:
@@ -252,6 +258,15 @@ def main() -> None:
     records = [json.loads((args.output_dir / f"rank-{rank}.json").read_text()) for rank in range(2)]
     summary = {"status": "passed", "world_size": 2, "sh_degree": args.sh_degree, "ranks": records,
                "real_scene_training": "not_run", "test_rgb": "not_loaded"}
+    if args.resource_telemetry:
+        monitor = TrainingMonitor(
+            args.output_dir / "trainer" / records[0]["trainer"]["result"]["progress_path"],
+            args.output_dir / "memory", updates=12, main_stage=False,
+        )
+        failure = monitor(0, final=True)
+        if failure or not all(peak > 0 for peak in monitor.peak_reserved):
+            raise RuntimeError(f"resource telemetry smoke failed: {failure}")
+        summary["resource_telemetry"] = monitor.record()
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({"status": "passed", "output_dir": str(args.output_dir)}))
 
