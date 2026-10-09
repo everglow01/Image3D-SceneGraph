@@ -11,7 +11,9 @@ import socket
 import numpy as np
 from PIL import Image, ImageDraw
 
-from image3d_scenegraph.gaussian.absgrad_resources import QUALITY_LIMITS, quality_cgroup, write_json
+from image3d_scenegraph.gaussian.absgrad_resources import (
+    QUALITY_LIMITS, STREAMING_HOST_POLICY, STREAMING_UNIT, quality_cgroup, write_json,
+)
 from importlib import import_module
 
 runner = import_module(".run_absgrad_candidate", __package__) if __package__ else import_module("run_absgrad_candidate")
@@ -125,12 +127,12 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     from image3d_scenegraph.gaussian.runtime import load_training_views
     from image3d_scenegraph.gaussian.config import ResolvedGaussianConfig, resolved_config_record
 
-    quality_cgroup()
     if output.exists() or output.is_symlink() or output.resolve().parent != candidate.resolve():
         raise ValueError("paired output must be a new direct child of the candidate")
     candidate_record = runner.read_json(candidate / "complete.json")
     candidate_protocol = runner.read_json(candidate / "protocol.json")
     if candidate_protocol["profile"] == "absgrad_streaming_matched_pair_v1":
+        quality_cgroup(policy=STREAMING_HOST_POLICY, unit=STREAMING_UNIT)
         matched = import_module(".run_absgrad_matched_pair", __package__) if __package__ else import_module("run_absgrad_matched_pair")
         gate = runner.checked_json(candidate.parent / "gate.json", candidate_protocol["gate_sha256"])
         matched.validate_matched_gate(gate)
@@ -143,6 +145,7 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
             if protocol[key] != candidate_protocol[key]:
                 raise ValueError(f"matched signed/absolute {key} mismatch")
     elif candidate_protocol["profile"] == "absgrad_quality_exploration_v1":
+        quality_cgroup()
         protocol = runner.checked_json(signed / "protocol.json", runner.SIGNED_PROTOCOL_SHA256)
         baseline = runner.checked_json(signed / "signed.config.json", runner.SIGNED_CONFIG_SHA256)
         signed_record = runner.checked_json(signed / "signed/train-only/record.json", runner.SIGNED_FINAL_RECORD_SHA256)

@@ -214,7 +214,7 @@ def execute(root: Path, prepared: dict, *, lease_fd: int) -> None:
 
 
 def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
-                 limits=None, host_group: Path | None = None, arm="absolute") -> None:
+                 limits=None, host_group: Path | None = None, host_policy=None, arm="absolute") -> None:
     if arm not in {"signed", "absolute"}:
         raise ValueError("unsupported frozen arm")
     limits = LIMITS if limits is None else limits
@@ -226,7 +226,7 @@ def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
     def stage(name, arguments, monitor=None):
         require_resources(output, minimum_free_gib=8)
         run_stage(output, name, [sys.executable, *arguments], cwd=PROJECT_ROOT,
-                  monitor=monitor, pass_fds=(lease_fd,), host_group=host_group)
+                  monitor=monitor, pass_fds=(lease_fd,), host_group=host_group, host_policy=host_policy)
 
     training = output / "training"
     progress = training / "attempts/train-001/artifacts/progress.jsonl"

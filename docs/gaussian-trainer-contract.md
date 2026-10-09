@@ -137,3 +137,6 @@ This short 100-iteration public geometry-development run proves executable spars
 
 
 2026-10-09 保存峰值修复：1.5M代表状态实测主峰位于完整状态gather/rank打包；3M旧正常/取消保存均触发隔离12GiB cgroup OOM，不是再次整机OOM。正常保存改为逐rank逐组件落盘和流式封装，公开checkpoint合同不变、内部容器显式版本化并兼容旧读取；取消不保存完整checkpoint。终态不用整份reload取得hash，模型合并直接文件load/save。该改动改变trainer核心hash；后续严格配对需同新提交fresh重跑signed，不绕过原身份门禁或改写旧结果。优化效果及模型等价须以远端回归/同规模实测为准。
+
+
+2026-10-09后续用户批准新schema3匹配实验独立主机预算：cgroup12GiB/SwapMax0，MemAvailable18GiB启动、运行6GiB余量、memory.current11.5GiB停止。原schema2的16GiB/22GiB/14GiB保持不变。只在新同代码fresh signed+absolute入口显式传入，仍保护全部阶段，不改变训练算法或默认配置。新的匹配身份须包含流式保存/SH3实测SHA及当前core/environment一致性，旧candidate不能借新预算绕过旧身份。

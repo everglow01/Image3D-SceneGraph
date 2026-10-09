@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-09，真实SH3/12步trainer/取消验收20261009-103842-1e50 exit0：每rank58项对照通过、最终104高斯、两rank遥测23,068,672bytes；普通取消2步后无完整checkpoint。与旧小trainer模型最大绝对差1.2861564755439758e-06，在既有atol2e-6/rtol2e-4内，不宣称bitwise；生产gsplat SHA不变。用户根据0.5M至6M保存实测明确选择“12 GiB任务预算”：仅新schema3匹配实验采用12GiB cgroup/无swap、18GiB主机准入、6GiB运行余量、11.5GiB任务停止；原schema1/2及22GiB合同不改。新批准合同SHA793b8e75e165503f3190d8c26220328eb9c623820ecdca6d3b737834f9392223另存absgrad-streaming-matched-launch-20261009-v1，绑定保存summary、SH3及checkpoint provenance SHA。训练core9f3878de…已不同于历史，故fresh signed后再absolute，candidate协议绑定新signed收据，始终不恢复旧失败。67项本地轻量检查通过；新预算远端回归和正式启动仍以后置观察为准，不提前宣称已训练。
+
 - 2026-10-09，57dfe50保存优化已Git同步，148项远端相关回归通过。新代表负载诊断20261009-102945-e29c/只读监控9025完成，13高斯双rank全部组件及RNG解码等价；0.5M/1.5M/3M/6M正常与取消全部exit0。1.5M总峰8.158→5.176GB、匿名7.968→2.631GB；3M旧12GiB cgroup OOM、新总峰8.463GB成功；6M总峰11.918GB、匿名4.999GB且成功，较多为可回收文件缓存。代表负载不是完整场景训练，不能由此断言正式22GiB门槛已通过。新增严格同新代码fresh signed→absolute匹配入口，schema3合同不接受旧profile授权，candidate绑定新signed协议/模型/评估SHA收据；算法仍唯一absgrad。复用原四阶段，冻结两阶段ROI与377视角报告不变。新增真实小trainer取消无checkpoint与历史12步模型等价验收入口，GPU验收待下一次执行；无正式训练启动、无新预算批准，旧signed/失败保留。
 
 - 2026-10-09，旧保存代表负载诊断e971ba1完成：执行20261009-102029-388f exit0（代表诊断控制器结束，不代表所有case通过），0.5M正常/取消峰值4.001/3.801GB，1.5M为8.158/8.069GB；1.5M主峰在gather及rank整包重序列化，匿名约7.968GB。3M正常/取消均触发独立12GiB cgroup OOM，采样约12.573/12.639GB，服务active、无整机OOM。按实测实施逐rank逐组件文件保存+流式无压缩rank封装，保持公开schema1/组件/原子发布；旧rank封装读兼容。正常终态使用writer返回metadata、不再reload全checkpoint，模型合并直接文件load/save；fresh取消遵守已有合同不保存完整checkpoint。核心hash因此变化，旧signed不伪装同代码控制，下一轮须fresh同seed signed+absolute。64项本地仅文件/标准库/配置回归及Ruff通过，模型状态/双rank等价与新峰值仍待远端验收，不宣称已节省内存或完成质量实验。

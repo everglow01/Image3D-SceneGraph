@@ -596,7 +596,7 @@ def test_matched_pair_requires_new_gate_and_keeps_old_profiles():
     from scripts import run_absgrad_matched_pair as matched
     gate = matched.matched_gate_template()
     assert gate["authorized_fresh_arms"] == ["signed", "absolute"]
-    assert gate["host_policy"]["startup_available_bytes"] == 22 * 1024**3
+    assert gate["host_policy"]["startup_available_bytes"] == 18 * 1024**3
     with pytest.raises(ValueError):
         matched.validate_matched_gate(gate)
     gate.update(status="APPROVED_FOR_CANDIDATE_EXECUTION", absolute_training_authorized=True)
@@ -605,3 +605,16 @@ def test_matched_pair_requires_new_gate_and_keeps_old_profiles():
         candidate.validate_gate(gate, quality_exploration=True)
     with pytest.raises(ValueError):
         matched.validate_matched_gate(approved_gate())
+
+
+def test_streaming_budget_is_separate_from_previous_quality_contract():
+    assert resources.QUALITY_HOST_POLICY["startup_available_bytes"] == 22 * 1024**3
+    assert candidate.gate_template(quality_exploration=True)["host_policy"]["memory_max_bytes"] == 16 * 1024**3
+    policy = resources.STREAMING_HOST_POLICY
+    snapshot = {"available_bytes": 18 * 1024**3, "task_current_bytes": 0, "memory_events": {}}
+    assert resources.host_failure(snapshot, admission=True, policy=policy) is None
+    snapshot["available_bytes"] -= 1
+    assert resources.host_failure(snapshot, admission=True, policy=policy) == "host_available_below_18_gib"
+    snapshot["available_bytes"] += 1
+    snapshot["task_current_bytes"] = 23 * 1024**3 // 2
+    assert resources.host_failure(snapshot, policy=policy) == "task_memory_at_11.5_gib"

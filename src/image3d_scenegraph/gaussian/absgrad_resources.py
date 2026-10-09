@@ -33,6 +33,13 @@ QUALITY_HOST_POLICY = {
     "poll_seconds": 2,
     "term_grace_seconds": 5,
 }
+STREAMING_UNIT = "image3d-absgrad-matched-20261009-v1.service"
+STREAMING_HOST_POLICY = {
+    **QUALITY_HOST_POLICY,
+    "startup_available_bytes": 18 * 1024**3,
+    "stop_current_bytes": 23 * 1024**3 // 2,
+    "memory_max_bytes": 12 * 1024**3,
+}
 LIMITS = {
     "max_observed_global_gaussians": 2975056,
     "max_main_stage_wall_seconds": 10586.586387421936,
@@ -54,13 +61,14 @@ def available_host_bytes() -> int:
     return value
 
 
-def quality_cgroup() -> Path:
-    expected = f"/system.slice/{QUALITY_UNIT}"
+def quality_cgroup(*, policy=None, unit=QUALITY_UNIT) -> Path:
+    policy = QUALITY_HOST_POLICY if policy is None else policy
+    expected = f"/system.slice/{unit}"
     groups = Path("/proc/self/cgroup").read_text().splitlines()
     if f"0::{expected}" not in groups:
         raise ValueError("quality exploration requires its isolated systemd cgroup")
     group = Path("/sys/fs/cgroup") / expected.lstrip("/")
-    for name, expected_value in (("memory.max", QUALITY_HOST_POLICY["memory_max_bytes"]),
+    for name, expected_value in (("memory.max", policy["memory_max_bytes"]),
                                  ("memory.swap.max", 0), ("memory.oom.group", 1)):
         if int((group / name).read_text()) != expected_value:
             raise ValueError(f"unexpected task cgroup {name}")
@@ -76,12 +84,13 @@ def host_snapshot(group: Path) -> dict:
             "memory_events": {key: int(value) for key, value in events.items()}}
 
 
-def host_failure(snapshot: dict, *, admission=False) -> str | None:
-    minimum = QUALITY_HOST_POLICY["startup_available_bytes" if admission else "minimum_available_bytes"]
+def host_failure(snapshot: dict, *, admission=False, policy=None) -> str | None:
+    policy = QUALITY_HOST_POLICY if policy is None else policy
+    minimum = policy["startup_available_bytes" if admission else "minimum_available_bytes"]
     if snapshot["available_bytes"] < minimum:
-        return "host_available_below_22_gib" if admission else "host_available_below_6_gib"
-    if snapshot["task_current_bytes"] >= QUALITY_HOST_POLICY["stop_current_bytes"]:
-        return "task_memory_at_14_gib"
+        return f"host_available_below_{minimum / 1024**3:g}_gib"
+    if snapshot["task_current_bytes"] >= policy["stop_current_bytes"]:
+        return f"task_memory_at_{policy['stop_current_bytes'] / 1024**3:g}_gib"
     if snapshot["memory_events"].get("oom_kill", 0):
         return "task_cgroup_oom_kill"
     return None
@@ -254,7 +263,8 @@ def stop_process(process, cancel: Path, *, emergency=False) -> None:
 
 
 def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
-              monitor: TrainingMonitor | None = None, pass_fds=(), host_group: Path | None = None) -> None:
+              monitor: TrainingMonitor | None = None, pass_fds=(), host_group: Path | None = None, host_policy=None) -> None:
+    host_policy = QUALITY_HOST_POLICY if host_policy is None else host_policy
     write_json(root / f"{name}.command.json", {"argv": command})
     print(f"stage={name} started", flush=True)
     started = time.monotonic()
@@ -279,7 +289,7 @@ def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
         try:
             if host_group is not None:
                 host = host_snapshot(host_group)
-                failure = host_failure(host, admission=True)
+                failure = host_failure(host, admission=True, policy=host_policy)
                 if failure:
                     raise RuntimeError(failure)
             process = subprocess.Popen(
@@ -295,7 +305,7 @@ def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
                 elapsed = time.monotonic() - started
                 if host_group is not None:
                     host = host_snapshot(host_group)
-                    failure = host_failure(host)
+                    failure = host_failure(host, policy=host_policy)
                 if failure:
                     pass
                 elif shutil.disk_usage(root).free < 4 * 1024**3:
