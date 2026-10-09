@@ -123,3 +123,12 @@
 - 批准合同SHA`610e9002fba4c2c80c05707be11e75d5144292136b79b38bfeff072f59b19885`及明确授权经文件API上传，5份小日志取回SHA一致；旧中断审计上传没有重试。
 - 01:49:52Z可用RAM **19.18GiB < 22GiB**，还差约2.82GiB；因此新SH3/GPU验证与正式训练尚未运行，正式输出目录尚不存在。最长20分钟只读等待准入，不创建训练/修改远端；满足后仍需重查所有准入与SH3，超时不降低门槛。
 - 证据：`outputs/analysis/absgrad-quality-preparation-20261009-v1/{REPORT.md,verification.json,remote-*.log}`。该本地REPORT/verification尚未上传，远端同目录有原始日志、新合同/授权；完整质量实验仍未完成。
+
+
+## 保存峰值定位与流式优化（2026-10-09）
+
+旧诊断`outputs/analysis/checkpoint-memory-old-20261009-v1/`由e971ba1执行，6个case中3M正常/取消均受限OOM；控制器exit0只说明诊断收集完，不代表case全通过。1.5M主峰出现在gather和rank再打包，匿名内存为主。
+
+新诊断`outputs/analysis/checkpoint-memory-stream-20261009-v1/`由57dfe50执行，0.5M/1.5M/3M/6M正常与取消全部成功；13高斯双rank全部状态/RNG解码等价。正常保存总/匿名采样峰值：1.5M为5.176/2.631GB（旧8.158/7.968GB），3M为8.463/3.378GB，6M为11.918/4.999GB。各指标最大值可能不同时间，不能相加；代表负载不是完整场景峰值保证。旧/新都在独立12GiB无swap cgroup，服务未重启。
+
+148项远端回归通过；公开checkpoint合同与旧读取兼容，内部rank容器版本改变、训练核心hash改变。下一轮新增`run_absgrad_matched_pair.py`同提交fresh signed+absolute，schema3独立合同及匹配收据，旧signed仅历史参照；不绕过旧candidate身份门禁。真实SH3/12步模型等价及取消验收仍待运行。正式22GiB准入未改、完整配对尚未启动，不宣称质量通过。

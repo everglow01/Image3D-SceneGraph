@@ -128,12 +128,25 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     quality_cgroup()
     if output.exists() or output.is_symlink() or output.resolve().parent != candidate.resolve():
         raise ValueError("paired output must be a new direct child of the candidate")
-    protocol = runner.checked_json(signed / "protocol.json", runner.SIGNED_PROTOCOL_SHA256)
-    baseline = runner.checked_json(signed / "signed.config.json", runner.SIGNED_CONFIG_SHA256)
-    signed_record = runner.checked_json(signed / "signed/train-only/record.json", runner.SIGNED_FINAL_RECORD_SHA256)
     candidate_record = runner.read_json(candidate / "complete.json")
     candidate_protocol = runner.read_json(candidate / "protocol.json")
-    if candidate_protocol["profile"] != "absgrad_quality_exploration_v1":
+    if candidate_protocol["profile"] == "absgrad_streaming_matched_pair_v1":
+        matched = import_module(".run_absgrad_matched_pair", __package__) if __package__ else import_module("run_absgrad_matched_pair")
+        gate = runner.checked_json(candidate.parent / "gate.json", candidate_protocol["gate_sha256"])
+        matched.validate_matched_gate(gate)
+        if candidate_protocol["matched_signed"] != matched.receipt(signed):
+            raise ValueError("matched signed receipt changed")
+        protocol = runner.read_json(signed / "protocol.json")
+        baseline = runner.read_json(signed / "signed.config.json")
+        signed_record = runner.read_json(signed / "signed/train-only/record.json")
+        for key in ("code", "code_hash", "environment_hash", "gate_sha256"):
+            if protocol[key] != candidate_protocol[key]:
+                raise ValueError(f"matched signed/absolute {key} mismatch")
+    elif candidate_protocol["profile"] == "absgrad_quality_exploration_v1":
+        protocol = runner.checked_json(signed / "protocol.json", runner.SIGNED_PROTOCOL_SHA256)
+        baseline = runner.checked_json(signed / "signed.config.json", runner.SIGNED_CONFIG_SHA256)
+        signed_record = runner.checked_json(signed / "signed/train-only/record.json", runner.SIGNED_FINAL_RECORD_SHA256)
+    else:
         raise ValueError("paired quality requires the separately authorized exploration protocol")
     if candidate_record["status"] != "absolute_training_complete_quality_pending":
         raise ValueError("candidate training is incomplete")
@@ -243,6 +256,7 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         raise ValueError("protected comparison input changed during evaluation")
     train_resources = runner.read_json(candidate / "absolute/train.exit.json")["resources"]
     signed_resources = proposal["proposed_resource_gates"]
+    matched_native = runner.read_json(signed / "signed/training/attempts/train-001/artifacts/result.json")
     native = runner.read_json(candidate / "absolute/training/attempts/train-001/artifacts/result.json")
     resource = {"old_resource_gate": "failed_in_original_candidate; retained", "promotion_eligible": False,
         "observed_gaussians": train_resources["max_observed_global_gaussians"],
@@ -255,6 +269,10 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         "main_wall_seconds": runner.read_json(candidate / "absolute/train.exit.json")["elapsed_seconds"],
         "signed_reference_stage_wall_seconds": signed_resources["max_main_stage_wall_seconds"] / 2,
         "new_safety_limits": QUALITY_LIMITS}
+    resource["current_matched_signed_native_reserved"] = matched_native["per_rank_peak_reserved_bytes"]
+    resource["current_matched_native_reserved_ratio"] = [a / b for a, b in zip(native["per_rank_peak_reserved_bytes"], matched_native["per_rank_peak_reserved_bytes"], strict=True)]
+    resource["current_matched_signed_native_elapsed"] = matched_native["elapsed_seconds"]
+    resource["current_matched_native_time_ratio"] = native["elapsed_seconds"] / matched_native["elapsed_seconds"]
     write_json(output / "report.json", {"status": "paired_numerical_report_complete_visual_pending", "endpoints": endpoints,
         "resources": resource, "visual_review": "pending_all_60_endpoint_ROIs", "test_rgb": "not_loaded", "promotion_eligible": False,
         "protected": {str(path): digest for path, digest in protected.items()}})

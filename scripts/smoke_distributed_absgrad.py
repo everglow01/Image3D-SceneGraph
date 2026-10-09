@@ -24,7 +24,7 @@ from image3d_scenegraph.gaussian.render import (
     render_gaussians,
     require_distributed_absgrad,
 )
-from image3d_scenegraph.gaussian.trainer import _build_strategy, train_gaussians
+from image3d_scenegraph.gaussian.trainer import _build_strategy, train_gaussians, TrainingCancelled
 from smoke_gaussian_trainer import generate_scene
 
 
@@ -199,6 +199,34 @@ def trainer_smoke(rank: int, args, device: torch.device) -> dict:
         resolved_config=config, run_dir=args.output_dir / "trainer",
         local_rank=rank, world_rank=rank, world_size=2, save_intermediate_previews=False,
     )
+    lifecycle = {}
+    if args.save_lifecycle_checks:
+        calls = 0
+        def cancel_after_two():
+            nonlocal calls
+            calls += 1
+            return calls > 2
+        try:
+            train_gaussians(contract=contract, dataset_root=dataset_root, initialization=initialization,
+                resolved_config=config, run_dir=args.output_dir / "cancel-trainer", local_rank=rank,
+                world_rank=rank, world_size=2, save_intermediate_previews=False,
+                cancel_requested=cancel_after_two)
+        except TrainingCancelled:
+            lifecycle["cancelled_after_two_updates"] = True
+        else:
+            raise RuntimeError("trainer did not honor normal cancellation")
+        torch.distributed.barrier()
+        assert not list((args.output_dir / "cancel-trainer").rglob("checkpoint.json"))
+        lifecycle["cancel_checkpoint_written"] = False
+        if rank == 0 and args.reference_trainer_dir:
+            old = torch.load(args.reference_trainer_dir / "attempts/train-001/artifacts/model.pt", map_location="cpu", weights_only=True)
+            new = torch.load(args.output_dir / "trainer" / result.model_path, map_location="cpu", weights_only=True)
+            assert old["max_sh_degree"] == new["max_sh_degree"]
+            assert old["state_dict"].keys() == new["state_dict"].keys()
+            for key in old["state_dict"]:
+                torch.testing.assert_close(old["state_dict"][key], new["state_dict"][key], rtol=RTOL, atol=ATOL)
+            lifecycle["historical_trainer_model_equivalent"] = True
+            lifecycle["model_max_abs_diff"] = max(float((old["state_dict"][key] - new["state_dict"][key]).abs().max()) for key in old["state_dict"])
     if rank == 0:
         progress = args.output_dir / "trainer" / result.progress_path
         events = [json.loads(line) for line in progress.read_text().splitlines()]
@@ -209,7 +237,7 @@ def trainer_smoke(rank: int, args, device: torch.device) -> dict:
         assert all(event["gaussian_count"] < 1000 for event in steps)
         return {"updates": 12, "camera_samples": 24,
                 "initial_count": 13, "peak_count": max(e["gaussian_count"] for e in steps),
-                "final_count": steps[-1]["gaussian_count"], "result": result.__dict__}
+                "final_count": steps[-1]["gaussian_count"], "result": result.__dict__, "save_lifecycle": lifecycle}
     return {"updates": 12}
 
 
@@ -240,9 +268,15 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--resource-telemetry", action="store_true")
+    parser.add_argument("--save-lifecycle-checks", action="store_true")
+    parser.add_argument("--reference-trainer-dir", type=Path)
     parser.add_argument("--reference-dir", type=Path)
     parser.add_argument("--sh-degree", type=int, choices=(0, 3), default=0)
     args = parser.parse_args()
+    if args.reference_trainer_dir and not args.save_lifecycle_checks:
+        parser.error("--reference-trainer-dir requires --save-lifecycle-checks")
+    if args.baseline_only and args.save_lifecycle_checks:
+        parser.error("lifecycle checks require the trainer smoke")
     if args.baseline_only and args.resource_telemetry:
         parser.error("resource telemetry requires the candidate trainer smoke")
     if torch.cuda.device_count() != 2:

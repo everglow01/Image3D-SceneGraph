@@ -243,7 +243,8 @@ def test_real_cpu_child_exit_without_model_loading(tmp_path):
     assert json.loads((tmp_path / "failed.exit.json").read_text())["returncode"] == 7
 
 
-def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch):
+@pytest.mark.parametrize("arm", ["signed", "absolute"])
+def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch, arm):
     calls = []
     admissions = []
     def fake_stage(root, name, command, **kwargs):
@@ -275,7 +276,7 @@ def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch):
                 (path / "model.pt").write_bytes(b"test placeholder, not a model")
     monkeypatch.setattr(candidate, "run_stage", fake_stage)
     candidate.run_pipeline(tmp_path, tmp_path / "replay", lease_fd=123,
-                           require_resources=lambda *a, **kw: admissions.append(kw))
+                           require_resources=lambda *a, **kw: admissions.append(kw), arm=arm)
     assert [name for name, _, _ in calls] == ["train", "sor", "selection", "train-only"]
     assert admissions == [{"minimum_free_gib": 8}] * 4
     for _, command, _ in calls:
@@ -284,7 +285,7 @@ def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch):
     assert "--train-only-control" in calls[-1][1]
     assert calls[0][2].updates == 30000 and calls[-1][2].updates == 2000
     complete = json.loads((tmp_path / "complete.json").read_text())
-    assert complete["status"] == "absolute_training_complete_quality_pending"
+    assert complete["status"] == ("signed_control_complete" if arm == "signed" else "absolute_training_complete_quality_pending")
     assert complete["promotion_eligible"] is False
 
 
@@ -589,3 +590,18 @@ def test_quality_admission_failure_does_not_launch_child(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="22_gib"):
         resources.run_stage(tmp_path, "train", ["fake"], cwd=tmp_path, host_group=tmp_path)
     assert json.loads((tmp_path / "train.exit.json").read_text())["returncode"] is None
+
+
+def test_matched_pair_requires_new_gate_and_keeps_old_profiles():
+    from scripts import run_absgrad_matched_pair as matched
+    gate = matched.matched_gate_template()
+    assert gate["authorized_fresh_arms"] == ["signed", "absolute"]
+    assert gate["host_policy"]["startup_available_bytes"] == 22 * 1024**3
+    with pytest.raises(ValueError):
+        matched.validate_matched_gate(gate)
+    gate.update(status="APPROVED_FOR_CANDIDATE_EXECUTION", absolute_training_authorized=True)
+    matched.validate_matched_gate(gate)
+    with pytest.raises(ValueError):
+        candidate.validate_gate(gate, quality_exploration=True)
+    with pytest.raises(ValueError):
+        matched.validate_matched_gate(approved_gate())

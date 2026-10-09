@@ -214,12 +214,14 @@ def execute(root: Path, prepared: dict, *, lease_fd: int) -> None:
 
 
 def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
-                 limits=None, host_group: Path | None = None) -> None:
+                 limits=None, host_group: Path | None = None, arm="absolute") -> None:
+    if arm not in {"signed", "absolute"}:
+        raise ValueError("unsupported frozen arm")
     limits = LIMITS if limits is None else limits
-    output = root / "absolute"
+    output = root / arm
     output.mkdir()
     common = ["--dataset-contract", str(replay / "dataset.json"), "--dataset-root", str(replay),
-              "--resolved-config-json", str(root / "absolute.config.json")]
+              "--resolved-config-json", str(root / f"{arm}.config.json")]
 
     def stage(name, arguments, monitor=None):
         require_resources(output, minimum_free_gib=8)
@@ -267,7 +269,7 @@ def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
         raise ValueError("Train-only budget or topology mismatch")
     validate_evaluation(final / "evaluation.json", final=True)
     write_json(root / "complete.json", {
-        "status": "absolute_training_complete_quality_pending",
+        "status": "signed_control_complete" if arm == "signed" else "absolute_training_complete_quality_pending",
         "selection_evaluation_sha256": sha256_file(selection / "evaluation.json"),
         "final_evaluation_sha256": sha256_file(final / "evaluation.json"),
         "final_model_sha256": sha256_file(final / "model.pt"),

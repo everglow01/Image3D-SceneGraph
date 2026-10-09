@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-09，57dfe50保存优化已Git同步，148项远端相关回归通过。新代表负载诊断20261009-102945-e29c/只读监控9025完成，13高斯双rank全部组件及RNG解码等价；0.5M/1.5M/3M/6M正常与取消全部exit0。1.5M总峰8.158→5.176GB、匿名7.968→2.631GB；3M旧12GiB cgroup OOM、新总峰8.463GB成功；6M总峰11.918GB、匿名4.999GB且成功，较多为可回收文件缓存。代表负载不是完整场景训练，不能由此断言正式22GiB门槛已通过。新增严格同新代码fresh signed→absolute匹配入口，schema3合同不接受旧profile授权，candidate绑定新signed协议/模型/评估SHA收据；算法仍唯一absgrad。复用原四阶段，冻结两阶段ROI与377视角报告不变。新增真实小trainer取消无checkpoint与历史12步模型等价验收入口，GPU验收待下一次执行；无正式训练启动、无新预算批准，旧signed/失败保留。
+
 - 2026-10-09，旧保存代表负载诊断e971ba1完成：执行20261009-102029-388f exit0（代表诊断控制器结束，不代表所有case通过），0.5M正常/取消峰值4.001/3.801GB，1.5M为8.158/8.069GB；1.5M主峰在gather及rank整包重序列化，匿名约7.968GB。3M正常/取消均触发独立12GiB cgroup OOM，采样约12.573/12.639GB，服务active、无整机OOM。按实测实施逐rank逐组件文件保存+流式无压缩rank封装，保持公开schema1/组件/原子发布；旧rank封装读兼容。正常终态使用writer返回metadata、不再reload全checkpoint，模型合并直接文件load/save；fresh取消遵守已有合同不保存完整checkpoint。核心hash因此变化，旧signed不伪装同代码控制，下一轮须fresh同seed signed+absolute。64项本地仅文件/标准库/配置回归及Ruff通过，模型状态/双rank等价与新峰值仍待远端验收，不宣称已节省内存或完成质量实验。
 
 - 2026-10-09，用户要求“先定位内存峰值，优化保存流程，再继续实验”并批准修订计划。先新增独立保存代表负载诊断，0.5M/1.5M/3M双rank SH3模型与完整Adam状态，阶段标记覆盖序列化/gather/打包/原子写入/终态reload/merge；外部200ms采样区分RSS/PSS、cgroup匿名/文件缓存与CUDA峰值。每case独立12GiB无swap瞬态unit、18GiB主机准入/6GiB余量/10min；不复现整机OOM，不将代表负载当原故障精确归因。3项本地标准库诊断测试和Ruff通过；此提交尚未改trainer/checkpoint，先取得旧路径测量再优化。后续保存优化若改核心hash，将fresh重跑一次同seed signed与absolute严格配对，旧基线/失败保留；正式22GiB门槛暂不降低，Test/默认/其他业务不动。
