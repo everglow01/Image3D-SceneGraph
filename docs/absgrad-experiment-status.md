@@ -148,3 +148,14 @@
 - fresh signed主训练已推进至108更新/216样本、999,901高斯。独立cgroup实际12GiB/无swap，观测memory.current约7.897GiB、oom事件0；面板/cloud/TURN active。这不是完整训练或质量结果。
 - 顺序为新signed完整四阶段→同代码absolute完整四阶段→两个端点冻结ROI/377-view配对；旧signed/失败保留。后台等待终态，不自动重试、放宽限制或加载Test。
 - 启动审计`outputs/analysis/absgrad-streaming-matched-launch-20261009-v1/startup.json`本地记录。活动远端保持执行HEAD；后续仅文档提交暂不向运行中仓库快进，避免阶段身份门禁失败。实验完成后再同步最新状态。
+
+
+### 最新终态：新signed触及任务内存停止线（2026-10-09 03:05:21Z）
+
+新匹配实验尚未完成。fresh signed在3005更新/6010样本、1,183,595高斯处停止；保护采样记录3000步。`train.failure.json`原因为`task_memory_at_11.5_gib`：memory.current为12,419,674,112 bytes（11.5667GiB），整机仍可用11.9626GiB。memory.events的max/oom/oom_kill均0，内核本轮无OOM；子进程TERM退出（-15）、外层exit-code1，面板/cloud/TURN均active且启动时间未变。GPU已空闲。
+
+第3000步训练内Validation已完成377/377，两rank best-model文件存在；不是SOR后selection或最终checkpoint。无完整checkpoint、主训练result或signed/pair complete；absolute尚未创建，后续SOR/正式Validation/Train-only/配对质量未执行。
+
+代表负载保存优化通过不等于12GiB覆盖完整训练。此次触线发生于首次Validation/best-model写出后，尚未进入最终流式checkpoint；缺少触线时memory.stat与RSS/PSS，具体内存组成未定位，不据此修改预算或宣称保存优化无效。面板任务缺结束标志，但原生退出/失败记录与systemd一致；其元数据缺失原因未确认。
+
+证据：`outputs/analysis/absgrad-streaming-matched-interruption-20261009-v1/{REPORT.md,terminal-audit.json,train.failure.json,train.exit.json,driver.log,train.log}`，仅本地归档，4份下载文件SHA与远端一致。旧失败保留，不自动重跑/resume/加预算，质量不可评估，Test与默认未动。远端保持执行提交b2c7ac4，未同步后续文档或修改原始产物。
