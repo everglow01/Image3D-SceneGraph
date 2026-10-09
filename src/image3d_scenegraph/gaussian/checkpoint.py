@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -234,7 +235,8 @@ def write_checkpoint(
     iteration: int,
     purpose: str,
     provenance: CheckpointProvenance,
-    state: CheckpointState,
+    state: CheckpointState | None = None,
+    component_files: dict[str, Path] | None = None,
     validation_score: float | None = None,
 ) -> CheckpointRecord:
     """Publish a complete checkpoint with one same-filesystem directory rename."""
@@ -243,7 +245,17 @@ def write_checkpoint(
     _validate_checkpoint_selection(purpose, validation_score)
     attempt = load_attempt(job_dir, attempt_id)
     _match_provenance(attempt.provenance, provenance, tuple(_provenance_payload(provenance)))
-    components = _state_components(state)
+    if (state is None) == (component_files is None):
+        raise CheckpointContractError("provide exactly one of state or component_files")
+    if component_files is None:
+        components = _state_components(state)
+    else:
+        _exact_fields(component_files, set(_COMPONENT_FILES), "checkpoint component files")
+        if any(not isinstance(path, Path) or path.is_symlink() or not path.is_file() for path in component_files.values()):
+            raise CheckpointContractError("checkpoint component sources must be regular non-symlink files")
+        history = json.loads(component_files["metric_history"].read_text())
+        _validate_metric_history(history)
+        components = component_files
 
     destination = checkpoint_dir(job_dir, attempt_id, iteration)
     parent = destination.parent
@@ -258,12 +270,12 @@ def write_checkpoint(
         file_records: dict[str, dict[str, Any]] = {}
         for name, content in components.items():
             filename = _COMPONENT_FILES[name]
-            _write_bytes_sync(temporary / filename, content)
-            file_records[name] = {
-                "path": filename,
-                "bytes": len(content),
-                "sha256": hashlib.sha256(content).hexdigest(),
-            }
+            if component_files is None:
+                _write_bytes_sync(temporary / filename, content)
+                size, digest = len(content), hashlib.sha256(content).hexdigest()
+            else:
+                size, digest = _copy_component_sync(content, temporary / filename)
+            file_records[name] = {"path": filename, "bytes": size, "sha256": digest}
         metadata = {
             "schema_version": CHECKPOINT_SCHEMA_VERSION,
             "attempt_id": attempt_id,
@@ -574,6 +586,27 @@ def _read_json_object(path: Path, name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CheckpointContractError(f"{name} must be an object")
     return value
+
+
+
+def _copy_component_sync(source: Path, destination: Path) -> tuple[int, str]:
+    descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    digest = hashlib.sha256()
+    size = 0
+    with os.fdopen(descriptor, "rb") as src, destination.open("xb") as dst:
+        before = os.fstat(src.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise CheckpointContractError("checkpoint source must be a regular file")
+        while chunk := src.read(1024 * 1024):
+            dst.write(chunk)
+            digest.update(chunk)
+            size += len(chunk)
+        after = os.fstat(src.fileno())
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns) or size != before.st_size:
+            raise CheckpointContractError("checkpoint source changed while copying")
+        dst.flush()
+        os.fsync(dst.fileno())
+    return size, digest.hexdigest()
 
 
 def _write_bytes_sync(path: Path, content: bytes) -> None:

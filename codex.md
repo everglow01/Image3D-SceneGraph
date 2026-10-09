@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-09，旧保存代表负载诊断e971ba1完成：执行20261009-102029-388f exit0（代表诊断控制器结束，不代表所有case通过），0.5M正常/取消峰值4.001/3.801GB，1.5M为8.158/8.069GB；1.5M主峰在gather及rank整包重序列化，匿名约7.968GB。3M正常/取消均触发独立12GiB cgroup OOM，采样约12.573/12.639GB，服务active、无整机OOM。按实测实施逐rank逐组件文件保存+流式无压缩rank封装，保持公开schema1/组件/原子发布；旧rank封装读兼容。正常终态使用writer返回metadata、不再reload全checkpoint，模型合并直接文件load/save；fresh取消遵守已有合同不保存完整checkpoint。核心hash因此变化，旧signed不伪装同代码控制，下一轮须fresh同seed signed+absolute。64项本地仅文件/标准库/配置回归及Ruff通过，模型状态/双rank等价与新峰值仍待远端验收，不宣称已节省内存或完成质量实验。
+
 - 2026-10-09，用户要求“先定位内存峰值，优化保存流程，再继续实验”并批准修订计划。先新增独立保存代表负载诊断，0.5M/1.5M/3M双rank SH3模型与完整Adam状态，阶段标记覆盖序列化/gather/打包/原子写入/终态reload/merge；外部200ms采样区分RSS/PSS、cgroup匿名/文件缓存与CUDA峰值。每case独立12GiB无swap瞬态unit、18GiB主机准入/6GiB余量/10min；不复现整机OOM，不将代表负载当原故障精确归因。3项本地标准库诊断测试和Ruff通过；此提交尚未改trainer/checkpoint，先取得旧路径测量再优化。后续保存优化若改核心hash，将fresh重跑一次同seed signed与absolute严格配对，旧基线/失败保留；正式22GiB门槛暂不降低，Test/默认/其他业务不动。
 
 - 2026-10-09，8e15887质量探索代码已推送main，并在用户进一步点名授权i-94B8D131既有仓库后经Git快进同步（首次远端写被权限层拦截，未绕过）。141项远端回归10.42s通过；独立systemd cgroup隔离冒烟exit0，128MiB小分配在96MiB task cgroup触发受限OOM，内核CONSTRAINT_MEMCG仅指向测试unit、Result=oom-kill/信号9，面板/cloud/TURN active且启动时间未变。新批准合同SHA610e9002fba4c2c80c05707be11e75d5144292136b79b38bfeff072f59b19885与明确授权两份JSON经文件API上传，旧审计上传拒绝未重试。只读preflight通过，5份最小日志取回SHA一致，8核心hash仍149cf101…且逐字节同signed。01:49:52Z可用主机RAM20,590,911,488 bytes≈19.18GiB，低于22GiB、缺约2.82GiB；新SH3/GPU与正式训练未运行，新正式实验目录未创建。已开始最长20分钟本机只读准入等待b5wqqued8，不写远端、不提交训练；满足后仍需重新核对GPU/代码/磁盘并通过SH3，不因授权跳过准入。准备/验收报告`outputs/analysis/absgrad-quality-preparation-20261009-v1/{REPORT.md,verification.json}`；完整质量实验仍未完成，不改预算、不关闭共享业务或清缓存。

@@ -71,3 +71,12 @@ A successful run atomically publishes one complete checkpoint at the final itera
 The CPU reference test checkpoints a deterministic optimizer-like state machine and proves that resumed final state and metric history exactly match an uninterrupted run. This verifies persistence and RNG continuity, not real Gaussian/CUDA numerical equivalence.
 
 R2.0 does not require bitwise equality across GPU or CUDA environments. R2.7 and R2.15 must add fixed-environment trainer evidence showing rendering metrics and Gaussian statistics remain within predeclared tolerances.
+
+
+## 2026-10-09 streaming publication
+
+The public schema-1 directory, mandatory opaque components, SHA checks, fsync ordering and atomic rename are unchanged. The writer additionally accepts regular non-symlink component files and copies/hashes them in bounded chunks. Exactly one of in-memory state and file sources is required. Source changes during copying reject publication.
+
+New distributed trainer components use an `IMAGE3D_SHARDS_V1` prefix followed by an uncompressed ZIP container with `manifest.json` (version, world size, rank byte counts and SHA-256) and ordered `rank-N` members. This is an internal opaque-component format change, not byte-identical serialization; legacy Torch rank-shard containers remain readable. Rank count/identity and per-rank hashes are checked. No extraction to arbitrary paths is used.
+
+Each rank stages its components on the same filesystem; collectives exchange only small status messages. Rank 0 packs components by streaming and invokes the existing atomic publisher. Failures never expose a committed partial checkpoint; hidden staging is not resumable. Successful publication removes only its own staging. Fresh cancellation no longer invokes full-state publication, matching the retention contract above; final checkpoints still retain all optimizer/topology/camera/RNG state. TrainingResult takes the returned checkpoint metadata instead of reloading the full checkpoint solely to read its hash.

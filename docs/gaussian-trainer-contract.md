@@ -134,3 +134,6 @@ This short 100-iteration public geometry-development run proves executable spars
 
 
 2026-10-09 独立质量探索补充：用户批准另立`absgrad_quality_exploration_v1`，原候选资源失败仍保留。新入口通过显式参数/独立批准合同选择操作预算，不修改训练核心、算法单变量或旧profile；必须受独立16GiB/无swap的cgroup约束，主机22GiB准入、6GiB余量与14GiB任务软停止线覆盖所有阶段。紧急资源停止不调用既有checkpoint取消路径，仅终止该任务进程组，先保存失败证据；正常完成仍执行原checkpoint合同。新6M/18GiB/6h是操作停止线而非算法cap或资源通过证据。完整两阶段配对报告必须另做视觉审查，不产生旧门禁PASS或默认推广；当前RAM准入未过、未启动新正式任务，实际状态见实验索引。
+
+
+2026-10-09 保存峰值修复：1.5M代表状态实测主峰位于完整状态gather/rank打包；3M旧正常/取消保存均触发隔离12GiB cgroup OOM，不是再次整机OOM。正常保存改为逐rank逐组件落盘和流式封装，公开checkpoint合同不变、内部容器显式版本化并兼容旧读取；取消不保存完整checkpoint。终态不用整份reload取得hash，模型合并直接文件load/save。该改动改变trainer核心hash；后续严格配对需同新提交fresh重跑signed，不绕过原身份门禁或改写旧结果。优化效果及模型等价须以远端回归/同规模实测为准。

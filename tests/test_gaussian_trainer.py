@@ -655,3 +655,77 @@ def test_latest_checkpoint_replaces_intermediate_checkpoint(tmp_path):
     checkpoints = tmp_path / "attempts" / "train-001" / "checkpoints"
     assert [path.name for path in checkpoints.iterdir()] == ["iteration_000000002"]
     assert load_checkpoint(tmp_path, "train-001", 2).record.purpose == "final"
+
+
+def test_streaming_checkpoint_matches_legacy_state_and_rng(tmp_path):
+    from image3d_scenegraph.gaussian.trainer import _write_streaming_checkpoint, _rng_bytes
+    import numpy as np
+
+    value = CheckpointProvenance("a" * 64, "b" * 64, "c" * 64, "d" * 64)
+    create_attempt(tmp_path, attempt_id="train-001", kind="fresh", provenance=value)
+    gaussian = model()
+    config = resolve_internal_config().effective_config
+    optimizers = gaussian.optimizers(config["learning_rate"])
+    for name, optimizer in optimizers.items():
+        param = gaussian.params[name]
+        param.grad = torch.ones_like(param)
+        optimizer.step()
+    strategy = {"grad2d": torch.ones(gaussian.count), "count": torch.ones(gaussian.count), "scene_scale": 1.0}
+    before = _rng_bytes()
+    old = _checkpoint_state(gaussian, optimizers, strategy, [3, 1, 2], 2, [{"iteration": 5}], 5)
+    record = _write_streaming_checkpoint(tmp_path, attempt_id="train-001", iteration=5,
+        provenance=value, model=gaussian, optimizers=optimizers, strategy_state=strategy,
+        camera_order=[3, 1, 2], camera_cursor=2, history=[{"iteration": 5}], world_rank=0, world_size=1)
+    new = load_checkpoint(tmp_path, "train-001", 5).state
+    def equal(a, b):
+        if isinstance(a, torch.Tensor):
+            assert torch.equal(a, b)
+        elif isinstance(a, dict):
+            assert a.keys() == b.keys()
+            for key in a:
+                equal(a[key], b[key])
+        elif isinstance(a, (list, tuple)):
+            assert len(a) == len(b)
+            for x, y in zip(a, b):
+                equal(x, y)
+        elif isinstance(a, np.ndarray):
+            assert np.array_equal(a, b)
+        else:
+            assert a == b
+    for name in ("model", "optimizer", "densification", "rng"):
+        equal(_torch_load(getattr(old, name), torch.device("cpu")), _torch_load(getattr(new, name), torch.device("cpu")))
+    equal(_torch_load(before, torch.device("cpu")), _torch_load(_rng_bytes(), torch.device("cpu")))
+    assert new.scheduler == old.scheduler and new.metric_history == old.metric_history
+    assert record == load_checkpoint(tmp_path, "train-001", 5).record
+    assert not list((tmp_path / "attempts/train-001/checkpoints").glob(".stream-*"))
+
+
+def test_streaming_rank_container_and_legacy_both_load(tmp_path):
+    from image3d_scenegraph.gaussian.trainer import _pack_checkpoint_files
+    paths = []
+    for rank in range(2):
+        path = tmp_path / f"rank-{rank}"
+        path.write_bytes(f"rank-{rank}-state".encode())
+        paths.append(path)
+    packed = tmp_path / "packed"
+    _pack_checkpoint_files(paths, packed)
+    for rank in range(2):
+        assert _checkpoint_rank_bytes(packed.read_bytes(), rank, 2) == paths[rank].read_bytes()
+    with pytest.raises(TrainingError, match="world size"):
+        _checkpoint_rank_bytes(packed.read_bytes(), 0, 1)
+    with pytest.raises(TrainingError, match="incomplete"):
+        _checkpoint_rank_bytes(packed.read_bytes(), 2, 2)
+    with pytest.raises(FileExistsError):
+        _pack_checkpoint_files(paths, packed)
+
+
+def test_fresh_cancellation_does_not_write_checkpoint():
+    import ast
+    import inspect
+    from image3d_scenegraph.gaussian.trainer import train_gaussians
+    tree = ast.parse(inspect.getsource(train_gaussians))
+    cancel = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+                  and "cancel_requested()" in ast.unparse(node.test))
+    calls = [ast.unparse(node.func) for node in ast.walk(cancel) if isinstance(node, ast.Call)]
+    assert "_release_training_views" in calls
+    assert not any("checkpoint" in call for call in calls)

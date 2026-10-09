@@ -85,7 +85,8 @@ def worker(local_rank, rank, world_size, args):
 
     for name in ("_model_bytes", "_checkpoint_state", "_pack_checkpoint_shards",
                  "_write_latest_distributed_checkpoint", "_write_latest_checkpoint",
-                 "_merge_model_shards", "load_checkpoint", "write_checkpoint"):
+                 "_merge_model_shards", "load_checkpoint", "write_checkpoint",
+                 "_write_streaming_checkpoint", "_pack_checkpoint_files", "_save_torch_file"):
         if hasattr(t, name):
             instrument(t, name)
     instrument(torch.distributed, "gather_object", "gather_object")
@@ -136,6 +137,30 @@ def worker(local_rank, rank, world_size, args):
                 state=t._checkpoint_state(model, optimizers, strategy, list(range(3016)), 7, history, 5418),
                 world_rank=rank, world_size=2)
             final_record = None
+    if args.count == 13 and args.path == "final" and hasattr(t, "_write_streaming_checkpoint"):
+        import numpy as np
+        def equal(a, b):
+            if isinstance(a, torch.Tensor):
+                assert torch.equal(a.cpu(), b.cpu())
+            elif isinstance(a, np.ndarray):
+                assert np.array_equal(a, b)
+            elif isinstance(a, dict):
+                assert a.keys() == b.keys()
+                for key in a:
+                    equal(a[key], b[key])
+            elif isinstance(a, (list, tuple)):
+                assert len(a) == len(b)
+                for x, y in zip(a, b):
+                    equal(x, y)
+            else:
+                assert a == b
+        expected = t._checkpoint_state(model, optimizers, strategy, list(range(3016)), 7, history, 5418)
+        actual = t.load_checkpoint(case / "training", "train-001", 5418).state
+        for name in ("model", "optimizer", "densification", "rng"):
+            shard = t._checkpoint_rank_bytes(getattr(actual, name), rank, 2)
+            equal(t._torch_load(shard, torch.device("cpu")), t._torch_load(getattr(expected, name), torch.device("cpu")))
+        assert actual.scheduler == expected.scheduler and actual.metric_history == expected.metric_history
+        write_json(case / f"rank-{rank}.equivalence.json", {"all_components_equal": True, "rng_equal": True})
     if args.path == "final":
         if rank == 0 and final_record is None:
             with phase("terminal_reload"):

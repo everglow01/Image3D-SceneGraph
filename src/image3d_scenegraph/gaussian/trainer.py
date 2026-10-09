@@ -7,6 +7,9 @@ import hashlib
 import io
 import json
 import platform
+import os
+import shutil
+import zipfile
 import random
 import time
 from collections.abc import Sequence
@@ -21,6 +24,7 @@ from image3d_scenegraph.file_integrity import sha256_file
 
 from .checkpoint import (
     CheckpointProvenance,
+    CheckpointRecord,
     CheckpointState,
     create_attempt,
     load_checkpoint,
@@ -301,32 +305,12 @@ def train_gaussians(
     best_validation = -float("inf")
     best_validation_iteration: int | None = None
     best_validation_payload: dict[str, Any] | None = None
-    completed_iteration = start_iteration - 1
+    final_checkpoint_record = None
 
     try:
         for iteration in range(start_iteration, total_iterations + 1):
             if cancel_requested is not None and cancel_requested():
-                if completed_iteration > 0:
-                    _release_training_views(train_views, validation_views)
-                    _write_latest_distributed_checkpoint(
-                        run_dir,
-                        attempt_id=attempt_id,
-                        iteration=completed_iteration,
-                        purpose="periodic",
-                        validation_score=None,
-                        provenance=provenance,
-                        state=_checkpoint_state(
-                            model,
-                            optimizers,
-                            strategy_state,
-                            camera_order,
-                            camera_cursor,
-                            history,
-                            completed_iteration,
-                        ),
-                        world_rank=world_rank,
-                        world_size=world_size,
-                    )
+                _release_training_views(train_views, validation_views)
                 raise TrainingCancelled("Gaussian training cancellation requested")
 
             camera_order, camera_cursor, view_indices = _next_camera_batch(
@@ -506,7 +490,6 @@ def train_gaussians(
             history.append(event)
             if world_rank == 0:
                 _publish_event(progress_path, event, progress_callback)
-            completed_iteration = iteration
 
             validation_due = iteration in config["evaluation"]["validation_iterations"]
             if validation_due:
@@ -561,24 +544,11 @@ def train_gaussians(
 
             if iteration == total_iterations:
                 _release_training_views(train_views, validation_views)
-                _write_latest_distributed_checkpoint(
-                    run_dir,
-                    attempt_id=attempt_id,
-                    iteration=iteration,
-                    purpose="final",
-                    validation_score=None,
-                    provenance=provenance,
-                    state=_checkpoint_state(
-                        model,
-                        optimizers,
-                        strategy_state,
-                        camera_order,
-                        camera_cursor,
-                        history,
-                        iteration,
-                    ),
-                    world_rank=world_rank,
-                    world_size=world_size,
+                final_checkpoint_record = _write_streaming_checkpoint(
+                    run_dir, attempt_id=attempt_id, iteration=iteration, provenance=provenance,
+                    model=model, optimizers=optimizers, strategy_state=strategy_state,
+                    camera_order=camera_order, camera_cursor=camera_cursor, history=history,
+                    world_rank=world_rank, world_size=world_size,
                 )
     except torch.cuda.OutOfMemoryError as exc:
         torch.cuda.empty_cache()
@@ -602,9 +572,8 @@ def train_gaussians(
 
     result_path = artifact_dir / "result.json"
     if world_rank == 0:
-        final_checkpoint = load_checkpoint(
-            run_dir, attempt_id, total_iterations, expected_provenance=provenance
-        )
+        if final_checkpoint_record is None:
+            raise TrainingError("final checkpoint was not published")
         model_path = artifact_dir / "model.pt"
         if world_size == 1:
             candidate_path = artifact_dir / ".best-model.pt"
@@ -634,7 +603,7 @@ def train_gaussians(
             peak_allocated_bytes=max(item[0] for item in per_rank_memory),
             peak_reserved_bytes=max(item[1] for item in per_rank_memory),
             elapsed_seconds=max(item[2] for item in per_rank_memory),
-            final_checkpoint_hash=final_checkpoint.record.checkpoint_hash,
+            final_checkpoint_hash=final_checkpoint_record.checkpoint_hash,
             final_checkpoint_path=(
                 Path("attempts")
                 / attempt_id
@@ -1388,7 +1357,7 @@ def _distributed_barrier(world_size: int) -> None:
 def _merge_model_shards(paths: list[Path], destination: Path) -> GaussianModel:
     if not paths or any(not path.is_file() for path in paths):
         raise TrainingError("distributed best-model shards are incomplete")
-    models = [_load_model(path.read_bytes(), torch.device("cpu")) for path in paths]
+    models = [_load_model(path, torch.device("cpu")) for path in paths]
     degrees = {model.max_sh_degree for model in models}
     if len(degrees) != 1:
         raise TrainingError("distributed best-model shards disagree on SH degree")
@@ -1400,65 +1369,13 @@ def _merge_model_shards(paths: list[Path], destination: Path) -> GaussianModel:
         sh_coeffs=torch.cat([model.sh_coeffs.detach() for model in models]),
         max_sh_degree=degrees.pop(),
     )
-    destination.write_bytes(_model_bytes(merged))
+    del models
+    snapshot = merged.snapshot()
+    _save_torch_file({"max_sh_degree": merged.max_sh_degree,
+        "state_dict": {name: value for name, value in snapshot.items() if name != "max_sh_degree"}}, destination)
     for path in paths:
         path.unlink()
     return merged
-
-
-def _write_latest_distributed_checkpoint(
-    run_dir: Path,
-    *,
-    attempt_id: str,
-    iteration: int,
-    purpose: str,
-    validation_score: float | None,
-    provenance: CheckpointProvenance,
-    state: CheckpointState,
-    world_rank: int,
-    world_size: int,
-) -> None:
-    if world_size == 1:
-        _write_latest_checkpoint(
-            run_dir,
-            attempt_id=attempt_id,
-            iteration=iteration,
-            purpose=purpose,
-            validation_score=validation_score,
-            provenance=provenance,
-            state=state,
-        )
-        return
-    gathered: list[CheckpointState | None] | None = (
-        [None] * world_size if world_rank == 0 else None
-    )
-    torch.distributed.gather_object(state, gathered, dst=0)
-    if world_rank == 0:
-        if gathered is None or any(item is None for item in gathered):
-            raise TrainingError("distributed checkpoint shards are incomplete")
-        shards = [item for item in gathered if item is not None]
-        packed = CheckpointState(
-            model=_pack_checkpoint_shards([item.model for item in shards], world_size),
-            optimizer=_pack_checkpoint_shards(
-                [item.optimizer for item in shards], world_size
-            ),
-            scheduler=shards[0].scheduler,
-            densification=_pack_checkpoint_shards(
-                [item.densification for item in shards], world_size
-            ),
-            rng=_pack_checkpoint_shards([item.rng for item in shards], world_size),
-            metric_history=shards[0].metric_history,
-        )
-        _write_latest_checkpoint(
-            run_dir,
-            attempt_id=attempt_id,
-            iteration=iteration,
-            purpose=purpose,
-            validation_score=validation_score,
-            provenance=provenance,
-            state=packed,
-        )
-    _distributed_barrier(world_size)
 
 
 def _pack_checkpoint_shards(shards: list[bytes], world_size: int) -> bytes:
@@ -1467,7 +1384,110 @@ def _pack_checkpoint_shards(shards: list[bytes], world_size: int) -> bytes:
     )
 
 
+
+def _write_streaming_checkpoint(
+    run_dir: Path, *, attempt_id: str, iteration: int, provenance: CheckpointProvenance,
+    model: GaussianModel, optimizers: dict, strategy_state: dict, camera_order: list[int],
+    camera_cursor: int, history: list[dict], world_rank: int, world_size: int,
+) -> CheckpointRecord | None:
+    staging = run_dir / "attempts" / attempt_id / "checkpoints" / f".stream-{iteration:09d}"
+    local = staging / f"rank-{world_rank}"
+    record = None
+    error = None
+    try:
+        local.mkdir(parents=True, exist_ok=False)
+        snapshot = model.snapshot()
+        payload = {"max_sh_degree": model.max_sh_degree, "state_dict": {
+            name: value.cpu() for name, value in snapshot.items() if name != "max_sh_degree"}}
+        _save_torch_file(payload, local / "model")
+        del payload, snapshot
+        _save_torch_file({name: optimizer.state_dict() for name, optimizer in optimizers.items()}, local / "optimizer")
+        _save_torch_file({"strategy_state": strategy_state, "camera_order": camera_order,
+                          "camera_cursor": camera_cursor}, local / "densification")
+        (local / "rng").write_bytes(_rng_bytes())
+        (local / "scheduler").write_text(json.dumps({"iteration": iteration}))
+        (local / "metric_history").write_text(json.dumps(history, allow_nan=False))
+    except Exception as exc:
+        error = f"rank {world_rank} staging failed: {type(exc).__name__}: {exc}"
+    errors = [error]
+    if world_size > 1:
+        errors = [None] * world_size
+        torch.distributed.all_gather_object(errors, error)
+    if any(errors):
+        raise TrainingError(str(errors))
+    if world_rank == 0:
+        try:
+            components = {name: staging / "rank-0" / name for name in ("scheduler", "metric_history")}
+            for name in ("model", "optimizer", "densification", "rng"):
+                paths = [staging / f"rank-{rank}" / name for rank in range(world_size)]
+                if world_size == 1:
+                    components[name] = paths[0]
+                else:
+                    components[name] = staging / f"{name}.packed"
+                    _pack_checkpoint_files(paths, components[name])
+            record = write_checkpoint(run_dir, attempt_id=attempt_id, iteration=iteration,
+                purpose="final", provenance=provenance, component_files=components)
+            prune_attempt_checkpoints(run_dir, attempt_id, keep_iterations=(iteration,))
+        except Exception as exc:
+            error = f"checkpoint publication failed: {type(exc).__name__}: {exc}"
+    if world_size > 1:
+        status = [error]
+        torch.distributed.broadcast_object_list(status, src=0)
+        error = status[0]
+    if error:
+        raise TrainingError(error)
+    _distributed_barrier(world_size)
+    if world_rank == 0:
+        shutil.rmtree(staging)
+    return record
+
+
+_SHARD_MAGIC = b"IMAGE3D_SHARDS_V1\n"
+
+
+def _save_torch_file(payload: dict, path: Path) -> None:
+    with path.open("xb") as handle:
+        torch.save(payload, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _pack_checkpoint_files(paths: list[Path], destination: Path) -> None:
+    manifest = {"version": 1, "world_size": len(paths), "ranks": []}
+    with destination.open("xb") as handle:
+        handle.write(_SHARD_MAGIC)
+        with zipfile.ZipFile(handle, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for rank, path in enumerate(paths):
+                if path.is_symlink() or not path.is_file():
+                    raise TrainingError("checkpoint rank source is not a regular file")
+                digest = hashlib.sha256()
+                size = 0
+                with path.open("rb") as source, archive.open(f"rank-{rank}", "w", force_zip64=True) as target:
+                    while chunk := source.read(1024 * 1024):
+                        target.write(chunk)
+                        digest.update(chunk)
+                        size += len(chunk)
+                manifest["ranks"].append({"bytes": size, "sha256": digest.hexdigest()})
+            archive.writestr("manifest.json", json.dumps(manifest, sort_keys=True))
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def _checkpoint_rank_bytes(content: bytes, world_rank: int, world_size: int) -> bytes:
+    if content.startswith(_SHARD_MAGIC):
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+            expected = {"manifest.json", *(f"rank-{rank}" for rank in range(world_size))}
+            if manifest["version"] != 1 or manifest["world_size"] != world_size:
+                raise TrainingError("checkpoint distributed world size mismatch")
+            if (len(archive.namelist()) != world_size + 1 or set(archive.namelist()) != expected
+                    or len(manifest["ranks"]) != world_size or not 0 <= world_rank < world_size):
+                raise TrainingError("checkpoint distributed shards are incomplete")
+            shard = archive.read(f"rank-{world_rank}")
+            expected_rank = manifest["ranks"][world_rank]
+            if len(shard) != expected_rank["bytes"] or hashlib.sha256(shard).hexdigest() != expected_rank["sha256"]:
+                raise TrainingError("checkpoint distributed shard is invalid")
+            return shard
     payload = _torch_load(content, torch.device("cpu"))
     if isinstance(payload, dict) and "distributed_world_size" in payload:
         if payload.get("distributed_world_size") != world_size:
@@ -1545,8 +1565,9 @@ def _model_bytes(model: GaussianModel) -> bytes:
     )
 
 
-def _load_model(content: bytes, device: torch.device) -> GaussianModel:
-    payload = _torch_load(content, device)
+def _load_model(content: bytes | Path, device: torch.device) -> GaussianModel:
+    payload = (torch.load(content, map_location=device, weights_only=False, mmap=device.type == "cpu")
+               if isinstance(content, Path) else _torch_load(content, device))
     state = payload["state_dict"]
     if "log_scales" not in state:
         state = {

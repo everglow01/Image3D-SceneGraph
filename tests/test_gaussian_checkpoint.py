@@ -377,3 +377,30 @@ def test_reference_resume_matches_uninterrupted_run(tmp_path):
     assert resumed_tail[0] == uninterrupted[0]
     assert resumed_tail[1] == uninterrupted[1]
     assert list(loaded.state.metric_history) + resumed_tail[2] == uninterrupted[2]
+
+
+def test_checkpoint_file_sources_preserve_opaque_bytes_and_atomic_contract(tmp_path):
+    from image3d_scenegraph.gaussian.checkpoint import _state_components
+
+    value = provenance()
+    create_fresh(tmp_path, value=value)
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    components = _state_components(state())
+    paths = {}
+    for name, content in components.items():
+        paths[name] = sources / name
+        paths[name].write_bytes(content)
+    record = write_checkpoint(tmp_path, attempt_id="attempt-001", iteration=10,
+        purpose="final", provenance=value, component_files=paths)
+    loaded = load_checkpoint(tmp_path, "attempt-001", 10, expected_provenance=value)
+    assert loaded.state == state() and loaded.record == record
+    with pytest.raises(CheckpointContractError, match="exactly one"):
+        write_checkpoint(tmp_path, attempt_id="attempt-001", iteration=11, purpose="final",
+                         provenance=value, state=state(), component_files=paths)
+    paths["model"] = sources / "linked"
+    paths["model"].symlink_to(sources / "model")
+    with pytest.raises(CheckpointContractError, match="non-symlink"):
+        write_checkpoint(tmp_path, attempt_id="attempt-001", iteration=11, purpose="final",
+                         provenance=value, component_files=paths)
+    assert not (tmp_path / "attempts/attempt-001/checkpoints/iteration_000000011").exists()
