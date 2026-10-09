@@ -114,3 +114,12 @@
 - `scripts/smoke_absgrad_resources.py`仅限远端受限CPU隔离检查与128MiB小分配/96MiB任务cgroup OOM冒烟，不制造整机OOM、不使用GPU。
 
 本地39项轻量回归、Ruff及diff检查通过，不包含模型训练/渲染/验证。2026-10-09只读复核两张L2空闲、实际面板/cloud/TURN active；主机可用约19.3GiB，低于22GiB。新正式任务尚未启动；远端验证、准入与启动以后置实际记录为准。无完整质量结果，实验仍未完成。旧中断报告上传拒绝未重试或绕过。
+
+
+### 远端验收与当前阻塞（2026-10-09）
+
+- 执行代码`8e15887dc297e6da791f8b1b2299d18ecbe82e4c`已Git快进同步。用户补充点名授权后才执行；首次权限拦截未绕过。
+- **141项远端回归通过**（10.42s），只读preflight通过。独立cgroup隔离exit0；128MiB小分配/96MiB cgroup约束得到`oom-kill`/信号9，内核为`CONSTRAINT_MEMCG`，仅杀该测试unit。面板/cloud/TURN active且原启动时间未改变。
+- 批准合同SHA`610e9002fba4c2c80c05707be11e75d5144292136b79b38bfeff072f59b19885`及明确授权经文件API上传，5份小日志取回SHA一致；旧中断审计上传没有重试。
+- 01:49:52Z可用RAM **19.18GiB < 22GiB**，还差约2.82GiB；因此新SH3/GPU验证与正式训练尚未运行，正式输出目录尚不存在。最长20分钟只读等待准入，不创建训练/修改远端；满足后仍需重查所有准入与SH3，超时不降低门槛。
+- 证据：`outputs/analysis/absgrad-quality-preparation-20261009-v1/{REPORT.md,verification.json,remote-*.log}`。该本地REPORT/verification尚未上传，远端同目录有原始日志、新合同/授权；完整质量实验仍未完成。
