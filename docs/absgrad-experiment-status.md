@@ -139,3 +139,12 @@
 2026-10-09真实SH3与12步小trainer/取消验收通过（任务20261009-103842-1e50）；历史小模型最大参数差1.28616e-6，在原容差内，生产gsplat未改。用户随后批准仅新schema3匹配实验改用**12GiB任务上限/18GiB主机准入/6GiB整机余量/11.5GiB任务停止/无swap**。旧schema1/2的22GiB政策不改，也不把旧资源失败翻成通过。新协议SHA`793b8e75e165503f3190d8c26220328eb9c623820ecdca6d3b737834f9392223`绑定已验证保存/SH3证据；所有新鲜signed/absolute阶段同代码、同环境，训练core为9f3878de…，完整预算、ROI/quality、6M/18GiB/6h界限不变。
 
 新预算仅是受限执行决策：600万代表负载成功不保证完整训练一定完成，触线仍停止且不自动加预算。正式启动结果另记。
+
+
+### 新同代码配对实验已启动（2026-10-09 02:57:49Z观察）
+
+- 实际执行提交`b2c7ac443564f7fcca331eb0ef7f76f7fddf505e`；151项远端回归通过，合同/来源/保存验收身份及现场18GiB准入通过。
+- 执行`20261009-105648-27e3`、只读监控`20261009-105707-0863`；目录`outputs/experiments/absgrad-streaming-matched-20261009-v1/`。
+- fresh signed主训练已推进至108更新/216样本、999,901高斯。独立cgroup实际12GiB/无swap，观测memory.current约7.897GiB、oom事件0；面板/cloud/TURN active。这不是完整训练或质量结果。
+- 顺序为新signed完整四阶段→同代码absolute完整四阶段→两个端点冻结ROI/377-view配对；旧signed/失败保留。后台等待终态，不自动重试、放宽限制或加载Test。
+- 启动审计`outputs/analysis/absgrad-streaming-matched-launch-20261009-v1/startup.json`本地记录。活动远端保持执行HEAD；后续仅文档提交暂不向运行中仓库快进，避免阶段身份门禁失败。实验完成后再同步最新状态。
