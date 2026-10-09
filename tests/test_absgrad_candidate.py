@@ -465,3 +465,127 @@ def test_camera_samples_are_counted_and_sequence_is_hashed(tmp_path):
                                  "batch_view_ids": ["1"]}) + "\n")
     with pytest.raises(ValueError, match="two camera samples"):
         monitor(2)
+
+
+def test_quality_profile_is_separately_approved_and_old_gate_unchanged():
+    from image3d_scenegraph.file_integrity import sha256_file
+
+    path = Path(__file__).resolve().parents[1] / "outputs/analysis/absgrad-candidate-launch-20261008-v1/gate.approved.json"
+    if path.exists():
+        assert sha256_file(path) == candidate.ORIGINAL_GATE_SHA256
+        candidate.validate_gate(json.loads(path.read_text()))
+    gate = candidate.gate_template(quality_exploration=True)
+    assert gate["resource_limits"] == resources.QUALITY_LIMITS
+    with pytest.raises(ValueError):
+        candidate.validate_gate(gate, quality_exploration=True)
+    gate.update(status="APPROVED_FOR_CANDIDATE_EXECUTION", absolute_training_authorized=True)
+    candidate.validate_gate(gate, quality_exploration=True)
+    with pytest.raises(ValueError):
+        candidate.validate_gate(gate)
+    with pytest.raises(ValueError):
+        candidate.validate_gate(approved_gate(), quality_exploration=True)
+    changed = copy.deepcopy(gate)
+    changed["host_policy"]["memory_max_bytes"] += 1
+    with pytest.raises(ValueError):
+        candidate.validate_gate(changed, quality_exploration=True)
+    changed = copy.deepcopy(gate)
+    changed["absolute_training_authorized"] = 1
+    with pytest.raises(ValueError):
+        candidate.validate_gate(changed, quality_exploration=True)
+
+
+def test_quality_monitor_does_not_reuse_old_stop_threshold(tmp_path):
+    monitor = monitor_fixture(tmp_path, updates=1)
+    monitor.limits = resources.QUALITY_LIMITS
+    monitor.limit_label = "hardware_budget"
+    monitor.progress.write_text(event(1, resources.LIMITS["max_observed_global_gaussians"] + 1))
+    write_rank(monitor.telemetry, 0, peak=resources.LIMITS["max_per_rank_peak_reserved_bytes"][0] + 1)
+    assert monitor(18000, final=True) is None
+    write_rank(monitor.telemetry, 0, peak=resources.QUALITY_LIMITS["max_per_rank_peak_reserved_bytes"][0] + 1)
+    assert monitor(18000, final=True) == "rank_0_reserved_exceeded_hardware_budget"
+
+
+def test_host_boundaries_and_cgroup_oom_fail_closed():
+    policy = resources.QUALITY_HOST_POLICY
+    snapshot = {"available_bytes": policy["startup_available_bytes"], "task_current_bytes": 0,
+                "memory_events": {"oom_kill": 0}}
+    assert resources.host_failure(snapshot, admission=True) is None
+    snapshot["available_bytes"] -= 1
+    assert resources.host_failure(snapshot, admission=True) == "host_available_below_22_gib"
+    snapshot["available_bytes"] = policy["minimum_available_bytes"]
+    assert resources.host_failure(snapshot) is None
+    snapshot["available_bytes"] -= 1
+    assert resources.host_failure(snapshot) == "host_available_below_6_gib"
+    snapshot["available_bytes"] = policy["startup_available_bytes"]
+    snapshot["task_current_bytes"] = policy["stop_current_bytes"]
+    assert resources.host_failure(snapshot) == "task_memory_at_14_gib"
+    snapshot["task_current_bytes"] = 0
+    snapshot["memory_events"]["oom_kill"] = 1
+    assert resources.host_failure(snapshot) == "task_cgroup_oom_kill"
+
+
+def test_quality_cgroup_rejects_panel_and_wrong_hard_limits(monkeypatch):
+    values = {"/proc/self/cgroup": "0::/system.slice/gpu-panel.service\n"}
+    monkeypatch.setattr(Path, "read_text", lambda p, **kw: values[str(p)])
+    with pytest.raises(ValueError, match="isolated"):
+        resources.quality_cgroup()
+    expected = f"/sys/fs/cgroup/system.slice/{resources.QUALITY_UNIT}"
+    values["/proc/self/cgroup"] = f"0::/system.slice/{resources.QUALITY_UNIT}\n"
+    values.update({expected + "/memory.max": str(16 * 1024**3), expected + "/memory.swap.max": "0",
+                   expected + "/memory.oom.group": "1"})
+    assert str(resources.quality_cgroup()) == expected
+    values[expected + "/memory.swap.max"] = "max"
+    with pytest.raises(ValueError):
+        resources.quality_cgroup()
+
+
+def test_emergency_stop_never_requests_checkpoint_and_handles_exit_race(tmp_path, monkeypatch):
+    calls = []
+    class Child:
+        pid = 1234
+        def poll(self):
+            return None
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout))
+            if timeout:
+                raise subprocess.TimeoutExpired("fake", timeout)
+    monkeypatch.setattr(resources.os, "killpg", lambda pid, sig: calls.append((pid, sig)))
+    resources.stop_process(Child(), tmp_path / "cancel", emergency=True)
+    assert not (tmp_path / "cancel").exists()
+    assert calls == [(1234, signal.SIGTERM), ("wait", 5), (1234, signal.SIGKILL), ("wait", None)]
+    monkeypatch.setattr(resources.os, "killpg", lambda *a: (_ for _ in ()).throw(ProcessLookupError()))
+    resources.stop_process(Child(), tmp_path / "cancel", emergency=True)
+
+
+def test_quality_host_failure_is_recorded_before_emergency_stop(tmp_path, monkeypatch):
+    samples = iter([
+        {"available_bytes": 23 * 1024**3, "task_current_bytes": 0, "memory_events": {}},
+        {"available_bytes": 5 * 1024**3, "task_current_bytes": 0, "memory_events": {}},
+    ])
+    monkeypatch.setattr(resources, "host_snapshot", lambda p: next(samples))
+    class Child:
+        pid = 1234
+        returncode = None
+        def poll(self):
+            return self.returncode
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("fake", timeout)
+    child = Child()
+    monkeypatch.setattr(resources.subprocess, "Popen", lambda *a, **kw: child)
+    def stop(process, cancel, *, emergency):
+        assert emergency and not cancel.exists()
+        assert json.loads((tmp_path / "train.failure.json").read_text())["reason"] == "host_available_below_6_gib"
+        child.returncode = -15
+    monkeypatch.setattr(resources, "stop_process", stop)
+    with pytest.raises(RuntimeError, match="host_available"):
+        resources.run_stage(tmp_path, "train", ["fake"], cwd=tmp_path, host_group=tmp_path)
+    assert json.loads((tmp_path / "train.exit.json").read_text())["returncode"] == -15
+
+
+def test_quality_admission_failure_does_not_launch_child(tmp_path, monkeypatch):
+    monkeypatch.setattr(resources, "host_snapshot", lambda _: {
+        "available_bytes": 20 * 1024**3, "task_current_bytes": 0, "memory_events": {}})
+    monkeypatch.setattr(resources.subprocess, "Popen", lambda *a, **kw: pytest.fail("must not launch"))
+    with pytest.raises(RuntimeError, match="22_gib"):
+        resources.run_stage(tmp_path, "train", ["fake"], cwd=tmp_path, host_group=tmp_path)
+    assert json.loads((tmp_path / "train.exit.json").read_text())["returncode"] is None

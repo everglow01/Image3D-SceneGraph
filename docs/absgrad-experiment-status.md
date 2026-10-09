@@ -1,6 +1,6 @@
 # 绝对梯度消融：当前状态与执行边界
 
-更新日期：2026-10-08。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
+更新日期：2026-10-09。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
 
 ## 已完成／未完成
 
@@ -98,3 +98,19 @@
 最后记录5418更新／10836样本，无训练result、阶段exit记录或完整checkpoint；SOR、完整Validation和Train-only未执行。外层shell留下的exit-code=0不能替代完成证据，面板任务实际无正常结束标志。资源门禁已不通过，质量无法评估；不降低门禁、不自动resume或重跑。
 
 证据入口：`outputs/analysis/absgrad-candidate-interruption-20261008-v1/{REPORT.md,terminal-audit.json}`。原启动观察保留为历史。运行中主机RAM保护和面板服务cgroup隔离暴露缺口；目前只做审计，未修改服务/训练逻辑，也未证明具体哪次内存分配导致OOM。
+
+
+## 2026-10-09：另立完整质量探索协议
+
+用户选择继续完整质量实验，并批准新质量探索计划。原候选资源失败结论保留，新协议不是原门禁的放宽后“通过”，也不产生`PASS_FOR_REPLICATION`。
+
+- 新候选CLI显式加`--quality-exploration`（gate-template/preflight/execute）；独立schema2合同与旧profile互不接受，质量/ROI合同不改，原两倍资源只作报告。
+- 仍fresh、同replay/初始化/seed1920/增密阈值与预算，只改absgrad；8个核心文件、生产库、signed runner不改，因此不追加signed训练。
+- 新停止线：6,000,000高斯、每rank18GiB reserved、每阶段6h；磁盘20/8/4GiB不变。数量线只停止，不截断增密或剪枝。
+- 主机RAM：启动/阶段须≥22GiB MemAvailable；运行低于6GiB或任务memory.current≥14GiB紧急停止。每2秒检查所有阶段；逐rankreserved仍每10秒采集，不宣称硬实时GPU保护。
+- 新任务必须处于唯一瞬态systemd service，实际MemoryMax=16GiB、SwapMax=0、memory.oom.group=1，不能仍在gpu-panel.service里；不修改既有服务配置。紧急停止仅自身进程组TERM，5秒后必要时KILL，不写cancel文件进入完整checkpoint保存。旧profile保持原120/30秒行为。
+- 先落不可覆盖的stage.failure.json再终止，外部只读监控记录systemd/面板退出与完成文件；不以shell零退出码代替实验完成。正常最终checkpoint/合并仍可能触发新预算，届时保留失败，不擅改训练核心。
+- `scripts/evaluate_absgrad_pair.py`逐端点报告全部24Train/6Validation ROI、377逐视角raw差、全局均值/P10、原资源倍率，输出固定三列ROI图片；引用/渲染身份严格核验。数值通过时仍待全部视觉审查，不自动填通过；raw全局与uint8裁剪指标分开。
+- `scripts/smoke_absgrad_resources.py`仅限远端受限CPU隔离检查与128MiB小分配/96MiB任务cgroup OOM冒烟，不制造整机OOM、不使用GPU。
+
+本地39项轻量回归、Ruff及diff检查通过，不包含模型训练/渲染/验证。2026-10-09只读复核两张L2空闲、实际面板/cloud/TURN active；主机可用约19.3GiB，低于22GiB。新正式任务尚未启动；远端验证、准入与启动以后置实际记录为准。无完整质量结果，实验仍未完成。旧中断报告上传拒绝未重试或绕过。

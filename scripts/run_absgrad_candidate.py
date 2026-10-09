@@ -14,6 +14,7 @@ import sys
 from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.gaussian.absgrad_resources import (
     LIMITS, POLL_SECONDS, TELEMETRY_START_SECONDS, TELEMETRY_STALE_SECONDS,
+    QUALITY_LIMITS, QUALITY_HOST_POLICY, QUALITY_UNIT, available_host_bytes, quality_cgroup,
     TrainingMonitor, run_stage, write_json,
 )
 from image3d_scenegraph.gaussian.config import (
@@ -32,6 +33,7 @@ ROI_SHA256 = "fcdeedd25c456708825a8ec5b929c46f8f741ccaec44d6ca46c7833ac94b2b13"
 MAIN_CAMERA_SHA256 = "8415b1bd17cf77dc0207938f1189b18b79992ff531aafa63d0a71c61d08d1a86"
 TRAIN_ONLY_CAMERA_SHA256 = "b9a49e99d9b9ce3a248791b8fae6d20ebf76cd9361ce69765df383df02f0aab8"
 ABSOLUTE_CONFIG_HASH = "865aa98a29f2f4271289a6c20ca0771a93e8019d787e58877f7cec75924b01cc"
+ORIGINAL_GATE_SHA256 = "313dc2cb9f5b901a8c94879141a63d8fe710461f0c002f83877e2e982876f86f"
 
 
 def read_json(path: Path) -> dict:
@@ -44,8 +46,8 @@ def checked_json(path: Path, expected: str) -> dict:
     return read_json(path)
 
 
-def gate_template() -> dict:
-    return {
+def gate_template(*, quality_exploration=False) -> dict:
+    gate = {
         "schema_version": 1, "status": "DRAFT_NOT_APPROVED",
         "absolute_training_authorized": False,
         "quality_basis": "single_scene_engineering_effect_not_training_variance",
@@ -65,10 +67,20 @@ def gate_template() -> dict:
         },
         "test_authorized": False, "default_changes_authorized": False,
     }
+    if quality_exploration:
+        gate.update(schema_version=2, profile="absgrad_quality_exploration_v1",
+            resource_limits=copy.deepcopy(QUALITY_LIMITS),
+            original_gate_sha256=ORIGINAL_GATE_SHA256,
+            original_resource_gate_role="report_only; previous failure retained; no PASS_FOR_REPLICATION",
+            host_policy=copy.deepcopy(QUALITY_HOST_POLICY), systemd_unit=QUALITY_UNIT)
+        gate["runtime_policy"].update(poll_seconds=2, cancel_grace_seconds=0,
+            term_grace_seconds=5, stop_policy="own_process_group_TERM_KILL_no_cancel_checkpoint",
+            memory_scope="host cgroup all stages; per-rank reserved main and Train-only")
+    return gate
 
 
-def validate_gate(gate: dict) -> None:
-    expected = gate_template()
+def validate_gate(gate: dict, *, quality_exploration=False) -> None:
+    expected = gate_template(quality_exploration=quality_exploration)
     expected["status"] = "APPROVED_FOR_CANDIDATE_EXECUTION"
     expected["absolute_training_authorized"] = True
     if json.dumps(gate, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True):
@@ -101,13 +113,13 @@ def validate_evaluation(path: Path, *, final: bool) -> None:
         raise ValueError("incomplete Validation or incorrect evaluation role")
 
 
-def preflight(signed: Path, gate_path: Path, gate_sha256: str, output: Path) -> dict:
+def preflight(signed: Path, gate_path: Path, gate_sha256: str, output: Path, *, quality_exploration=False) -> dict:
     if output.exists() or output.is_symlink():
         raise ValueError("output already exists; do not overwrite or resume")
     if output.absolute() != output.resolve() or not output.resolve().is_relative_to(PROJECT_ROOT / "outputs/experiments"):
         raise ValueError("candidate output must be a new non-symlink experiment directory")
     gate = checked_json(gate_path, gate_sha256)
-    validate_gate(gate)
+    validate_gate(gate, quality_exploration=quality_exploration)
     checked_json(PROJECT_ROOT / gate["quality_proposal"], QUALITY_SHA256)
     checked_json(PROJECT_ROOT / gate["train_roi"], ROI_SHA256)
     protocol = checked_json(signed / "protocol.json", SIGNED_PROTOCOL_SHA256)
@@ -130,10 +142,16 @@ def preflight(signed: Path, gate_path: Path, gate_sha256: str, output: Path) -> 
             raise ValueError(f"source identity changed: {path}")
     candidate = absolute_config(baseline)
     return {"signed_protocol": protocol, "signed_final_record": final_record,
-            "absolute_config": candidate, "gate": gate, "gate_sha256": gate_sha256}
+            "absolute_config": candidate, "gate": gate, "gate_sha256": gate_sha256,
+            "quality_exploration": quality_exploration, "signed_path": str(signed)}
 
 
 def execute(root: Path, prepared: dict, *, lease_fd: int) -> None:
+    exploration = prepared["quality_exploration"]
+    group = quality_cgroup() if exploration else None
+    if exploration and available_host_bytes() < QUALITY_HOST_POLICY["startup_available_bytes"]:
+        raise ValueError("quality exploration requires at least 22 GiB available host RAM")
+    limits = QUALITY_LIMITS if exploration else LIMITS
     from gsplat import rendering
     from image3d_scenegraph.gaussian.render import require_distributed_absgrad
     from image3d_scenegraph.gaussian.replay import validate_replay_bundle
@@ -167,7 +185,7 @@ def execute(root: Path, prepared: dict, *, lease_fd: int) -> None:
     write_json(root / "absolute.config.json", prepared["absolute_config"])
     write_json(root / "gate.json", prepared["gate"])
     write_json(root / "protocol.json", {
-        "profile": "absgrad_absolute_candidate_v1", "code": code,
+        "profile": "absgrad_quality_exploration_v1" if exploration else "absgrad_absolute_candidate_v1", "code": code,
         "signed_training_revision": SIGNED_REVISION,
         "signed_protocol_sha256": SIGNED_PROTOCOL_SHA256,
         "gate_sha256": prepared["gate_sha256"], "replay": str(replay),
@@ -176,15 +194,28 @@ def execute(root: Path, prepared: dict, *, lease_fd: int) -> None:
         "main_camera_sequence_sha256": MAIN_CAMERA_SHA256,
         "train_only_camera_sequence_sha256": TRAIN_ONLY_CAMERA_SHA256,
         "code_hash": provenance.code_hash, "environment_hash": provenance.environment_hash,
-        "resource_limits": LIMITS, "gpu_inventory": gpu_inventory,
+        "resource_limits": limits, "gpu_inventory": gpu_inventory,
+        "host_cgroup": None if group is None else str(group),
+        "host_policy": QUALITY_HOST_POLICY if exploration else None,
+        "original_gate_sha256": ORIGINAL_GATE_SHA256 if exploration else None,
+        "original_resource_failure_retained": exploration,
         "quality_decision": "pending_paired_roi_review",
         "test_rgb": "not_loaded", "promotion_eligible": False,
         "telemetry": "opt-in CLI wrapper; 10s cumulative per-rank reserved peak; includes final model merge",
     })
-    run_pipeline(root, replay, lease_fd=lease_fd, require_resources=require_resources)
+    run_pipeline(root, replay, lease_fd=lease_fd, require_resources=require_resources,
+                 limits=limits, host_group=group)
+    if exploration:
+        require_resources(root, minimum_free_gib=8)
+        run_stage(root / "absolute", "paired-quality", [sys.executable,
+            "scripts/evaluate_absgrad_pair.py", "--signed-experiment", prepared["signed_path"],
+            "--candidate-experiment", str(root), "--output-dir", str(root / "paired-quality")],
+            cwd=PROJECT_ROOT, pass_fds=(lease_fd,), host_group=group)
 
 
-def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources) -> None:
+def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
+                 limits=None, host_group: Path | None = None) -> None:
+    limits = LIMITS if limits is None else limits
     output = root / "absolute"
     output.mkdir()
     common = ["--dataset-contract", str(replay / "dataset.json"), "--dataset-root", str(replay),
@@ -193,12 +224,12 @@ def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources) 
     def stage(name, arguments, monitor=None):
         require_resources(output, minimum_free_gib=8)
         run_stage(output, name, [sys.executable, *arguments], cwd=PROJECT_ROOT,
-                  monitor=monitor, pass_fds=(lease_fd,))
+                  monitor=monitor, pass_fds=(lease_fd,), host_group=host_group)
 
     training = output / "training"
     progress = training / "attempts/train-001/artifacts/progress.jsonl"
     telemetry = output / "train-memory"
-    main_monitor = TrainingMonitor(progress, telemetry, updates=30000, main_stage=True)
+    main_monitor = TrainingMonitor(progress, telemetry, updates=30000, main_stage=True, limits=limits)
     stage("train", ["scripts/run_gaussian_training.py", *common, "--run-dir", str(training),
         "--trainer", "project", "--initialization", "frozen", "--distributed",
         "--no-intermediate-previews", "--cancel-file", str(output / "cancel"),
@@ -210,7 +241,7 @@ def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources) 
     if result["iteration"] != 30000 or result["world_size"] != 2:
         raise ValueError("main training budget mismatch")
     peaks = result["per_rank_peak_reserved_bytes"]
-    if len(peaks) != 2 or any(p > cap for p, cap in zip(peaks, LIMITS["max_per_rank_peak_reserved_bytes"])):
+    if len(peaks) != 2 or any(p > cap for p, cap in zip(peaks, limits["max_per_rank_peak_reserved_bytes"], strict=True)):
         raise ValueError("final main memory record exceeds resource limit")
     sor = output / "sor"
     stage("sor", ["scripts/filter_gaussian_sor.py", "--model-snapshot", str(training / result["model_path"]),
@@ -221,7 +252,7 @@ def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources) 
     validate_evaluation(selection / "evaluation.json", final=False)
     final = output / "train-only"
     telemetry = output / "train-only-memory"
-    final_monitor = TrainingMonitor(final / "progress.jsonl", telemetry, updates=2000, main_stage=False)
+    final_monitor = TrainingMonitor(final / "progress.jsonl", telemetry, updates=2000, main_stage=False, limits=limits)
     stage("train-only", ["scripts/run_gaussian_final_fit.py", *common,
         "--source-model", str(sor / "filtered-model.pt"),
         "--selection-evaluation", str(selection / "evaluation.json"), "--output-dir", str(final),
@@ -250,24 +281,28 @@ def main() -> None:
     commands = parser.add_subparsers(dest="action", required=True)
     template = commands.add_parser("gate-template")
     template.add_argument("--output", type=Path, required=True)
+    template.add_argument("--quality-exploration", action="store_true")
     for name in ("preflight", "execute"):
         command = commands.add_parser(name)
         command.add_argument("--signed-experiment", type=Path, required=True)
         command.add_argument("--gate-contract", type=Path, required=True)
         command.add_argument("--gate-sha256", required=True)
         command.add_argument("--output-dir", type=Path, required=True)
+        command.add_argument("--quality-exploration", action="store_true")
     args = parser.parse_args()
     if args.action == "gate-template":
-        write_json(args.output, gate_template())
+        write_json(args.output, gate_template(quality_exploration=args.quality_exploration))
         return
     if args.action == "execute":
         if socket.gethostname() != "i-94B8D131" or PROJECT_ROOT != Path("/usr/local/3dgs_new/Image3D-SceneGraph"):
             raise ValueError("candidate execution is restricted to the authorized remote workspace")
         with FileLease(PROJECT_ROOT / "outputs/.gpu.lock") as lease:
-            prepared = preflight(args.signed_experiment, args.gate_contract, args.gate_sha256, args.output_dir)
+            prepared = preflight(args.signed_experiment, args.gate_contract, args.gate_sha256, args.output_dir,
+                                 quality_exploration=args.quality_exploration)
             execute(args.output_dir.resolve(), prepared, lease_fd=lease.fileno())
     else:
-        preflight(args.signed_experiment, args.gate_contract, args.gate_sha256, args.output_dir)
+        preflight(args.signed_experiment, args.gate_contract, args.gate_sha256, args.output_dir,
+                                 quality_exploration=args.quality_exploration)
         print("preflight_passed; no training or output directory created")
 
 
