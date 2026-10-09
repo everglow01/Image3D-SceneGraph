@@ -14,9 +14,7 @@ from PIL import Image, ImageDraw
 from image3d_scenegraph.gaussian.absgrad_resources import (
     QUALITY_LIMITS, STREAMING_HOST_POLICY, STREAMING_UNIT, quality_cgroup, write_json,
 )
-from importlib import import_module
-
-runner = import_module(".run_absgrad_candidate", __package__) if __package__ else import_module("run_absgrad_candidate")
+from image3d_scenegraph.gaussian import absgrad_experiment as runner
 
 VALIDATION_ROI = "outputs/analysis/gaussian-quality-attribution-v1-20260928/roi.json"
 VALIDATION_ROI_SHA256 = "5f64c889b169431980bc539f205a12b6f799c35478a96ee9e6abc662abad6afb"
@@ -122,6 +120,38 @@ def render_controls(model_path: Path, views, output: Path) -> None:
     torch.cuda.empty_cache()
 
 
+def resource_report(candidate_native: dict, signed_native: dict, candidate_stage: dict,
+                    signed_stage: dict | None, historical_limits: dict) -> dict:
+    observed = candidate_stage["resources"]
+    historical = {
+        "identity": "historical_signed_not_current_matched_control",
+        "old_resource_gate": "failed_in_original_candidate; retained",
+        "gaussian_ratio": observed["max_observed_global_gaussians"] / (historical_limits["max_observed_global_gaussians"] / 2),
+        "native_reserved_ratio": [a / (b / 2) for a, b in zip(candidate_native["per_rank_peak_reserved_bytes"],
+            historical_limits["max_per_rank_peak_reserved_bytes"], strict=True)],
+        "stage_wall_ratio": candidate_stage["elapsed_seconds"] / (historical_limits["max_main_stage_wall_seconds"] / 2),
+        "memory_scope": "historical native peaks may have been reset by nested Validation; not a corrected full-lifecycle baseline",
+    }
+    matched = None
+    if signed_stage is not None:
+        reference = signed_stage["resources"]
+        matched = {
+            "identity": "current_same_code_signed_and_absolute",
+            "signed_max_gaussians": reference["max_observed_global_gaussians"],
+            "absolute_max_gaussians": observed["max_observed_global_gaussians"],
+            "gaussian_ratio": observed["max_observed_global_gaussians"] / reference["max_observed_global_gaussians"],
+            "signed_native_reserved": signed_native["per_rank_peak_reserved_bytes"],
+            "absolute_native_reserved": candidate_native["per_rank_peak_reserved_bytes"],
+            "native_reserved_ratio": [a / b for a, b in zip(candidate_native["per_rank_peak_reserved_bytes"], signed_native["per_rank_peak_reserved_bytes"], strict=True)],
+            "telemetry_reserved_ratio": [a / b for a, b in zip(observed["per_rank_peak_reserved_bytes"], reference["per_rank_peak_reserved_bytes"], strict=True)],
+            "native_time_ratio": candidate_native["elapsed_seconds"] / signed_native["elapsed_seconds"],
+            "stage_wall_ratio": candidate_stage["elapsed_seconds"] / signed_stage["elapsed_seconds"],
+            "memory_scope": "native training lifecycle vs native; polled lifecycle including merge vs same polled lifecycle",
+        }
+    return {"historical_reference": historical, "matched_pair": matched,
+        "new_safety_limits": QUALITY_LIMITS, "promotion_eligible": False}
+
+
 def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     import torch
     from image3d_scenegraph.gaussian.runtime import load_training_views
@@ -133,10 +163,9 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     candidate_protocol = runner.read_json(candidate / "protocol.json")
     if candidate_protocol["profile"] == "absgrad_streaming_matched_pair_v1":
         quality_cgroup(policy=STREAMING_HOST_POLICY, unit=STREAMING_UNIT)
-        matched = import_module(".run_absgrad_matched_pair", __package__) if __package__ else import_module("run_absgrad_matched_pair")
         gate = runner.checked_json(candidate.parent / "gate.json", candidate_protocol["gate_sha256"])
-        matched.validate_matched_gate(gate)
-        if candidate_protocol["matched_signed"] != matched.receipt(signed):
+        runner.validate_matched_gate(gate)
+        if candidate_protocol["matched_signed"] != runner.receipt(signed):
             raise ValueError("matched signed receipt changed")
         protocol = runner.read_json(signed / "protocol.json")
         baseline = runner.read_json(signed / "signed.config.json")
@@ -257,25 +286,14 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         write_json(endpoint_root / "metrics.json", endpoints[endpoint])
     if any(runner.sha256_file(path) != expected for path, expected in protected.items()):
         raise ValueError("protected comparison input changed during evaluation")
-    train_resources = runner.read_json(candidate / "absolute/train.exit.json")["resources"]
-    signed_resources = proposal["proposed_resource_gates"]
-    matched_native = runner.read_json(signed / "signed/training/attempts/train-001/artifacts/result.json")
-    native = runner.read_json(candidate / "absolute/training/attempts/train-001/artifacts/result.json")
-    resource = {"old_resource_gate": "failed_in_original_candidate; retained", "promotion_eligible": False,
-        "observed_gaussians": train_resources["max_observed_global_gaussians"],
-        "gaussian_ratio_to_signed": train_resources["max_observed_global_gaussians"] / (signed_resources["max_observed_global_gaussians"] / 2),
-        "per_rank_reserved_ratio_to_signed": [peak / (limit / 2) for peak, limit in zip(train_resources["per_rank_peak_reserved_bytes"], signed_resources["max_per_rank_peak_reserved_bytes"], strict=True)],
-        "candidate_native_per_rank_peak_reserved_bytes": native["per_rank_peak_reserved_bytes"],
-        "native_reserved_ratio_to_signed": [peak / (limit / 2) for peak, limit in zip(native["per_rank_peak_reserved_bytes"], signed_resources["max_per_rank_peak_reserved_bytes"], strict=True)],
-        "native_elapsed_seconds": native["elapsed_seconds"],
-        "telemetry_scope": "includes final merge; wider than signed native result; not strictly same-window peaks",
-        "main_wall_seconds": runner.read_json(candidate / "absolute/train.exit.json")["elapsed_seconds"],
-        "signed_reference_stage_wall_seconds": signed_resources["max_main_stage_wall_seconds"] / 2,
-        "new_safety_limits": QUALITY_LIMITS}
-    resource["current_matched_signed_native_reserved"] = matched_native["per_rank_peak_reserved_bytes"]
-    resource["current_matched_native_reserved_ratio"] = [a / b for a, b in zip(native["per_rank_peak_reserved_bytes"], matched_native["per_rank_peak_reserved_bytes"], strict=True)]
-    resource["current_matched_signed_native_elapsed"] = matched_native["elapsed_seconds"]
-    resource["current_matched_native_time_ratio"] = native["elapsed_seconds"] / matched_native["elapsed_seconds"]
+    candidate_stage = runner.read_json(candidate / "absolute/train.exit.json")
+    signed_stage = (runner.read_json(signed / "signed/train.exit.json")
+        if candidate_protocol["profile"] == runner.PROFILE else None)
+    resource = resource_report(
+        runner.read_json(candidate / "absolute/training/attempts/train-001/artifacts/result.json"),
+        runner.read_json(signed / "signed/training/attempts/train-001/artifacts/result.json"),
+        candidate_stage, signed_stage, proposal["proposed_resource_gates"],
+    )
     write_json(output / "report.json", {"status": "paired_numerical_report_complete_visual_pending", "endpoints": endpoints,
         "resources": resource, "visual_review": "pending_all_60_endpoint_ROIs", "test_rgb": "not_loaded", "promotion_eligible": False,
         "protected": {str(path): digest for path, digest in protected.items()}})

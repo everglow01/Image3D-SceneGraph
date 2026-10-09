@@ -729,3 +729,28 @@ def test_fresh_cancellation_does_not_write_checkpoint():
     calls = [ast.unparse(node.func) for node in ast.walk(cancel) if isinstance(node, ast.Call)]
     assert "_release_training_views" in calls
     assert not any("checkpoint" in call for call in calls)
+
+
+def test_file_model_snapshots_match_legacy_and_support_atomic_best_updates(tmp_path):
+    from image3d_scenegraph.gaussian.model_io import save_model_snapshot
+
+    gaussian = model()
+    before_rng = torch.get_rng_state().clone()
+    path = tmp_path / 'model.pt'
+    save_model_snapshot(gaussian, path)
+    legacy = _load_model(_model_bytes(gaussian), torch.device('cpu'))
+    current = _load_model(path, torch.device('cpu'))
+    for key, value in legacy.state_dict().items():
+        assert torch.equal(value, current.state_dict()[key])
+    with pytest.raises(FileExistsError):
+        save_model_snapshot(gaussian, path)
+    with torch.no_grad():
+        gaussian.means.add_(0.01)
+    save_model_snapshot(gaussian, path, replace=True)
+    assert torch.equal(_load_model(path, torch.device('cpu')).means, gaussian.means)
+    assert torch.equal(before_rng, torch.get_rng_state())
+    shards = [_load_contiguous_model_shard(path, world_rank=rank, world_size=2,
+        device=torch.device('cpu')) for rank in range(2)]
+    assert all(count == gaussian.count for _, count in shards)
+    for key, value in gaussian.state_dict().items():
+        assert torch.equal(torch.cat([shard.state_dict()[key] for shard, _ in shards]), value)

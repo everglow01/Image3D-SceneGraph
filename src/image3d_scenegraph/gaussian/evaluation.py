@@ -18,6 +18,7 @@ from PIL import Image
 from .config import ResolvedGaussianConfig, resolved_config_record
 from .dataset import sha256_file, validate_contract
 from .model import GaussianModel
+from .model_io import load_model_snapshot as _load_model_snapshot
 from .render import render_gaussians
 from .runtime import TrainingView, load_evaluation_views
 from .training_math import psnr, structural_similarity
@@ -36,28 +37,9 @@ class GaussianEvaluationError(RuntimeError):
 
 def load_model_snapshot(path: Path, device: torch.device) -> GaussianModel:
     try:
-        payload = torch.load(path, map_location=device, weights_only=True)
-        state = payload["state_dict"]
-        if "log_scales" not in state:
-            state = {
-                "means": state["params.means"],
-                "log_scales": state["params.scales"],
-                "quats": state["params.quats"],
-                "opacity_logits": state["params.opacities"],
-                "sh_coeffs": torch.cat((state["params.sh0"], state["params.shN"]), dim=1),
-            }
-        model = GaussianModel(
-            means=state["means"],
-            log_scales=state["log_scales"],
-            quats=state["quats"],
-            opacity_logits=state["opacity_logits"],
-            sh_coeffs=state["sh_coeffs"],
-            max_sh_degree=int(payload["max_sh_degree"]),
-        ).to(device)
+        return _load_model_snapshot(path, device)
     except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         raise GaussianEvaluationError(f"invalid Gaussian model snapshot: {exc}") from exc
-    model.validate()
-    return model
 
 
 def evaluate_model(
@@ -70,6 +52,7 @@ def evaluate_model(
     progress_events: Iterable[dict[str, Any]] = (),
     renderer: Callable[..., Any] = render_gaussians,
     health_thresholds: dict[str, float] | None = None,
+    reset_memory_peak: bool = True,
 ) -> dict[str, Any]:
     if split not in {"validation", "test", "fit_validation", "control_validation"}:
         raise GaussianEvaluationError(
@@ -86,7 +69,7 @@ def evaluate_model(
     visible = torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
     peak_allocated = 0
     peak_reserved = 0
-    if model.means.is_cuda:
+    if model.means.is_cuda and reset_memory_peak:
         torch.cuda.reset_peak_memory_stats(model.means.device)
 
     with torch.no_grad():
@@ -217,6 +200,7 @@ def evaluate_model(
         "scale": _distribution(max_scale.cpu().tolist()),
         "health": health,
         "topology": topology,
+        "memory_peak_scope": "evaluation" if reset_memory_peak else "enclosing_training_lifecycle",
         "peak_allocated_bytes": peak_allocated,
         "peak_reserved_bytes": peak_reserved,
         "per_view": per_view,

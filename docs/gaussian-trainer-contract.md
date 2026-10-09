@@ -140,3 +140,15 @@ This short 100-iteration public geometry-development run proves executable spars
 
 
 2026-10-09后续用户批准新schema3匹配实验独立主机预算：cgroup12GiB/SwapMax0，MemAvailable18GiB启动、运行6GiB余量、memory.current11.5GiB停止。原schema2的16GiB/22GiB/14GiB保持不变。只在新同代码fresh signed+absolute入口显式传入，仍保护全部阶段，不改变训练算法或默认配置。新的匹配身份须包含流式保存/SH3实测SHA及当前core/environment一致性，旧candidate不能借新预算绕过旧身份。
+
+## 2026-10-09 审查修复与代码职责
+
+本次用户授权修复与梳理代码，但明确不启动实验。新增`gaussian/model_io.py`统一best模型、最终模型、Train-only分片和checkpoint模型组件的文件I/O；训练梯度、样本顺序、增密、SOR、两段预算及冻结质量门槛不变。CPU文件加载采用mmap且不先read_bytes；这不是已实测的真实训练内存改善结论。
+
+训练/final-fit在生命周期开始时清零CUDA峰值；其内部`evaluate_views`调用评估时显式`reset_memory_peak=false`，不得重置训练累计值。独立评估仍可重置自己的进程计数器，返回`memory_peak_scope`区分两种口径。10秒遥测仍是轮询观测，不构成硬实时上限。旧结果不重写，也不把旧原生峰值当成已修正的全程统计。
+
+`gaussian/absgrad_experiment.py`集中冻结协议、身份核验、四阶段与匹配顺序；candidate/matched CLI保持原参数接口并变为薄入口，配对报告不再导入其他CLI。新入口不再从旧视频实验脚本导入工具函数。`absgrad_resources.py`负责进程、准入、监控、停止及结构化终态。`scripts/launch_absgrad_matched_pair.sh`将现有systemd启动/只读监控行为纳入版本控制；新增脚本不是启动授权，本轮没有执行其训练或监控模式。
+
+新正式监控写入每阶段`*.memory.jsonl`：总量、anon/file等memory.stat字段、各PID RSS/PSS及rank阶段；缺失字段保持缺失，不以0冒充未知。时间线逐行flush，上限64MiB，超过后明确失败而非静默丢弃。rank阶段另保留追加式事件与原子当前快照。仍按memory.current总量停止，不扣除文件缓存、不改变12GiB/18GiB/6GiB/11.5GiB或旧profile预算。准入、子进程执行和结果校验处于统一阶段终态边界，退出码0但身份校验失败不会产生完成标记；matched顶层另保留failure.json。
+
+资源报告分为historical_reference与matched_pair；新配对高斯倍率读取两臂同窗口监控数据，native显存/时间与telemetry显存分别比较，不混用历史分母。training_provenance在原8文件之外纳入model_io、evaluation、checkpoint、absgrad_resources，防止职责迁移漏出源码身份范围。旧批准合同、验收SHA和产物不改；旧验收core与新代码不匹配时继续拒绝执行，必须重新取得独立授权和验收后才能训练。

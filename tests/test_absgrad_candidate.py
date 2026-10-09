@@ -15,7 +15,8 @@ import pytest
 
 from image3d_scenegraph.gaussian import absgrad_resources as resources
 from image3d_scenegraph.gaussian.config import resolve_internal_config, resolved_config_record
-from scripts import run_absgrad_candidate as candidate
+from image3d_scenegraph.gaussian import absgrad_experiment as candidate
+from scripts import run_absgrad_candidate as candidate_cli
 
 
 def signed_config():
@@ -248,6 +249,7 @@ def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch, arm):
     calls = []
     admissions = []
     def fake_stage(root, name, command, **kwargs):
+        kwargs["admission"]()
         calls.append((name, command, kwargs["monitor"]))
         if kwargs["monitor"] is not None:
             digest = candidate.MAIN_CAMERA_SHA256 if name == "train" else candidate.TRAIN_ONLY_CAMERA_SHA256
@@ -274,6 +276,8 @@ def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch, arm):
                     "input_splits": ["train"], "topology_changed": False, "source_model_unchanged": True,
                 })
                 (path / "model.pt").write_bytes(b"test placeholder, not a model")
+        if kwargs["verify"] is not None:
+            kwargs["verify"]()
     monkeypatch.setattr(candidate, "run_stage", fake_stage)
     candidate.run_pipeline(tmp_path, tmp_path / "replay", lease_fd=123,
                            require_resources=lambda *a, **kw: admissions.append(kw), arm=arm)
@@ -399,12 +403,12 @@ def test_short_process_still_gets_final_monitor_check(tmp_path, monkeypatch):
 
 
 def test_execution_is_rejected_on_local_host(tmp_path, monkeypatch):
-    monkeypatch.setattr(candidate.socket, "gethostname", lambda: "local-test-host")
+    monkeypatch.setattr(candidate_cli.socket, "gethostname", lambda: "local-test-host")
     monkeypatch.setattr(sys, "argv", ["candidate", "execute", "--signed-experiment", str(tmp_path),
         "--gate-contract", str(tmp_path / "missing"), "--gate-sha256", "unused",
         "--output-dir", str(tmp_path / "new")])
     with pytest.raises(ValueError, match="remote workspace"):
-        candidate.main()
+        candidate_cli.main()
     assert not (tmp_path / "new").exists()
 
 
@@ -573,8 +577,8 @@ def test_quality_host_failure_is_recorded_before_emergency_stop(tmp_path, monkey
             raise subprocess.TimeoutExpired("fake", timeout)
     child = Child()
     monkeypatch.setattr(resources.subprocess, "Popen", lambda *a, **kw: child)
-    def stop(process, cancel, *, emergency):
-        assert emergency and not cancel.exists()
+    def stop(process, cancel, *, emergency, term_grace_seconds):
+        assert emergency and term_grace_seconds == 5 and not cancel.exists()
         assert json.loads((tmp_path / "train.failure.json").read_text())["reason"] == "host_available_below_6_gib"
         child.returncode = -15
     monkeypatch.setattr(resources, "stop_process", stop)
@@ -593,7 +597,7 @@ def test_quality_admission_failure_does_not_launch_child(tmp_path, monkeypatch):
 
 
 def test_matched_pair_requires_new_gate_and_keeps_old_profiles():
-    from scripts import run_absgrad_matched_pair as matched
+    from image3d_scenegraph.gaussian import absgrad_experiment as matched
     gate = matched.matched_gate_template()
     assert gate["authorized_fresh_arms"] == ["signed", "absolute"]
     assert gate["host_policy"]["startup_available_bytes"] == 18 * 1024**3

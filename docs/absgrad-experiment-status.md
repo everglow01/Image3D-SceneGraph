@@ -159,3 +159,11 @@
 代表负载保存优化通过不等于12GiB覆盖完整训练。此次触线发生于首次Validation/best-model写出后，尚未进入最终流式checkpoint；缺少触线时memory.stat与RSS/PSS，具体内存组成未定位，不据此修改预算或宣称保存优化无效。面板任务缺结束标志，但原生退出/失败记录与systemd一致；其元数据缺失原因未确认。
 
 证据：`outputs/analysis/absgrad-streaming-matched-interruption-20261009-v1/{REPORT.md,terminal-audit.json,train.failure.json,train.exit.json,driver.log,train.log}`，仅本地归档，4份下载文件SHA与远端一致。旧失败保留，不自动重跑/resume/加预算，质量不可评估，Test与默认未动。远端保持执行提交b2c7ac4，未同步后续文档或修改原始产物。
+
+### 代码审查修复完成，实验保持停止
+
+2026-10-09，用户要求按review修复、梳理代码，并明确“先不要启动实验”。已完成峰值统计、模型文件I/O、正式内存时间线、准入/后验终态及同代码资源分母修复；共享实验逻辑移入absgrad_experiment，candidate/matched变为薄CLI，新增版本化systemd启动/只读watch脚本。128项本地非模型检查通过，模型/GPU等价与实际资源复测未运行；不宣称真实训练内存问题已解决。
+
+按用户对精确清单的授权，仅删除两次失败运行的4个best模型分片，合计928,323,568 bytes，删除后已核验；日志、协议、进度、成功signed及诊断证据保留。历史终态审计中的“文件存在”是删除前事实，新增清理回执单独记录。
+
+代码核心哈希已改变且新增模块纳入身份范围，旧SH3/保存验收不得直接沿用；旧合同及历史产物未改。远端仍保持原执行代码，本轮没有Git同步或新任务。详见`docs/absgrad-code-review-20261009.md`后续修复节。

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 import hashlib
 import json
 import math
@@ -53,6 +54,48 @@ def write_json(path: Path, value: dict) -> None:
         handle.write("\n")
 
 
+_phase_target: ContextVar[tuple | None] = ContextVar("training_phase_target", default=None)
+
+
+def record_training_phase(phase: str, iteration: int = 0) -> None:
+    target = _phase_target.get()
+    if target is None:
+        return
+    path, rank = target
+    temporary = path.with_suffix(".tmp")
+    value = {"rank": rank, "pid": os.getpid(), "phase": phase,
+        "iteration": iteration, "monotonic_seconds": time.monotonic()}
+    with path.with_suffix(".jsonl").open("a", buffering=1) as events:
+        events.write(json.dumps(value, allow_nan=False) + "\n")
+    write_json(temporary, value)
+    os.replace(temporary, path)
+
+
+@contextmanager
+def failure_record(root: Path, stage: str, phase: str):
+    try:
+        yield
+    except BaseException as exc:
+        path = root / "failure.json"
+        if not path.exists():
+            write_json(path, {"stage": stage, "phase": phase,
+                "reason": f"{type(exc).__name__}: {exc}"})
+        raise
+
+
+def process_memory(pid: int) -> dict:
+    result = {"pid": pid}
+    for filename in ("status", "smaps_rollup"):
+        try:
+            for line in Path(f"/proc/{pid}/{filename}").read_text().splitlines():
+                key, _, value = line.partition(":")
+                if key in {"VmRSS", "VmHWM", "Rss", "Pss", "Anonymous", "Swap"}:
+                    result[key + "_bytes"] = int(value.split()[0]) * 1024
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            pass
+    return result
+
+
 def available_host_bytes() -> int:
     memory = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
     value = int(memory["MemAvailable"].split()[0]) * 1024
@@ -80,8 +123,13 @@ def host_snapshot(group: Path) -> dict:
     current = int((group / "memory.current").read_text())
     if current < 0:
         raise ValueError("invalid cgroup memory.current")
+    stats = dict(line.split() for line in (group / "memory.stat").read_text().splitlines())
+    pids = sorted(set(int(pid) for pid in (group / "cgroup.procs").read_text().splitlines()))
     return {"available_bytes": available_host_bytes(), "task_current_bytes": current,
-            "memory_events": {key: int(value) for key, value in events.items()}}
+            "memory_events": {key: int(value) for key, value in events.items()},
+            "memory_stat": {key: int(stats[key]) for key in
+                ("anon", "file", "kernel", "shmem", "file_dirty", "file_writeback") if key in stats},
+            "processes": [process_memory(pid) for pid in pids]}
 
 
 def host_failure(snapshot: dict, *, admission=False, policy=None) -> str | None:
@@ -128,6 +176,8 @@ def memory_telemetry(directory: Path | None, local_rank: int, world_rank: int, *
         os.replace(temporary, path)
 
     write_json(path, snapshot())
+    phase_token = _phase_target.set((directory / f"rank-{world_rank}.phase.json", world_rank))
+    record_training_phase("initialization")
 
     def watch():
         while not stopped.wait(POLL_SECONDS):
@@ -142,6 +192,7 @@ def memory_telemetry(directory: Path | None, local_rank: int, world_rank: int, *
     try:
         yield
     finally:
+        _phase_target.reset(phase_token)
         stopped.set()
         thread.join(timeout=POLL_SECONDS)
         if thread.is_alive():
@@ -233,7 +284,7 @@ class TrainingMonitor:
         }
 
 
-def stop_process(process, cancel: Path, *, emergency=False) -> None:
+def stop_process(process, cancel: Path, *, emergency=False, term_grace_seconds=5) -> None:
     if emergency:
         if process.poll() is not None:
             return
@@ -242,7 +293,7 @@ def stop_process(process, cancel: Path, *, emergency=False) -> None:
         except ProcessLookupError:
             pass
         try:
-            process.wait(timeout=QUALITY_HOST_POLICY["term_grace_seconds"])
+            process.wait(timeout=term_grace_seconds)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -263,12 +314,13 @@ def stop_process(process, cancel: Path, *, emergency=False) -> None:
 
 
 def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
-              monitor: TrainingMonitor | None = None, pass_fds=(), host_group: Path | None = None, host_policy=None) -> None:
+              monitor: TrainingMonitor | None = None, pass_fds=(), host_group: Path | None = None, host_policy=None, admission=None, verify=None) -> None:
     host_policy = QUALITY_HOST_POLICY if host_policy is None else host_policy
     write_json(root / f"{name}.command.json", {"argv": command})
     print(f"stage={name} started", flush=True)
     started = time.monotonic()
     failure = None
+    phase = "admission"
     process = None
     host = None
     elapsed = 0.0
@@ -277,34 +329,56 @@ def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
     def retain_failure():
         if not failure_path.exists():
             write_json(failure_path, {"reason": failure, "elapsed_seconds": elapsed,
-                "host": host, "resources": None if monitor is None else monitor.record()})
+                "host": host, "phase": phase, "resources": None if monitor is None else monitor.record()})
 
     def stop():
         if host_group is None:
             stop_process(process, root / "cancel")
         else:
-            stop_process(process, root / "cancel", emergency=True)
+            stop_process(process, root / "cancel", emergency=True,
+                         term_grace_seconds=host_policy["term_grace_seconds"])
 
-    with (root / f"{name}.log").open("x") as log:
+    with (root / f"{name}.log").open("x") as log, (
+        (root / f"{name}.memory.jsonl").open("x", buffering=1)
+        if host_group is not None else nullcontext(None)
+    ) as samples:
+        def sample_host():
+            value = host_snapshot(host_group)
+            phases = []
+            if monitor is not None:
+                for rank in range(2):
+                    path = monitor.telemetry / f"rank-{rank}.phase.json"
+                    if path.exists():
+                        phases.append(json.loads(path.read_text()))
+            if samples.tell() >= 64 * 1024**2:
+                raise RuntimeError("memory timeline exceeded 64 MiB bound")
+            samples.write(json.dumps({"elapsed_seconds": elapsed, "stage": name,
+                "phase": phase, "ranks": phases, **value}, allow_nan=False) + "\n")
+            samples.flush()
+            return value
+
         try:
+            if admission is not None:
+                admission()
             if host_group is not None:
-                host = host_snapshot(host_group)
+                host = sample_host()
                 failure = host_failure(host, admission=True, policy=host_policy)
                 if failure:
                     raise RuntimeError(failure)
+            phase = "execution"
             process = subprocess.Popen(
                 command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
                 start_new_session=True, pass_fds=pass_fds,
             )
             while True:
                 try:
-                    process.wait(timeout=POLL_SECONDS if host_group is None else QUALITY_HOST_POLICY["poll_seconds"])
+                    process.wait(timeout=POLL_SECONDS if host_group is None else host_policy["poll_seconds"])
                 except subprocess.TimeoutExpired:
                     pass
                 finished = process.poll() is not None
                 elapsed = time.monotonic() - started
                 if host_group is not None:
-                    host = host_snapshot(host_group)
+                    host = sample_host()
                     failure = host_failure(host, policy=host_policy)
                 if failure:
                     pass
@@ -325,6 +399,9 @@ def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
                         stop()
                 if finished or failure:
                     break
+            if failure is None and process.returncode == 0 and verify is not None:
+                phase = "verification"
+                verify()
         except BaseException as exc:
             failure = failure or f"runner_failed: {type(exc).__name__}: {exc}"
             retain_failure()
@@ -335,7 +412,7 @@ def run_stage(root: Path, name: str, command: list[str], *, cwd: Path,
             write_json(root / f"{name}.exit.json", {
                 "returncode": None if process is None else process.returncode,
                 "elapsed_seconds": time.monotonic() - started,
-                "resource_failure": failure,
+                "resource_failure": failure, "phase": phase,
                 "host": host,
                 "resources": None if monitor is None else monitor.record(),
             })

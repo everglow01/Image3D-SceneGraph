@@ -21,7 +21,8 @@ from image3d_scenegraph.gaussian.config import (
 )
 from image3d_scenegraph.gaussian.render import require_distributed_absgrad
 from image3d_scenegraph.gaussian.replay import validate_replay_bundle
-from run_video_4k_comparison import read_json, require_resources, revision, write_json
+from image3d_scenegraph.gaussian.absgrad_experiment import read_json, require_resources, revision
+from image3d_scenegraph.gaussian.absgrad_resources import write_json
 
 
 SOURCE_PROTOCOL_SHA256 = "c3061cb25911e2faa96e87783ad2b3569a9d5c4a3084830889f05ae6a5e4af69"

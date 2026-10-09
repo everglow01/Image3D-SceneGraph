@@ -15,24 +15,13 @@ import subprocess
 import sys
 import time
 
-from image3d_scenegraph.gaussian.absgrad_resources import available_host_bytes, write_json
+from image3d_scenegraph.gaussian.absgrad_resources import available_host_bytes, write_json, process_memory
 from image3d_scenegraph.gpu_lease import FileLease
 
 ROOT = Path(__file__).resolve().parents[1]
 GIB = 1024**3
 
 
-def process_memory(pid: int) -> dict:
-    result = {"pid": pid}
-    for filename in ("status", "smaps_rollup"):
-        try:
-            for line in Path(f"/proc/{pid}/{filename}").read_text().splitlines():
-                key, _, value = line.partition(":")
-                if key in {"VmRSS", "VmHWM", "Rss", "Pss", "Anonymous", "Swap"}:
-                    result[key + "_bytes"] = int(value.split()[0]) * 1024
-        except (FileNotFoundError, ProcessLookupError):
-            pass
-    return result
 
 
 def worker(local_rank, rank, world_size, args):
@@ -86,7 +75,7 @@ def worker(local_rank, rank, world_size, args):
     for name in ("_model_bytes", "_checkpoint_state", "_pack_checkpoint_shards",
                  "_write_latest_distributed_checkpoint", "_write_latest_checkpoint",
                  "_merge_model_shards", "load_checkpoint", "write_checkpoint",
-                 "_write_streaming_checkpoint", "_pack_checkpoint_files", "_save_torch_file"):
+                 "_write_streaming_checkpoint", "_pack_checkpoint_files", "_save_torch_file", "save_model_snapshot"):
         if hasattr(t, name):
             instrument(t, name)
     instrument(torch.distributed, "gather_object", "gather_object")
@@ -168,7 +157,7 @@ def worker(local_rank, rank, world_size, args):
                                                         expected_provenance=provenance)
                 assert retained_checkpoint.record.iteration == 5418
         with phase("best_snapshot"):
-            (case / f"model-rank-{rank}.pt").write_bytes(t._model_bytes(model))
+            t.save_model_snapshot(model, case / f"model-rank-{rank}.pt")
         torch.distributed.barrier()
         if rank == 0:
             with phase("terminal_merge"):

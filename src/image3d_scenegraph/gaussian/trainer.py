@@ -35,6 +35,11 @@ from .config import ResolvedGaussianConfig, validate_effective_config
 from .evaluation import evaluate_model
 from .initialization import InitializationResult
 from .model import GaussianModel, GaussianModelError
+from .model_io import (
+    load_model_snapshot as _load_model, model_payload, save_model_snapshot,
+    save_torch_file as _save_torch_file,
+)
+from .absgrad_resources import record_training_phase
 from .readiness import project_initialization_keep_mask
 from .render import (
     collect_distributed_absgrad,
@@ -108,6 +113,10 @@ def training_provenance(
     for name in (
         "dataset.py",
         "model.py",
+        "model_io.py",
+        "evaluation.py",
+        "checkpoint.py",
+        "absgrad_resources.py",
         "readiness.py",
         "render.py",
         "runtime.py",
@@ -307,6 +316,7 @@ def train_gaussians(
     best_validation_payload: dict[str, Any] | None = None
     final_checkpoint_record = None
 
+    record_training_phase("training", start_iteration)
     try:
         for iteration in range(start_iteration, total_iterations + 1):
             if cancel_requested is not None and cancel_requested():
@@ -493,6 +503,7 @@ def train_gaussians(
 
             validation_due = iteration in config["evaluation"]["validation_iterations"]
             if validation_due:
+                record_training_phase("validation", iteration)
                 last_validation = evaluate_views(
                     model,
                     validation_views,
@@ -540,9 +551,13 @@ def train_gaussians(
                         if world_size == 1
                         else f".best-model-rank-{world_rank:03d}.pt"
                     )
-                    candidate_path.write_bytes(_model_bytes(model))
+                    record_training_phase("best_model", iteration)
+                    save_model_snapshot(model, candidate_path, replace=True)
 
+            if validation_due:
+                record_training_phase("training", iteration)
             if iteration == total_iterations:
+                record_training_phase("checkpoint", iteration)
                 _release_training_views(train_views, validation_views)
                 final_checkpoint_record = _write_streaming_checkpoint(
                     run_dir, attempt_id=attempt_id, iteration=iteration, provenance=provenance,
@@ -574,11 +589,12 @@ def train_gaussians(
     if world_rank == 0:
         if final_checkpoint_record is None:
             raise TrainingError("final checkpoint was not published")
+        record_training_phase("model_merge", total_iterations)
         model_path = artifact_dir / "model.pt"
         if world_size == 1:
             candidate_path = artifact_dir / ".best-model.pt"
-            candidate_model = _load_model(candidate_path.read_bytes(), device)
-            model_path.write_bytes(candidate_path.read_bytes())
+            candidate_model = _load_model(candidate_path, device)
+            save_model_snapshot(candidate_model, model_path)
             candidate_path.unlink()
         else:
             candidate_model = _merge_model_shards(
@@ -738,6 +754,7 @@ def final_fit_gaussians(
     final_loss = float("nan")
     started = time.perf_counter()
 
+    record_training_phase("training", 1)
     try:
         for iteration in range(1, FINAL_FIT_ITERATIONS + 1):
             if cancel_requested is not None and cancel_requested():
@@ -809,6 +826,7 @@ def final_fit_gaussians(
                     None,
                 )
 
+        record_training_phase("validation", FINAL_FIT_ITERATIONS)
         fit_evaluation = evaluate_views(
             model,
             validation_views,
@@ -834,18 +852,17 @@ def final_fit_gaussians(
             gathered: list[tuple[int, int] | None] = [None] * world_size
             torch.distributed.all_gather_object(gathered, local_memory)
             per_rank_memory = [item for item in gathered if item is not None]
+        record_training_phase("model_save", FINAL_FIT_ITERATIONS)
         _release_training_views(train_views, validation_views, fit_views)
         model_path = output_dir / "model.pt"
         if world_size == 1:
-            model_path.write_bytes(_model_bytes(model))
+            save_model_snapshot(model, model_path)
         else:
-            (output_dir / f".model-rank-{world_rank:03d}.pt").write_bytes(
-                _model_bytes(model)
-            )
+            save_model_snapshot(model, output_dir / f".model-rank-{world_rank:03d}.pt")
         _distributed_barrier(world_size)
         if world_rank == 0:
             if world_size == 1:
-                final_model = _load_model(model_path.read_bytes(), torch.device("cpu"))
+                final_model = _load_model(model_path, torch.device("cpu"))
             else:
                 final_model = _merge_model_shards(
                     [
@@ -999,7 +1016,7 @@ def _load_contiguous_model_shard(
     world_size: int,
     device: torch.device,
 ) -> tuple[GaussianModel, int]:
-    source = _load_model(path.read_bytes(), torch.device("cpu"))
+    source = _load_model(path, torch.device("cpu"))
     source_count = source.count
     start, end = _contiguous_shard_bounds(source_count, world_rank, world_size)
     model = GaussianModel(
@@ -1036,6 +1053,7 @@ def evaluate_views(
         model,
         views,
         split=split,
+        reset_memory_peak=False,
         sh_degree=active_sh_degree(int(config["iterations"]), config["sh_schedule"]),
         preview_dir=preview_dir,
         progress_events=progress_events,
@@ -1370,9 +1388,7 @@ def _merge_model_shards(paths: list[Path], destination: Path) -> GaussianModel:
         max_sh_degree=degrees.pop(),
     )
     del models
-    snapshot = merged.snapshot()
-    _save_torch_file({"max_sh_degree": merged.max_sh_degree,
-        "state_dict": {name: value for name, value in snapshot.items() if name != "max_sh_degree"}}, destination)
+    save_model_snapshot(merged, destination)
     for path in paths:
         path.unlink()
     return merged
@@ -1382,7 +1398,6 @@ def _pack_checkpoint_shards(shards: list[bytes], world_size: int) -> bytes:
     return _torch_bytes(
         {"distributed_world_size": world_size, "rank_shards": shards}
     )
-
 
 
 def _write_streaming_checkpoint(
@@ -1396,11 +1411,7 @@ def _write_streaming_checkpoint(
     error = None
     try:
         local.mkdir(parents=True, exist_ok=False)
-        snapshot = model.snapshot()
-        payload = {"max_sh_degree": model.max_sh_degree, "state_dict": {
-            name: value.cpu() for name, value in snapshot.items() if name != "max_sh_degree"}}
-        _save_torch_file(payload, local / "model")
-        del payload, snapshot
+        save_model_snapshot(model, local / "model")
         _save_torch_file({name: optimizer.state_dict() for name, optimizer in optimizers.items()}, local / "optimizer")
         _save_torch_file({"strategy_state": strategy_state, "camera_order": camera_order,
                           "camera_cursor": camera_cursor}, local / "densification")
@@ -1443,13 +1454,6 @@ def _write_streaming_checkpoint(
 
 
 _SHARD_MAGIC = b"IMAGE3D_SHARDS_V1\n"
-
-
-def _save_torch_file(payload: dict, path: Path) -> None:
-    with path.open("xb") as handle:
-        torch.save(payload, handle)
-        handle.flush()
-        os.fsync(handle.fileno())
 
 
 def _pack_checkpoint_files(paths: list[Path], destination: Path) -> None:
@@ -1552,41 +1556,7 @@ def _checkpoint_state(
 
 
 def _model_bytes(model: GaussianModel) -> bytes:
-    snapshot = model.snapshot()
-    return _torch_bytes(
-        {
-            "max_sh_degree": int(snapshot["max_sh_degree"]),
-            "state_dict": {
-                name: value.cpu()
-                for name, value in snapshot.items()
-                if name != "max_sh_degree"
-            },
-        }
-    )
-
-
-def _load_model(content: bytes | Path, device: torch.device) -> GaussianModel:
-    payload = (torch.load(content, map_location=device, weights_only=False, mmap=device.type == "cpu")
-               if isinstance(content, Path) else _torch_load(content, device))
-    state = payload["state_dict"]
-    if "log_scales" not in state:
-        state = {
-            "means": state["params.means"],
-            "log_scales": state["params.scales"],
-            "quats": state["params.quats"],
-            "opacity_logits": state["params.opacities"],
-            "sh_coeffs": torch.cat((state["params.sh0"], state["params.shN"]), dim=1),
-        }
-    model = GaussianModel(
-        means=state["means"],
-        log_scales=state["log_scales"],
-        quats=state["quats"],
-        opacity_logits=state["opacity_logits"],
-        sh_coeffs=state["sh_coeffs"],
-        max_sh_degree=int(payload["max_sh_degree"]),
-    ).to(device)
-    model.validate()
-    return model
+    return _torch_bytes(model_payload(model))
 
 
 def _rng_bytes() -> bytes:
