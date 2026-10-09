@@ -213,9 +213,11 @@ def execute(root: Path, prepared: dict, *, lease_fd: int) -> None:
 
 
 def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
-                 limits=None, host_group: Path | None = None, host_policy=None, arm="absolute") -> None:
+                 limits=None, host_group: Path | None = None, host_policy=None, arm="absolute", recovered_main: dict | None = None) -> None:
     if arm not in {"signed", "absolute"}:
         raise ValueError("unsupported frozen arm")
+    if recovered_main is not None and arm != "signed":
+        raise ValueError("only the frozen signed main training may be recovered")
     limits = LIMITS if limits is None else limits
     output = root / arm
     output.mkdir()
@@ -241,12 +243,20 @@ def run_pipeline(root: Path, replay: Path, *, lease_fd: int, require_resources,
         peaks = result["per_rank_peak_reserved_bytes"]
         if len(peaks) != 2 or any(p > cap for p, cap in zip(peaks, limits["max_per_rank_peak_reserved_bytes"], strict=True)):
             raise ValueError("final main memory record exceeds resource limit")
-    stage("train", ["scripts/run_gaussian_training.py", *common, "--run-dir", str(training),
-        "--trainer", "project", "--initialization", "frozen", "--distributed",
-        "--no-intermediate-previews", "--cancel-file", str(output / "cancel"),
-        "--resource-telemetry-dir", str(telemetry)], main_monitor, verify_train)
+    if recovered_main is None:
+        stage("train", ["scripts/run_gaussian_training.py", *common, "--run-dir", str(training),
+            "--trainer", "project", "--initialization", "frozen", "--distributed",
+            "--no-intermediate-previews", "--cancel-file", str(output / "cancel"),
+            "--resource-telemetry-dir", str(telemetry)], main_monitor, verify_train)
+        model = training / result["model_path"]
+    else:
+        model, progress = Path(recovered_main["model_path"]), Path(recovered_main["progress_path"])
+        for path, key in ((model, "model_sha256"), (progress, "progress_sha256")):
+            if sha256_file(path) != recovered_main[key]:
+                raise ValueError("recovered main input changed")
+        write_json(output / "train-recovery.json", recovered_main)
     sor = output / "sor"
-    stage("sor", ["scripts/filter_gaussian_sor.py", "--model-snapshot", str(training / result["model_path"]),
+    stage("sor", ["scripts/filter_gaussian_sor.py", "--model-snapshot", str(model),
         "--output-dir", str(sor), "--nb-neighbors", "30", "--std-ratio", "2.0", "--band-opacity", "0.05"])
     selection = output / "selection"
     stage("selection", ["scripts/evaluate_gaussian.py", *common, "--model", str(sor / "filtered-model.pt"),
@@ -309,18 +319,99 @@ SAVE_EVIDENCE = {
 }
 
 
-def matched_gate_template() -> dict:
+
+RECOVERED_PROFILE = "absgrad_recovered_matched_pair_v1"
+CONTINUATION_UNIT = "image3d-absgrad-continued-20261009-v1.service"
+CONTINUATION_HOST_POLICY = {**STREAMING_HOST_POLICY, "minimum_available_bytes": 2 * 1024**3,
+    "stop_current_bytes": None, "memory_max_bytes": None, "memory_swap_max_bytes": None}
+RECOVERY_ROOT = "outputs/experiments/absgrad-save-recovery-20261009-v1"
+INTERRUPTED_ROOT = "outputs/experiments/absgrad-review-matched-20261009-v1/experiment"
+RECOVERY_SOURCES = {
+    f"{RECOVERY_ROOT}/complete.json": "95aa1f65b7a3787c6bcdc477f4bfcbafac65cb895361bf2cdcdd91c3e5b6aefa",
+    f"{RECOVERY_ROOT}/recovery-provenance.json": "d9fb52db0319c82a9a26608fcda7580463f67b9ff094a72d1da2410e4c249c61",
+    f"{INTERRUPTED_ROOT}/gate.json": "f3d9c0019f2db2fc739f9f234652de4e7f1ba48769b5dfb702b56b43aa3e66e3",
+    f"{INTERRUPTED_ROOT}/signed-control/protocol.json": "b90649cf7d534858cb551398dc9d3b76c7a8f6dd28214293d16374413d8be6bb",
+    f"{INTERRUPTED_ROOT}/signed-control/signed/train.exit.json": "b0466ce3900c7af95e358073be0fd3c75c3d8c921157e6333c1a5b0d2b9831ae",
+    f"{INTERRUPTED_ROOT}/signed-control/signed/training/attempts/train-001/artifacts/progress.jsonl": "3852824a96031cb30e4814ba6849c7f265d142a3f5cf7cda10a5bbcf748b103b",
+}
+
+
+def continuation_cgroup() -> Path:
+    expected = f"/system.slice/{CONTINUATION_UNIT}"
+    if f"0::{expected}" not in Path("/proc/self/cgroup").read_text().splitlines():
+        raise ValueError("continuation requires its isolated systemd cgroup")
+    group = Path("/sys/fs/cgroup") / expected.lstrip("/")
+    for name in ("memory.max", "memory.high", "memory.swap.max"):
+        if (group / name).read_text().strip() != "max":
+            raise ValueError(f"continuation requires unlimited {name}")
+    if (group / "memory.oom.group").read_text().strip() != "1":
+        raise ValueError("continuation requires group OOM isolation")
+    return group
+
+
+def recovered_signed_main(provenance) -> dict:
+    from image3d_scenegraph.gaussian.checkpoint import load_checkpoint
+
+    for name, digest in RECOVERY_SOURCES.items():
+        if sha256_file(PROJECT_ROOT / name) != digest:
+            raise ValueError(f"recovery source changed: {name}")
+    source = PROJECT_ROOT / INTERRUPTED_ROOT / "signed-control"
+    original = read_json(source / "protocol.json")
+    validate_matched_gate(read_json(source.parent / "gate.json"))
+    checked_json(source / "signed.config.json", SIGNED_CONFIG_SHA256)
+    for key in ("code_hash", "environment_hash", "dataset_hash", "effective_config_hash"):
+        if original[key] != getattr(provenance, key):
+            raise ValueError(f"recovered signed {key} mismatch")
+    recovery = PROJECT_ROOT / RECOVERY_ROOT
+    receipt = read_json(recovery / "complete.json")
+    if (receipt["status"] != "checkpoint_and_model_recovered_verified" or receipt["iteration"] != 30000
+            or receipt["training_rerun"] or not all(receipt[key] for key in
+                ("loader_verified", "model_rank_order_equal", "source_hashes_unchanged"))):
+        raise ValueError("recovery is incomplete")
+    for name, digest in read_json(recovery / "recovery-provenance.json")["source_hashes"].items():
+        if sha256_file(PROJECT_ROOT / name) != digest:
+            raise ValueError(f"original recovery input changed: {name}")
+    training = recovery / "recovered-training"
+    checkpoint = training / "attempts/train-001/checkpoints/iteration_000030000"
+    model = training / "attempts/train-001/artifacts/model.pt"
+    if str(checkpoint) != receipt["checkpoint_path"] or str(model) != receipt["model_path"]:
+        raise ValueError("unexpected recovered output path")
+    loaded = load_checkpoint(training, "train-001", 30000, expected_provenance=provenance)
+    if loaded.record.checkpoint_hash != receipt["checkpoint_hash"] or sha256_file(model) != receipt["model_sha256"]:
+        raise ValueError("recovered checkpoint or model changed")
+    failure = read_json(source / "signed/train.exit.json")
+    observed = failure["resources"]
+    if (failure["resource_failure"] != "task_memory_at_11.5_gib" or
+            (observed["optimizer_updates_observed"], observed["camera_samples_observed"],
+             observed["camera_sequence_sha256"]) != (30000, 60000, MAIN_CAMERA_SHA256)):
+        raise ValueError("interrupted signed main budget mismatch")
+    progress = source / "signed/training/attempts/train-001/artifacts/progress.jsonl"
+    return {"status": "recovered_main_not_native_training_success", "main_training_revision": original["code"],
+        "model_path": str(model), "model_sha256": receipt["model_sha256"],
+        "progress_path": str(progress), "progress_sha256": sha256_file(progress),
+        "checkpoint_hash": receipt["checkpoint_hash"], "source_train_exit": str(source / "signed/train.exit.json"),
+        "source_train_exit_sha256": sha256_file(source / "signed/train.exit.json"),
+        "recovery_receipt_sha256": RECOVERY_SOURCES[f"{RECOVERY_ROOT}/complete.json"],
+        "resource_comparability": "no native signed lifecycle result; time and peak ratios unavailable"}
+
+
+def matched_gate_template(*, recovered=False) -> dict:
     gate = gate_template(quality_exploration=True)
     gate.update(schema_version=3, profile=PROFILE, comparison_identity="fresh signed then absolute; identical current code/environment",
                 old_signed_role="historical reference only; not the new matched control",
                 host_policy=copy.deepcopy(STREAMING_HOST_POLICY), systemd_unit=STREAMING_UNIT,
                 authorized_fresh_arms=["signed", "absolute"], automatic_retry_or_resume=False,
                 save_verification=copy.deepcopy(SAVE_EVIDENCE))
+    if recovered:
+        gate.update(schema_version=4, profile=RECOVERED_PROFILE,
+            comparison_identity="same training core/environment; signed main recovered without retraining",
+            host_policy=copy.deepcopy(CONTINUATION_HOST_POLICY), systemd_unit=CONTINUATION_UNIT,
+            authorized_fresh_arms=["absolute"], recovery_sources=copy.deepcopy(RECOVERY_SOURCES))
     return gate
 
 
-def validate_matched_gate(gate: dict) -> None:
-    expected = matched_gate_template()
+def validate_matched_gate(gate: dict, *, recovered=False) -> None:
+    expected = matched_gate_template(recovered=recovered)
     expected.update(status="APPROVED_FOR_CANDIDATE_EXECUTION", absolute_training_authorized=True)
     if json.dumps(gate, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True):
         raise ValueError("new matched pair requires its separately approved exact gate")
@@ -332,13 +423,17 @@ def receipt(signed: Path) -> dict:
     return {name: sha256_file(signed / name) for name in paths}
 
 
-def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: str, *, expected_revision: str) -> None:
+def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: str, *, expected_revision: str, recovered=False) -> None:
     if output.exists() or output.is_symlink() or output.absolute() != output.resolve() or not output.resolve().is_relative_to(PROJECT_ROOT / "outputs/experiments"):
         raise ValueError("matched pair requires a fresh non-symlink experiment directory")
     gate = checked_json(gate_path, gate_sha)
-    validate_matched_gate(gate)
-    group = quality_cgroup(policy=STREAMING_HOST_POLICY, unit=STREAMING_UNIT)
-    if available_host_bytes() < STREAMING_HOST_POLICY["startup_available_bytes"]:
+    validate_matched_gate(gate, recovered=recovered)
+    policy = CONTINUATION_HOST_POLICY if recovered else STREAMING_HOST_POLICY
+    # JSON null means no task cap; the unchanged core monitor compares a numeric threshold.
+    runtime_policy = {**policy, "stop_current_bytes": float("inf")} if recovered else policy
+    profile = RECOVERED_PROFILE if recovered else PROFILE
+    group = continuation_cgroup() if recovered else quality_cgroup(policy=policy, unit=STREAMING_UNIT)
+    if available_host_bytes() < policy["startup_available_bytes"]:
         raise ValueError("matched pair requires 18 GiB available host RAM")
     from gsplat import rendering
     from image3d_scenegraph.gaussian.trainer import training_provenance
@@ -377,6 +472,7 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
     for key in ("code_hash", "environment_hash"):
         if evidence[2]["provenance"][key] != getattr(provenance, key):
             raise ValueError(f"save/GPU verification {key} differs from execution")
+    recovered_main = recovered_signed_main(provenance) if recovered else None
     def admission(root, *, minimum_free_gib):
         if revision() != code:
             raise ValueError("code changed between stages")
@@ -385,23 +481,25 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
     output.mkdir()
     with failure_record(output, "matched_pair", "execution"):
         write_json(output / "gate.json", gate)
-        write_json(output / "protocol.json", {"profile": PROFILE, "code": code, "gate_sha256": gate_sha,
+        write_json(output / "protocol.json", {"profile": profile, "code": code, "gate_sha256": gate_sha,
             "code_hash": provenance.code_hash, "environment_hash": provenance.environment_hash,
             "historical_signed_protocol_sha256": SIGNED_PROTOCOL_SHA256, "original_gate_sha256": ORIGINAL_GATE_SHA256,
-            "fresh_arms": ["signed", "absolute"], "promotion_eligible": False})
+            "fresh_arms": gate["authorized_fresh_arms"], "promotion_eligible": False})
         with FileLease(PROJECT_ROOT / "outputs/.gpu.lock") as lease:
             for arm, dirname in (("signed", "signed-control"), ("absolute", "absolute-candidate")):
                 root = output / dirname
                 root.mkdir()
                 write_json(root / f"{arm}.config.json", records[arm])
-                protocol = {**copy.deepcopy(source_protocol), "profile": PROFILE, "code": code,
+                protocol = {**copy.deepcopy(source_protocol), "profile": profile, "code": code,
                     "arm": arm, "gate_sha256": gate_sha, "code_hash": provenance.code_hash,
                     "environment_hash": provenance.environment_hash, "original_resource_failure_retained": True,
                     "effective_config_hash": records[arm]["effective_config_hash"], "resource_limits": QUALITY_LIMITS,
-                    "host_policy": STREAMING_HOST_POLICY, "host_cgroup": str(group), "gpu_inventory": inventory,
+                    "host_policy": policy, "host_cgroup": str(group), "gpu_inventory": inventory,
                     "main_camera_sequence_sha256": MAIN_CAMERA_SHA256, "train_only_camera_sequence_sha256": TRAIN_ONLY_CAMERA_SHA256,
                     "test_rgb": "not_loaded", "promotion_eligible": False}
                 protocol.pop("absolute_arm", None)
+                if recovered_main is not None:
+                    protocol["signed_main_recovery"] = recovered_main
                 if arm == "absolute":
                     signed = output / "signed-control"
                     protocol["matched_signed"] = receipt(signed)
@@ -409,13 +507,14 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
                     if current_record["code_hash"] != provenance.code_hash or current_record["environment_hash"] != provenance.environment_hash:
                         raise ValueError("new signed/candidate core or environment mismatch")
                 write_json(root / "protocol.json", protocol)
+                recovery_args = {"recovered_main": recovered_main} if recovered and arm == "signed" else {}
                 run_pipeline(root, replay, lease_fd=lease.fileno(), require_resources=admission,
-                             limits=QUALITY_LIMITS, host_group=group, host_policy=STREAMING_HOST_POLICY, arm=arm)
+                             limits=QUALITY_LIMITS, host_group=group, host_policy=runtime_policy, arm=arm, **recovery_args)
             candidate_root = output / "absolute-candidate"
             run_stage(candidate_root / "absolute", "paired-quality", [sys.executable,
                 "scripts/evaluate_absgrad_pair.py", "--signed-experiment", str(output / "signed-control"),
                 "--candidate-experiment", str(candidate_root), "--output-dir", str(candidate_root / "paired-quality")],
-                cwd=PROJECT_ROOT, pass_fds=(lease.fileno(),), host_group=group, host_policy=STREAMING_HOST_POLICY,
+                cwd=PROJECT_ROOT, pass_fds=(lease.fileno(),), host_group=group, host_policy=runtime_policy,
                 admission=lambda: admission(output, minimum_free_gib=8))
             write_json(output / "complete.json", {"status": "matched_pair_numerical_report_complete_visual_pending",
                 "report_sha256": sha256_file(candidate_root / "paired-quality/report.json"), "promotion_eligible": False})

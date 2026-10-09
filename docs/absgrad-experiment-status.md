@@ -2,6 +2,25 @@
 
 更新日期：2026-10-09。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
 
+## 续跑准备：取消任务上限、保留2GiB整机余量
+
+用户已授权继续剩余配对并将整机可用内存停止线明确改为2GiB。新增schema4恢复模式，signed复用校验通过的30k模型，只执行后3阶段；absolute仍从冻结初始化fresh开始。所有旧失败/合同保留，原生生命周期显存/耗时比因signed离线恢复不再伪作完整匹配。120项本地非模型回归、Ruff和shell语法通过，12文件训练核心SHA不变；**此条仅记录准备，远端同步/验证和实际启动另记。**
+
+## 最新状态：三万步保存恢复完成（2026-10-09 08:47 UTC）
+
+新同代码配对 `32e3927` 的 signed 已完成30k更新/60k样本及最终377/377 Validation，随后在checkpoint保存阶段触发11.5GiB保护，原任务退出1；不是CUDA或cgroup OOM。保存期间匿名内存约7.74GiB基本不变，文件页缓存约2.04→3.69GiB，总量达到11.54GiB。原失败目录和终态保留。
+
+用户明确授权后，独立任务 `20261009-164657-6f45` 在无任务级RAM/Swap上限、无11.5GiB软件停止条件下，从校验通过的暂存组件恢复保存，耗时28.964秒、exit0。新目录：`outputs/experiments/absgrad-save-recovery-20261009-v1/`。
+
+- 完整checkpoint：`recovered-training/attempts/train-001/checkpoints/iteration_000030000/`；现有加载器和组件SHA校验通过。
+- 合并模型：`recovered-training/attempts/train-001/artifacts/model.pt`，1,493,441高斯；与原两个rank分片按顺序逐参数一致。
+- checkpoint hash：`a41d9fd748015b49cc5f2d33bfd07c35c89f1892b44b120251165ef89def72a7`。
+- model SHA256：`cb9da1b10198ed9574726daf256709b9acfa86cad14b9851a5ab3ead9aeaf915`。
+- `complete.json`与`recovery-provenance.json`明确记录离线恢复、原任务失败及源文件SHA不变；无重训、不伪造原训练result或配对complete。
+- OOM事件0；`memory.peak`不可用，没有实测总峰值结论。取消限制只作用于此次恢复保存，未修改后续训练入口的预算。
+
+**SOR、Train-only、absolute及配对质量审查仍未完成；此次保存成功不等于完整实验通过。** 下表及后续旧记录中的signed正式基线指历史基线，不能替代这次新配对。
+
 ## 已完成／未完成
 
 | 项目 | 当前状态 |

@@ -120,7 +120,7 @@ def render_controls(model_path: Path, views, output: Path) -> None:
     torch.cuda.empty_cache()
 
 
-def resource_report(candidate_native: dict, signed_native: dict, candidate_stage: dict,
+def resource_report(candidate_native: dict, signed_native: dict | None, candidate_stage: dict,
                     signed_stage: dict | None, historical_limits: dict) -> dict:
     observed = candidate_stage["resources"]
     historical = {
@@ -136,18 +136,26 @@ def resource_report(candidate_native: dict, signed_native: dict, candidate_stage
     if signed_stage is not None:
         reference = signed_stage["resources"]
         matched = {
-            "identity": "current_same_code_signed_and_absolute",
+            "identity": "recovered_signed_same_core_and_absolute" if signed_native is None else "current_same_code_signed_and_absolute",
             "signed_max_gaussians": reference["max_observed_global_gaussians"],
             "absolute_max_gaussians": observed["max_observed_global_gaussians"],
             "gaussian_ratio": observed["max_observed_global_gaussians"] / reference["max_observed_global_gaussians"],
-            "signed_native_reserved": signed_native["per_rank_peak_reserved_bytes"],
+            "signed_native_reserved": None if signed_native is None else signed_native["per_rank_peak_reserved_bytes"],
             "absolute_native_reserved": candidate_native["per_rank_peak_reserved_bytes"],
-            "native_reserved_ratio": [a / b for a, b in zip(candidate_native["per_rank_peak_reserved_bytes"], signed_native["per_rank_peak_reserved_bytes"], strict=True)],
-            "telemetry_reserved_ratio": [a / b for a, b in zip(observed["per_rank_peak_reserved_bytes"], reference["per_rank_peak_reserved_bytes"], strict=True)],
-            "native_time_ratio": candidate_native["elapsed_seconds"] / signed_native["elapsed_seconds"],
-            "stage_wall_ratio": candidate_stage["elapsed_seconds"] / signed_stage["elapsed_seconds"],
-            "memory_scope": "native training lifecycle vs native; polled lifecycle including merge vs same polled lifecycle",
+            "signed_observed_reserved": reference["per_rank_peak_reserved_bytes"],
+            "signed_observed_stage_seconds": signed_stage["elapsed_seconds"],
+            "absolute_stage_seconds": candidate_stage["elapsed_seconds"],
+            "native_reserved_ratio": None, "telemetry_reserved_ratio": None,
+            "native_time_ratio": None, "stage_wall_ratio": None,
+            "memory_scope": "signed interrupted before publication; separate offline recovery; lifecycle ratios unavailable",
         }
+        if signed_native is not None:
+            matched.update(
+                native_reserved_ratio=[a / b for a, b in zip(candidate_native["per_rank_peak_reserved_bytes"], signed_native["per_rank_peak_reserved_bytes"], strict=True)],
+                telemetry_reserved_ratio=[a / b for a, b in zip(observed["per_rank_peak_reserved_bytes"], reference["per_rank_peak_reserved_bytes"], strict=True)],
+                native_time_ratio=candidate_native["elapsed_seconds"] / signed_native["elapsed_seconds"],
+                stage_wall_ratio=candidate_stage["elapsed_seconds"] / signed_stage["elapsed_seconds"],
+                memory_scope="native training lifecycle vs native; polled lifecycle including merge vs same polled lifecycle")
     return {"historical_reference": historical, "matched_pair": matched,
         "new_safety_limits": QUALITY_LIMITS, "promotion_eligible": False}
 
@@ -161,10 +169,14 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         raise ValueError("paired output must be a new direct child of the candidate")
     candidate_record = runner.read_json(candidate / "complete.json")
     candidate_protocol = runner.read_json(candidate / "protocol.json")
-    if candidate_protocol["profile"] == "absgrad_streaming_matched_pair_v1":
-        quality_cgroup(policy=STREAMING_HOST_POLICY, unit=STREAMING_UNIT)
+    recovered = candidate_protocol["profile"] == runner.RECOVERED_PROFILE
+    if candidate_protocol["profile"] in (runner.PROFILE, runner.RECOVERED_PROFILE):
+        if recovered:
+            runner.continuation_cgroup()
+        else:
+            quality_cgroup(policy=STREAMING_HOST_POLICY, unit=STREAMING_UNIT)
         gate = runner.checked_json(candidate.parent / "gate.json", candidate_protocol["gate_sha256"])
-        runner.validate_matched_gate(gate)
+        runner.validate_matched_gate(gate, recovered=recovered)
         if candidate_protocol["matched_signed"] != runner.receipt(signed):
             raise ValueError("matched signed receipt changed")
         protocol = runner.read_json(signed / "protocol.json")
@@ -173,6 +185,13 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         for key in ("code", "code_hash", "environment_hash", "gate_sha256"):
             if protocol[key] != candidate_protocol[key]:
                 raise ValueError(f"matched signed/absolute {key} mismatch")
+        if recovered:
+            from image3d_scenegraph.gaussian.checkpoint import CheckpointProvenance
+            verified = runner.recovered_signed_main(CheckpointProvenance(**{
+                key: protocol[key] for key in ("dataset_hash", "effective_config_hash", "code_hash", "environment_hash")}))
+            if (protocol["signed_main_recovery"] != verified or candidate_protocol["signed_main_recovery"] != verified
+                    or runner.read_json(signed / "signed/train-recovery.json") != verified):
+                raise ValueError("signed recovery binding changed")
     elif candidate_protocol["profile"] == "absgrad_quality_exploration_v1":
         quality_cgroup()
         protocol = runner.checked_json(signed / "protocol.json", runner.SIGNED_PROTOCOL_SHA256)
@@ -287,12 +306,17 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     if any(runner.sha256_file(path) != expected for path, expected in protected.items()):
         raise ValueError("protected comparison input changed during evaluation")
     candidate_stage = runner.read_json(candidate / "absolute/train.exit.json")
-    signed_stage = (runner.read_json(signed / "signed/train.exit.json")
-        if candidate_protocol["profile"] == runner.PROFILE else None)
+    if recovered:
+        source = protocol["signed_main_recovery"]
+        signed_stage = runner.checked_json(Path(source["source_train_exit"]), source["source_train_exit_sha256"])
+        signed_native = None
+    else:
+        signed_stage = (runner.read_json(signed / "signed/train.exit.json")
+            if candidate_protocol["profile"] == runner.PROFILE else None)
+        signed_native = runner.read_json(signed / "signed/training/attempts/train-001/artifacts/result.json")
     resource = resource_report(
         runner.read_json(candidate / "absolute/training/attempts/train-001/artifacts/result.json"),
-        runner.read_json(signed / "signed/training/attempts/train-001/artifacts/result.json"),
-        candidate_stage, signed_stage, proposal["proposed_resource_gates"],
+        signed_native, candidate_stage, signed_stage, proposal["proposed_resource_gates"],
     )
     write_json(output / "report.json", {"status": "paired_numerical_report_complete_visual_pending", "endpoints": endpoints,
         "resources": resource, "visual_review": "pending_all_60_endpoint_ROIs", "test_rgb": "not_loaded", "promotion_eligible": False,

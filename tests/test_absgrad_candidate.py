@@ -244,8 +244,8 @@ def test_real_cpu_child_exit_without_model_loading(tmp_path):
     assert json.loads((tmp_path / "failed.exit.json").read_text())["returncode"] == 7
 
 
-@pytest.mark.parametrize("arm", ["signed", "absolute"])
-def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch, arm):
+@pytest.mark.parametrize("arm,recovered", [("signed", False), ("absolute", False), ("signed", True)])
+def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch, arm, recovered):
     calls = []
     admissions = []
     def fake_stage(root, name, command, **kwargs):
@@ -279,15 +279,30 @@ def test_pipeline_order_and_no_test_no_resume(tmp_path, monkeypatch, arm):
         if kwargs["verify"] is not None:
             kwargs["verify"]()
     monkeypatch.setattr(candidate, "run_stage", fake_stage)
+    recovered_main = None
+    if recovered:
+        model, progress = tmp_path / "recovered-model", tmp_path / "old-progress"
+        model.write_bytes(b"mock model, never loaded")
+        progress.write_text("mock progress, never loaded")
+        recovered_main = {"model_path": str(model), "model_sha256": candidate.sha256_file(model),
+            "progress_path": str(progress), "progress_sha256": candidate.sha256_file(progress)}
     candidate.run_pipeline(tmp_path, tmp_path / "replay", lease_fd=123,
-                           require_resources=lambda *a, **kw: admissions.append(kw), arm=arm)
-    assert [name for name, _, _ in calls] == ["train", "sor", "selection", "train-only"]
-    assert admissions == [{"minimum_free_gib": 8}] * 4
+                           require_resources=lambda *a, **kw: admissions.append(kw), arm=arm, recovered_main=recovered_main)
+    expected = ["sor", "selection", "train-only"] if recovered else ["train", "sor", "selection", "train-only"]
+    assert [name for name, _, _ in calls] == expected
+    assert admissions == [{"minimum_free_gib": 8}] * len(expected)
     for _, command, _ in calls:
         assert "test" not in command and "--resume-iteration" not in command
-    assert "--initialization" in calls[0][1] and "frozen" in calls[0][1]
+    if recovered:
+        assert not (tmp_path / arm / "training").exists()
+        assert not (tmp_path / arm / "train.exit.json").exists()
+        assert json.loads((tmp_path / arm / "train-recovery.json").read_text()) == recovered_main
+        assert str(model) in calls[0][1] and str(progress) in calls[1][1]
+    else:
+        assert "--initialization" in calls[0][1] and "frozen" in calls[0][1]
+        assert calls[0][2].updates == 30000
     assert "--train-only-control" in calls[-1][1]
-    assert calls[0][2].updates == 30000 and calls[-1][2].updates == 2000
+    assert calls[-1][2].updates == 2000
     complete = json.loads((tmp_path / "complete.json").read_text())
     assert complete["status"] == ("signed_control_complete" if arm == "signed" else "absolute_training_complete_quality_pending")
     assert complete["promotion_eligible"] is False

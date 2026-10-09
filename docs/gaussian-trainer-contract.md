@@ -152,3 +152,12 @@ This short 100-iteration public geometry-development run proves executable spars
 新正式监控写入每阶段`*.memory.jsonl`：总量、anon/file等memory.stat字段、各PID RSS/PSS及rank阶段；缺失字段保持缺失，不以0冒充未知。时间线逐行flush，上限64MiB，超过后明确失败而非静默丢弃。rank阶段另保留追加式事件与原子当前快照。仍按memory.current总量停止，不扣除文件缓存、不改变12GiB/18GiB/6GiB/11.5GiB或旧profile预算。准入、子进程执行和结果校验处于统一阶段终态边界，退出码0但身份校验失败不会产生完成标记；matched顶层另保留failure.json。
 
 资源报告分为historical_reference与matched_pair；新配对高斯倍率读取两臂同窗口监控数据，native显存/时间与telemetry显存分别比较，不混用历史分母。training_provenance在原8文件之外纳入model_io、evaluation、checkpoint、absgrad_resources，防止职责迁移漏出源码身份范围。旧批准合同、验收SHA和产物不改；旧验收core与新代码不匹配时继续拒绝执行，必须重新取得独立授权和验收后才能训练。
+
+
+## 2026-10-09 恢复signed后继续配对（schema4）
+
+用户授权继续剩余配对，选择取消任务内存上限，并明确将整机MemAvailable停止线由6GiB改为2GiB。仅显式`--continue-recovered-signed`/`--continue-authorized`和独立批准schema4 `absgrad_recovered_matched_pair_v1`使用此策略：新systemd unit的MemoryMax/MemoryHigh/MemorySwapMax均为infinity，合同中的任务内存上限和停止线记为null；非核心调度层将软件阈值转换为正无穷后复用原监控。保留18GiB准入、2秒采样、低于2GiB主动TERM/5秒KILL，以及6M高斯/每rank18GiB reserved/每阶段6小时/磁盘20-8-4GiB边界；无上限不是可用内存保证，也不是旧资源门禁通过。旧schema1/2/3不改。
+
+只接受绑定SHA的本次30k signed离线恢复：核验原协议、失败记录、全部恢复来源、最终checkpoint组件与provenance、模型SHA、原相机序列/预算及原核心/环境一致。新独立目录只执行signed的SOR、377-view Validation及2k/4k Train-only，然后fresh absolute四阶段和全量配对评估。原失败记录不改写，不生成假的signed主训练result或成功exit；`signed/train-recovery.json`和两臂协议记录原训练提交与恢复来源。训练核心12文件SHA保持7f85ff7fb74e6d7ea0dd3224c6c897325d4585754753f80b8450f662abb6700b，Git变动仅调度/报告/测试/合同；不称两臂主训练Git提交相同。
+
+signed原生全生命周期结果缺失，恢复是另一个进程，因此配对报告的native/telemetry显存倍率、native/完整stage耗时倍率记为null并解释窗口不完整；保留原观测值、失败状态和可比的高斯计数，不补造数据、不拼接恢复耗时为原生结果。全部冻结质量门槛、60 endpoint ROI视觉审查、Test不加载和不推广默认保持不变。续跑失败不自动retry或resume。

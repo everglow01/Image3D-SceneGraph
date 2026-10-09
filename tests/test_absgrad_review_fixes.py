@@ -151,6 +151,11 @@ def test_resource_report_separates_matched_and_historical_denominators():
     assert report['matched_pair']['native_reserved_ratio'] == [2, 2]
     assert report['matched_pair']['telemetry_reserved_ratio'] == [2, 2]
     assert resource_report(native, signed_native, candidate_stage, None, historical)['matched_pair'] is None
+    recovered = resource_report(native, None, candidate_stage, signed_stage, historical)['matched_pair']
+    assert recovered['gaussian_ratio'] == 1.5
+    for key in ('native_reserved_ratio', 'telemetry_reserved_ratio', 'native_time_ratio', 'stage_wall_ratio'):
+        assert recovered[key] is None
+    assert 'interrupted' in recovered['memory_scope']
 
 
 def test_pipeline_admission_failure_does_not_create_success_marker(tmp_path):
@@ -168,12 +173,14 @@ def test_shared_experiment_is_not_a_cli_import_and_launch_shell_is_versionable()
         assert 'import_module(' not in source
         assert 'from run_video_4k_comparison' not in source
     shell = (ROOT / 'scripts/launch_absgrad_matched_pair.sh').read_text()
-    assert 'MemoryMax=12G' in shell and 'MemorySwapMax=0' in shell
+    assert 'memory_max=12G; swap_max=0' in shell
+    assert '--property="MemoryMax=$memory_max"' in shell
     assert '--execute-authorized' in shell and '--watch' in shell
 
 
 @pytest.mark.parametrize('fail_absolute', [False, True])
-def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_path, monkeypatch, fail_absolute):
+@pytest.mark.parametrize('recovered', [False, True])
+def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_path, monkeypatch, fail_absolute, recovered):
     import types
     from image3d_scenegraph.gaussian.config import resolve_internal_config, resolved_config_record
 
@@ -185,7 +192,7 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
         'overlay_sha256': experiment.sha256_file(overlay)}
     baseline = resolved_config_record(resolve_internal_config('absgrad_ablation_v1', {
         'resolution': {'longest_edge': 1920}, 'opacity_reset': {'recovery_prune': {'enabled': True}}}))
-    gate = experiment.matched_gate_template()
+    gate = experiment.matched_gate_template(recovered=recovered)
     gate.update(status='APPROVED_FOR_CANDIDATE_EXECUTION', absolute_training_authorized=True)
     evidence = list(experiment.SAVE_EVIDENCE.values())
     records = {'gate-sha': gate, experiment.SIGNED_PROTOCOL_SHA256: source,
@@ -196,6 +203,8 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
         evidence[2]: {'provenance': {'code_hash': 'core', 'environment_hash': 'env'}}}
     monkeypatch.setattr(experiment, 'PROJECT_ROOT', tmp_path)
     monkeypatch.setattr(experiment, 'quality_cgroup', lambda **kw: tmp_path / 'cgroup')
+    monkeypatch.setattr(experiment, 'continuation_cgroup', lambda: tmp_path / 'cgroup')
+    monkeypatch.setattr(experiment, 'recovered_signed_main', lambda _: {'status': 'mock verified recovery'})
     monkeypatch.setattr(experiment, 'available_host_bytes', lambda: 24 * 1024**3)
     monkeypatch.setattr(experiment, 'revision', lambda: 'revision')
     monkeypatch.setattr(experiment, 'checked_json', lambda path, digest: records[digest])
@@ -215,6 +224,10 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
     def pipeline(root, replay, **kwargs):
         arm = kwargs['arm']
         calls.append(arm)
+        assert ('recovered_main' in kwargs) == (recovered and arm == 'signed')
+        if recovered:
+            assert kwargs['host_policy']['stop_current_bytes'] == float('inf')
+            assert kwargs['host_policy']['minimum_available_bytes'] == 2 * 1024**3
         kwargs['require_resources'](root, minimum_free_gib=8)
         if arm == 'absolute' and fail_absolute:
             raise ValueError('simulated absolute verification failure')
@@ -236,12 +249,12 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
     arguments = (output, tmp_path / 'old-signed', tmp_path / 'gate', 'gate-sha')
     if fail_absolute:
         with pytest.raises(ValueError, match='absolute verification'):
-            experiment.execute_matched(*arguments, expected_revision='revision')
+            experiment.execute_matched(*arguments, expected_revision='revision', recovered=recovered)
         assert not (output / 'complete.json').exists()
         assert 'absolute verification' in json.loads((output / 'failure.json').read_text())['reason']
         assert calls == ['signed', 'absolute']
     else:
-        experiment.execute_matched(*arguments, expected_revision='revision')
+        experiment.execute_matched(*arguments, expected_revision='revision', recovered=recovered)
         assert calls == ['signed', 'absolute', 'paired']
         assert json.loads((output / 'complete.json').read_text())['promotion_eligible'] is False
         protocol = json.loads((output / 'absolute-candidate/protocol.json').read_text())
@@ -273,3 +286,94 @@ def test_model_path_loader_uses_mmap_without_reading_full_bytes():
     read(b'legacy mocked bytes', SimpleNamespace(type='cpu'))
     assert isinstance(calls[1][0], io.BytesIO)
     assert 'mmap' not in calls[1][1]
+
+
+def test_continuation_gate_preserves_old_budget_and_stops_below_two_gib():
+    old = experiment.matched_gate_template()
+    gate = experiment.matched_gate_template(recovered=True)
+    assert old['host_policy']['stop_current_bytes'] == 23 * 1024**3 // 2
+    assert old['host_policy']['memory_max_bytes'] == 12 * 1024**3
+    assert gate['host_policy']['minimum_available_bytes'] == 2 * 1024**3
+    assert gate['host_policy']['memory_max_bytes'] is None
+    assert gate['host_policy']['memory_swap_max_bytes'] is None
+    assert gate['authorized_fresh_arms'] == ['absolute']
+    assert len(gate['recovery_sources']) == 6
+    gate.update(status='APPROVED_FOR_CANDIDATE_EXECUTION', absolute_training_authorized=True)
+    experiment.validate_matched_gate(gate, recovered=True)
+    json.dumps(gate, allow_nan=False)
+    with pytest.raises(ValueError):
+        experiment.validate_matched_gate(gate)
+    runtime = {**gate['host_policy'], 'stop_current_bytes': float('inf')}
+    snapshot = {'available_bytes': 2 * 1024**3, 'task_current_bytes': 30 * 1024**3, 'memory_events': {}}
+    assert resources.host_failure(snapshot, policy=runtime) is None
+    snapshot['available_bytes'] -= 1
+    assert resources.host_failure(snapshot, policy=runtime) == 'host_available_below_2_gib'
+    gate['host_policy']['minimum_available_bytes'] = 0
+    with pytest.raises(ValueError):
+        experiment.validate_matched_gate(gate, recovered=True)
+
+
+def test_recovery_cannot_skip_absolute_or_accept_changed_files(tmp_path):
+    with pytest.raises(ValueError, match='signed'):
+        experiment.run_pipeline(tmp_path, tmp_path, lease_fd=0, require_resources=lambda *a, **kw: None,
+            arm='absolute', recovered_main={})
+    model, progress = tmp_path / 'model', tmp_path / 'progress'
+    model.write_bytes(b'changed')
+    progress.write_bytes(b'progress')
+    with pytest.raises(ValueError, match='changed'):
+        experiment.run_pipeline(tmp_path, tmp_path, lease_fd=0, require_resources=lambda *a, **kw: None,
+            arm='signed', recovered_main={'model_path': str(model), 'progress_path': str(progress),
+                'model_sha256': '0' * 64, 'progress_sha256': experiment.sha256_file(progress)})
+    assert not (tmp_path / 'complete.json').exists()
+
+
+def test_recovery_validation_binds_core_checkpoint_model_and_original_failure(tmp_path, monkeypatch):
+    from image3d_scenegraph.gaussian import checkpoint
+    monkeypatch.setattr(experiment, 'PROJECT_ROOT', tmp_path)
+    provenance = SimpleNamespace(code_hash='core', environment_hash='env', dataset_hash='dataset', effective_config_hash='config')
+    source = tmp_path / experiment.INTERRUPTED_ROOT / 'signed-control'
+    recovery = tmp_path / experiment.RECOVERY_ROOT
+    training = recovery / 'recovered-training'
+    model = training / 'attempts/train-001/artifacts/model.pt'
+    model.parent.mkdir(parents=True)
+    model.write_bytes(b'mock model, never imported')
+    source.mkdir(parents=True)
+    gate = experiment.matched_gate_template()
+    gate.update(status='APPROVED_FOR_CANDIDATE_EXECUTION', absolute_training_authorized=True)
+    files = {
+        source.parent / 'gate.json': gate,
+        source / 'protocol.json': {**vars(provenance), 'code': 'original-revision'},
+        source / 'signed.config.json': {},
+        source / 'signed/train.exit.json': {'resource_failure': 'task_memory_at_11.5_gib', 'resources': {
+            'optimizer_updates_observed': 30000, 'camera_samples_observed': 60000,
+            'camera_sequence_sha256': experiment.MAIN_CAMERA_SHA256}},
+        recovery / 'recovery-provenance.json': {'source_hashes': {}},
+        recovery / 'complete.json': {'status': 'checkpoint_and_model_recovered_verified', 'iteration': 30000,
+            'training_rerun': False, 'loader_verified': True, 'model_rank_order_equal': True,
+            'source_hashes_unchanged': True, 'checkpoint_hash': 'checkpoint', 'model_path': str(model),
+            'model_sha256': experiment.sha256_file(model),
+            'checkpoint_path': str(training / 'attempts/train-001/checkpoints/iteration_000030000')},
+    }
+    for path, value in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        resources.write_json(path, value)
+    progress = source / 'signed/training/attempts/train-001/artifacts/progress.jsonl'
+    progress.parent.mkdir(parents=True)
+    progress.write_text('mock progress')
+    monkeypatch.setattr(experiment, 'SIGNED_CONFIG_SHA256', experiment.sha256_file(source / 'signed.config.json'))
+    monkeypatch.setattr(experiment, 'RECOVERY_SOURCES', {
+        str(p.relative_to(tmp_path)): experiment.sha256_file(p) for p in [*files, progress]})
+    def load(run, attempt, iteration, *, expected_provenance):
+        assert (run, attempt, iteration, expected_provenance) == (training, 'train-001', 30000, provenance)
+        return SimpleNamespace(record=SimpleNamespace(checkpoint_hash='checkpoint'))
+    monkeypatch.setattr(checkpoint, 'load_checkpoint', load)
+    record = experiment.recovered_signed_main(provenance)
+    assert record['main_training_revision'] == 'original-revision'
+    assert record['status'] == 'recovered_main_not_native_training_success'
+    provenance.code_hash = 'different-core'
+    with pytest.raises(ValueError, match='code_hash'):
+        experiment.recovered_signed_main(provenance)
+    provenance.code_hash = 'core'
+    model.write_bytes(b'tampered model')
+    with pytest.raises(ValueError, match='model changed'):
+        experiment.recovered_signed_main(provenance)
