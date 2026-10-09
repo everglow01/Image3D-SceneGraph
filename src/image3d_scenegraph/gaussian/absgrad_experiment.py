@@ -303,9 +303,9 @@ def require_resources(root: Path, *, minimum_free_gib: int) -> None:
 
 PROFILE = "absgrad_streaming_matched_pair_v1"
 SAVE_EVIDENCE = {
-    "outputs/analysis/checkpoint-memory-stream-20261009-v1/summary.json": "18bec896cfc0462114c4a954271dd53c73fd55ccf5c235775377df278660e30a",
-    "outputs/analysis/checkpoint-streaming-sh3-20261009-v1/candidate/summary.json": "5bae52aea4f5d228d20628d2c6cbb26287edaa74c234998cdce3226544f84652",
-    "outputs/analysis/checkpoint-streaming-sh3-20261009-v1/candidate/trainer/attempts/train-001/checkpoints/iteration_000000012/checkpoint.json": "456972ffebbb536d55b193b64d179410ba2a25d09feb8f63fe3ace32a94240cd",
+    "outputs/analysis/checkpoint-memory-review-20261009-v1/summary.json": "8536b197a3d28e8f38bb44fc812d2d16c79369eeeea3ac1bd638e1c36981a50d",
+    "outputs/analysis/absgrad-review-sh3-20261009-v1/candidate/summary.json": "09ea236afbe9c60c5f294204c296bc5c820a02c3f877b476f071339198cf4acd",
+    "outputs/analysis/absgrad-review-sh3-20261009-v1/candidate/trainer/attempts/train-001/checkpoints/iteration_000000012/checkpoint.json": "f0d5cedef4d14faee412e72e098ecb49f53b67559a94b1c10939f3bf9cc9353e",
 }
 
 
