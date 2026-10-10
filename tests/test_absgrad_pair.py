@@ -55,3 +55,32 @@ def test_all_regions_required_and_visual_review_never_automatically_passes():
     assert pair.numerical_gate(bad, validation, gates)["numerical_passed"] is False
     with pytest.raises(ValueError):
         pair.numerical_gate(rows[:-1], validation, gates)
+
+
+def test_render_controls_initializes_cuda_before_reset_and_model_load(tmp_path, monkeypatch):
+    import sys
+    from contextlib import nullcontext
+    from types import ModuleType, SimpleNamespace
+
+    calls = []
+    def initialize():
+        calls.append('init')
+    def reset(device):
+        assert calls == ['init']
+        calls.append('reset')
+    def load(path, device):
+        assert calls == ['init', 'reset']
+        calls.append('load')
+        return object()
+    torch = ModuleType('torch')
+    torch.device = lambda name: name
+    torch.cuda = SimpleNamespace(init=initialize, reset_peak_memory_stats=reset, empty_cache=lambda: None)
+    torch.no_grad = nullcontext
+    evaluation = ModuleType('image3d_scenegraph.gaussian.evaluation')
+    evaluation.load_model_snapshot = load
+    render = ModuleType('image3d_scenegraph.gaussian.render')
+    render.render_gaussians = lambda *a, **kw: None
+    for name, module in (('torch', torch), (evaluation.__name__, evaluation), (render.__name__, render)):
+        monkeypatch.setitem(sys.modules, name, module)
+    pair.render_controls(tmp_path / 'mock-model', [], tmp_path / 'output')
+    assert calls == ['init', 'reset', 'load']

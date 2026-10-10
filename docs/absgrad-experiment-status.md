@@ -2,6 +2,18 @@
 
 更新日期：2026-10-09。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
 
+## 2026-10-10：训练完成，修复ROI评估入口
+
+续跑在2026-10-09 12:13:12Z退出1，但signed/absolute的所有训练、SOR、Selection及Train-only评估均已完成且模型SHA核验一致。失败仅发生在ROI渲染入口的CUDA未初始化峰值重置；远端冷进程复现，显式初始化后通过。用户授权修复并仅补全ROI报告/视觉审查，不重训；121项本地非模型检查通过，后续执行写新目录，不覆盖旧paired-quality失败证据。
+
+四组评估均377/377：Selection signed 21.945152/0.806016，absolute 19.199299/0.776501；Train-only signed 22.221965/0.809496，absolute 19.490868/0.780997。两端点全局质量门槛已失败，局部ROI结论仍待报告与审查。续跑采样任务总峰13.789GiB、整机可用最低10.265GiB，OOM事件0；取消任务上限后完成训练，不代表原两倍资源门禁通过。
+
+## 最新执行：剩余配对已启动（2026-10-09 09:18 UTC）
+
+远端已通过Git同步至`fba6048`；161项CPU回归与恢复模型/检查点身份核验通过。执行任务`20261009-171722-8a17`，只读监控`20261009-171722-f714`，新目录`outputs/experiments/absgrad-continued-matched-20261009-v1/`。signed没有重新训练，SOR已exit0（20.95秒），377-view selection正在运行，之后按合同执行Train-only、fresh absolute及配对报告。
+
+已实测确认新unit的MemoryMax/MemoryHigh/MemorySwapMax均infinity，整机可用内存低于2GiB时仍停止。09:18:07Z采样任务约1.425GiB、主机可用约18.479GiB、OOM事件0；这些是运行快照，不是最终峰值或完整质量结果。**运行期间保持远端HEAD为fba6048，不pull后续文档提交。**
+
 ## 续跑准备：取消任务上限、保留2GiB整机余量
 
 用户已授权继续剩余配对并将整机可用内存停止线明确改为2GiB。新增schema4恢复模式，signed复用校验通过的30k模型，只执行后3阶段；absolute仍从冻结初始化fresh开始。所有旧失败/合同保留，原生生命周期显存/耗时比因signed离线恢复不再伪作完整匹配。120项本地非模型回归、Ruff和shell语法通过，12文件训练核心SHA不变；**此条仅记录准备，远端同步/验证和实际启动另记。**

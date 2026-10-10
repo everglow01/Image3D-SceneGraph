@@ -106,6 +106,7 @@ def render_controls(model_path: Path, views, output: Path) -> None:
 
     output.mkdir()
     device = torch.device("cuda:0")
+    torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(device)
     model = load_model_snapshot(model_path, device)
     with torch.no_grad():
