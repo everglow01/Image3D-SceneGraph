@@ -66,13 +66,14 @@ def export_colmap_diagnostics(
         "sequential",
         "sequential_loop",
         "vocab_tree",
+        "rig_neighbors_vocab_v1",
     }:
         raise ColmapDiagnosticsError(f"unsupported COLMAP pairing: {pairing}")
     if pairing_vocab_tree_sha256 is not None:
         pairing_vocab_tree_sha256 = _sha256_value(
             pairing_vocab_tree_sha256, "vocabulary tree"
         )
-    if pairing in {"sequential_loop", "vocab_tree"} and (
+    if pairing in {"sequential_loop", "vocab_tree", "rig_neighbors_vocab_v1"} and (
         pairing_vocab_tree_sha256 is None
     ):
         raise ColmapDiagnosticsError(

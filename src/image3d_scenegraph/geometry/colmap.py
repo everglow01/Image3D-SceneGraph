@@ -12,7 +12,7 @@ from image3d_scenegraph.file_integrity import sha256_file
 
 COLMAP_FEATURE_PROFILE_IDS = ("sift_v1", "aliked_n16rot_v1")
 COLMAP_LOCAL_MATCHER_IDS = ("bruteforce", "lightglue")
-COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree")
+COLMAP_PAIRING_IDS = ("exhaustive", "sequential_loop", "vocab_tree", "rig_neighbors_vocab_v1")
 COLMAP_GEOMETRIC_VERIFICATION_IDS = ("default_v1", "guided_v1")
 COLMAP_MAPPER_IDS = ("incremental", "global")
 COLMAP_CAMERA_CALIBRATION_IDS = (
@@ -472,6 +472,7 @@ def resolve_colmap_pairing(
         pairing_options=(
             "--VocabTreeMatching.vocab_tree_path",
             str(tree_path),
+            *(("--VocabTreeMatching.num_images", "100") if profile_id == "rig_neighbors_vocab_v1" else ()),
         ),
         vocab_tree_path=tree_path,
         vocab_tree_sha256=tree_sha256,
@@ -655,15 +656,17 @@ def colmap_pairing_support_reasons(
         "exhaustive": "exhaustive_matcher",
         "sequential_loop": "sequential_matcher",
         "vocab_tree": "vocab_tree_matcher",
+        "rig_neighbors_vocab_v1": "vocab_tree_matcher",
     }
     pairing_markers = {
         "exhaustive": None,
         "sequential_loop": "SequentialMatching.vocab_tree_path",
         "vocab_tree": "VocabTreeMatching.vocab_tree_path",
+        "rig_neighbors_vocab_v1": "VocabTreeMatching.vocab_tree_path",
     }
     outputs: dict[str, str] = {}
     errors: dict[str, str] = {}
-    for command in commands.values():
+    for command in (*commands.values(), "matches_importer"):
         try:
             outputs[command] = _capture_help(executable, command)
         except (OSError, subprocess.CalledProcessError) as exc:
@@ -684,6 +687,8 @@ def colmap_pairing_support_reasons(
                     pairing_marker = pairing_markers[pairing_id]
                     if pairing_marker is not None:
                         required.append(pairing_marker)
+                    if pairing_id == "rig_neighbors_vocab_v1":
+                        required.append("VocabTreeMatching.num_images")
                     missing = [
                         marker
                         for marker in required
@@ -695,6 +700,13 @@ def colmap_pairing_support_reasons(
                         if missing
                         else None
                     )
+                if pairing_id == "rig_neighbors_vocab_v1" and reason is None:
+                    extra = ("match_list_path", "match_type", "FeatureMatching.type")
+                    if matcher_marker is not None:
+                        extra += (matcher_marker,)
+                    missing = [key for key in extra if key not in outputs.get("matches_importer", "")]
+                    if missing:
+                        reason = "COLMAP matches_importer is missing: " + ", ".join(missing)
                 result[(feature_id, matcher_id, pairing_id)] = reason
     return result
 
@@ -718,6 +730,7 @@ def colmap_geometric_verification_support_reasons(
         "exhaustive": "exhaustive_matcher",
         "sequential_loop": "sequential_matcher",
         "vocab_tree": "vocab_tree_matcher",
+        "rig_neighbors_vocab_v1": "vocab_tree_matcher",
     }
     required_markers = (
         "FeatureMatching.guided_matching",

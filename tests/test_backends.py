@@ -85,7 +85,7 @@ def test_backend_specs_report_aliked_without_disabling_sift(
             (feature, matcher, pairing): None
             for feature in ("sift_v1", "aliked_n16rot_v1")
             for matcher in ("bruteforce", "lightglue")
-            for pairing in ("exhaustive", "sequential_loop", "vocab_tree")
+            for pairing in ("exhaustive", "sequential_loop", "vocab_tree", "rig_neighbors_vocab_v1")
         },
     )
     monkeypatch.setattr(
@@ -93,7 +93,7 @@ def test_backend_specs_report_aliked_without_disabling_sift(
         "colmap_geometric_verification_support_reasons",
         lambda _path: {
             (pairing, geometric): None
-            for pairing in ("exhaustive", "sequential_loop", "vocab_tree")
+            for pairing in ("exhaustive", "sequential_loop", "vocab_tree", "rig_neighbors_vocab_v1")
             for geometric in ("default_v1", "guided_v1")
         },
     )

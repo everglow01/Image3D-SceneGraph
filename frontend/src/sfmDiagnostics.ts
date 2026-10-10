@@ -602,7 +602,8 @@ function parseRun(value: unknown, schemaVersion: 1 | 2 | 3 | 4): SfmRun {
     "exhaustive",
     "sequential",
     "sequential_loop",
-    "vocab_tree"
+    "vocab_tree",
+    "rig_neighbors_vocab_v1"
   ]);
   if (!pairingNames.has(parsedPairing.name)) {
     throw new Error("pairing profile is invalid");
@@ -613,7 +614,8 @@ function parseRun(value: unknown, schemaVersion: 1 | 2 | 3 | 4): SfmRun {
   );
   if (
     (parsedPairing.name === "sequential_loop" ||
-      parsedPairing.name === "vocab_tree") &&
+      parsedPairing.name === "vocab_tree" ||
+      parsedPairing.name === "rig_neighbors_vocab_v1") &&
     pairingVocabTreeSha256 === null
   ) {
     throw new Error("pairing vocabulary-tree provenance is missing");

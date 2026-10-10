@@ -226,3 +226,19 @@ test("folder-grouped cameras are explicit and multi-image only", () => {
   assert.equal(isSfmCameraCalibrationAvailable(status.id, undefined, "multi_image", "project_3dgs"), false);
   assert.equal(defaultSfmCameraCalibration("project_3dgs"), "shared_opencv_v1");
 });
+
+test("rig pairing requires an explicit available capability", () => {
+  assert.equal(isSfmPairingAvailable("rig_neighbors_vocab_v1", undefined, "multi_image"), false);
+  const status = { id: "rig_neighbors_vocab_v1" as const, label: "阵列", available: true, supported_modes: ["multi_image"] };
+  assert.equal(isSfmPairingAvailable(status.id, status, "multi_image"), true);
+  assert.equal(isSfmPairingAvailable(status.id, status, "video"), false);
+});
+
+test("geometry reuse stays in the standard job form and displays its source", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(source, /form\.append\("gaussian_geometry_source_job_id"/);
+  assert.match(source, /form\.append\("sfm_capture_metadata"/);
+  assert.match(source, /requestJson<Manifest>\("\/api\/jobs"/);
+  assert.match(source, /几何复用来源（独立训练 Job）/);
+});

@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
 from image3d_scenegraph.file_integrity import sha256_file
+from image3d_scenegraph.geometry import reuse as geometry_reuse
 from image3d_scenegraph.geometry.camera_calibration import (
     camera_calibration_metrics,
 )
@@ -420,6 +421,7 @@ class ProjectGaussianAdapter:
                 "exhaustive": "exhaustive",
                 "sequential_loop": "sequential",
                 "vocab_tree": "vocab_tree",
+                "rig_neighbors_vocab_v1": "vocab_tree",
             }[sfm_pairing]
         else:
             colmap_matcher = _choice_option(
@@ -516,6 +518,12 @@ class ProjectGaussianAdapter:
                 "--progress-file",
                 str(progress_path),
             ]
+            if sfm_pairing == "rig_neighbors_vocab_v1":
+                metadata_path = context.job_dir / "diagnostics" / "capture_metadata.json"
+                if not context.options.get("_geometry_reused"):
+                    with metadata_path.open("x") as stream:
+                        stream.write(str(context.options["sfm_capture_metadata"]))
+                command_geometry += ["--capture-metadata", str(metadata_path)]
             if "v2_mapper_seed_limit" in context.options:
                 command_geometry += ["--v2-mapper-seed-limit", str(context.options["v2_mapper_seed_limit"])]
             if "sfm_reuse_feature_database" in context.options:
@@ -583,14 +591,23 @@ class ProjectGaussianAdapter:
                 str(progress_path),
             ]
             progress_callback = self._vggt_ba_progress_callback(context, progress_path)
-        _adapter_progress(context, "geometry_reconstruction", 0.15)
-        _run_adapter_command(
-            command_geometry,
-            context,
-            project_root,
-            env=(None if geometry_source == "colmap" else env),
-            poll_callback=progress_callback,
-        )
+        if context.options.get("_geometry_reused"):
+            _adapter_progress(context, "geometry_reuse", 0.15)
+            geometry_assets["gaussian_geometry_reuse"] = geometry_reuse.RECEIPT
+            geometry_metrics["gaussian_geometry_origin"] = "reused"
+            geometry_metrics["gaussian_geometry_source_job_id"] = str(context.options["gaussian_geometry_source_job_id"])
+        else:
+            _adapter_progress(context, "geometry_reconstruction", 0.15)
+            _run_adapter_command(
+                command_geometry, context, project_root,
+                env=(None if geometry_source == "colmap" else env),
+                poll_callback=progress_callback,
+            )
+            geometry_metrics["gaussian_geometry_origin"] = "computed"
+        if sfm_pairing == "rig_neighbors_vocab_v1":
+            rig_record = json.loads((context.job_dir / "diagnostics/rig_pairing.json").read_text())
+            geometry_assets["sfm_rig_pairing"] = "diagnostics/rig_pairing.json"
+            geometry_metrics["sfm_rig_adjacency_pair_count"] = int(rig_record["adjacency_pair_count"])
         sfm_database_path = context.job_dir / "colmap" / "database.db"
         sfm_database_sha256: str | None = None
         sfm_mapper = "incremental"
@@ -961,7 +978,13 @@ class ProjectGaussianAdapter:
             cameras_path="geometry/cameras.json",
             temporal_timestamps=temporal_timestamps,
         )
+        if context.options.get("_geometry_reused") and contract["splits"] != context.options["_geometry_reuse_splits"]:
+            raise ReconstructionError("reused geometry changed the frozen dataset splits")
         write_contract(dataset_path, contract)
+        if context.mode == "multi_image" and geometry_source == "colmap" and trainer_id in {"project", "mcmc"}:
+            geometry_reuse.freeze_geometry(context.job_dir, context.job_id, dict(context.options),
+                                           context.input_assets, contract, context.cancel_requested)
+            geometry_assets["gaussian_geometry_bundle"] = geometry_reuse.BUNDLE
         sfm_assets, sfm_metrics, sfm_log_lines = _try_export_sfm_diagnostics(
             context=context,
             database_path=sfm_database_path,
@@ -1298,6 +1321,7 @@ class ProjectGaussianAdapter:
                 if sor_reason
                 else []
             ),
+            "gaussian_geometry_origin=" + str(geometry_metrics["gaussian_geometry_origin"]),
             *pose_log_lines,
             *video_recovery_log_lines,
             *registration_log_lines,

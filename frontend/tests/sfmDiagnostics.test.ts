@@ -473,3 +473,11 @@ test("schema 4 accepts directory-based OPENCV provenance", () => {
   value.runs[0].camera_calibration.grouping_key_policy = "all_images";
   assert.throws(() => parseSfmDiagnostics(value), /inconsistent/);
 });
+
+test("hybrid pairing preserves vocabulary provenance in standard diagnostics", () => {
+  const value = v4Payload([image(1, [0, 0, 0], [0, 0, 1])]);
+  Object.assign(value.runs[0].pairing, { name: "rig_neighbors_vocab_v1", vocab_tree_sha256: "a".repeat(64) });
+  assert.equal(parseSfmDiagnostics(value).runs[0].pairing.name, "rig_neighbors_vocab_v1");
+  Object.assign(value.runs[0].pairing, { vocab_tree_sha256: null });
+  assert.throws(() => parseSfmDiagnostics(value), /provenance/);
+});

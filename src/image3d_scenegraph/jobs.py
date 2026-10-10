@@ -18,6 +18,8 @@ from typing import Any, Callable
 
 from image3d_scenegraph.execution import JobCancelled, run_cancellable_command
 from image3d_scenegraph.file_integrity import sha256_file
+from image3d_scenegraph.geometry import reuse as geometry_reuse
+from image3d_scenegraph.geometry.rig_pairing import capture_metadata
 from image3d_scenegraph.gaussian.browser_assets import with_browser_assets
 from image3d_scenegraph.gaussian.config import (
     GaussianConfigError,
@@ -174,6 +176,36 @@ class JobStore:
         """Persist a validated job and return before reconstruction starts."""
         self._validate_request(mode, files)
         normalized_options = dict(options or {})
+        if any(str(key).startswith("_geometry_") for key in normalized_options):
+            raise JobError("geometry reuse internals cannot be supplied as options")
+        if normalized_options.get("sfm_capture_metadata") is not None:
+            try:
+                normalized_options["sfm_capture_metadata"] = json.dumps(
+                    json.loads(str(normalized_options["sfm_capture_metadata"])), sort_keys=True, separators=(",", ":"),
+                )
+            except (ValueError, TypeError) as exc:
+                raise JobError("capture metadata must be valid JSON") from exc
+        reuse_binding = None
+        source_id = normalized_options.get("gaussian_geometry_source_job_id")
+        if source_id is not None:
+            if (mode != "multi_image" or geometry_backend != "project_3dgs" or output_type != "gaussian_splat"
+                    or normalized_options.get("gaussian_geometry_source", "colmap") != "colmap"
+                    or normalized_options.get("gaussian_trainer", "project") not in {"project", "mcmc"}):
+                raise JobError("geometry reuse requires a multi-image native COLMAP Gaussian Job")
+            try:
+                source_root, bundle = geometry_reuse.source_bundle(self.output_root, source_id)
+                for key, value in bundle["geometry_options"].items():
+                    if key not in geometry_reuse.GEOMETRY_OPTIONS:
+                        raise ValueError("unsupported source geometry option")
+                    if normalized_options.get(key) is not None and normalized_options[key] != value:
+                        raise ValueError(f"geometry option differs from source: {key}")
+                    if value is not None:
+                        normalized_options[key] = value
+                if gaussian_config is not None and gaussian_config.effective_config["resolution"]["longest_edge"] != bundle["geometry_options"]["gaussian_longest_edge"]:
+                    raise ValueError("training resolution differs from reusable geometry")
+                reuse_binding = {"job_id": source_id, "bundle_sha256": sha256_file(source_root / geometry_reuse.BUNDLE)}
+            except (OSError, ValueError, KeyError) as exc:
+                raise JobError(str(exc)) from exc
         if mode == "video":
             if geometry_backend != "project_3dgs" or output_type != "gaussian_splat":
                 raise JobError(
@@ -296,7 +328,7 @@ class JobStore:
                     raise JobError(
                         "sequential_loop SfM pairing currently requires video mode"
                     )
-                if pairing == "vocab_tree" and mode != "multi_image":
+                if pairing in {"vocab_tree", "rig_neighbors_vocab_v1"} and mode != "multi_image":
                     raise JobError(
                         "vocab_tree SfM pairing currently requires multi_image mode"
                     )
@@ -499,6 +531,21 @@ class JobStore:
         except ReconstructionError as exc:
             raise JobError(str(exc)) from exc
 
+        if normalized_options.get("sfm_pairing") == "rig_neighbors_vocab_v1":
+            if (geometry_backend != "project_3dgs" or normalized_options.get("gaussian_geometry_source") != "colmap"
+                    or normalized_options.get("gaussian_trainer") not in {"project", "mcmc"}
+                    or normalized_options.get("sfm_camera_calibration") != "folder_grouped_opencv_v1"):
+                raise JobError("rig pairing requires ordinary COLMAP Gaussian geometry with folder-grouped cameras")
+            try:
+                names = {self._safe_relative_path(item.filename, i) for i, item in enumerate(files)}
+                if len(names) != len(files):
+                    raise ValueError("rig pairing does not allow duplicate upload paths")
+                metadata = capture_metadata(normalized_options.get("sfm_capture_metadata"), names)
+                normalized_options["sfm_capture_metadata"] = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+            except (ValueError, TypeError) as exc:
+                raise JobError(str(exc)) from exc
+        elif normalized_options.get("sfm_capture_metadata") is not None:
+            raise JobError("capture metadata requires rig_neighbors_vocab_v1")
         job_id = self._new_job_id()
         job_dir = self.job_dir(job_id)
         self._create_job_dirs(job_dir, queued=True)
@@ -595,10 +642,13 @@ class JobStore:
             "geometry_backend": geometry_backend,
             "output_type": output_type,
             "options": normalized_options,
+            "geometry_reuse": reuse_binding,
             "gaussian_config": gaussian_config_record,
             "gaussian_trainer": gaussian_trainer_record,
             **({"video_source": input_assets[0]} if mode == "video" else {}),
         }
+        if reuse_binding is not None:
+            manifest.update(gaussian_geometry_source_job_id=source_id, gaussian_geometry_origin="reuse_pending")
         self._write_json(job_dir / "request.json", request)
         self._write_json(job_dir / "manifest.json", manifest)
         return manifest
@@ -1023,6 +1073,16 @@ class JobStore:
                 ),
             }
         self._check_cancel(cancel_requested)
+        if request.get("geometry_reuse") is not None:
+            binding = request["geometry_reuse"]
+            if binding["job_id"] != options.get("gaussian_geometry_source_job_id"):
+                raise JobError("geometry source identity changed after enqueue")
+            source_root, _ = geometry_reuse.source_bundle(self.output_root, binding["job_id"], binding["bundle_sha256"])
+            self._set_running_stage(job_id, "geometry_reuse", 0.15)
+            source_bundle = geometry_reuse.copy_geometry(
+                source_root, workspace, binding["bundle_sha256"], options, input_assets, cancel_requested,
+            )
+            options = {**options, "_geometry_reused": True, "_geometry_reuse_splits": source_bundle["splits"]}
         try:
             adapter = get_reconstruction_adapter(geometry_backend, output_type)
             reconstruction = adapter.run(
@@ -1269,6 +1329,9 @@ class JobStore:
                     metrics.get("gaussian_final_fit_status", "disabled")
                 ),
             )
+        if request.get("geometry_reuse") is not None:
+            result.update(gaussian_geometry_source_job_id=request["geometry_reuse"]["job_id"],
+                          gaussian_geometry_origin="reused")
         result["created_at"] = queued_manifest["created_at"]
         if navigation_status is not None:
             result.update(

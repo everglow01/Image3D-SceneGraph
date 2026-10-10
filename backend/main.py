@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from starlette.staticfiles import NotModifiedResponse, StaticFiles
 
 from image3d_scenegraph.geometry.backends import get_backend_status_payload
+from image3d_scenegraph.geometry.reuse import GEOMETRY_OPTIONS
 from image3d_scenegraph.jobs import (
     COLMAP_FEATURE_BACKENDS,
     DEFAULT_VIDEO_PROFILE,
@@ -106,6 +107,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
 
     @app.post("/api/jobs", status_code=status.HTTP_202_ACCEPTED)
     async def create_job(
+        request: Request,
         files: Annotated[list[UploadFile], File()],
         mode: Annotated[str, Form()] = "image",
         geometry_backend: Annotated[str, Form()] = "mock",
@@ -139,9 +141,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             Literal["bruteforce", "lightglue"], Form()
         ] = "bruteforce",
         sfm_pairing: Annotated[
-            Literal["exhaustive", "sequential_loop", "vocab_tree"] | None,
+            Literal["exhaustive", "sequential_loop", "vocab_tree", "rig_neighbors_vocab_v1"] | None,
             Form(),
         ] = None,
+        sfm_capture_metadata: Annotated[str | None, Form(max_length=1_000_000)] = None,
+        gaussian_geometry_source_job_id: Annotated[str | None, Form(max_length=128)] = None,
         sfm_geometric_verification: Annotated[
             Literal["default_v1", "guided_v1"], Form()
         ] = "default_v1",
@@ -256,6 +260,8 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                     if geometry_backend in COLMAP_FEATURE_BACKENDS
                     else None
                 ),
+                "sfm_capture_metadata": sfm_capture_metadata,
+                "gaussian_geometry_source_job_id": gaussian_geometry_source_job_id,
                 "sfm_pairing": (
                     sfm_pairing
                     if geometry_backend in COLMAP_FEATURE_BACKENDS
@@ -313,6 +319,11 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             if value is not None
         }
 
+        if gaussian_geometry_source_job_id is not None:
+            supplied = await request.form()
+            for key in GEOMETRY_OPTIONS:
+                if key not in supplied:
+                    options.pop(key, None)
         try:
             manifest = app.state.job_store.enqueue_job(
                 mode,
@@ -354,7 +365,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
             "navigation_reason": manifest.get("navigation_reason"),
             "metrics": manifest["metrics"],
         }
-        for key in ("result_kind", "source_job_id", "checkpoint_status"):
+        for key in ("result_kind", "source_job_id", "checkpoint_status", "gaussian_geometry_source_job_id", "gaussian_geometry_origin"):
             if key in manifest:
                 response[key] = manifest[key]
         return response

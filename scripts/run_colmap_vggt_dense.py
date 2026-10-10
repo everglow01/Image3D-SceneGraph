@@ -328,8 +328,8 @@ def main() -> None:
 
     if args.pairing is not None and args.matcher is not None:
         parser.error("--pairing and legacy --matcher cannot be combined")
-    if args.pairing == "sequential_loop":
-        parser.error("COLMAP+VGGT multi-image geometry does not support sequential_loop")
+    if args.pairing in {"sequential_loop", "rig_neighbors_vocab_v1"}:
+        parser.error(f"COLMAP+VGGT multi-image geometry does not support {args.pairing}")
     if (
         args.camera_calibration is not None
         and args.colmap_single_camera is not None

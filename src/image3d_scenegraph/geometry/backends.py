@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import copy
 import shutil
 from dataclasses import dataclass
 from importlib import util as importlib_util
@@ -54,6 +55,10 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
     checkpoint_root = Path(os.environ.get("IMAGE3D_CHECKPOINT_ROOT", root / "checkpoints"))
     colmap = resolve_colmap_executable(root)
     feature_profiles = _colmap_feature_profiles(root, colmap)
+    ordinary_profiles = copy.deepcopy(feature_profiles)
+    for feature in ordinary_profiles:
+        for matcher in feature["local_matchers"]:
+            matcher["pairings"] = [p for p in matcher["pairings"] if p["id"] != "rig_neighbors_vocab_v1"]
     colmap_camera_calibrations = _colmap_camera_calibrations(
         colmap,
         default_profile="shared_simple_radial_v1",
@@ -108,7 +113,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             reason=None if colmap is not None else "colmap executable not found",
             setup_command="uv run python scripts/setup_colmap_cuda.py --install",
             options={
-                "sfm_feature_profiles": feature_profiles,
+                "sfm_feature_profiles": ordinary_profiles,
                 "sfm_camera_calibrations": colmap_camera_calibrations,
                 "sfm_mappers": multi_image_mappers,
             },
@@ -117,7 +122,7 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
             colmap=colmap,
             repo_path=external_root / "vggt",
             checkpoint_hint=checkpoint_root / "vggt" / "facebook--VGGT-1B" / "model.safetensors",
-            feature_profiles=feature_profiles,
+            feature_profiles=ordinary_profiles,
             camera_calibrations=dense_camera_calibrations,
             mappers=multi_image_mappers,
         ),
@@ -235,6 +240,7 @@ def _colmap_feature_profiles(
                     ["video"],
                 ),
                 ("vocab_tree", "Vocab Tree", ["multi_image"]),
+                ("rig_neighbors_vocab_v1", "词袋＋阵列邻接（需采集清单）", ["multi_image"]),
             ):
                 pairing_reason = matcher_reason
                 pairing_support_reason = missing_colmap_reason
@@ -295,7 +301,7 @@ def _colmap_feature_profiles(
                         "label": pairing_label,
                         "available": pairing_reason is None,
                         "reason": pairing_reason,
-                        "experimental": pairing_id == "vocab_tree",
+                        "experimental": pairing_id in {"vocab_tree", "rig_neighbors_vocab_v1"},
                         "supported_modes": pairing_modes,
                         "setup_command": pairing_setup_command,
                         "geometric_verifications": geometric_verifications,

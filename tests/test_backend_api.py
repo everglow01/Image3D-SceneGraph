@@ -281,6 +281,7 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
     assert properties["video_keyframe_profile"]["default"] == "standard_v2"
     gaussian_names = {name for name in properties if "gaussian" in name}
     assert gaussian_names == {
+        "gaussian_geometry_source_job_id",
         "gaussian_trainer",
         "gaussian_geometry_source",
         "gaussian_postprocess",
@@ -887,3 +888,39 @@ def test_create_job_rejects_invalid_colmap_vggt_policy(tmp_path):
     )
 
     assert response.status_code == 422
+
+
+def test_create_job_forwards_capture_metadata_and_geometry_source_without_training(tmp_path):
+    app = create_app(tmp_path / "jobs", start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+    metadata = '{"schema_version":1,"images":{}}'
+    response = TestClient(app).post('/api/jobs', data={
+        'mode': 'multi_image', 'geometry_backend': 'project_3dgs', 'output_type': 'gaussian_splat',
+        'gaussian_trainer': 'mcmc', 'gaussian_geometry_source_job_id': 'completed-source',
+        'sfm_pairing': 'rig_neighbors_vocab_v1', 'sfm_capture_metadata': metadata,
+    }, files=[('files', ('10/a.jpg', b'image', 'image/jpeg'))])
+    assert response.status_code == 202
+    assert store.options['gaussian_geometry_source_job_id'] == 'completed-source'
+    assert store.options['sfm_capture_metadata'] == metadata
+    assert store.options['sfm_pairing'] == 'rig_neighbors_vocab_v1'
+    assert store.options['gaussian_trainer'] == 'mcmc'
+
+
+@pytest.mark.parametrize('explicit_mapper', [False, True])
+def test_geometry_source_api_inherits_omitted_options_but_keeps_explicit_defaults(tmp_path, explicit_mapper):
+    app = create_app(tmp_path / 'jobs', start_worker=False)
+    store = FakeJobStore()
+    app.state.job_store = store
+    app.state.job_worker = FakeWorker()
+    data = {'mode': 'multi_image', 'geometry_backend': 'project_3dgs', 'output_type': 'gaussian_splat',
+            'gaussian_trainer': 'mcmc', 'gaussian_geometry_source_job_id': 'source'}
+    if explicit_mapper:
+        data['sfm_mapper'] = 'incremental'
+    response = TestClient(app).post('/api/jobs', data=data,
+                                   files=[('files', ('10/a.jpg', b'image', 'image/jpeg'))])
+    assert response.status_code == 202
+    assert 'sfm_feature_profile' not in store.options
+    assert 'sfm_geometric_verification' not in store.options
+    assert ('sfm_mapper' in store.options) is explicit_mapper

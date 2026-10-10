@@ -535,6 +535,8 @@ aliked_n16rot_v1:
 
 ### Phase 3：pairing / retrieval（代码已接入，待真实证据）
 
+2026-10-10：新增显式`rig_neighbors_vocab_v1`与采集清单，先词袋检索再补充同相机/跨相机采集邻接，仍走原匹配器及几何验证；仅Project Gaussian multi-image ordinary COLMAP支持，不默认推广。标准Job几何复用与完整约束见[专门合同](gaussian-geometry-reuse-contract.md)。当前验证为CPU/模拟流程，不代表真实质量等同Exhaustive。
+
 实现状态（2026-09-08）：稳定字段 `sfm_pairing=exhaustive|sequential_loop|vocab_tree` 已接入共享 resolver、三个 COLMAP runner、API/JobStore、backend nested capability、前端、manifest 与 SfM diagnostics schema 2。用户将 video 默认切换为 `sequential_loop`，still/multi-image 仍默认 `exhaustive`，`vocab_tree` 保持 multi-image 实验项；这是面向有序长视频的产品决策，不把尚未完成的当前代码严格 pairing A/B 写成通过。旧 `colmap_matcher=exhaustive|sequential` 继续映射到 `exhaustive|sequential_loop`，冲突请求失败。官方 SIFT 256K tree 与 ALIKED N16Rot 64K tree 仍按 URL/大小/SHA 固定，缺少描述子兼容 tree 时不静默回退。
 
 - `sequential_loop` 固定为有序视频的 temporal overlap + descriptor-compatible vocab-tree loop detection；

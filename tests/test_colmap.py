@@ -353,6 +353,7 @@ def test_pairing_capability_probe_is_profile_specific(tmp_path, monkeypatch):
     def help_output(_executable, command):
         return {
             "exhaustive_matcher": "FeatureMatching.type",
+            "matches_importer": "FeatureMatching.type match_list_path match_type",
             "sequential_matcher": (
                 "FeatureMatching.type SequentialMatching.vocab_tree_path "
                 "SiftMatching.lightglue_model_path"

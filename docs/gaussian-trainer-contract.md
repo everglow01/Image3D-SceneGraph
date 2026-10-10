@@ -170,3 +170,7 @@ signed原生全生命周期结果缺失，恢复是另一个进程，因此配�
 新absolute从相同冻结初始化/replay、seed20260729起步，30k/60k→相同SOR→377-view Validation→2k/4k固定拓扑Train-only和377-view评估。恢复剪枝、opacity reset、学习率、SH3、分辨率1920、15000步结束增密、相机序列及全部冻结ROI不变。训练核心12文件与环境必须匹配旧控制；不同调度Git提交不冒充相同完整提交。仍无任务RAM/Swap上限，18GiB准入、2GiB整机运行余量、6M高斯/每rank18GiB reserved/6h及磁盘20-8-4GiB边界不变。
 
 报告`threshold_control`为主对照：对每个端点的30 ROI及377相同Validation视角比较新absolute与旧absolute，而非把signed冒充阈值对照。两个完整absolute生命周期的资源比可报告，但不作为多次测量置信界；相对恢复signed的不可比生命周期值仍null。原signed质量门槛仍独立报告，超过旧absolute不等于恢复signed质量或推广通过。新两端点60 ROI对照仍需静态视觉审查；旧失败/视觉否决不重写，Test/默认/新seed/新场景不执行。
+
+## Geometry reuse before native training
+
+Explicit same-store multi-image geometry reuse changes only preparation, not the Project/MCMC optimizer, initialization package, training budgets, Validation, final-fit, export or Test isolation. The source must be a completed standard Job with a hash-bound geometry bundle; copied geometry is verified and dataset splits must remain identical. Each destination retains its own Job ID and model. See [the geometry-reuse contract](gaussian-geometry-reuse-contract.md). The rig-neighbor retrieval profile is a geometry-only experimental option, not a new Gaussian training strategy or a claim of quality equivalence.

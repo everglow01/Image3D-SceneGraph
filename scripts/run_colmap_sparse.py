@@ -111,6 +111,7 @@ def main() -> None:
     parser.add_argument("--video-source", type=Path)
     parser.add_argument("--video-selection", type=Path)
     parser.add_argument("--v2-mapper-seed-limit", type=int, default=1000)
+    parser.add_argument("--capture-metadata", type=Path)
     parser.add_argument("--reuse-feature-database", type=Path)
     parser.add_argument("--reuse-frontend-contract", type=Path)
     parser.add_argument("--reuse-database-sha256")
@@ -228,6 +229,13 @@ def main() -> None:
     if not image_paths:
         raise SystemExit(f"No supported images found in {args.image_dir}")
 
+    if args.pairing == "rig_neighbors_vocab_v1":
+        if args.capture_metadata is None or video_selection is not None or args.reuse_feature_database is not None:
+            raise SystemExit("rig pairing needs capture metadata and fresh multi-image geometry")
+        if args.camera_calibration != "folder_grouped_opencv_v1":
+            raise SystemExit("rig pairing requires folder_grouped_opencv_v1")
+    elif args.capture_metadata is not None:
+        raise SystemExit("capture metadata is only supported with rig_neighbors_vocab_v1")
     output_dir = args.output_dir
     geometry_dir = output_dir / "geometry"
     logs_dir = output_dir / "logs"
@@ -401,6 +409,25 @@ def main() -> None:
         "v2_mapper_seed_count": len(mapper_seed_names),
         "test_rgb_loaded": False,
     }
+    adjacency_command = None
+    if args.pairing == "rig_neighbors_vocab_v1":
+        from image3d_scenegraph.geometry.rig_pairing import capture_metadata, write_adjacency
+        metadata = capture_metadata(json.loads(args.capture_metadata.read_text()),
+                                    {p.relative_to(args.image_dir).as_posix() for p in image_paths})
+        pair_list = work_dir / "rig-neighbor-pairs.txt"
+        record = write_adjacency(pair_list, metadata)
+        record.update(capture_metadata_sha256=sha256_file(args.capture_metadata),
+                      adjacency_pairs_sha256=sha256_file(pair_list))
+        write_json(output_dir / "diagnostics" / "rig_pairing.json", record)
+        frontend_contract["rig_pairing"] = record
+        adjacency_command = [colmap, "matches_importer", "--database_path", str(source_database_path),
+                             "--match_list_path", str(pair_list), "--match_type", "pairs",
+                             "--default_random_seed", "0", "--FeatureMatching.use_gpu", "1" if args.use_gpu else "0",
+                             *local_matcher.matching_options, *geometric_verification.matching_options]
+        if args.gpu_index is not None:
+            adjacency_command += ["--FeatureMatching.gpu_index", args.gpu_index]
+        if args.num_threads is not None:
+            adjacency_command += ["--FeatureMatching.num_threads", str(args.num_threads)]
     reused_frontend = None
     if args.reuse_feature_database is not None:
         reused_frontend = reuse_feature_database(
@@ -420,6 +447,8 @@ def main() -> None:
         ],
         ("feature_matching", "colmap_feature_matching", matcher_command),
     ]
+    if adjacency_command is not None:
+        commands.append(("rig_neighbor_matching", "colmap_feature_matching", adjacency_command))
     if mapper_profile == "incremental":
         commands.append(("mapping", "colmap_mapping", mapper_command))
     command_logs = []

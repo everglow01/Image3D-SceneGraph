@@ -955,7 +955,7 @@ def test_runner_explicit_global_uses_database_copy_and_no_incremental_mapper(
     assert "sfm_mapper=global" in log
 
 
-@pytest.mark.parametrize("folder_grouped", [False, True])
+@pytest.mark.parametrize("folder_grouped", [False, True, "rig"])
 def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch, folder_grouped):
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
@@ -1045,18 +1045,23 @@ def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch, fo
         "build_camera_calibration_diagnostics",
         fake_diagnostics,
     )
+    extra_args = []
+    if folder_grouped == "rig":
+        from types import SimpleNamespace
+        metadata_path = tmp_path / "captures.json"
+        metadata_path.write_text(json.dumps({"schema_version": 1, "images": {
+            name: {"camera_id": name.split("/")[0], "capture_index": i if i < 2 else 0}
+            for i, name in enumerate(names)
+        }}))
+        monkeypatch.setattr(run_colmap_sparse, "resolve_colmap_pairing", lambda *_args: SimpleNamespace(
+            profile_id="rig_neighbors_vocab_v1", command="vocab_tree_matcher",
+            pairing_options=("--VocabTreeMatching.num_images", "100"),
+            vocab_tree_path=tmp_path / "tree", vocab_tree_sha256="a" * 64,
+        ))
+        extra_args = ["--pairing", "rig_neighbors_vocab_v1", "--capture-metadata", str(metadata_path)]
     monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "run_colmap_sparse.py",
-            "--image-dir",
-            str(image_dir),
-            "--output-dir",
-            str(output_dir),
-            "--camera-calibration",
-            profile,
-        ],
+        sys, "argv", ["run_colmap_sparse.py", "--image-dir", str(image_dir),
+                      "--output-dir", str(output_dir), "--camera-calibration", profile, *extra_args],
     )
 
     run_colmap_sparse.main()
@@ -1082,6 +1087,14 @@ def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch, fo
             feature_commands[1].index("--ImageReader.single_camera_per_image") + 1
         ] == "1"
     assert diagnostics_call["plan"].calibration.profile_id == profile
+    if folder_grouped == "rig":
+        stages = [command[1] for command in commands]
+        assert stages.index("vocab_tree_matcher") < stages.index("matches_importer") < stages.index("mapper")
+        command = next(c for c in commands if c[1] == "matches_importer")
+        assert command[command.index("--match_type") + 1] == "pairs"
+        assert "--FeatureMatching.type" in command
+        record = json.loads((output_dir / "diagnostics/rig_pairing.json").read_text())
+        assert record["adjacency_pair_count"] == 3
     assert (
         output_dir / "diagnostics" / "sfm_camera_calibration.json"
     ).is_file()

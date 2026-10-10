@@ -207,6 +207,8 @@ type Manifest = {
   sfm_camera_calibration_effective?: SfmCameraCalibration;
   sfm_mapper?: SfmMapper;
   sfm_mapper_effective?: string;
+  gaussian_geometry_source_job_id?: string;
+  gaussian_geometry_origin?: "computed" | "reuse_pending" | "reused";
   gaussian_geometry_source?: GaussianGeometrySource;
   gaussian_geometry_effective_source?: GaussianGeometrySource | null;
   gaussian_geometry_fallback_applied?: boolean;
@@ -493,6 +495,8 @@ export function App() {
   const [sfmCameraCalibration, setSfmCameraCalibration] =
     useState<SfmCameraCalibration>("shared_simple_radial_v1");
   const [sfmMapper, setSfmMapper] = useState<SfmMapper>("incremental");
+  const [captureMetadata, setCaptureMetadata] = useState("");
+  const [geometrySourceJobId, setGeometrySourceJobId] = useState("");
   const [gaussianTrainer, setGaussianTrainer] = useState<GaussianTrainer>("project");
   const [gaussianGeometrySource, setGaussianGeometrySource] =
     useState<GaussianGeometrySource>("colmap");
@@ -1138,6 +1142,10 @@ export function App() {
         form.append("gaussian_final_fit", gaussianFinalFit);
         form.append("gaussian_longest_edge", String(gaussianLongestEdge));
       }
+      if (geometryBackend === "project_3dgs" && mode === "multi_image" && gaussianGeometrySource === "colmap" && gaussianTrainer !== "graphdeco") {
+        if (geometrySourceJobId.trim()) form.append("gaussian_geometry_source_job_id", geometrySourceJobId.trim());
+        if (sfmPairing === "rig_neighbors_vocab_v1" && captureMetadata) form.append("sfm_capture_metadata", captureMetadata);
+      }
       if (mode === "video") {
         form.append("video_keyframe_profile", "standard_v2");
         form.append("video_rotation", videoRotation);
@@ -1506,9 +1514,11 @@ export function App() {
                   <span>图像对策略</span>
                   <select
                     value={sfmPairing}
-                    onChange={(event) =>
-                      setSfmPairing(event.target.value as SfmPairing)
-                    }
+                    onChange={(event) => {
+                      const pairing = event.target.value as SfmPairing;
+                      setSfmPairing(pairing);
+                      if (pairing === "rig_neighbors_vocab_v1") setSfmCameraCalibration("folder_grouped_opencv_v1");
+                    }}
                   >
                     {sfmPairingOptions.map((option) => {
                       const status = sfmPairingStatuses.find(
@@ -1748,6 +1758,26 @@ export function App() {
                     </small>
                   )}
                 </label>
+                {mode === "multi_image" && gaussianGeometrySource === "colmap" && gaussianTrainer !== "graphdeco" && (
+                  <>
+                    <label>
+                      <span>复用几何的来源 Job ID（可选）</span>
+                      <input value={geometrySourceJobId} maxLength={128}
+                        onChange={(event) => setGeometrySourceJobId(event.target.value)}
+                        placeholder="留空则自行计算 COLMAP" />
+                      <small>仍创建独立训练 Job。来源须已完成并含冻结几何包；上传图像和几何配置必须一致，文件校验后复制到新 Job，不复用模型。旧 Job 不会自动补包。</small>
+                    </label>
+                    {sfmPairing === "rig_neighbors_vocab_v1" && (
+                      <label>
+                        <span>阵列采集清单 JSON</span>
+                        <textarea value={captureMetadata} maxLength={1_000_000} rows={3}
+                          onChange={(event) => setCaptureMetadata(event.target.value)}
+                          placeholder='{"schema_version":1,"images":{"10/a.jpg":{"camera_id":"10","capture_index":0}}}' />
+                        <small>每张图必须有显式相机号和采集序号，键须与上传相对路径一致，不提供内外参。复用来源 Job 时可留空继承其清单。</small>
+                      </label>
+                    )}
+                  </>
+                )}
                 <label>
                   <span>几何来源</span>
                   <select
@@ -2481,6 +2511,12 @@ export function App() {
                 )}
               </dd>
             </div>
+            {manifest?.gaussian_geometry_source_job_id && (
+              <div>
+                <dt>几何复用来源（独立训练 Job）</dt>
+                <dd>{manifest.gaussian_geometry_source_job_id} · {manifest.gaussian_geometry_origin === "reused" ? "已校验复制，未重算几何" : "等待校验"}</dd>
+              </div>
+            )}
             <div>
               <dt>VGGT-BA 轨迹</dt>
               <dd>{formatPolicy(currentStatus?.metrics.vggt_ba_trajectory_status)}</dd>

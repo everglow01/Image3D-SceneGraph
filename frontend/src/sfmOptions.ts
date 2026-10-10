@@ -2,7 +2,7 @@ import type { ExperimentalOptionStatus } from "./backendOptions";
 
 export type SfmFeatureProfile = "sift_v1" | "aliked_n16rot_v1";
 export type SfmLocalMatcher = "bruteforce" | "lightglue";
-export type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree";
+export type SfmPairing = "exhaustive" | "sequential_loop" | "vocab_tree" | "rig_neighbors_vocab_v1";
 export type SfmGeometricVerification = "default_v1" | "guided_v1";
 export type SfmMapper = "incremental" | "global";
 export type SfmCameraCalibration =
@@ -53,7 +53,8 @@ export const sfmLocalMatcherOptions: Array<{
 export const sfmPairingOptions: Array<{ id: SfmPairing; label: string }> = [
   { id: "exhaustive", label: "Exhaustive（多图默认）" },
   { id: "sequential_loop", label: "Sequential + Loop（视频默认）" },
-  { id: "vocab_tree", label: "Vocab Tree（实验）" }
+  { id: "vocab_tree", label: "Vocab Tree（实验）" },
+  { id: "rig_neighbors_vocab_v1", label: "词袋＋阵列邻接（需采集清单）" }
 ];
 
 export function defaultSfmPairing(mode: string): SfmPairing {
