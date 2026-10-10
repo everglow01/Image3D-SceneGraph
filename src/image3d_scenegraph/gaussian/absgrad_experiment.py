@@ -17,7 +17,7 @@ from image3d_scenegraph.gaussian.absgrad_resources import (
     STREAMING_HOST_POLICY, STREAMING_UNIT,
 )
 from image3d_scenegraph.gaussian.config import (
-    ResolvedGaussianConfig, assert_single_field_ablation, resolved_config_record,
+    ResolvedGaussianConfig, assert_single_field_ablation, resolved_config_record, effective_config_hash,
 )
 from image3d_scenegraph.gpu_lease import FileLease
 
@@ -100,6 +100,17 @@ def absolute_config(signed: dict) -> dict:
         requested_profile="absgrad_ablation_v1", effective_config=config,
         effective_config_hash=ABSOLUTE_CONFIG_HASH,
     ))
+
+
+def threshold_config(previous: dict) -> dict:
+    if previous["effective_config_hash"] != ABSOLUTE_CONFIG_HASH:
+        raise ValueError("threshold control requires the frozen absolute 0.0002 baseline")
+    resolved_config_record(ResolvedGaussianConfig(previous["requested_profile"], previous["effective_config"], previous["effective_config_hash"]))
+    config = copy.deepcopy(previous["effective_config"])
+    config["densification"]["gradient_threshold"] = 0.0008
+    if assert_single_field_ablation(previous["effective_config"], config) != "densification.gradient_threshold":
+        raise ValueError("threshold control must change only gradient_threshold")
+    return resolved_config_record(ResolvedGaussianConfig(previous["requested_profile"], config, effective_config_hash(config)))
 
 
 def validate_evaluation(path: Path, *, final: bool) -> None:
@@ -336,8 +347,54 @@ RECOVERY_SOURCES = {
 }
 
 
-def continuation_cgroup() -> Path:
-    expected = f"/system.slice/{CONTINUATION_UNIT}"
+THRESHOLD_PROFILE = "absgrad_threshold_0008_v1"
+THRESHOLD_UNIT = "image3d-absgrad-threshold-20261010-v1.service"
+THRESHOLD_CONTROL_ROOT = "outputs/experiments/absgrad-continued-matched-20261009-v1/experiment"
+THRESHOLD_REPORT = f"{THRESHOLD_CONTROL_ROOT}/absolute-candidate/paired-quality-20261010-v1/report.json"
+THRESHOLD_SOURCES = {
+    f"{THRESHOLD_CONTROL_ROOT}/gate.json": "6b2621c5b6c0d8b573bee9a516a1bfad56b27e3fb7d16e97a8a5731481a53ea6",
+    f"{THRESHOLD_CONTROL_ROOT}/signed-control/protocol.json": "7b515be1c4ec85ff12e773d12460c78cc6aff0cc2e607db42a7c5fc7f5623940",
+    f"{THRESHOLD_CONTROL_ROOT}/absolute-candidate/protocol.json": "ed4ebbcffef608dc77ecebf5610f2198f5fbb1a98a0de71944964619836e9360",
+    f"{THRESHOLD_CONTROL_ROOT}/absolute-candidate/complete.json": "7b71c37bc6a3e40f8a3133ab4b9a9d1112a9115276d4cc12ba0662d899348b1c",
+    f"{THRESHOLD_CONTROL_ROOT}/absolute-candidate/absolute/train.exit.json": "4f74ba7d4eefc1a7cdb9c033ffb53d0d95dad44ec370867f006dc22107ba5549",
+    f"{THRESHOLD_CONTROL_ROOT}/absolute-candidate/absolute.config.json": "af002dd813aa407e677684685b3b369a7aea316e6580af40431327ddd0b78464",
+    f"{THRESHOLD_CONTROL_ROOT}/absolute-candidate/absolute/training/attempts/train-001/artifacts/result.json": "1df2d1e8947637ba748a92be783592a455f9f5fb534f722d94b21ec5f892672c",
+    THRESHOLD_REPORT: "9948702bde9a0361360999287f1329f765b43db7e246b5ad8642a21af81ca1ae",
+}
+
+
+def threshold_controls() -> dict:
+    for path, digest in THRESHOLD_SOURCES.items():
+        if sha256_file(PROJECT_ROOT / path) != digest:
+            raise ValueError(f"threshold baseline changed: {path}")
+    root = PROJECT_ROOT / THRESHOLD_CONTROL_ROOT
+    previous = root / "absolute-candidate"
+    protocol = read_json(previous / "protocol.json")
+    validate_matched_gate(read_json(root / "gate.json"), recovered=True)
+    if protocol["matched_signed"] != receipt(root / "signed-control"):
+        raise ValueError("threshold signed reference changed")
+    report = read_json(PROJECT_ROOT / THRESHOLD_REPORT)
+    for path, digest in report["protected"].items():
+        if sha256_file(Path(path)) != digest:
+            raise ValueError(f"threshold model/evaluation input changed: {path}")
+    stage = read_json(previous / "absolute/train.exit.json")
+    if (stage["returncode"] != 0 or stage["resource_failure"] is not None
+            or stage["resources"]["camera_sequence_sha256"] != MAIN_CAMERA_SHA256):
+        raise ValueError("threshold main baseline is incomplete")
+    if read_json(previous / "complete.json")["status"] != "absolute_training_complete_quality_pending":
+        raise ValueError("threshold baseline stages are incomplete")
+    for arm, dirname in (("signed", "signed-control"), ("absolute", "absolute-candidate")):
+        record = read_json(root / dirname / arm / "train-only/record.json")
+        if any(record[key] != protocol[key] for key in ("code_hash", "environment_hash")):
+            raise ValueError("threshold controls core/environment mismatch")
+    config = read_json(previous / "absolute.config.json")
+    threshold_config(config)
+    return {"root": str(previous), "protocol": protocol, "config": config,
+        "report": str(PROJECT_ROOT / THRESHOLD_REPORT), "report_sha256": THRESHOLD_SOURCES[THRESHOLD_REPORT]}
+
+
+def continuation_cgroup(*, unit=CONTINUATION_UNIT) -> Path:
+    expected = f"/system.slice/{unit}"
     if f"0::{expected}" not in Path("/proc/self/cgroup").read_text().splitlines():
         raise ValueError("continuation requires its isolated systemd cgroup")
     group = Path("/sys/fs/cgroup") / expected.lstrip("/")
@@ -395,7 +452,9 @@ def recovered_signed_main(provenance) -> dict:
         "resource_comparability": "no native signed lifecycle result; time and peak ratios unavailable"}
 
 
-def matched_gate_template(*, recovered=False) -> dict:
+def matched_gate_template(*, recovered=False, threshold=False) -> dict:
+    if recovered and threshold:
+        raise ValueError("recovery and threshold modes are mutually exclusive")
     gate = gate_template(quality_exploration=True)
     gate.update(schema_version=3, profile=PROFILE, comparison_identity="fresh signed then absolute; identical current code/environment",
                 old_signed_role="historical reference only; not the new matched control",
@@ -407,11 +466,17 @@ def matched_gate_template(*, recovered=False) -> dict:
             comparison_identity="same training core/environment; signed main recovered without retraining",
             host_policy=copy.deepcopy(CONTINUATION_HOST_POLICY), systemd_unit=CONTINUATION_UNIT,
             authorized_fresh_arms=["absolute"], recovery_sources=copy.deepcopy(RECOVERY_SOURCES))
+    if threshold:
+        gate.update(schema_version=5, profile=THRESHOLD_PROFILE, systemd_unit=THRESHOLD_UNIT,
+            comparison_identity="absolute 0.0008 vs completed absolute 0.0002; signed is a quality reference",
+            host_policy=copy.deepcopy(CONTINUATION_HOST_POLICY), authorized_fresh_arms=["absolute"],
+            changed_field="densification.gradient_threshold", baseline_value=0.0002, candidate_value=0.0008,
+            threshold_sources=copy.deepcopy(THRESHOLD_SOURCES))
     return gate
 
 
-def validate_matched_gate(gate: dict, *, recovered=False) -> None:
-    expected = matched_gate_template(recovered=recovered)
+def validate_matched_gate(gate: dict, *, recovered=False, threshold=False) -> None:
+    expected = matched_gate_template(recovered=recovered, threshold=threshold)
     expected.update(status="APPROVED_FOR_CANDIDATE_EXECUTION", absolute_training_authorized=True)
     if json.dumps(gate, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True):
         raise ValueError("new matched pair requires its separately approved exact gate")
@@ -423,16 +488,17 @@ def receipt(signed: Path) -> dict:
     return {name: sha256_file(signed / name) for name in paths}
 
 
-def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: str, *, expected_revision: str, recovered=False) -> None:
+def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: str, *, expected_revision: str, recovered=False, threshold=False) -> None:
     if output.exists() or output.is_symlink() or output.absolute() != output.resolve() or not output.resolve().is_relative_to(PROJECT_ROOT / "outputs/experiments"):
         raise ValueError("matched pair requires a fresh non-symlink experiment directory")
     gate = checked_json(gate_path, gate_sha)
-    validate_matched_gate(gate, recovered=recovered)
-    policy = CONTINUATION_HOST_POLICY if recovered else STREAMING_HOST_POLICY
+    validate_matched_gate(gate, recovered=recovered, threshold=threshold)
+    relaxed = recovered or threshold
+    policy = CONTINUATION_HOST_POLICY if relaxed else STREAMING_HOST_POLICY
     # JSON null means no task cap; the unchanged core monitor compares a numeric threshold.
-    runtime_policy = {**policy, "stop_current_bytes": float("inf")} if recovered else policy
-    profile = RECOVERED_PROFILE if recovered else PROFILE
-    group = continuation_cgroup() if recovered else quality_cgroup(policy=policy, unit=STREAMING_UNIT)
+    runtime_policy = {**policy, "stop_current_bytes": float("inf")} if relaxed else policy
+    profile = THRESHOLD_PROFILE if threshold else (RECOVERED_PROFILE if recovered else PROFILE)
+    group = (continuation_cgroup(unit=THRESHOLD_UNIT) if threshold else continuation_cgroup()) if relaxed else quality_cgroup(policy=policy, unit=STREAMING_UNIT)
     if available_host_bytes() < policy["startup_available_bytes"]:
         raise ValueError("matched pair requires 18 GiB available host RAM")
     from gsplat import rendering
@@ -472,7 +538,15 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
     for key in ("code_hash", "environment_hash"):
         if evidence[2]["provenance"][key] != getattr(provenance, key):
             raise ValueError(f"save/GPU verification {key} differs from execution")
-    recovered_main = recovered_signed_main(provenance) if recovered else None
+    recovered_main = recovered_signed_main(provenance) if relaxed else None
+    control = threshold_controls() if threshold else None
+    if control is not None:
+        for key in ("code_hash", "environment_hash", "dataset_hash"):
+            if control["protocol"][key] != getattr(provenance, key):
+                raise ValueError(f"threshold baseline {key} mismatch")
+        if control["config"] != records["absolute"]:
+            raise ValueError("threshold baseline config differs from frozen absolute")
+        records["absolute"] = threshold_config(control["config"])
     def admission(root, *, minimum_free_gib):
         if revision() != code:
             raise ValueError("code changed between stages")
@@ -486,7 +560,8 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
             "historical_signed_protocol_sha256": SIGNED_PROTOCOL_SHA256, "original_gate_sha256": ORIGINAL_GATE_SHA256,
             "fresh_arms": gate["authorized_fresh_arms"], "promotion_eligible": False})
         with FileLease(PROJECT_ROOT / "outputs/.gpu.lock") as lease:
-            for arm, dirname in (("signed", "signed-control"), ("absolute", "absolute-candidate")):
+            arms = (("absolute", "absolute-candidate"),) if threshold else (("signed", "signed-control"), ("absolute", "absolute-candidate"))
+            for arm, dirname in arms:
                 root = output / dirname
                 root.mkdir()
                 write_json(root / f"{arm}.config.json", records[arm])
@@ -498,10 +573,13 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
                     "main_camera_sequence_sha256": MAIN_CAMERA_SHA256, "train_only_camera_sequence_sha256": TRAIN_ONLY_CAMERA_SHA256,
                     "test_rgb": "not_loaded", "promotion_eligible": False}
                 protocol.pop("absolute_arm", None)
+                protocol["config_hashes"] = {name: value["effective_config_hash"] for name, value in records.items()}
                 if recovered_main is not None:
                     protocol["signed_main_recovery"] = recovered_main
                 if arm == "absolute":
-                    signed = output / "signed-control"
+                    signed = PROJECT_ROOT / THRESHOLD_CONTROL_ROOT / "signed-control" if threshold else output / "signed-control"
+                    if threshold:
+                        protocol["threshold_control"] = {"root": control["root"], "report": control["report"], "report_sha256": control["report_sha256"]}
                     protocol["matched_signed"] = receipt(signed)
                     current_record = read_json(signed / "signed/train-only/record.json")
                     if current_record["code_hash"] != provenance.code_hash or current_record["environment_hash"] != provenance.environment_hash:
@@ -512,7 +590,7 @@ def execute_matched(output: Path, old_signed: Path, gate_path: Path, gate_sha: s
                              limits=QUALITY_LIMITS, host_group=group, host_policy=runtime_policy, arm=arm, **recovery_args)
             candidate_root = output / "absolute-candidate"
             run_stage(candidate_root / "absolute", "paired-quality", [sys.executable,
-                "scripts/evaluate_absgrad_pair.py", "--signed-experiment", str(output / "signed-control"),
+                "scripts/evaluate_absgrad_pair.py", "--signed-experiment", str(signed),
                 "--candidate-experiment", str(candidate_root), "--output-dir", str(candidate_root / "paired-quality")],
                 cwd=PROJECT_ROOT, pass_fds=(lease.fileno(),), host_group=group, host_policy=runtime_policy,
                 admission=lambda: admission(output, minimum_free_gib=8))

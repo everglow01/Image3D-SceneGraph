@@ -161,6 +161,34 @@ def resource_report(candidate_native: dict, signed_native: dict | None, candidat
         "new_safety_limits": QUALITY_LIMITS, "promotion_eligible": False}
 
 
+def threshold_comparison(previous: dict, current: dict) -> dict:
+    endpoints = {}
+    for endpoint in ("selection", "train-only"):
+        left, right = previous["endpoints"][endpoint], current[endpoint]
+        def index(rows):
+            result = {(r["split"], r["image_id"], r["name"]): r for r in rows}
+            if len(rows) != 30 or len(result) != 30:
+                raise ValueError("threshold comparison needs all 30 unique endpoint ROIs")
+            return result
+        old, new = index(left["rois"]), index(right["rois"])
+        if old.keys() != new.keys():
+            raise ValueError("threshold ROI identity mismatch")
+        rows = []
+        for key, value in new.items():
+            if value["pixel_xyxy"] != old[key]["pixel_xyxy"]:
+                raise ValueError("threshold ROI coordinates changed")
+            rows.append({"split": key[0], "image_id": key[1], "name": key[2],
+                "baseline_absolute": old[key]["absolute"], "candidate_absolute": value["absolute"],
+                "delta": {k: value["absolute"][k] - old[key]["absolute"][k] for k in ("psnr", "ssim")}})
+        left_views = {"per_view": [r["absolute"] for r in left["validation"]["per_view"]]}
+        right_views = {"per_view": [r["absolute"] for r in right["validation"]["per_view"]]}
+        ids = [str(r["image_id"]) for r in left_views["per_view"]]
+        endpoints[endpoint] = {"rois": rows, "validation": paired_validation(left_views, right_views, ids)}
+    return {"changed_field": "densification.gradient_threshold", "baseline": 0.0002, "candidate": 0.0008,
+        "endpoints": endpoints, "quality_gate_reference": "signed; see parent endpoints",
+        "visual_review": "pending", "promotion_eligible": False}
+
+
 def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     import torch
     from image3d_scenegraph.gaussian.runtime import load_training_views
@@ -170,20 +198,30 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         raise ValueError("paired output must be a new direct child of the candidate")
     candidate_record = runner.read_json(candidate / "complete.json")
     candidate_protocol = runner.read_json(candidate / "protocol.json")
-    recovered = candidate_protocol["profile"] == runner.RECOVERED_PROFILE
-    if candidate_protocol["profile"] in (runner.PROFILE, runner.RECOVERED_PROFILE):
-        if recovered:
+    threshold = candidate_protocol["profile"] == runner.THRESHOLD_PROFILE
+    recovered = candidate_protocol["profile"] == runner.RECOVERED_PROFILE or threshold
+    control = None
+    if candidate_protocol["profile"] in (runner.PROFILE, runner.RECOVERED_PROFILE, runner.THRESHOLD_PROFILE):
+        if threshold:
+            runner.continuation_cgroup(unit=runner.THRESHOLD_UNIT)
+            control = runner.threshold_controls()
+            if signed.resolve() != (runner.PROJECT_ROOT / runner.THRESHOLD_CONTROL_ROOT / "signed-control").resolve():
+                raise ValueError("threshold signed reference path mismatch")
+            if candidate_protocol["threshold_control"] != {k: control[k] for k in ("root", "report", "report_sha256")}:
+                raise ValueError("threshold baseline binding changed")
+        elif recovered:
             runner.continuation_cgroup()
         else:
             quality_cgroup(policy=STREAMING_HOST_POLICY, unit=STREAMING_UNIT)
         gate = runner.checked_json(candidate.parent / "gate.json", candidate_protocol["gate_sha256"])
-        runner.validate_matched_gate(gate, recovered=recovered)
+        runner.validate_matched_gate(gate, recovered=recovered and not threshold, threshold=threshold)
         if candidate_protocol["matched_signed"] != runner.receipt(signed):
             raise ValueError("matched signed receipt changed")
         protocol = runner.read_json(signed / "protocol.json")
         baseline = runner.read_json(signed / "signed.config.json")
         signed_record = runner.read_json(signed / "signed/train-only/record.json")
-        for key in ("code", "code_hash", "environment_hash", "gate_sha256"):
+        keys = ("code_hash", "environment_hash", "dataset_hash") if threshold else ("code", "code_hash", "environment_hash", "gate_sha256")
+        for key in keys:
             if protocol[key] != candidate_protocol[key]:
                 raise ValueError(f"matched signed/absolute {key} mismatch")
         if recovered:
@@ -205,9 +243,10 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
     config = runner.read_json(candidate / "absolute.config.json")
     resolved_config_record(ResolvedGaussianConfig(requested_profile=config["requested_profile"],
         effective_config=config["effective_config"], effective_config_hash=config["effective_config_hash"]))
-    restored = {**config["effective_config"], "densification": {**config["effective_config"]["densification"], "absgrad": False}}
-    if config["effective_config_hash"] != runner.ABSOLUTE_CONFIG_HASH or restored != baseline["effective_config"]:
+    expected_config = runner.threshold_config(control["config"]) if threshold else runner.absolute_config(baseline)
+    if config != expected_config or config["effective_config_hash"] != candidate_protocol["effective_config_hash"]:
         raise ValueError("paired comparison configuration drift")
+    expected_absolute_hash = config["effective_config_hash"]
     replay = Path(protocol["replay"])
     dataset = runner.read_json(replay / "dataset.json")
     if dataset["dataset_hash"] != protocol["dataset_hash"] or candidate_protocol["dataset_hash"] != protocol["dataset_hash"]:
@@ -250,7 +289,7 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
             runner.validate_evaluation(path, final=final)
             model_hash = runner.sha256_file(models[index])
             if (value["provenance"]["dataset_hash"] != protocol["dataset_hash"]
-                    or value["provenance"]["effective_config_hash"] != (baseline["effective_config_hash"] if index == 0 else runner.ABSOLUTE_CONFIG_HASH)):
+                    or value["provenance"]["effective_config_hash"] != (baseline["effective_config_hash"] if index == 0 else expected_absolute_hash)):
                 raise ValueError("evaluation dataset/config identity drift")
             if value["provenance"]["model_sha256"] != model_hash:
                 raise ValueError("evaluation/model identity drift")
@@ -319,8 +358,24 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
         runner.read_json(candidate / "absolute/training/attempts/train-001/artifacts/result.json"),
         signed_native, candidate_stage, signed_stage, proposal["proposed_resource_gates"],
     )
+    threshold_report = None
+    if threshold:
+        previous = runner.checked_json(Path(control["report"]), control["report_sha256"])
+        threshold_report = threshold_comparison(previous, endpoints)
+        old_root = Path(control["root"])
+        old_native = runner.read_json(old_root / "absolute/training/attempts/train-001/artifacts/result.json")
+        new_native = runner.read_json(candidate / "absolute/training/attempts/train-001/artifacts/result.json")
+        old_stage = runner.read_json(old_root / "absolute/train.exit.json")
+        threshold_report["resources"] = {
+            "native_reserved_ratio": [a / b for a, b in zip(new_native["per_rank_peak_reserved_bytes"], old_native["per_rank_peak_reserved_bytes"], strict=True)],
+            "native_time_ratio": new_native["elapsed_seconds"] / old_native["elapsed_seconds"],
+            "stage_wall_ratio": candidate_stage["elapsed_seconds"] / old_stage["elapsed_seconds"],
+            "gaussian_ratio": candidate_stage["resources"]["max_observed_global_gaussians"] / old_stage["resources"]["max_observed_global_gaussians"],
+            "scope": "two completed absolute lifecycles; single runs, not timing confidence intervals"}
+        threshold_report["baseline_report_sha256"] = control["report_sha256"]
     write_json(output / "report.json", {"status": "paired_numerical_report_complete_visual_pending", "endpoints": endpoints,
-        "resources": resource, "visual_review": "pending_all_60_endpoint_ROIs", "test_rgb": "not_loaded", "promotion_eligible": False,
+        "resources": resource, "threshold_control": threshold_report,
+        "visual_review": "pending_all_60_endpoint_ROIs", "test_rgb": "not_loaded", "promotion_eligible": False,
         "protected": {str(path): digest for path, digest in protected.items()}})
     with (output / "REPORT.md").open("x") as f:
         f.write("# absolute 完整配对报告\n\n两个端点均报告24个Train ROI、6个Validation ROI和377个逐视角raw指标。\n\n")
@@ -332,6 +387,12 @@ def evaluate(signed: Path, candidate: Path, output: Path) -> None:
             f.write("\n")
             for key, stats in value["validation"]["global_delta"].items():
                 f.write(f"- raw {key}：均值差 {stats['mean']:+.6f}，P10差 {stats['p10']:+.6f}。\n")
+        if threshold_report is not None:
+            f.write("\n## 主对照：absolute 0.0008 − absolute 0.0002\n\n仅改变增密阈值；上文质量门槛仍相对signed，不以超过旧absolute冒充恢复基线质量。\n")
+            for endpoint, value in threshold_report["endpoints"].items():
+                f.write(f"\n### {endpoint}\n\n| split | 相机 | ROI | ΔPSNR | ΔSSIM |\n|---|---|---|---:|---:|\n")
+                for row in value["rois"]:
+                    f.write(f"| {row['split']} | {row['image_id']} | {row['name']} | {row['delta']['psnr']:+.6f} | {row['delta']['ssim']:+.6f} |\n")
         f.write("\n原资源门禁失败结论保留；新预算只是硬件停止保护。不得产生PASS_FOR_REPLICATION或默认推广。\n")
     write_json(output / "integrity.json", {str(p.relative_to(output)): runner.sha256_file(p) for p in output.rglob("*") if p.is_file()})
 

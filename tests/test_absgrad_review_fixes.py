@@ -179,8 +179,9 @@ def test_shared_experiment_is_not_a_cli_import_and_launch_shell_is_versionable()
 
 
 @pytest.mark.parametrize('fail_absolute', [False, True])
-@pytest.mark.parametrize('recovered', [False, True])
-def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_path, monkeypatch, fail_absolute, recovered):
+@pytest.mark.parametrize('mode', ['fresh', 'recovered', 'threshold'])
+def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_path, monkeypatch, fail_absolute, mode):
+    recovered, threshold = mode == 'recovered', mode == 'threshold'
     import types
     from image3d_scenegraph.gaussian.config import resolve_internal_config, resolved_config_record
 
@@ -192,7 +193,7 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
         'overlay_sha256': experiment.sha256_file(overlay)}
     baseline = resolved_config_record(resolve_internal_config('absgrad_ablation_v1', {
         'resolution': {'longest_edge': 1920}, 'opacity_reset': {'recovery_prune': {'enabled': True}}}))
-    gate = experiment.matched_gate_template(recovered=recovered)
+    gate = experiment.matched_gate_template(recovered=recovered, threshold=threshold)
     gate.update(status='APPROVED_FOR_CANDIDATE_EXECUTION', absolute_training_authorized=True)
     evidence = list(experiment.SAVE_EVIDENCE.values())
     records = {'gate-sha': gate, experiment.SIGNED_PROTOCOL_SHA256: source,
@@ -203,7 +204,7 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
         evidence[2]: {'provenance': {'code_hash': 'core', 'environment_hash': 'env'}}}
     monkeypatch.setattr(experiment, 'PROJECT_ROOT', tmp_path)
     monkeypatch.setattr(experiment, 'quality_cgroup', lambda **kw: tmp_path / 'cgroup')
-    monkeypatch.setattr(experiment, 'continuation_cgroup', lambda: tmp_path / 'cgroup')
+    monkeypatch.setattr(experiment, 'continuation_cgroup', lambda **kw: tmp_path / 'cgroup')
     monkeypatch.setattr(experiment, 'recovered_signed_main', lambda _: {'status': 'mock verified recovery'})
     monkeypatch.setattr(experiment, 'available_host_bytes', lambda: 24 * 1024**3)
     monkeypatch.setattr(experiment, 'revision', lambda: 'revision')
@@ -212,7 +213,7 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
     monkeypatch.setattr(experiment.subprocess, 'check_output', lambda *a, **kw: 'GPU 0: NVIDIA L2\nGPU 1: NVIDIA L2\n')
     stubs = {
         'gsplat': {'rendering': SimpleNamespace(__file__=str(overlay))},
-        'image3d_scenegraph.gaussian.trainer': {'training_provenance': lambda **kw: SimpleNamespace(code_hash='core', environment_hash='env')},
+        'image3d_scenegraph.gaussian.trainer': {'training_provenance': lambda **kw: SimpleNamespace(code_hash='core', environment_hash='env', dataset_hash='dataset')},
         'image3d_scenegraph.gaussian.render': {'require_distributed_absgrad': lambda: None},
         'image3d_scenegraph.gaussian.replay': {'validate_replay_bundle': lambda _: None},
     }
@@ -225,7 +226,7 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
         arm = kwargs['arm']
         calls.append(arm)
         assert ('recovered_main' in kwargs) == (recovered and arm == 'signed')
-        if recovered:
+        if recovered or threshold:
             assert kwargs['host_policy']['stop_current_bytes'] == float('inf')
             assert kwargs['host_policy']['minimum_available_bytes'] == 2 * 1024**3
         kwargs['require_resources'](root, minimum_free_gib=8)
@@ -243,22 +244,38 @@ def test_matched_driver_runs_both_arms_and_records_failure_without_models(tmp_pa
         target.mkdir()
         (target / 'report.json').write_text('{}')
         calls.append('paired')
+    if threshold:
+        control_signed = tmp_path / experiment.THRESHOLD_CONTROL_ROOT / 'signed-control'
+        for rel in ('protocol.json', 'signed.config.json', 'complete.json', 'signed/train-only/record.json',
+                    'signed/train-only/model.pt', 'signed/train-only/evaluation.json', 'signed/selection/evaluation.json'):
+            path = control_signed / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({'code_hash': 'core', 'environment_hash': 'env'}))
+        monkeypatch.setattr(experiment, 'threshold_controls', lambda: {
+            'protocol': {'code_hash': 'core', 'environment_hash': 'env', 'dataset_hash': 'dataset'},
+            'config': experiment.absolute_config(baseline), 'root': 'old-absolute',
+            'report': 'old-report', 'report_sha256': 'old-report-sha'})
     monkeypatch.setattr(experiment, 'run_pipeline', pipeline)
     monkeypatch.setattr(experiment, 'run_stage', paired)
     output = tmp_path / 'outputs/experiments/new'
     arguments = (output, tmp_path / 'old-signed', tmp_path / 'gate', 'gate-sha')
     if fail_absolute:
         with pytest.raises(ValueError, match='absolute verification'):
-            experiment.execute_matched(*arguments, expected_revision='revision', recovered=recovered)
+            experiment.execute_matched(*arguments, expected_revision='revision', recovered=recovered, threshold=threshold)
         assert not (output / 'complete.json').exists()
         assert 'absolute verification' in json.loads((output / 'failure.json').read_text())['reason']
-        assert calls == ['signed', 'absolute']
+        assert calls == (['absolute'] if threshold else ['signed', 'absolute'])
     else:
-        experiment.execute_matched(*arguments, expected_revision='revision', recovered=recovered)
-        assert calls == ['signed', 'absolute', 'paired']
+        experiment.execute_matched(*arguments, expected_revision='revision', recovered=recovered, threshold=threshold)
+        assert calls == (['absolute', 'paired'] if threshold else ['signed', 'absolute', 'paired'])
         assert json.loads((output / 'complete.json').read_text())['promotion_eligible'] is False
         protocol = json.loads((output / 'absolute-candidate/protocol.json').read_text())
-        assert protocol['matched_signed'] == experiment.receipt(output / 'signed-control')
+        assert protocol['matched_signed'] == experiment.receipt(control_signed if threshold else output / 'signed-control')
+        if threshold:
+            assert not (output / 'signed-control').exists()
+            config = json.loads((output / 'absolute-candidate/absolute.config.json').read_text())
+            assert config == experiment.threshold_config(experiment.absolute_config(baseline))
+            assert protocol['config_hashes']['absolute'] == config['effective_config_hash']
 
 
 def test_model_path_loader_uses_mmap_without_reading_full_bytes():

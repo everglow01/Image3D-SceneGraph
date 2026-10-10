@@ -84,3 +84,26 @@ def test_render_controls_initializes_cuda_before_reset_and_model_load(tmp_path, 
         monkeypatch.setitem(sys.modules, name, module)
     pair.render_controls(tmp_path / 'mock-model', [], tmp_path / 'output')
     assert calls == ['init', 'reset', 'load']
+
+
+def test_threshold_report_compares_old_absolute_not_signed_and_keeps_all_rois():
+    def endpoint(offset):
+        return {'rois': [{'split': 'train' if i < 24 else 'validation', 'image_id': str(i),
+            'name': 'region', 'pixel_xyxy': [0, 0, 4, 4], 'signed': {'psnr': 99, 'ssim': 1},
+            'absolute': {'psnr': 20 + offset, 'ssim': 0.8 + offset / 100}} for i in range(30)],
+            'validation': {'per_view': [{'absolute': {'image_id': str(i), 'psnr': 20 + offset,
+                'ssim': 0.8 + offset / 100}} for i in range(377)]}}
+    previous = {'endpoints': {key: endpoint(0) for key in ('selection', 'train-only')}}
+    current = {key: endpoint(1) for key in ('selection', 'train-only')}
+    result = pair.threshold_comparison(previous, current)
+    for value in result['endpoints'].values():
+        assert len(value['rois']) == 30
+        assert len(value['validation']['per_view']) == 377
+        assert all(r['delta']['psnr'] == 1 for r in value['rois'])
+        assert value['validation']['global_delta']['psnr']['mean'] == 1
+    current['selection']['rois'][0]['pixel_xyxy'] = [0, 0, 3, 4]
+    with pytest.raises(ValueError, match='coordinates'):
+        pair.threshold_comparison(previous, current)
+    current['selection']['rois'].pop()
+    with pytest.raises(ValueError, match='30 unique'):
+        pair.threshold_comparison(previous, current)

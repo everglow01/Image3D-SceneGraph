@@ -9,8 +9,13 @@ if [[ "${1:-}" == --continue-authorized || "${1:-}" == --watch-continued ]]; the
  memory_max=infinity; swap_max=infinity
  continuation=(--continue-recovered-signed)
 fi
+if [[ "${1:-}" == --threshold-authorized || "${1:-}" == --watch-threshold ]]; then
+ unit=image3d-absgrad-threshold-20261010-v1.service
+ memory_max=infinity; swap_max=infinity
+ continuation=(--absolute-threshold-control)
+fi
 if [[ "${1:-}" == --help ]]; then
- echo '用法：--watch/--watch-continued 输出目录；或 --execute-authorized/--continue-authorized 输出目录 合同 合同SHA 提交SHA 历史signed目录 overlay目录'
+ echo '用法：--watch/--watch-continued/--watch-threshold 输出目录；或 --execute-authorized/--continue-authorized/--threshold-authorized 输出目录 合同 合同SHA 提交SHA 历史signed目录 overlay目录'
  exit 0
 fi
 test "$(hostname)" = i-94B8D131
@@ -23,7 +28,7 @@ out, repo = map(Path, sys.argv[1:])
 assert out.is_absolute() and out == out.resolve() and out.is_relative_to(repo / 'outputs/experiments')
 assert out != repo / 'outputs/experiments'
 PY
-if [[ "$mode" == --watch || "$mode" == --watch-continued ]]; then
+if [[ "$mode" == --watch || "$mode" == --watch-continued || "$mode" == --watch-threshold ]]; then
  for step in $(seq 1 5760); do
   date -u
   if test -f "$out/exit-code"; then
@@ -42,7 +47,7 @@ if [[ "$mode" == --watch || "$mode" == --watch-continued ]]; then
  done
  exit 124
 fi
-[[ "$mode" == --execute-authorized || "$mode" == --continue-authorized ]]
+[[ "$mode" == --execute-authorized || "$mode" == --continue-authorized || "$mode" == --threshold-authorized ]]
 test "$#" = 7
 gate=$3; gate_sha=$4; expected=$5; historical=$6; overlay=$7
 test "$(git rev-parse HEAD)" = "$expected"

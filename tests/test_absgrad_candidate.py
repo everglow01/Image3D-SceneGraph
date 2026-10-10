@@ -637,3 +637,37 @@ def test_streaming_budget_is_separate_from_previous_quality_contract():
     snapshot["available_bytes"] += 1
     snapshot["task_current_bytes"] = 23 * 1024**3 // 2
     assert resources.host_failure(snapshot, policy=policy) == "task_memory_at_11.5_gib"
+
+
+def test_threshold_config_changes_one_leaf_and_gate_is_separate():
+    previous = candidate.absolute_config(signed_config())
+    changed = candidate.threshold_config(previous)
+    assert candidate.assert_single_field_ablation(previous['effective_config'], changed['effective_config']) == 'densification.gradient_threshold'
+    assert changed['effective_config']['densification']['gradient_threshold'] == 0.0008
+    assert changed['effective_config']['densification']['absgrad'] is True
+    assert previous['effective_config']['densification']['gradient_threshold'] == 0.0002
+    assert changed['effective_config_hash'] != previous['effective_config_hash']
+    with pytest.raises(ValueError):
+        candidate.threshold_config(signed_config())
+    gate = candidate.matched_gate_template(threshold=True)
+    gate.update(status='APPROVED_FOR_CANDIDATE_EXECUTION', absolute_training_authorized=True)
+    candidate.validate_matched_gate(gate, threshold=True)
+    assert gate['authorized_fresh_arms'] == ['absolute']
+    assert gate['host_policy']['minimum_available_bytes'] == 2 * 1024**3
+    assert gate['host_policy']['memory_max_bytes'] is None
+    with pytest.raises(ValueError):
+        candidate.validate_matched_gate(gate, recovered=True)
+    gate['candidate_value'] = 0.0004
+    with pytest.raises(ValueError):
+        candidate.validate_matched_gate(gate, threshold=True)
+    with pytest.raises(ValueError):
+        candidate.matched_gate_template(recovered=True, threshold=True)
+
+
+def test_threshold_control_rejects_changed_baseline(tmp_path, monkeypatch):
+    monkeypatch.setattr(candidate, 'PROJECT_ROOT', tmp_path)
+    path = tmp_path / next(iter(candidate.THRESHOLD_SOURCES))
+    path.parent.mkdir(parents=True)
+    path.write_text('{}')
+    with pytest.raises(ValueError, match='threshold baseline changed'):
+        candidate.threshold_controls()

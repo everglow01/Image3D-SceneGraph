@@ -161,3 +161,12 @@ This short 100-iteration public geometry-development run proves executable spars
 只接受绑定SHA的本次30k signed离线恢复：核验原协议、失败记录、全部恢复来源、最终checkpoint组件与provenance、模型SHA、原相机序列/预算及原核心/环境一致。新独立目录只执行signed的SOR、377-view Validation及2k/4k Train-only，然后fresh absolute四阶段和全量配对评估。原失败记录不改写，不生成假的signed主训练result或成功exit；`signed/train-recovery.json`和两臂协议记录原训练提交与恢复来源。训练核心12文件SHA保持7f85ff7fb74e6d7ea0dd3224c6c897325d4585754753f80b8450f662abb6700b，Git变动仅调度/报告/测试/合同；不称两臂主训练Git提交相同。
 
 signed原生全生命周期结果缺失，恢复是另一个进程，因此配对报告的native/telemetry显存倍率、native/完整stage耗时倍率记为null并解释窗口不完整；保留原观测值、失败状态和可比的高斯计数，不补造数据、不拼接恢复耗时为原生结果。全部冻结质量门槛、60 endpoint ROI视觉审查、Test不加载和不推广默认保持不变。续跑失败不自动retry或resume。
+
+
+## 2026-10-10 absolute增密阈值单变量对照（schema5）
+
+用户要求先提高absolute增密阈值做对照，其他参数不变。显式`--absolute-threshold-control`/`--threshold-authorized`选择固定一次`0.0002→0.0008`实验，不提供自动调参扫描。新schema5 `absgrad_threshold_0008_v1`绑定已完成absolute 0.0002的协议、配置、训练退出/原生结果与完整数值报告SHA，以及原报告保护的模型/评估文件。新候选与旧absolute配置必须且只能相差`densification.gradient_threshold`；absgrad仍true。signed只作原质量门槛参照，两臂旧训练/模型/报告均不重跑、不覆盖。
+
+新absolute从相同冻结初始化/replay、seed20260729起步，30k/60k→相同SOR→377-view Validation→2k/4k固定拓扑Train-only和377-view评估。恢复剪枝、opacity reset、学习率、SH3、分辨率1920、15000步结束增密、相机序列及全部冻结ROI不变。训练核心12文件与环境必须匹配旧控制；不同调度Git提交不冒充相同完整提交。仍无任务RAM/Swap上限，18GiB准入、2GiB整机运行余量、6M高斯/每rank18GiB reserved/6h及磁盘20-8-4GiB边界不变。
+
+报告`threshold_control`为主对照：对每个端点的30 ROI及377相同Validation视角比较新absolute与旧absolute，而非把signed冒充阈值对照。两个完整absolute生命周期的资源比可报告，但不作为多次测量置信界；相对恢复signed的不可比生命周期值仍null。原signed质量门槛仍独立报告，超过旧absolute不等于恢复signed质量或推广通过。新两端点60 ROI对照仍需静态视觉审查；旧失败/视觉否决不重写，Test/默认/新seed/新场景不执行。
