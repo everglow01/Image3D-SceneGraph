@@ -165,6 +165,7 @@ def test_backend_specs_report_camera_calibration_capabilities(
             "shared_opencv_v1": None,
             "shared_simple_radial_v1": None,
             "auto_grouped_simple_radial_v1": None,
+            "folder_grouped_opencv_v1": None,
         },
     )
     monkeypatch.setattr(
@@ -210,6 +211,9 @@ def test_backend_specs_report_camera_calibration_capabilities(
     assert project_profiles["auto_grouped_simple_radial_v1"][
         "supported_modes"
     ] == ["multi_image"]
+    assert project_profiles["folder_grouped_opencv_v1"]["supported_modes"] == ["multi_image"]
+    assert project_profiles["folder_grouped_opencv_v1"]["is_default"] is False
+    assert dense_profiles["folder_grouped_opencv_v1"]["available"] is False
     assert dense_profiles["shared_opencv_v1"]["available"] is False
     assert "does not support OPENCV" in dense_profiles["shared_opencv_v1"][
         "reason"

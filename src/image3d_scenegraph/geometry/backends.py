@@ -64,9 +64,8 @@ def get_backend_specs(project_root: Path | str | None = None) -> list[BackendSpe
         default_profile="shared_simple_radial_v1",
         supported_modes=("multi_image",),
         unsupported={
-            "shared_opencv_v1": (
-                "COLMAP+VGGT dense fusion does not support OPENCV distortion"
-            )
+            profile: "COLMAP+VGGT dense fusion does not support OPENCV distortion"
+            for profile in ("shared_opencv_v1", "folder_grouped_opencv_v1")
         },
     )
     project_camera_calibrations = _colmap_camera_calibrations(
@@ -395,6 +394,7 @@ def _colmap_camera_calibrations(
     for profile_id, label in (
         ("shared_opencv_v1", "Shared OPENCV v1"),
         ("shared_simple_radial_v1", "Shared SIMPLE_RADIAL v1"),
+        ("folder_grouped_opencv_v1", "按目录分组 OPENCV（多相机）"),
         (
             "auto_grouped_simple_radial_v1",
             "Auto-grouped SIMPLE_RADIAL v1",
@@ -408,7 +408,7 @@ def _colmap_camera_calibrations(
         reason = unsupported.get(profile_id) or support_reason
         modes = (
             ["multi_image"]
-            if profile_id == "auto_grouped_simple_radial_v1"
+            if profile_id in {"auto_grouped_simple_radial_v1", "folder_grouped_opencv_v1"}
             else list(supported_modes)
         )
         result.append(

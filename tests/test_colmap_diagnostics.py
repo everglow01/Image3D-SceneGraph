@@ -555,3 +555,28 @@ def _tree_hashes(root: Path) -> dict[str, str]:
         for path in root.rglob("*")
         if path.is_file()
     }
+
+
+def test_export_colmap_diagnostics_preserves_folder_grouped_profile(tmp_path):
+    job = _fixture_job(tmp_path)
+    calibration = {
+        **SHARED_OPENCV_CALIBRATION,
+        "profile": "folder_grouped_opencv_v1",
+        "sharing_policy": "folder_groups",
+        "grouping_key_policy": "relative_parent_directory_v1",
+    }
+    camera_path = job / "diagnostics/sfm_camera_calibration.json"
+    camera = json.loads(camera_path.read_text())
+    camera["calibration"] = calibration
+    camera_path.write_text(json.dumps(camera))
+    manifest_path, metrics = export_colmap_diagnostics(
+        job_dir=job, database_path=job / "colmap/database.db",
+        source_image_root=job / "frames/selected", dataset_contract_path=job / "dataset.json",
+        output_dir=job / "diagnostics/sfm", feature=SIFT_FEATURE, pairing="exhaustive",
+        geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        camera_calibration=calibration, camera_calibration_diagnostics_path=camera_path,
+        colmap_build="COLMAP 4.0.0",
+    )
+    payload = json.loads(manifest_path.read_text())
+    assert payload["runs"][0]["camera_calibration"]["profile"] == "folder_grouped_opencv_v1"
+    assert metrics["sfm_camera_calibration_profile"] == "folder_grouped_opencv_v1"

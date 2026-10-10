@@ -150,6 +150,7 @@ def create_app(output_root: Path | str | None = None, *, start_worker: bool = Tr
                 "shared_opencv_v1",
                 "shared_simple_radial_v1",
                 "auto_grouped_simple_radial_v1",
+                "folder_grouped_opencv_v1",
             ]
             | None,
             Form(),

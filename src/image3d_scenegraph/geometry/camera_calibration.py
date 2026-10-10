@@ -78,6 +78,45 @@ def prepare_camera_extraction(
                 ),
             ),
         )
+    if calibration.sharing_policy == "folder_groups":
+        groups_by_folder: dict[str, dict[str, Any]] = {}
+        for name in names:
+            folder = Path(name).parent.as_posix()
+            if folder == ".":
+                raise CameraCalibrationError(
+                    "folder-grouped cameras require images in camera subdirectories"
+                )
+            metadata = _camera_metadata(root / name, name)
+            dimensions = (metadata["width"], metadata["height"], metadata["orientation"])
+            if metadata["orientation"] is None:
+                raise CameraCalibrationError(f"invalid image orientation: {name}")
+            group = groups_by_folder.setdefault(folder, {
+                "group_id": f"camera-group-{len(groups_by_folder):04d}",
+                "images": [],
+                "metadata_status": "explicit_directory",
+                "evidence": {
+                    "directory": folder,
+                    "width": dimensions[0],
+                    "height": dimensions[1],
+                    "orientation": dimensions[2],
+                },
+                "missing_fields": [],
+            })
+            evidence = group["evidence"]
+            if dimensions != (evidence["width"], evidence["height"], evidence["orientation"]):
+                raise CameraCalibrationError(
+                    f"camera directory has inconsistent dimensions or orientation: {folder}"
+                )
+            group["images"].append(name)
+        return CameraExtractionPlan(
+            calibration=calibration,
+            groups=tuple(groups_by_folder.values()),
+            batches=(CameraExtractionBatch(
+                image_names=tuple(names),
+                image_list_path=None,
+                image_reader_options=calibration.image_reader_options,
+            ),),
+        )
     if calibration.sharing_policy != "focal_aware_groups":
         raise CameraCalibrationError(
             f"unsupported camera sharing policy: {calibration.sharing_policy}"

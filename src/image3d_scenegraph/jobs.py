@@ -232,15 +232,15 @@ class JobStore:
                 ):
                     raise JobError("VGGT-BA does not use the COLMAP Mapper selector")
                 if (
-                    camera_calibration == "auto_grouped_simple_radial_v1"
+                    camera_calibration in {"auto_grouped_simple_radial_v1", "folder_grouped_opencv_v1"}
                     and mode != "multi_image"
                 ):
                     raise JobError(
-                        "auto-grouped camera calibration requires multi_image mode"
+                        "grouped camera calibration requires multi_image mode"
                     )
                 if (
                     geometry_backend == "colmap_vggt"
-                    and camera_calibration == "shared_opencv_v1"
+                    and camera_calibration in {"shared_opencv_v1", "folder_grouped_opencv_v1"}
                 ):
                     raise JobError(
                         "COLMAP+VGGT dense fusion does not support OPENCV distortion"

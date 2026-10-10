@@ -337,7 +337,7 @@ def main() -> None:
         parser.error(
             "--camera-calibration cannot be combined with --colmap-single-camera"
         )
-    if args.camera_calibration == "shared_opencv_v1":
+    if args.camera_calibration in {"shared_opencv_v1", "folder_grouped_opencv_v1"}:
         parser.error("COLMAP+VGGT dense fusion does not support OPENCV distortion")
     if (
         args.colmap_model_dir is not None

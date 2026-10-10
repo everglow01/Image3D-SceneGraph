@@ -50,9 +50,10 @@ export type SfmCameraCalibration = {
   profile:
     | "shared_opencv_v1"
     | "shared_simple_radial_v1"
-    | "auto_grouped_simple_radial_v1";
+    | "auto_grouped_simple_radial_v1"
+    | "folder_grouped_opencv_v1";
   camera_model: "OPENCV" | "SIMPLE_RADIAL";
-  sharing_policy: "single_camera" | "focal_aware_groups";
+  sharing_policy: "single_camera" | "focal_aware_groups" | "folder_groups";
   planned_camera_count: number | null;
   initial_camera_count: number | null;
   final_camera_count: number | null;
@@ -724,6 +725,11 @@ function parseCameraCalibration(value: unknown): SfmCameraCalibration {
       "SIMPLE_RADIAL",
       "single_camera",
       "all_images"
+    ],
+    folder_grouped_opencv_v1: [
+      "OPENCV",
+      "folder_groups",
+      "relative_parent_directory_v1"
     ],
     auto_grouped_simple_radial_v1: [
       "SIMPLE_RADIAL",

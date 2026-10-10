@@ -483,3 +483,13 @@ def test_geometric_verification_capability_checks_pairing_and_recovery(
         )
         or ""
     )
+
+
+def test_folder_camera_capability_requires_native_per_folder_option(tmp_path, monkeypatch):
+    executable = _make_executable(tmp_path / "colmap")
+    common = "ImageReader.camera_model ImageReader.single_camera ImageReader.single_camera_per_image"
+    monkeypatch.setattr(colmap, "_capture_help", lambda *_args: common)
+    reason = colmap_camera_calibration_support_reason(executable, "folder_grouped_opencv_v1")
+    assert reason is not None and "single_camera_per_folder" in reason
+    monkeypatch.setattr(colmap, "_capture_help", lambda *_args: common + " ImageReader.single_camera_per_folder")
+    assert colmap_camera_calibration_support_reason(executable, "folder_grouped_opencv_v1") is None

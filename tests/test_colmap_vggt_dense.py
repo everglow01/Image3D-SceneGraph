@@ -1625,3 +1625,14 @@ def make_frame(image_id: int, observations: list[tuple[float, float, int]]) -> F
         image_shape=(14, 14),
         original_size=(14, 14),
     )
+
+
+@pytest.mark.parametrize("profile", ["shared_opencv_v1", "folder_grouped_opencv_v1"])
+def test_dense_runner_rejects_opencv_camera_profiles(tmp_path, monkeypatch, capsys, profile):
+    monkeypatch.setattr(sys, "argv", [
+        "run_colmap_vggt_dense.py", "--image-dir", str(tmp_path / "images"),
+        "--output-dir", str(tmp_path / "output"), "--camera-calibration", profile,
+    ])
+    with pytest.raises(SystemExit):
+        run_dense_main()
+    assert "does not support OPENCV distortion" in capsys.readouterr().err

@@ -8,7 +8,8 @@ export type SfmMapper = "incremental" | "global";
 export type SfmCameraCalibration =
   | "shared_opencv_v1"
   | "shared_simple_radial_v1"
-  | "auto_grouped_simple_radial_v1";
+  | "auto_grouped_simple_radial_v1"
+  | "folder_grouped_opencv_v1";
 
 export type SfmCameraCalibrationStatus =
   ExperimentalOptionStatus<SfmCameraCalibration> & { is_default?: boolean };
@@ -72,6 +73,7 @@ export const sfmCameraCalibrationOptions: Array<{
   label: string;
 }> = [
   { id: "shared_opencv_v1", label: "Shared OPENCV v1" },
+  { id: "folder_grouped_opencv_v1", label: "按目录分组 OPENCV（多相机）" },
   {
     id: "shared_simple_radial_v1",
     label: "Shared SIMPLE_RADIAL v1"

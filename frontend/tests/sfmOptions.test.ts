@@ -215,3 +215,14 @@ test("camera calibration availability respects capability mode", () => {
     false
   );
 });
+
+test("folder-grouped cameras are explicit and multi-image only", () => {
+  const status: SfmCameraCalibrationStatus = {
+    id: "folder_grouped_opencv_v1", label: "按目录分组 OPENCV", available: true,
+    supported_modes: ["multi_image"]
+  };
+  assert.equal(isSfmCameraCalibrationAvailable(status.id, status, "multi_image", "project_3dgs"), true);
+  assert.equal(isSfmCameraCalibrationAvailable(status.id, status, "video", "project_3dgs"), false);
+  assert.equal(isSfmCameraCalibrationAvailable(status.id, undefined, "multi_image", "project_3dgs"), false);
+  assert.equal(defaultSfmCameraCalibration("project_3dgs"), "shared_opencv_v1");
+});

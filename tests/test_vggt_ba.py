@@ -35,8 +35,9 @@ from image3d_scenegraph.geometry.vggt_ba import (
 )
 
 
+@pytest.mark.parametrize("profile", ["auto_grouped_simple_radial_v1", "folder_grouped_opencv_v1"])
 def test_runner_rejects_auto_grouped_video_cameras(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, profile
 ):
     monkeypatch.setattr(
         sys,
@@ -48,13 +49,13 @@ def test_runner_rejects_auto_grouped_video_cameras(
             "--output-dir",
             str(tmp_path / "output"),
             "--camera-calibration",
-            "auto_grouped_simple_radial_v1",
+            profile,
         ],
     )
 
     with pytest.raises(SystemExit):
         run_vggt_ba_sparse.main()
-    assert "does not support auto-grouped cameras" in capsys.readouterr().err
+    assert "does not support grouped cameras" in capsys.readouterr().err
 
 
 def test_local_ba_inlier_gate_uses_bounded_per_frame_counts():

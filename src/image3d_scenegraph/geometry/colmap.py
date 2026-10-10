@@ -19,6 +19,7 @@ COLMAP_CAMERA_CALIBRATION_IDS = (
     "shared_opencv_v1",
     "shared_simple_radial_v1",
     "auto_grouped_simple_radial_v1",
+    "folder_grouped_opencv_v1",
 )
 COLMAP_LEGACY_MATCHER_IDS = ("exhaustive", "sequential")
 COLMAP_LEGACY_MATCHER_TO_PAIRING = {
@@ -511,6 +512,19 @@ def resolve_colmap_camera_calibration(
                 "1",
             ),
         )
+    if profile_id == "folder_grouped_opencv_v1":
+        return ResolvedColmapCameraCalibration(
+            profile_id=profile_id,
+            camera_model="OPENCV",
+            sharing_policy="folder_groups",
+            grouping_key_policy="relative_parent_directory_v1",
+            image_reader_options=(
+                "--ImageReader.camera_model", "OPENCV",
+                "--ImageReader.single_camera", "0",
+                "--ImageReader.single_camera_per_folder", "1",
+                "--ImageReader.single_camera_per_image", "0",
+            ),
+        )
     if profile_id == "shared_simple_radial_v1":
         return ResolvedColmapCameraCalibration(
             profile_id=profile_id,
@@ -858,6 +872,11 @@ def colmap_camera_calibration_support_reasons(
     requirements = {
         "shared_opencv_v1": common,
         "shared_simple_radial_v1": common,
+        "folder_grouped_opencv_v1": (
+            *common,
+            "ImageReader.single_camera_per_folder",
+            "ImageReader.single_camera_per_image",
+        ),
         "auto_grouped_simple_radial_v1": (
             *common,
             "image_list_path",

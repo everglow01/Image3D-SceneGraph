@@ -955,17 +955,23 @@ def test_runner_explicit_global_uses_database_copy_and_no_incremental_mapper(
     assert "sfm_mapper=global" in log
 
 
-def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):
+@pytest.mark.parametrize("folder_grouped", [False, True])
+def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch, folder_grouped):
     image_dir = tmp_path / "images"
     output_dir = tmp_path / "output"
     image_dir.mkdir()
+    profile = "folder_grouped_opencv_v1" if folder_grouped else "auto_grouped_simple_radial_v1"
+    names = ["10/a.jpg", "10/b.jpg", "11/c.jpg"] if folder_grouped else ["a.jpg", "b.jpg", "c.jpg"]
+    if folder_grouped:
+        (image_dir / "10").mkdir()
+        (image_dir / "11").mkdir()
     exif = Image.Exif()
     exif[271] = "Maker"
     exif[272] = "Body"
     exif[37386] = 24.0
-    for name in ("a.jpg", "b.jpg"):
+    for name in names[:2]:
         Image.new("RGB", (64, 48)).save(image_dir / name, exif=exif)
-    Image.new("RGB", (64, 48)).save(image_dir / "c.jpg")
+    Image.new("RGB", (64, 48)).save(image_dir / names[2])
     commands = []
     diagnostics_call = {}
 
@@ -1000,9 +1006,9 @@ def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):
             },
         ],
         "images": [
-            {"image_id": 1, "name": "a.jpg", "camera_id": 1},
-            {"image_id": 2, "name": "b.jpg", "camera_id": 1},
-            {"image_id": 3, "name": "c.jpg", "camera_id": 2},
+            {"image_id": 1, "name": names[0], "camera_id": 1},
+            {"image_id": 2, "name": names[1], "camera_id": 1},
+            {"image_id": 3, "name": names[2], "camera_id": 2},
         ],
     }
 
@@ -1049,27 +1055,33 @@ def test_runner_batches_auto_grouped_camera_extraction(tmp_path, monkeypatch):
             "--output-dir",
             str(output_dir),
             "--camera-calibration",
-            "auto_grouped_simple_radial_v1",
+            profile,
         ],
     )
 
     run_colmap_sparse.main()
 
     feature_commands = [command for command in commands if command[1] == "feature_extractor"]
-    assert len(feature_commands) == 2
-    assert [
-        Path(command[command.index("--image_list_path") + 1]).read_text().splitlines()
-        for command in feature_commands
-    ] == [["a.jpg", "b.jpg"], ["c.jpg"]]
-    assert feature_commands[0][
-        feature_commands[0].index("--ImageReader.single_camera") + 1
-    ] == "1"
-    assert feature_commands[1][
-        feature_commands[1].index("--ImageReader.single_camera_per_image") + 1
-    ] == "1"
-    assert diagnostics_call["plan"].calibration.profile_id == (
-        "auto_grouped_simple_radial_v1"
-    )
+    if folder_grouped:
+        assert len(feature_commands) == 1
+        command = feature_commands[0]
+        assert command[command.index("--ImageReader.single_camera_per_folder") + 1] == "1"
+        assert command[command.index("--ImageReader.camera_model") + 1] == "OPENCV"
+        assert "--image_list_path" not in command
+        assert [g["images"] for g in diagnostics_call["plan"].groups] == [names[:2], names[2:]]
+    else:
+        assert len(feature_commands) == 2
+        assert [
+            Path(command[command.index("--image_list_path") + 1]).read_text().splitlines()
+            for command in feature_commands
+        ] == [["a.jpg", "b.jpg"], ["c.jpg"]]
+        assert feature_commands[0][
+            feature_commands[0].index("--ImageReader.single_camera") + 1
+        ] == "1"
+        assert feature_commands[1][
+            feature_commands[1].index("--ImageReader.single_camera_per_image") + 1
+        ] == "1"
+    assert diagnostics_call["plan"].calibration.profile_id == profile
     assert (
         output_dir / "diagnostics" / "sfm_camera_calibration.json"
     ).is_file()

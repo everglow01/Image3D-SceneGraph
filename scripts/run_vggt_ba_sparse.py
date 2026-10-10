@@ -158,8 +158,8 @@ def main() -> None:
         parser.error("--pairing resolves its vocabulary tree; omit --vocab-tree-path")
     if args.pairing == "vocab_tree":
         parser.error("VGGT-BA video geometry does not support vocab_tree pairing")
-    if args.camera_calibration == "auto_grouped_simple_radial_v1":
-        parser.error("VGGT-BA video geometry does not support auto-grouped cameras")
+    if args.camera_calibration in {"auto_grouped_simple_radial_v1", "folder_grouped_opencv_v1"}:
+        parser.error("VGGT-BA video geometry does not support grouped cameras")
     legacy_matcher = args.matcher
     if args.pairing is None and legacy_matcher is None:
         legacy_matcher = "exhaustive"

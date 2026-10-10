@@ -424,6 +424,11 @@ def _validate_camera_calibration_record(
             "single_camera",
             "all_images",
         ),
+        "folder_grouped_opencv_v1": (
+            "OPENCV",
+            "folder_groups",
+            "relative_parent_directory_v1",
+        ),
         "auto_grouped_simple_radial_v1": (
             "SIMPLE_RADIAL",
             "focal_aware_groups",

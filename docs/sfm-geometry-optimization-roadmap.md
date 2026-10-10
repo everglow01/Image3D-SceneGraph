@@ -425,10 +425,10 @@ sfm_geometric_verification = default_v1 | guided_v1
 第五批已新增：
 
 ```text
-sfm_camera_calibration = shared_opencv_v1 | shared_simple_radial_v1 | auto_grouped_simple_radial_v1
+sfm_camera_calibration = shared_opencv_v1 | shared_simple_radial_v1 | auto_grouped_simple_radial_v1 | folder_grouped_opencv_v1
 ```
 
-缺省由 JobStore 按 backend 保持真实历史行为；`auto_grouped_simple_radial_v1` 只允许 multi-image，`colmap_vggt + shared_opencv_v1` 明确不可用。request/queued manifest 记录 requested，completed effective 来自严格校验的 raw-camera 诊断，不以请求值臆测。
+缺省由 JobStore 按 backend 保持真实历史行为；`auto_grouped_simple_radial_v1` / `folder_grouped_opencv_v1` 只允许 multi-image，`colmap_vggt` 拒绝两种OPENCV profile。request/queued manifest 记录 requested，completed effective 来自严格校验的 raw-camera 诊断，不以请求值臆测。
 
 ### 8.2 前端
 
@@ -554,6 +554,8 @@ Phase 4 当时引入 schema 3；Phase 5 的当前 schema 4 保留同一几何语
 - 代码接入不构成质量提升或默认推广证据。
 
 ### Phase 5：相机标定 profile（代码已接入，待真实证据）
+
+2026-10-10 apartment准备补充：新增显式`folder_grouped_opencv_v1`，按保留的相对父目录划分物理相机，调用COLMAP原生`single_camera_per_folder`并使用OPENCV；不读取官方内外参、不设置rig外参约束、不改默认。扁平输入或组内尺寸/方向不一致明确失败。API/JobStore、能力探测、诊断schema4和前端已接入；新代码尚未Git同步、未跑实际SfM或训练。下述EXIF分组规则仍专指旧auto-grouped profile。
 
 实现状态（2026-09-03）：稳定字段 `sfm_camera_calibration=shared_opencv_v1|shared_simple_radial_v1|auto_grouped_simple_radial_v1` 已接入共享 resolver、三个 COLMAP runner、API/JobStore、backend 顶层 capability、前端、manifest 和 SfM diagnostics schema 4。默认按 backend 保留历史行为：Project ordinary/VGGT-BA 为 shared OPENCV，direct COLMAP/COLMAP+VGGT 为 shared SIMPLE_RADIAL；没有默认推广。
 

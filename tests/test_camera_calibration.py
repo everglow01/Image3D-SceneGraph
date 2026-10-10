@@ -319,3 +319,45 @@ def test_camera_diagnostics_reject_group_partition_drift(tmp_path):
             plan=plan,
             colmap_build="COLMAP 4.0.0",
         )
+
+
+def test_folder_grouping_uses_native_colmap_and_keeps_identical_devices_separate(tmp_path):
+    root = tmp_path / "images"
+    paths = []
+    for folder in ("10", "11"):
+        (root / folder).mkdir(parents=True)
+        for name in ("a.jpg", "b.jpg"):
+            path = root / folder / name
+            _write_image(path, make=None, model=None, focal=None)
+            paths.append(path)
+    profile = resolve_colmap_camera_calibration("folder_grouped_opencv_v1")
+    plan = prepare_camera_extraction(profile, root, paths, tmp_path / "unused")
+    reversed_plan = prepare_camera_extraction(profile, root, paths[::-1], tmp_path / "unused-2")
+    assert plan.record() == reversed_plan.record()
+    assert [g["images"] for g in plan.groups] == [["10/a.jpg", "10/b.jpg"], ["11/a.jpg", "11/b.jpg"]]
+    assert [g["evidence"]["directory"] for g in plan.groups] == ["10", "11"]
+    assert len(plan.batches) == 1 and plan.batches[0].image_list_path is None
+    options = dict(zip(profile.image_reader_options[::2], profile.image_reader_options[1::2]))
+    assert options == {
+        "--ImageReader.camera_model": "OPENCV",
+        "--ImageReader.single_camera": "0",
+        "--ImageReader.single_camera_per_folder": "1",
+        "--ImageReader.single_camera_per_image": "0",
+    }
+    assert not (tmp_path / "unused").exists()
+
+
+@pytest.mark.parametrize("case", ["flat", "dimensions", "orientation"])
+def test_folder_grouping_rejects_ambiguous_camera_inputs(tmp_path, case):
+    root = tmp_path / "images"
+    folder = root if case == "flat" else root / "10"
+    folder.mkdir(parents=True)
+    first, second = folder / "a.jpg", folder / "b.jpg"
+    _write_image(first)
+    _write_image(second, size=(80, 48) if case == "dimensions" else (64, 48),
+                 orientation=6 if case == "orientation" else 1)
+    with pytest.raises(CameraCalibrationError, match="subdirectories|inconsistent"):
+        prepare_camera_extraction(
+            resolve_colmap_camera_calibration("folder_grouped_opencv_v1"),
+            root, [first, second], tmp_path / "unused",
+        )

@@ -2,11 +2,39 @@
 
 更新日期：2026-10-10。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
 
+## 0.0008对照最终结论：执行成功，数值与静态视觉门槛均失败（2026-10-10）
+
+任务`20261010-105009-a387`在`49bc64a`上于04:33:21 UTC退出0，总耗时约1h43m；主训练30k/60k样本、SOR、377-view Selection、2k/4k样本Train-only及ROI数值评估全部exit0。用户随后授权继续视觉审查且不重训；本次只读取已有图像，没有重新渲染、加载Test或启动新实验。
+
+- 全部60/60 endpoint ROI经12张四列图（reference/signed/absolute0.0002/absolute0.0008）逐项审查。两组各60张图的SHA匹配，reference/signed像素完全一致；118个受保护源文件在写入前后复验不变。
+- **明显恢复但不全面通过**：旧候选10项墙角和8项Train窗边椅子的严重模糊/结构丢失明显减轻；椅脚局部收益保留，地毯细纹收益明显收缩。
+- **明确静态视觉否决2项**：同一Validation视角2907的Selection与Train-only窗边椅子ROI。两个端点均额外检查已有1078×1267原尺寸裁剪；相对signed，右侧椅座/下部暗色轮廓被更大灰白雾状模糊淹没。signed亦有伪影，不是无缺陷参考。差值分别为−4.22810dB/−0.09486 SSIM和−3.93794dB/−0.08318。这是同一视角两个端点，不是两个独立视角。
+- 全局raw均值：Selection 22.007329/0.805141，Train-only 22.280625/0.808734。最终相对旧absolute +2.78976dB/+0.02774，相对signed +0.05866dB/−0.000762；均值门槛通过，但Train地毯增益、墙角SSIM和全局SSIM P10仍失败（最终P10 ΔSSIM −0.013112）。
+- 主训练5213.07秒，结束1,249,994高斯、SOR后1,236,705；相对旧absolute高斯数少约68.8%、主阶段耗时少约38.5%。全阶段采样任务峰11.0595GiB、整机可用最低10.8554GiB，OOM事件0。单次运行，不作置信区间；恢复signed的完整生命周期倍率仍null，旧资源失败不改写。
+- 最终`FAIL_NUMERICAL_AND_VISUAL`，不推广默认、不自动扩展实验。AI静态审查非用户人工验收；动态遮挡跳变未评估，58项未见明确硬否决不等于全面通过。
+
+远端新增三份审查文件已通过文件API写入并逐项SHA复验，目录：`outputs/experiments/absgrad-threshold-0008-20261010-v1/experiment/absolute-candidate/paired-quality/`。
+
+| 文件 | SHA256 |
+|---|---|
+| `report.json`（原始数值，不覆盖） | `a488940a7ee3c263f638f948dbf8ee4e47e36de659eb067b9477e2da2c0462c5` |
+| `visual-review.json` | `a72843e5427577ee02a247df3ea64977ddfbf74e0327ffb709fc0aff880fd5cf` |
+| `FINAL_REPORT.md` | `781ac863a5142907fa665f123413272c7d3fcd5488439095b108313cd7abe335` |
+| `review-completion.json` | `b53c00770486ea817e42262757f4ab21d611ffdfba9b02879a72f8d92783ea0d` |
+
+原数值报告/experiment完成记录的visual_pending是生成时快照，不覆盖；以新增`review-completion.json`闭合审查。本地逐项报告与拼图位于`outputs/analysis/absgrad-threshold-0008-review-20261010-v1/`。下方启动与准备文字为历史时点，不是当前仍在运行。
+
+## 0.0008对照启动快照（历史：2026-10-10 02:50 UTC）
+
+远端已同步`49bc64a`，167项回归及实际策略/单leaf/旧控制身份核验通过。新任务`20261010-105009-a387`，只读监控`20261010-105009-ddb0`，目录`outputs/experiments/absgrad-threshold-0008-20261010-v1/`。02:50:52Z train阶段active，仍在初始化、尚无首个optimizer更新记录；已核验仅新absolute阈值0.0008，无signed重跑目录。
+
+候选config hash `45b107feba2b193fc7647c9f3ce7fc98731ac1aea3ac6059c364f67c86a7d9d5`，训练核心未变。RAM/Swap无上限、2GiB整机可用停止线生效；启动采样OOM事件0。**尚无新质量结论；运行期间远端HEAD固定49bc64a，不pull后续文档改动。**
+
 ## 新实验准备：absolute阈值0.0008对照
 
 用户授权仅提高absolute增密阈值，其他参数不变。新schema5一次固定`0.0002→0.0008`，从相同冻结初始化fresh训练；已完成absolute0.0002为主对照，signed作质量参照，两旧臂不重跑。候选与旧absolute只允许增密阈值一个leaf变化；相同seed/采样/30k及2k预算/reset/prune/SOR/ROI与2GiB整机余量保持不变。126项本地非模型检查通过，训练核心SHA不变；**此处是准备记录，实际远端验收/启动以后置记录为准。** 下方数值与视觉失败仍是旧0.0002实验的有效结论，不抹去或改写。
 
-## 最终结论：数值与静态视觉门槛均失败（2026-10-10）
+## 旧0.0002最终结论：数值与静态视觉门槛均失败（2026-10-10）
 
 评估修复`14c3cdf`已通过Git同步。补评任务`20261010-101642-8ecc` exit0，耗时105.719秒；没有重训，原模型/评估SHA不变。两端点全部60 ROI及各377个Validation逐视角报告已生成，全部60组静态对照完成AI视觉审查。
 

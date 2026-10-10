@@ -256,6 +256,7 @@ def test_public_job_schema_exposes_only_bounded_gaussian_controls(tmp_path):
         "shared_opencv_v1",
         "shared_simple_radial_v1",
         "auto_grouped_simple_radial_v1",
+        "folder_grouped_opencv_v1",
     ]
     assert properties["sfm_mapper"]["enum"] == ["incremental", "global"]
     assert properties["sfm_mapper"]["default"] == "incremental"
@@ -351,7 +352,8 @@ def test_create_job_forwards_mcmc_trainer(tmp_path):
     assert store.options["gaussian_trainer"] == "mcmc"
 
 
-def test_create_job_forwards_sfm_feature_profile(tmp_path):
+@pytest.mark.parametrize("camera_profile", ["auto_grouped_simple_radial_v1", "folder_grouped_opencv_v1"])
+def test_create_job_forwards_sfm_feature_profile(tmp_path, camera_profile):
     app = create_app(tmp_path / "jobs", start_worker=False)
     store = FakeJobStore()
     app.state.job_store = store
@@ -366,7 +368,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
             "sfm_feature_profile": "aliked_n16rot_v1",
             "sfm_local_matcher": "lightglue",
             "sfm_geometric_verification": "guided_v1",
-            "sfm_camera_calibration": "auto_grouped_simple_radial_v1",
+            "sfm_camera_calibration": camera_profile,
             "sfm_mapper": "global",
         },
         files=[
@@ -380,7 +382,7 @@ def test_create_job_forwards_sfm_feature_profile(tmp_path):
         "sfm_feature_profile": "aliked_n16rot_v1",
         "sfm_local_matcher": "lightglue",
         "sfm_geometric_verification": "guided_v1",
-        "sfm_camera_calibration": "auto_grouped_simple_radial_v1",
+        "sfm_camera_calibration": camera_profile,
         "sfm_mapper": "global",
     }
 

@@ -460,3 +460,16 @@ test("frame filtering and pair adjacency expose every tested neighbor", () => {
   assert.equal(neighbors[0].inlier_rate, 0.6);
   assert.deepEqual(sampleDeterministic([0, 1, 2, 3, 4], 3), [0, 1, 3]);
 });
+
+test("schema 4 accepts directory-based OPENCV provenance", () => {
+  const value = v4Payload([image(1, [0, 0, 0], [0, 0, 1])]);
+  Object.assign(value.runs[0].camera_calibration, {
+    profile: "folder_grouped_opencv_v1", sharing_policy: "folder_groups",
+    grouping_key_policy: "relative_parent_directory_v1"
+  });
+  const calibration = parseSfmDiagnostics(value).runs[0].camera_calibration;
+  assert.equal(calibration.profile, "folder_grouped_opencv_v1");
+  assert.equal(calibration.sharing_policy, "folder_groups");
+  value.runs[0].camera_calibration.grouping_key_policy = "all_images";
+  assert.throws(() => parseSfmDiagnostics(value), /inconsistent/);
+});

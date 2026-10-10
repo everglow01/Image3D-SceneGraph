@@ -2630,3 +2630,30 @@ def test_asset_path_cannot_escape_job_dir(tmp_path):
 
     with pytest.raises(JobError, match="escapes job directory"):
         store.get_asset_path(manifest["job_id"], "../manifest.json")
+
+
+@pytest.mark.parametrize("trainer", ["project", "mcmc"])
+def test_folder_camera_standard_job_preserves_paths_without_starting_worker(tmp_path, monkeypatch, trainer):
+    monkeypatch.setattr("image3d_scenegraph.jobs.resolve_colmap_executable", lambda _root: tmp_path / "colmap")
+    monkeypatch.setattr("image3d_scenegraph.jobs.colmap_camera_calibration_support_reason", lambda *_args: None)
+    store = JobStore(output_root=tmp_path / "jobs")
+    inputs = [UploadedInput(filename=f"{10 + i // 6}/frame_{i % 6}.jpg", content=b"image") for i in range(12)]
+    manifest = store.enqueue_job(
+        "multi_image", inputs, geometry_backend="project_3dgs", output_type="gaussian_splat",
+        options={"gaussian_trainer": trainer, "sfm_camera_calibration": "folder_grouped_opencv_v1"},
+    )
+    job = store.job_dir(manifest["job_id"])
+    request = json.loads((job / "request.json").read_text())
+    assert request["options"]["sfm_camera_calibration"] == "folder_grouped_opencv_v1"
+    assert request["options"]["gaussian_trainer"] == trainer
+    assert manifest["status"] == "queued"
+    assert (job / "input/images/10/frame_0.jpg").read_bytes() == b"image"
+    assert (job / "input/images/11/frame_0.jpg").read_bytes() == b"image"
+    assert not (job / "colmap").exists()
+    with pytest.raises(JobError, match="requires multi_image"):
+        store.enqueue_job("video", [UploadedInput(filename="room.mp4", content=b"video")],
+                          geometry_backend="project_3dgs", output_type="gaussian_splat",
+                          options={"sfm_camera_calibration": "folder_grouped_opencv_v1"})
+    with pytest.raises(JobError, match="does not support OPENCV"):
+        store.enqueue_job("multi_image", inputs, geometry_backend="colmap_vggt", output_type="point_cloud",
+                          options={"sfm_camera_calibration": "folder_grouped_opencv_v1"})
