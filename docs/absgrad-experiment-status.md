@@ -1,6 +1,28 @@
 # 绝对梯度消融：当前状态与执行边界
 
-更新日期：2026-10-09。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
+更新日期：2026-10-10。此文是结果索引；`codex.md`仍是唯一执行计划，训练合同见[gaussian-trainer-contract.md](gaussian-trainer-contract.md)。名称仅为“AbsGS启发的绝对梯度消融”，不是完整AbsGS复现。
+
+## 最终结论：数值与静态视觉门槛均失败（2026-10-10）
+
+评估修复`14c3cdf`已通过Git同步。补评任务`20261010-101642-8ecc` exit0，耗时105.719秒；没有重训，原模型/评估SHA不变。两端点全部60 ROI及各377个Validation逐视角报告已生成，全部60组静态对照完成AI视觉审查。
+
+- **局部改善成立**：Selection / Train-only的Train椅脚组均值ΔPSNR +3.0213 / +2.4390dB、ΔSSIM +0.07090 / +0.06935；地毯+1.8991 / +2.1881dB、+0.15590 / +0.16880，两组每端点均4/4双指标改善。
+- **质量门槛失败**：Validation椅脚3670的PSNR差-1.0298 / -0.7724dB；墙角控制1728为-14.2007 / -15.1843dB，SSIM亦大幅退步；全局raw均值/P10均失败。
+- **明确视觉否决**：两端点墙角条纹/边界大面积消失、窗边椅背被模糊色块遮挡，共20项明确否决。椅脚/地毯改善与其他区域的严重退步并存，不能只挑局部展示。
+- 审查为AI静态图像审查，每crop最长320x250；不是用户人工验收或动态漫游。时间性遮挡跳变未评估，不记为通过。已有明确视觉否决足以判失败。
+- 本次结论限单场景、单seed、冻结绝对梯度配置，不泛化为完整AbsGS算法无效；不推广默认、无Test、新seed/场景。
+
+远端最终证据根：`outputs/experiments/absgrad-continued-matched-20261009-v1/experiment/absolute-candidate/paired-quality-20261010-v1/`：
+
+| 文件 | 内容 / SHA256 |
+|---|---|
+| `report.json` | 两端点数值与377逐视角；`9948702bde9a0361360999287f1329f765b43db7e246b5ad8642a21af81ca1ae` |
+| `visual-review.json` | 全60项观察与图像SHA；`92c6ad1a9aab53d547481fc034b8b0801d0082ca1f58b27adda8fd798d814843` |
+| `FINAL_REPORT.md` | 完整数值/逐项视觉结论；`dcddc567bd21d7c4453cbfc33549a247e44f6deb9ea34b7ef06a757c3aa4b69e` |
+| `review-completion.json` | 补评及静态审查完成、质量失败；`5a429e8de32e859dc099f81e33b98c8e95164f7c018b8c78c00e194004cb36f6` |
+| `contacts/` | 全60组reference/signed/absolute对照 |
+
+旧实验退出1和旧失败证据保持不变；数值报告生成时的visual_pending亦不覆盖，以新增`review-completion.json`闭合审查。原两倍资源失败保留，恢复signed的原生生命周期指标不补造。本地报告：`outputs/analysis/absgrad-roi-completion-20261010-v1/review-results/FINAL_REPORT.md`。收尾核验GPU空闲、四项共享服务active，8081页面/API均200。
 
 ## 2026-10-10：训练完成，修复ROI评估入口
 
