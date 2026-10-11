@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -65,12 +66,37 @@ def repair_diagnostics(output_root: Path, job_id: str) -> dict:
         return {"job_id": job_id, "sfm_diagnostics": assets["sfm_diagnostics"], "status": "available"}
 
 
+def monitor_navigation(output_root: Path, job_ids: list[str]) -> None:
+    deadline = time.monotonic() + 1_200
+    while time.monotonic() < deadline:
+        rows = []
+        for job_id in job_ids:
+            if not job_id or Path(job_id).name != job_id or job_id in {".", ".."}:
+                raise JobError("job ID must be a directory name")
+            manifest = json.loads((output_root / job_id / "manifest.json").read_text())
+            rows.append({"job_id": job_id, "navigation_status": manifest.get("navigation_status"),
+                         "navigation_reason": manifest.get("navigation_reason"),
+                         "navigation_attempt": manifest.get("navigation_attempt")})
+        print(json.dumps(rows, ensure_ascii=False), flush=True)
+        if all(row["navigation_status"] == "available" for row in rows):
+            return
+        if any(row["navigation_status"] not in {"queued", "generating", "available"} for row in rows):
+            raise JobError("navigation generation did not complete successfully")
+        time.sleep(15)
+    raise JobError("navigation monitoring timed out; no task was stopped")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", required=True, type=Path)
-    parser.add_argument("--job-id", required=True)
+    parser.add_argument("--job-id", required=True, nargs="+")
+    parser.add_argument("--monitor-navigation", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(repair_diagnostics(args.output_root, args.job_id), ensure_ascii=False))
+    if args.monitor_navigation:
+        monitor_navigation(args.output_root, args.job_id)
+    else:
+        for job_id in args.job_id:
+            print(json.dumps(repair_diagnostics(args.output_root, job_id), ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

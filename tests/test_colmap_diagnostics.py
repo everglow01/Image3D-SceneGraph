@@ -576,6 +576,22 @@ def test_completed_job_repair_is_locked_atomic_and_preserves_model_and_geometry(
         repair_diagnostics(tmp_path, "job")
 
 
+@pytest.mark.parametrize("status", ["available", "unavailable", "cancelled"])
+def test_navigation_monitor_reports_terminal_states_without_writes(tmp_path, status):
+    from scripts.repair_job_sfm_diagnostics import monitor_navigation
+    job = tmp_path / "job"
+    job.mkdir()
+    path = job / "manifest.json"
+    path.write_text(json.dumps({"navigation_status": status}))
+    before = path.read_bytes()
+    if status == "available":
+        monitor_navigation(tmp_path, ["job"])
+    else:
+        with pytest.raises(ValueError, match="did not complete"):
+            monitor_navigation(tmp_path, ["job"])
+    assert path.read_bytes() == before
+
+
 def _write_database(path: Path) -> None:
     database = sqlite3.connect(path)
     database.executescript(
