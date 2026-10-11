@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as THREE from "three";
@@ -12,7 +14,7 @@ const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
 }).outputText + "\nexports.probe = { loadWalkRuntime, installWalkHandlers, uninstallWalkHandlers, stepWalk };";
 
-async function harness(wall = false) {
+async function harness(wall = false, navigationDir?: string) {
   const scene = new THREE.Scene(), collision = new THREE.Group();
   collision.add(new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial()));
   if (wall) {
@@ -20,8 +22,8 @@ async function harness(wall = false) {
     obstacle.position.set(1, 0, 1.5); collision.add(obstacle);
   }
   collision.updateMatrixWorld(true);
-  const bytes = new Uint8Array([1, 2, 3]).buffer;
-  const contract = {
+  let bytes = new Uint8Array([1, 2, 3]).buffer;
+  let contract = {
     schema_version: 1, status: "available", coordinate_frame: "normalized", world_units: "arbitrary",
     up: [0, 0, 1], floor: { origin: [0, 0, 0], basis_u: [1, 0, 0], basis_v: [0, 1, 0] },
     boundary: { coordinate_frame: "floor_uv", outer: [[-4, -4], [4, -4], [4, 4], [-4, 4]], holes: [] },
@@ -35,6 +37,10 @@ async function harness(wall = false) {
     provenance: { validation_image_ids_used: [], test_image_ids_used: [] },
     collision: { bytes: 3, triangles: wall ? 14 : 2, sha256: await walk.collisionSha256(bytes) }
   };
+  if (navigationDir) {
+    contract = JSON.parse(readFileSync(join(navigationDir, "navigation.json"), "utf8"));
+    bytes = Uint8Array.from(readFileSync(join(navigationDir, "collision.glb"))).buffer;
+  }
   function target() {
     const listeners = new Map<string, Set<Function>>();
     return {
@@ -56,7 +62,7 @@ async function harness(wall = false) {
       if (name === "./walkNavigation") return walk;
       if (name.endsWith("/Capsule.js")) return { Capsule };
       if (name.endsWith("/Octree.js")) return { Octree };
-      if (name.endsWith("/GLTFLoader.js")) return { GLTFLoader: class { async parseAsync() { return { scene: collision }; } } };
+      if (name.endsWith("/GLTFLoader.js")) return navigationDir ? { GLTFLoader } : { GLTFLoader: class { async parseAsync() { return { scene: collision }; } } };
       return {};
     }
   });
@@ -73,6 +79,28 @@ async function harness(wall = false) {
   const lock = () => { document.pointerLockElement = viewer.renderer.domElement; document.emit("pointerlockchange"); };
   const close = () => { document.exitPointerLock(); api.uninstallWalkHandlers(runtime); };
   return { runtime, viewer, document, window, frames, mode, key, lock, advance, close };
+}
+
+for (const navigationDir of (process.env.IMAGE3D_NAVIGATION_SMOKE_DIRS ?? "").split(":").filter(Boolean)) {
+  test(`已发布导航资产的真实 GLB/SHA/出生点及 WASD 物理验收：${navigationDir}`, async () => {
+    const h = await harness(false, navigationDir); h.lock();
+    const distances: Record<string, number> = {};
+    const start = h.runtime.capsule.start.clone(), height = h.runtime.contract.estimated_eye_height;
+    for (const key of ["KeyW", "KeyA", "KeyS", "KeyD"]) {
+      h.runtime.capsule.copy(h.runtime.spawnCapsule); h.runtime.safeCapsule.copy(h.runtime.spawnCapsule);
+      h.key(key); h.advance(2); h.key(key, false);
+      const delta = h.runtime.capsule.start.clone().sub(start);
+      assert.ok(Math.abs(delta.dot(h.runtime.up)) < height * 1e-5, "玩家不得脱离地板平面");
+      const contact = h.runtime.octree.capsuleIntersect(h.runtime.capsule);
+      assert.ok(!contact || contact.depth <= height * 1e-6, "玩家不得卡在碰撞体内");
+      distances[key] = delta.length() / height;
+    }
+    assert.ok(Math.max(...Object.values(distances)) > 0.2, "出生点四向全部受阻，不能认为漫游可用");
+    console.log(JSON.stringify({ navigationDir, two_second_displacement_in_eye_heights: distances,
+      collision_triangles: h.runtime.contract.collision.triangles,
+      scope: "实际碰撞资产与产品控制器的CPU物理验收，非WebGL画面或人工浏览器验收" }));
+    h.close();
+  });
 }
 
 test("真实 Octree 地板出生点可加载，WASD 四向移动、抬头不飞行且斜走不加速", async () => {
