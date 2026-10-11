@@ -151,6 +151,8 @@ The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mes
 
 新导航以 `generation.collision_representation=train_supported_walkable_prism_v1` 明确替代前述TSDF障碍网格＋补地板的混合碰撞表示。深度一致性、稀疏地板、Train相机支持、障碍膨胀、通道检查、连通域及覆盖门禁仍从真实重建证据推导；原TSDF网格只保留为 `collision-debug.ply` 证据，不再直接充当碰撞体。代理逐格生成已选可达区域的地板，并沿外边界与所有孔洞生成朝内、1.5H高的护栏，保留凹边界和孔洞，不填补未支持区域，不把护栏声称为重建墙体。碰撞胶囊会在边界内额外保守留距，窄通道可能因此不可通行。
 
+代理GLB的顶点以精确整数网格坐标存储，节点矩阵将其映射到normalized坐标（`collision_geometry_encoding=integer_grid_with_normalized_node_transform`）；不用逐顶点float32量化倾斜长护栏。写后读回必须验证该矩阵及顶点坐标，拓扑检查在恢复的整数网格空间进行，并要求映射有限、可逆、保持朝向。这是仿射不变的拓扑校验，不移除三角形或放宽门禁；浏览器仍通过GLTF节点矩阵取得场景坐标。
+
 最终代理仍须满足原50,000三角形、10MiB、300秒、无自相交/流形/可定向、GLB读回和出生点检查；不因代理表示而豁免门禁。出生点在最终代理上验证，Walk维持平面运动，明确不支持楼梯/多楼层。查看器显示“单层平面碰撞代理（非真实墙体）”；旧的无表示字段导航继续按历史混合网格解析，未知表示拒绝。模型、训练划分和分数均不改写，失败尝试保留，重新生成仍走标准worker。
 
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.

@@ -1037,7 +1037,7 @@ def choose_spawn(
     }
 
 
-def write_glb(path: Path, mesh: Any) -> None:
+def write_glb(path: Path, mesh: Any, transform: np.ndarray | None = None) -> None:
     vertices = np.asarray(mesh.vertices, dtype="<f4")
     triangles = np.asarray(mesh.triangles)
     if len(vertices) >= 65536:
@@ -1066,6 +1066,10 @@ def write_glb(path: Path, mesh: Any) -> None:
             {"bufferView": 1, "componentType": 5126, "count": len(vertices), "type": "VEC3", "min": vertices.min(axis=0).tolist(), "max": vertices.max(axis=0).tolist()},
         ],
     }
+    if transform is not None:
+        if transform.shape != (4, 4) or not np.isfinite(transform).all() or np.linalg.det(transform[:3, :3]) <= 0:
+            raise NavigationBuildError("collision transform must be finite and orientation preserving")
+        document["nodes"][0]["matrix"] = transform.T.reshape(-1).tolist()
     json_bytes = json.dumps(document, separators=(",", ":"), allow_nan=False).encode()
     json_bytes += b" " * ((-len(json_bytes)) % 4)
     binary += b"\0" * ((-len(binary)) % 4)
@@ -1138,15 +1142,9 @@ def filter_collision_mesh(
 
 def walkable_collision_proxy(
     component: np.ndarray,
-    minimum: np.ndarray,
-    cell: float,
-    basis: tuple[np.ndarray, np.ndarray, np.ndarray],
     *,
-    height: float,
     max_triangles: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    origin, basis_u, basis_v = basis
-    up = np.cross(basis_u, basis_v)
     rows, columns = component.shape
     vertex_ids: dict[tuple[int, int, int], int] = {}
     vertices: list[np.ndarray] = []
@@ -1155,9 +1153,8 @@ def walkable_collision_proxy(
     def vertex(x: int, y: int, top: int = 0) -> int:
         key = (x, y, top)
         if key not in vertex_ids:
-            uv = minimum + np.array([x, y], dtype=np.float64) * cell
             vertex_ids[key] = len(vertices)
-            vertices.append(origin + uv[0] * basis_u + uv[1] * basis_v + top * 1.5 * height * up)
+            vertices.append(np.array([x, y, top], dtype=np.float64))
         return vertex_ids[key]
 
     for y, x in np.argwhere(component):
@@ -1345,12 +1342,18 @@ def build_navigation_assets(
             f"train_camera_ratio={reachable_camera_ratio:.6f}, "
             f"area_h2={reachable_area_h2:.6f}"
         )
-    vertices, triangles = walkable_collision_proxy(
-        component, minimum, cell, basis, height=height, max_triangles=options.max_triangles
+    vertices, triangles = walkable_collision_proxy(component, max_triangles=options.max_triangles)
+    origin, basis_u, basis_v = basis
+    normalized_from_proxy = np.eye(4)
+    normalized_from_proxy[:3, :3] = np.column_stack((cell * basis_u, cell * basis_v, 1.5 * height * up))
+    normalized_from_proxy[:3, 3] = origin + minimum[0] * basis_u + minimum[1] * basis_v
+    proxy_mesh = o3d.geometry.TriangleMesh(
+        o3d.utility.Vector3dVector(vertices), o3d.utility.Vector3iVector(triangles)
     )
     cleanup["evidence_triangles"] = cleanup["triangles"]
     mesh = o3d.geometry.TriangleMesh(
-        o3d.utility.Vector3dVector(vertices), o3d.utility.Vector3iVector(triangles)
+        o3d.utility.Vector3dVector(vertices @ normalized_from_proxy[:3, :3].T + normalized_from_proxy[:3, 3]),
+        o3d.utility.Vector3iVector(triangles),
     )
     cleanup["navigation_floor_triangles"] = 2 * int(component.sum())
     cleanup["navigation_guard_triangles"] = len(triangles) - cleanup["navigation_floor_triangles"]
@@ -1369,7 +1372,7 @@ def build_navigation_assets(
     ):
         raise NavigationBuildError("spawn lies outside the navigation boundary")
     collision_path = output_dir / "collision.glb"
-    write_glb(collision_path, mesh)
+    write_glb(collision_path, proxy_mesh, normalized_from_proxy)
     verified_mesh = o3d.io.read_triangle_mesh(str(collision_path))
     if (
         len(verified_mesh.vertices) != len(mesh.vertices)
@@ -1378,6 +1381,13 @@ def build_navigation_assets(
     ):
         raise NavigationBuildError("collision GLB failed write/read integrity check")
     collision_bytes = collision_path.stat().st_size
+    local_vertices = (
+        np.asarray(verified_mesh.vertices) - normalized_from_proxy[:3, 3]
+    ) @ np.linalg.inv(normalized_from_proxy[:3, :3]).T
+    if not np.allclose(local_vertices, vertices, atol=1e-4, rtol=0):
+        raise NavigationBuildError("collision GLB node transform failed readback")
+    # Integer-grid storage preserves coplanarity; the positive affine node transform preserves topology.
+    verified_mesh.vertices = o3d.utility.Vector3dVector(np.rint(local_vertices))
     topology = {
         "self_intersecting": bool(verified_mesh.is_self_intersecting()),
         "vertex_manifold": bool(verified_mesh.is_vertex_manifold()),
@@ -1461,6 +1471,8 @@ def build_navigation_assets(
             "small_hole_policy": "implicit_tsdf_fusion_only",
             "floor_support": "contracted_colmap_sparse_dominant_plane_intersect_train_support",
             "collision_representation": "train_supported_walkable_prism_v1",
+            "collision_geometry_encoding": "integer_grid_with_normalized_node_transform",
+            "topology_evaluation_frame": "proxy_integer_grid",
             "collision_floor": "triangulated_reachable_train_supported_floor_cells",
             "collision_guards": "inward_boundary_extrusion_1.5H_not_reconstructed_walls",
             "navigation_scope": "single_floor_planar_conservative_capsule_clearance",

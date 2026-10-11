@@ -47,7 +47,7 @@ def _proxy_fixture():
     mask[3:6, 3:6] = False
     mask[8:, 8:] = False
     basis = (np.zeros(3), np.array([1, 0, 0]), np.array([0, 1, 0]))
-    vertices, triangles = walkable_collision_proxy(mask, np.zeros(2), 1.0, basis, height=1.0, max_triangles=50_000)
+    vertices, triangles = walkable_collision_proxy(mask, max_triangles=50_000)
     return mask, basis, vertices, triangles
 
 
@@ -71,21 +71,30 @@ def test_walkable_proxy_preserves_holes_concavity_and_inward_guards():
     assert all(len(uses) <= 2 for uses in edges.values())
     assert all(uses[0] == uses[1][::-1] for uses in edges.values() if len(uses) == 2)
     with pytest.raises(Exception, match="triangle budget"):
-        walkable_collision_proxy(mask, np.zeros(2), 1.0, basis, height=1.0, max_triangles=10)
+        walkable_collision_proxy(mask, max_triangles=10)
     with pytest.raises(Exception, match="empty"):
-        walkable_collision_proxy(np.zeros((4, 4), bool), np.zeros(2), 1.0, basis, height=1.0, max_triangles=50_000)
+        walkable_collision_proxy(np.zeros((4, 4), bool), max_triangles=50_000)
 
 
-def test_walkable_proxy_open3d_topology_and_glb_roundtrip(tmp_path):
+@pytest.mark.parametrize("tilted", [False, True])
+def test_walkable_proxy_open3d_topology_and_glb_roundtrip(tmp_path, tilted):
     import open3d as o3d
     from scripts.build_gaussian_navigation import write_glb
 
     _, _, vertices, triangles = _proxy_fixture()
     mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(vertices), o3d.utility.Vector3iVector(triangles))
     path = tmp_path / "collision.glb"
-    write_glb(path, mesh)
+    transform = np.eye(4)
+    if tilted:
+        rotation, _ = np.linalg.qr(np.array([[0.1, 0.6, 0.2], [0.9, 0.1, 0.3], [0.3, 0.4, 0.9]]))
+        transform[:3, :3] = rotation @ np.diag([0.009, 0.009, 0.4])
+        transform[:3, 3] = [0.123, -0.456, 0.789]
+    write_glb(path, mesh, transform)
     decoded = o3d.io.read_triangle_mesh(str(path))
     assert len(decoded.triangles) == len(triangles)
+    local = (np.asarray(decoded.vertices) - transform[:3, 3]) @ np.linalg.inv(transform[:3, :3]).T
+    assert np.allclose(local, vertices, atol=1e-4, rtol=0)
+    decoded.vertices = o3d.utility.Vector3dVector(np.rint(local))
     assert not decoded.is_self_intersecting()
     assert decoded.is_vertex_manifold()
     assert decoded.is_edge_manifold(allow_boundary_edges=True)
