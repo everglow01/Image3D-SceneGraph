@@ -9,7 +9,7 @@ import pytest
 from image3d_scenegraph.gaussian.dataset import contract_hash
 from scripts.build_gaussian_navigation import (
     load_sparse_initialization,
-    add_navigation_floor,
+    walkable_collision_proxy,
     select_depth_view_ids,
     load_train_cameras,
     mask_to_polygons,
@@ -42,40 +42,54 @@ def test_depth_selection_is_bounded_deterministic_train_only_and_pose_diverse():
     assert set(select_depth_view_ids(contract, train[:12])) == set(train[:12])
 
 
-def test_navigation_reserves_floor_budget_before_combining(monkeypatch):
-    import sys
-    from types import SimpleNamespace
-    import scripts.build_gaussian_navigation as navigation
-
-    class Mesh:
-        def __init__(self, vertices, triangles):
-            self.vertices, self.triangles = vertices, triangles
-
-        def __iadd__(self, other):
-            self.triangles = np.concatenate((self.triangles, other.triangles))
-            return self
-
-    monkeypatch.setitem(sys.modules, "open3d", SimpleNamespace(
-        geometry=SimpleNamespace(TriangleMesh=Mesh),
-        utility=SimpleNamespace(Vector3dVector=np.asarray, Vector3iVector=np.asarray),
-    ))
-    budgets = []
-
-    def simplify(mesh, budget):
-        budgets.append(budget)
-        mesh.triangles = mesh.triangles[:budget]
-
-    monkeypatch.setattr(navigation, "clean_mesh", simplify)
-    mesh = Mesh(np.zeros((3, 3)), np.zeros((49_942, 3), dtype=int))
-    mask = np.ones((75, 75), dtype=bool)
-    mask[20:30, 20:30] = False
+def _proxy_fixture():
+    mask = np.ones((12, 12), dtype=bool)
+    mask[3:6, 3:6] = False
+    mask[8:, 8:] = False
     basis = (np.zeros(3), np.array([1, 0, 0]), np.array([0, 1, 0]))
-    count = add_navigation_floor(mesh, mask, np.zeros(2), 0.01, basis, max_triangles=50_000)
-    assert count == 2 * int(mask.sum())
-    assert budgets == [50_000 - count]
-    assert len(mesh.triangles) == 50_000
-    with pytest.raises(Exception, match="insufficient collision budget"):
-        add_navigation_floor(mesh, np.ones((200, 200), bool), np.zeros(2), 0.01, basis, max_triangles=50_000)
+    vertices, triangles = walkable_collision_proxy(mask, np.zeros(2), 1.0, basis, height=1.0, max_triangles=50_000)
+    return mask, basis, vertices, triangles
+
+
+def test_walkable_proxy_preserves_holes_concavity_and_inward_guards():
+    mask, basis, vertices, triangles = _proxy_fixture()
+    points = vertices[triangles]
+    floor = np.all(points[:, :, 2] == 0, axis=1)
+    assert floor.sum() == 2 * int(mask.sum())
+    centers = points.mean(axis=1)
+    for center in centers[floor]:
+        assert mask[int(center[1]), int(center[0])]
+    normals = np.cross(points[:, 1] - points[:, 0], points[:, 2] - points[:, 0])
+    assert np.all(normals[floor, 2] > 0)
+    for center, normal in zip(centers[~floor], normals[~floor]):
+        inside = center + normal / np.linalg.norm(normal) * 0.1
+        assert mask[int(np.floor(inside[1])), int(np.floor(inside[0]))]
+    edges = {}
+    for triangle in triangles:
+        for a, b in zip(triangle, np.roll(triangle, -1)):
+            edges.setdefault(tuple(sorted((a, b))), []).append((a, b))
+    assert all(len(uses) <= 2 for uses in edges.values())
+    assert all(uses[0] == uses[1][::-1] for uses in edges.values() if len(uses) == 2)
+    with pytest.raises(Exception, match="triangle budget"):
+        walkable_collision_proxy(mask, np.zeros(2), 1.0, basis, height=1.0, max_triangles=10)
+    with pytest.raises(Exception, match="empty"):
+        walkable_collision_proxy(np.zeros((4, 4), bool), np.zeros(2), 1.0, basis, height=1.0, max_triangles=50_000)
+
+
+def test_walkable_proxy_open3d_topology_and_glb_roundtrip(tmp_path):
+    import open3d as o3d
+    from scripts.build_gaussian_navigation import write_glb
+
+    _, _, vertices, triangles = _proxy_fixture()
+    mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(vertices), o3d.utility.Vector3iVector(triangles))
+    path = tmp_path / "collision.glb"
+    write_glb(path, mesh)
+    decoded = o3d.io.read_triangle_mesh(str(path))
+    assert len(decoded.triangles) == len(triangles)
+    assert not decoded.is_self_intersecting()
+    assert decoded.is_vertex_manifold()
+    assert decoded.is_edge_manifold(allow_boundary_edges=True)
+    assert decoded.is_orientable()
 
 
 def _sha(value: str) -> str:

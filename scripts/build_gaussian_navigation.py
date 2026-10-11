@@ -1136,89 +1136,52 @@ def filter_collision_mesh(
     }
 
 
-def remove_floor_overlap(
-    mesh: Any,
+def walkable_collision_proxy(
     component: np.ndarray,
     minimum: np.ndarray,
     cell: float,
     basis: tuple[np.ndarray, np.ndarray, np.ndarray],
     *,
     height: float,
-    voxel: float,
-) -> int:
-    vertices = np.asarray(mesh.vertices)
-    triangles = np.asarray(mesh.triangles)
+    max_triangles: int,
+) -> tuple[np.ndarray, np.ndarray]:
     origin, basis_u, basis_v = basis
     up = np.cross(basis_u, basis_v)
-    centers = vertices[triangles].mean(axis=1)
-    height_from_floor = np.abs((centers - origin) @ up)
-    pixels = _grid_index(_uv(centers, origin, basis_u, basis_v), minimum, cell)
-    inside = (
-        (pixels[:, 0] >= 0)
-        & (pixels[:, 0] < component.shape[1])
-        & (pixels[:, 1] >= 0)
-        & (pixels[:, 1] < component.shape[0])
-    )
-    covered = np.zeros(len(triangles), dtype=bool)
-    covered[inside] = component[pixels[inside, 1], pixels[inside, 0]]
-    remove = covered & (height_from_floor <= max(voxel * 3, height * 0.06))
-    removed = int(remove.sum())
-    mesh.remove_triangles_by_mask(remove)
-    mesh.remove_unreferenced_vertices()
-    non_manifold_vertices = list(mesh.get_non_manifold_vertices())
-    if non_manifold_vertices:
-        mesh.remove_vertices_by_index(non_manifold_vertices)
-        mesh.remove_unreferenced_vertices()
-    return removed
-
-
-def add_navigation_floor(
-    mesh: Any,
-    component: np.ndarray,
-    minimum: np.ndarray,
-    cell: float,
-    basis: tuple[np.ndarray, np.ndarray, np.ndarray],
-    *,
-    max_triangles: int,
-) -> int:
-    import open3d as o3d
-
-    floor_triangles = 2 * int(component.sum())
-    obstacle_budget = max_triangles - floor_triangles
-    if obstacle_budget < 1_000:
-        raise NavigationBuildError("supported navigation floor leaves insufficient collision budget")
-    if len(mesh.triangles) > obstacle_budget:
-        clean_mesh(mesh, obstacle_budget)
-    if len(mesh.triangles) > obstacle_budget:
-        raise NavigationBuildError("collision simplification did not meet the reserved floor budget")
-
-    origin, basis_u, basis_v = basis
-    vertex_ids: dict[tuple[int, int], int] = {}
+    rows, columns = component.shape
+    vertex_ids: dict[tuple[int, int, int], int] = {}
     vertices: list[np.ndarray] = []
     triangles: list[list[int]] = []
 
-    def vertex(x: int, y: int) -> int:
-        key = (x, y)
+    def vertex(x: int, y: int, top: int = 0) -> int:
+        key = (x, y, top)
         if key not in vertex_ids:
             uv = minimum + np.array([x, y], dtype=np.float64) * cell
             vertex_ids[key] = len(vertices)
-            vertices.append(origin + uv[0] * basis_u + uv[1] * basis_v)
+            vertices.append(origin + uv[0] * basis_u + uv[1] * basis_v + top * 1.5 * height * up)
         return vertex_ids[key]
 
     for y, x in np.argwhere(component):
-        lower_left = vertex(int(x), int(y))
-        lower_right = vertex(int(x + 1), int(y))
-        upper_right = vertex(int(x + 1), int(y + 1))
-        upper_left = vertex(int(x), int(y + 1))
+        x, y = int(x), int(y)
+        lower_left, lower_right = vertex(x, y), vertex(x + 1, y)
+        upper_right, upper_left = vertex(x + 1, y + 1), vertex(x, y + 1)
         triangles.extend(
             ([lower_left, lower_right, upper_right], [lower_left, upper_right, upper_left])
         )
-    floor = o3d.geometry.TriangleMesh(
-        o3d.utility.Vector3dVector(np.asarray(vertices)),
-        o3d.utility.Vector3iVector(np.asarray(triangles, dtype=np.int32)),
-    )
-    mesh += floor
-    return len(triangles)
+        for start, end, exposed in (
+            ((x, y), (x + 1, y), y == 0 or not component[y - 1, x]),
+            ((x + 1, y), (x + 1, y + 1), x == columns - 1 or not component[y, x + 1]),
+            ((x + 1, y + 1), (x, y + 1), y == rows - 1 or not component[y + 1, x]),
+            ((x, y + 1), (x, y), x == 0 or not component[y, x - 1]),
+        ):
+            if exposed:
+                a, b, c, d = vertex(*start), vertex(*end), vertex(*start, 1), vertex(*end, 1)
+                # Faces point into the supported region; these are guard rails, not reconstructed walls.
+                triangles.extend(([b, a, c], [b, c, d]))
+        if len(triangles) > max_triangles:
+            raise NavigationBuildError("walkable collision proxy exceeds triangle budget")
+    if not triangles:
+        raise NavigationBuildError("walkable collision proxy is empty")
+    return np.asarray(vertices), np.asarray(triangles, dtype=np.int32)
 
 
 def write_debug_overview(
@@ -1382,26 +1345,16 @@ def build_navigation_assets(
             f"train_camera_ratio={reachable_camera_ratio:.6f}, "
             f"area_h2={reachable_area_h2:.6f}"
         )
-    navigation_floor_overlap_removed = remove_floor_overlap(
-        mesh,
-        component,
-        minimum,
-        cell,
-        basis,
-        height=height,
-        voxel=options.voxel_length,
+    vertices, triangles = walkable_collision_proxy(
+        component, minimum, cell, basis, height=height, max_triangles=options.max_triangles
     )
-    navigation_floor_triangles = add_navigation_floor(
-        mesh, component, minimum, cell, basis, max_triangles=options.max_triangles
+    cleanup["evidence_triangles"] = cleanup["triangles"]
+    mesh = o3d.geometry.TriangleMesh(
+        o3d.utility.Vector3dVector(vertices), o3d.utility.Vector3iVector(triangles)
     )
-    cleanup["navigation_floor_overlap_removed_triangles"] = navigation_floor_overlap_removed
-    cleanup["navigation_floor_triangles"] = navigation_floor_triangles
-    cleanup["vertices"] = len(mesh.vertices)
-    cleanup["triangles"] = len(mesh.triangles)
-    if cleanup["triangles"] > options.max_triangles:
-        raise NavigationBuildError(
-            f"hybrid collision triangle budget exceeded: {cleanup['triangles']}"
-        )
+    cleanup["navigation_floor_triangles"] = 2 * int(component.sum())
+    cleanup["navigation_guard_triangles"] = len(triangles) - cleanup["navigation_floor_triangles"]
+    Image.fromarray((component * 255).astype(np.uint8)).save(output_dir / "masks" / "reachable-component.png")
 
     mesh.compute_vertex_normals()
     mesh.remove_duplicated_triangles()
@@ -1507,7 +1460,10 @@ def build_navigation_assets(
             "depth_view_selection": "train_pose_farthest_256_v1",
             "small_hole_policy": "implicit_tsdf_fusion_only",
             "floor_support": "contracted_colmap_sparse_dominant_plane_intersect_train_support",
+            "collision_representation": "train_supported_walkable_prism_v1",
             "collision_floor": "triangulated_reachable_train_supported_floor_cells",
+            "collision_guards": "inward_boundary_extrusion_1.5H_not_reconstructed_walls",
+            "navigation_scope": "single_floor_planar_conservative_capsule_clearance",
             "door_protection": "train_sequence_short_level_consistent_obstacle_clear_corridors",
         },
         "quality": {"consistency": consistency, "tsdf": tsdf, "cleanup": cleanup, "floor": floor, "boundary": boundary_stats, "topology": topology},

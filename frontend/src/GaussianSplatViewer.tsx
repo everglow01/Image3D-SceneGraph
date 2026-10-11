@@ -836,7 +836,9 @@ export function GaussianSplatViewer({
               () => editingRef.current
             );
             setNavigationState("ready");
-            setWalkMessage("漫游已就绪 · 点击“进入漫游”锁定鼠标");
+            setWalkMessage(runtime.contract.collisionRepresentation === "train_supported_walkable_prism_v1"
+              ? "单层平面漫游已就绪 · 碰撞代理不代表真实墙体 · 点击“进入漫游”锁定鼠标"
+              : "漫游已就绪 · 点击“进入漫游”锁定鼠标");
           } catch (error) {
             if (!cancelled) {
               setNavigationState("error");
@@ -1078,6 +1080,8 @@ export function GaussianSplatViewer({
           {viewerMode === "walk"
             ? "第一人称漫游 · WASD/方向键移动 · 鼠标观察 · Esc 退出"
             : `${uprightAvailable ? "SfM 主平面已摆正 · " : ""}标准归一化坐标 · 任意单位（非米制）`}
+          {viewerMode === "walk" && walkRuntimeRef.current?.contract.collisionRepresentation === "train_supported_walkable_prism_v1"
+            ? " · 单层平面碰撞代理（非真实墙体）" : ""}
           {assetBytes === null ? "" : ` · ${(assetBytes / 1_048_576).toFixed(1)} MiB`}
           {useK2 ? " · K2 有损压缩 / SH2（高斯数量不变，画质待验收）" : ""}
           {experimentEnabled && rendererKind === "legacy" && experimentLevel !== "ply"

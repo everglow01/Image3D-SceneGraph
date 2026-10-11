@@ -147,6 +147,12 @@ The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mes
 - 最终碰撞网格仍限制 50,000 三角形、10 MiB、300 秒，并保留拓扑与覆盖检查。先按可达地板精确三角数预留预算，再简化障碍网格，最后添加未经简化的地板以保留孔洞/边界。若地板占满预算则明确失败，不填平孔洞或直接提高上限；在最终混合网格上重新选出生点。
 - WASD/方向键仅在本画布 Pointer Lock 生效时接收。胶囊底部使用 `0.002H` 数值间隙避开地板浮点接触；移动保持在已推断的平面地板，不声称支持楼梯/多楼层；碰撞未解开则回退到安全位置，不允许碰撞把玩家逐步抬升。失焦、隐藏及退出清空按键，重复锁定不叠加动画。HTTP 内网没有 Web Crypto 时仍执行 SHA-256 软件校验，不跳过资产完整性检查。
 
+### 可行走区域碰撞代理（2026-10-11 用户确认）
+
+新导航以 `generation.collision_representation=train_supported_walkable_prism_v1` 明确替代前述TSDF障碍网格＋补地板的混合碰撞表示。深度一致性、稀疏地板、Train相机支持、障碍膨胀、通道检查、连通域及覆盖门禁仍从真实重建证据推导；原TSDF网格只保留为 `collision-debug.ply` 证据，不再直接充当碰撞体。代理逐格生成已选可达区域的地板，并沿外边界与所有孔洞生成朝内、1.5H高的护栏，保留凹边界和孔洞，不填补未支持区域，不把护栏声称为重建墙体。碰撞胶囊会在边界内额外保守留距，窄通道可能因此不可通行。
+
+最终代理仍须满足原50,000三角形、10MiB、300秒、无自相交/流形/可定向、GLB读回和出生点检查；不因代理表示而豁免门禁。出生点在最终代理上验证，Walk维持平面运动，明确不支持楼梯/多楼层。查看器显示“单层平面碰撞代理（非真实墙体）”；旧的无表示字段导航继续按历史混合网格解析，未知表示拒绝。模型、训练划分和分数均不改写，失败尝试保留，重新生成仍走标准worker。
+
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
 New `gaussian_export_metadata` uses schema 2. It preserves `sh_degree` for historical readers, adds the identical `model_sh_degree`, and records `browser_renderer` with implementation/version, requested SH degree, verified effective/max SH degree, and the fixed-camera verification profile. For the current delivery path this identifies `@mkkellogg/gaussian-splats-3d@0.4.7`, model/requested SH3, and effective SH2; it is renderer provenance, not a browser PSNR claim. `gaussian_camera_path`, bundle records, canonical PLY, and historical export metadata remain schema 1.

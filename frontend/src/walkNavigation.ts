@@ -10,6 +10,7 @@ type NumericRange = {
 };
 
 export type NavigationContract = {
+  collisionRepresentation: "hybrid_tsdf_v1" | "train_supported_walkable_prism_v1";
   up: Vec3;
   floor: {
     origin: Vec3;
@@ -183,7 +184,13 @@ export function parseNavigationContract(value: unknown): NavigationContract {
     throw new Error("Navigation collision hash is invalid");
   }
 
+  const generation = record.generation === undefined ? {} : objectRecord(record.generation, "Navigation generation");
+  const collisionRepresentation = generation.collision_representation ?? "hybrid_tsdf_v1";
+  if (collisionRepresentation !== "hybrid_tsdf_v1" && collisionRepresentation !== "train_supported_walkable_prism_v1") {
+    throw new Error("Navigation collision representation is unsupported");
+  }
   const result: NavigationContract = {
+    collisionRepresentation,
     up,
     floor: { origin, basis_u: basisU, basis_v: basisV },
     boundary: { outer, holes },

@@ -93,6 +93,16 @@ test("strict navigation parsing accepts Train-only arbitrary-unit contract", () 
   });
 });
 
+test("平面代理明确标识，历史导航兼容且未知碰撞表示拒绝", () => {
+  assert.equal(parseNavigationContract(contractValue()).collisionRepresentation, "hybrid_tsdf_v1");
+  assert.equal(parseNavigationContract({ ...contractValue(), generation: {
+    collision_representation: "train_supported_walkable_prism_v1"
+  } }).collisionRepresentation, "train_supported_walkable_prism_v1");
+  assert.throws(() => parseNavigationContract({ ...contractValue(), generation: {
+    collision_representation: "unknown"
+  } }), /representation/);
+});
+
 test("navigation parser rejects held-out provenance and invalid spawn", () => {
   const heldOut = contractValue();
   heldOut.provenance.test_image_ids_used = ["test-1"];
