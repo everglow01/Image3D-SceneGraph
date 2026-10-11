@@ -140,6 +140,13 @@ Navigation assets and their navigation lifecycle diagnostics are excluded from t
 
 The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mesh`, and `navigation` are all present and the navigation set passes client-side schema, Train-only, normalized/arbitrary-unit, range, byte-count, SHA-256, triangle-count, and spawn checks. It uses the collision GLB only to construct a Three.js `Octree`; the mesh is hidden by default and the Gaussian splat remains the customer-visible scene. Missing, generating, unavailable, or invalid navigation leaves Orbit mode usable. Completed old Gaussian jobs expose the idempotent generation action in the frontend, while Walk provides Pointer Lock, WASD/arrows, hard-boundary enforcement, safe-position preservation, and spawn reset. Player dimensions and speed are relative to estimated eye height `H`, not metres.
 
+### 诊断补生成与平面漫游修复（2026-10-11）
+
+- SfM 注册图像身份按 `source.image_root` 下的完整相对路径核对，不以 basename 混淆不同相机目录的同名图片。旧的已完成 multi-image ordinary-COLMAP Job 可在明确维护授权、停止项目后端后用 `scripts/repair_job_sfm_diagnostics.py --output-root ... --job-id ...` 补诊断：占用既有 worker lease，拒绝已有诊断及排队/生成中的导航，写入独立 `diagnostics/sfm-repair-*` 目录并保存原 manifest，再原子附加诊断角色和指标。模型、冻结几何包、划分、训练/评估历史与旧失败日志不变；不触发训练或自动执行导航。
+- 导航深度融合采用确定性的 `train_pose_farthest_256_v1`：最多 256 个 Train 视角，按相机位置、朝向和图像上方向的最远点覆盖选取；不足 256 时全部使用。完整 Train 相机仍用于 floor、轨迹、边界和覆盖比例；实际深度渲染 ID 留在 `selected_render_image_ids`。不接触 Validation/Test RGB，不承诺该有界采样与全视角融合等质；失败仍关闭 Walk。
+- 最终碰撞网格仍限制 50,000 三角形、10 MiB、300 秒，并保留拓扑与覆盖检查。先按可达地板精确三角数预留预算，再简化障碍网格，最后添加未经简化的地板以保留孔洞/边界。若地板占满预算则明确失败，不填平孔洞或直接提高上限；在最终混合网格上重新选出生点。
+- WASD/方向键仅在本画布 Pointer Lock 生效时接收。胶囊底部使用 `0.002H` 数值间隙避开地板浮点接触；移动保持在已推断的平面地板，不声称支持楼梯/多楼层；碰撞未解开则回退到安全位置，不允许碰撞把玩家逐步抬升。失焦、隐藏及退出清空按键，重复锁定不叠加动画。HTTP 内网没有 Web Crypto 时仍执行 SHA-256 软件校验，不跳过资产完整性检查。
+
 `scene_splat` is the versioned browser derivative; `gaussian_canonical` is the project-owned deterministic PLY contract. The Gaussian dataset/evaluation/export roles are per-attempt hash-bound records. Incomplete or failed training/evaluation/export files must not be added to `assets`.
 
 New `gaussian_export_metadata` uses schema 2. It preserves `sh_degree` for historical readers, adds the identical `model_sh_degree`, and records `browser_renderer` with implementation/version, requested SH degree, verified effective/max SH degree, and the fixed-camera verification profile. For the current delivery path this identifies `@mkkellogg/gaussian-splats-3d@0.4.7`, model/requested SH3, and effective SH2; it is renderer provenance, not a browser PSNR claim. `gaussian_camera_path`, bundle records, canonical PLY, and historical export metadata remain schema 1.

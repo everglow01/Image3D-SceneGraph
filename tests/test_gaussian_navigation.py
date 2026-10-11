@@ -9,6 +9,8 @@ import pytest
 from image3d_scenegraph.gaussian.dataset import contract_hash
 from scripts.build_gaussian_navigation import (
     load_sparse_initialization,
+    add_navigation_floor,
+    select_depth_view_ids,
     load_train_cameras,
     mask_to_polygons,
     point_in_polygon,
@@ -18,6 +20,62 @@ from scripts.build_gaussian_navigation import (
     validate_inputs,
     validate_train_images,
 )
+
+
+def test_depth_selection_is_bounded_deterministic_train_only_and_pose_diverse():
+    entries = []
+    for index in range(800):
+        pose = np.eye(4)
+        pose[:3, 3] = [index % 20, index // 20, 0]
+        if index % 2:
+            pose[:3, :3] = np.diag([-1, 1, -1])
+        entries.append({"image_id": str(index), "world_from_camera": pose.tolist()})
+    train = [str(index) for index in range(600)]
+    contract = {"images": entries}
+    selected = select_depth_view_ids(contract, train)
+    assert len(selected) == len(set(selected)) == 256
+    assert set(selected) <= set(train)
+    assert selected == select_depth_view_ids({"images": entries[::-1]}, train[::-1])
+    assert {int(image_id) % 2 for image_id in selected} == {0, 1}
+    assert min(int(image_id) // 20 for image_id in selected) == 0
+    assert max(int(image_id) // 20 for image_id in selected) == 29
+    assert set(select_depth_view_ids(contract, train[:12])) == set(train[:12])
+
+
+def test_navigation_reserves_floor_budget_before_combining(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import scripts.build_gaussian_navigation as navigation
+
+    class Mesh:
+        def __init__(self, vertices, triangles):
+            self.vertices, self.triangles = vertices, triangles
+
+        def __iadd__(self, other):
+            self.triangles = np.concatenate((self.triangles, other.triangles))
+            return self
+
+    monkeypatch.setitem(sys.modules, "open3d", SimpleNamespace(
+        geometry=SimpleNamespace(TriangleMesh=Mesh),
+        utility=SimpleNamespace(Vector3dVector=np.asarray, Vector3iVector=np.asarray),
+    ))
+    budgets = []
+
+    def simplify(mesh, budget):
+        budgets.append(budget)
+        mesh.triangles = mesh.triangles[:budget]
+
+    monkeypatch.setattr(navigation, "clean_mesh", simplify)
+    mesh = Mesh(np.zeros((3, 3)), np.zeros((49_942, 3), dtype=int))
+    mask = np.ones((75, 75), dtype=bool)
+    mask[20:30, 20:30] = False
+    basis = (np.zeros(3), np.array([1, 0, 0]), np.array([0, 1, 0]))
+    count = add_navigation_floor(mesh, mask, np.zeros(2), 0.01, basis, max_triangles=50_000)
+    assert count == 2 * int(mask.sum())
+    assert budgets == [50_000 - count]
+    assert len(mesh.triangles) == 50_000
+    with pytest.raises(Exception, match="insufficient collision budget"):
+        add_navigation_floor(mesh, np.ones((200, 200), bool), np.zeros(2), 0.01, basis, max_triangles=50_000)
 
 
 def _sha(value: str) -> str:

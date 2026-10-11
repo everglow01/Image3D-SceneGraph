@@ -37,6 +37,7 @@ import {
   planarWalkVelocity,
   pointInNavigationBoundary,
   transformNavigationContract,
+  collisionSha256,
   type NavigationContract,
   type WalkSettings
 } from "./walkNavigation";
@@ -443,13 +444,17 @@ export function GaussianSplatViewer({
       return;
     }
     const canvas = viewer.renderer?.domElement;
-    if (!canvas) {
+    if (!canvas?.requestPointerLock) {
       setWalkMessage("浏览器不支持指针锁定（Pointer Lock）");
       return;
     }
-    const request = canvas.requestPointerLock();
-    if (request && "catch" in request) {
-      void request.catch(() => setWalkMessage("指针锁定（Pointer Lock）请求被拒绝"));
+    try {
+      const request = canvas.requestPointerLock();
+      if (request && "catch" in request) {
+        void request.catch(() => setWalkMessage("指针锁定（Pointer Lock）请求被拒绝"));
+      }
+    } catch {
+      setWalkMessage("指针锁定（Pointer Lock）请求被拒绝");
     }
   };
 
@@ -1125,8 +1130,8 @@ async function loadWalkRuntime(
   if (collisionBuffer.byteLength !== contract.collision.bytes) {
     throw new Error("Collision mesh size does not match the navigation contract");
   }
-  const collisionHash = await crypto.subtle.digest("SHA-256", collisionBuffer);
-  if (hexDigest(collisionHash) !== contract.collision.sha256) {
+  const collisionHash = await collisionSha256(collisionBuffer);
+  if (collisionHash !== contract.collision.sha256) {
     throw new Error("Collision mesh hash does not match the navigation contract");
   }
 
@@ -1171,7 +1176,8 @@ async function loadWalkRuntime(
     throw new Error("Navigation spawn direction is invalid");
   }
   const baseRight = new THREE.Vector3().crossVectors(baseForward, up).normalize();
-  const floorPosition = new THREE.Vector3(...contract.spawn.floor_position);
+  const floorPosition = new THREE.Vector3(...contract.spawn.floor_position)
+    .addScaledVector(up, 0.002 * contract.estimated_eye_height);
   const radius = contract.player.capsule_radius;
   const capsule = new Capsule(
     floorPosition.clone().addScaledVector(up, radius),
@@ -1245,7 +1251,7 @@ function installWalkHandlers(
 
   const clearKeys = () => runtime.keys.clear();
   const keyChange = (event: KeyboardEvent, pressed: boolean) => {
-    if (viewerModeRefValue() !== "walk" || !isMovementKey(event.code)) {
+    if (viewerModeRefValue() !== "walk" || document.pointerLockElement !== canvas || !isMovementKey(event.code)) {
       return;
     }
     event.preventDefault();
@@ -1288,6 +1294,7 @@ function installWalkHandlers(
       runtime.accumulator = 0;
       applyWalkCamera(viewer, runtime, settingsRefValue());
       setWalkMessage("漫游中 · WASD 或方向键移动 · Esc 退出");
+      if (runtime.animationFrame !== null) window.cancelAnimationFrame(runtime.animationFrame);
       runtime.animationFrame = window.requestAnimationFrame(tick);
     } else {
       leaveWalkMode(viewer, runtime, modeRef, setViewerMode, setWalkMessage);
@@ -1427,13 +1434,18 @@ function stepWalk(
   const displacement = new THREE.Vector3(...velocityValues).multiplyScalar(deltaSeconds);
   runtime.capsule.translate(displacement);
 
+  const floorOrigin = new THREE.Vector3(...runtime.contract.floor.origin);
+  const standingHeight = runtime.capsule.radius + 0.002 * runtime.contract.estimated_eye_height;
   runtime.contactHelper.visible = false;
-  for (let iteration = 0; iteration < 4; iteration += 1) {
+  for (let iteration = 0; iteration < 8; iteration += 1) {
     const collision = runtime.octree.capsuleIntersect(runtime.capsule);
     if (!collision) {
       break;
     }
     runtime.capsule.translate(collision.normal.clone().multiplyScalar(collision.depth));
+    // The reachable navigation floor is planar; wall contacts must not lift the player.
+    const elevation = runtime.capsule.start.clone().sub(floorOrigin).dot(runtime.up);
+    runtime.capsule.translate(runtime.up.clone().multiplyScalar(standingHeight - elevation));
     runtime.contactHelper.position.copy(runtime.capsule.start);
     runtime.contactHelper.setDirection(collision.normal);
     runtime.contactHelper.visible = true;
@@ -1443,7 +1455,8 @@ function stepWalk(
   const relative = floorPoint.sub(new THREE.Vector3(...runtime.contract.floor.origin));
   const uv: [number, number] = [relative.dot(runtime.basisU), relative.dot(runtime.basisV)];
   const finite = [...runtime.capsule.start.toArray(), ...runtime.capsule.end.toArray()].every(Number.isFinite);
-  if (!finite || !pointInNavigationBoundary(uv, runtime.contract.boundary)) {
+  const remainingCollision = finite ? runtime.octree.capsuleIntersect(runtime.capsule) : false;
+  if (!finite || (remainingCollision && remainingCollision.depth > 1e-6 * runtime.contract.estimated_eye_height) || !pointInNavigationBoundary(uv, runtime.contract.boundary)) {
     runtime.capsule.copy(runtime.safeCapsule);
     showBoundaryHint(runtime, setBoundaryHint);
     return true;
@@ -1515,10 +1528,6 @@ function addBoundaryDebug(root: THREE.Group, contract: NavigationContract) {
 
 function isMovementKey(code: string) {
   return ["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(code);
-}
-
-function hexDigest(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function matrix3FromMat3(matrix: Mat3): THREE.Matrix3 {

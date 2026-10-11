@@ -9,7 +9,7 @@ import struct
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -20,8 +20,8 @@ from image3d_scenegraph.gaussian.dataset import (
     sha256_file,
     validate_contract,
 )
-from image3d_scenegraph.gaussian.evaluation import load_model_snapshot
-from image3d_scenegraph.gaussian.render import RenderCamera, render_gaussians
+if TYPE_CHECKING:
+    from image3d_scenegraph.gaussian.render import RenderCamera
 
 
 SCHEMA_VERSION = 1
@@ -182,6 +182,7 @@ def load_train_cameras(
     contract: dict[str, Any], train_ids: list[str], longest_edge: int
 ) -> list[RenderCamera]:
     import torch
+    from image3d_scenegraph.gaussian.render import RenderCamera
 
     selected = set(train_ids)
     normalization = contract["normalization"]
@@ -212,6 +213,31 @@ def load_train_cameras(
     if {camera.image_id for camera in cameras} != selected:
         raise NavigationBuildError("Train split does not resolve to every contracted camera")
     return cameras
+
+
+def select_depth_view_ids(contract: dict[str, Any], train_ids: list[str]) -> list[str]:
+    # Depth fusion is bounded independently of the full Train camera support map.
+    maximum = 256
+    entries = {str(entry["image_id"]): entry for entry in contract["images"]}
+    ordered = sorted(train_ids)
+    if len(ordered) <= maximum:
+        return ordered
+    poses = np.asarray([entries[image_id]["world_from_camera"] for image_id in ordered])
+    centers = poses[:, :3, 3]
+    center = np.median(centers, axis=0)
+    radius = max(float(np.quantile(np.linalg.norm(centers - center, axis=1), 0.95)), 1e-8)
+    features = np.concatenate(
+        ((centers - center) / radius, 0.5 * poses[:, :3, 2], 0.25 * poses[:, :3, 1]), axis=1
+    )
+    nearest = np.full(len(ordered), np.inf)
+    current = int(np.argmin(np.linalg.norm(centers - center, axis=1)))
+    selected = []
+    for _ in range(maximum):
+        selected.append(current)
+        nearest = np.minimum(nearest, np.sum((features - features[current]) ** 2, axis=1))
+        nearest[selected] = -1
+        current = int(np.argmax(nearest))
+    return [ordered[index] for index in sorted(selected)]
 
 
 def train_trajectory_pairs(
@@ -260,6 +286,7 @@ def render_train_depth(
     deadline: float,
 ) -> list[DepthFrame]:
     import torch
+    from image3d_scenegraph.gaussian.render import RenderCamera, render_gaussians
 
     frames: list[DepthFrame] = []
     preview_indices = set(np.linspace(0, len(cameras) - 1, min(6, len(cameras)), dtype=int))
@@ -981,12 +1008,12 @@ def choose_spawn(
             up = -up
         samples = np.stack(
             [
-                floor_point + up * (radius + fraction * (total_height - 2 * radius))
-                for fraction in (0.0, 0.5, 1.0)
+                floor_point + up * (0.002 * height + radius + fraction * (total_height - 2 * radius))
+                for fraction in np.linspace(0.0, 1.0, 33)
             ]
         )
         distances = scene.compute_distance(o3d.core.Tensor(samples.astype(np.float32))).numpy()
-        if not np.isfinite(distances).all() or float(distances.min()) < radius * 0.85:
+        if not np.isfinite(distances).all() or float(distances.min()) < radius:
             continue
         score = float(np.linalg.norm(pixel - center_pixel))
         candidates.append((score, camera, floor_point, up, uv))
@@ -1151,8 +1178,19 @@ def add_navigation_floor(
     minimum: np.ndarray,
     cell: float,
     basis: tuple[np.ndarray, np.ndarray, np.ndarray],
+    *,
+    max_triangles: int,
 ) -> int:
     import open3d as o3d
+
+    floor_triangles = 2 * int(component.sum())
+    obstacle_budget = max_triangles - floor_triangles
+    if obstacle_budget < 1_000:
+        raise NavigationBuildError("supported navigation floor leaves insufficient collision budget")
+    if len(mesh.triangles) > obstacle_budget:
+        clean_mesh(mesh, obstacle_budget)
+    if len(mesh.triangles) > obstacle_budget:
+        raise NavigationBuildError("collision simplification did not meet the reserved floor budget")
 
     origin, basis_u, basis_v = basis
     vertex_ids: dict[tuple[int, int], int] = {}
@@ -1233,6 +1271,7 @@ def build_navigation_assets(
 ) -> dict[str, Any]:
     import open3d as o3d
     import torch
+    from image3d_scenegraph.gaussian.evaluation import load_model_snapshot
 
     started = time.perf_counter()
     deadline = started + options.timeout_seconds
@@ -1259,8 +1298,10 @@ def build_navigation_assets(
     cameras = load_train_cameras(contract, train_ids, options.render_longest_edge)
     trajectory_pairs = train_trajectory_pairs(contract, train_ids, cameras)
     sh_degree = int(config["effective_config"]["sh_schedule"]["max_degree"])
+    depth_ids = set(select_depth_view_ids(contract, train_ids))
+    depth_cameras = [camera for camera in cameras if camera.image_id in depth_ids]
     frames = render_train_depth(
-        model, cameras, sh_degree=sh_degree, alpha_threshold=options.alpha_threshold,
+        model, depth_cameras, sh_degree=sh_degree, alpha_threshold=options.alpha_threshold,
         preview_dir=preview_dir, deadline=deadline,
     )
     filtered, consistency = filter_multiview_depth(
@@ -1332,9 +1373,6 @@ def build_navigation_assets(
     polygons = mask_to_polygons(component, minimum, cell)
     if not polygons:
         raise NavigationBuildError("reachable floor has no closed boundary polygon")
-    spawn = choose_spawn(mesh, cameras, component, minimum, cell, basis, height)
-    if not point_in_polygon(np.asarray(spawn["floor_uv"]), np.asarray(polygons[0])):
-        raise NavigationBuildError("spawn lies outside the outer navigation boundary")
     reachable_area = boundary_stats["reachable_cells"] * boundary_stats["grid_cell_size"] ** 2
     reachable_camera_ratio = boundary_stats["reachable_train_cameras"] / len(cameras)
     reachable_area_h2 = reachable_area / (height * height)
@@ -1354,7 +1392,7 @@ def build_navigation_assets(
         voxel=options.voxel_length,
     )
     navigation_floor_triangles = add_navigation_floor(
-        mesh, component, minimum, cell, basis
+        mesh, component, minimum, cell, basis, max_triangles=options.max_triangles
     )
     cleanup["navigation_floor_overlap_removed_triangles"] = navigation_floor_overlap_removed
     cleanup["navigation_floor_triangles"] = navigation_floor_triangles
@@ -1369,6 +1407,14 @@ def build_navigation_assets(
     mesh.remove_duplicated_triangles()
     mesh.remove_degenerate_triangles()
     mesh.remove_unreferenced_vertices()
+    cleanup["vertices"] = len(mesh.vertices)
+    cleanup["triangles"] = len(mesh.triangles)
+    spawn = choose_spawn(mesh, cameras, component, minimum, cell, basis, height)
+    if (
+        not point_in_polygon(np.asarray(spawn["floor_uv"]), np.asarray(polygons[0]))
+        or any(point_in_polygon(np.asarray(spawn["floor_uv"]), np.asarray(hole)) for hole in polygons[1:])
+    ):
+        raise NavigationBuildError("spawn lies outside the navigation boundary")
     collision_path = output_dir / "collision.glb"
     write_glb(collision_path, mesh)
     verified_mesh = o3d.io.read_triangle_mesh(str(collision_path))
@@ -1458,6 +1504,7 @@ def build_navigation_assets(
         "generation": {
             "options": asdict(options),
             "elapsed_seconds": elapsed,
+            "depth_view_selection": "train_pose_farthest_256_v1",
             "small_hole_policy": "implicit_tsdf_fusion_only",
             "floor_support": "contracted_colmap_sparse_dominant_plane_intersect_train_support",
             "collision_floor": "triangulated_reachable_train_supported_floor_cells",

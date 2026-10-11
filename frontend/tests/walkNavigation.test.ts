@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 
 import {
   clampPitchRadians,
+  collisionSha256,
   defaultWalkSettings,
   nearestPointOnPolygon,
   parseNavigationContract,
@@ -13,6 +15,25 @@ import {
   transformNavigationContract
 } from "../src/walkNavigation.ts";
 import type { Mat3 } from "../src/gaussianViewerMetadata.ts";
+
+test("HTTP 无 Web Crypto 时仍逐字节校验 SHA-256，不放弃碰撞资产完整性", async () => {
+  const crypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const bytes = new TextEncoder().encode("abc");
+  const expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  assert.equal(await collisionSha256(bytes.buffer), expected);
+  Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+  try {
+    assert.equal(await collisionSha256(bytes.buffer), expected);
+    for (const size of [0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 1_000_000, 10 * 1024 * 1024]) {
+      const input = Uint8Array.from({ length: size }, (_, i) => i * 37 % 256);
+      assert.equal(await collisionSha256(input.buffer), createHash("sha256").update(input).digest("hex"));
+    }
+    await assert.rejects(collisionSha256(new ArrayBuffer(10 * 1024 * 1024 + 1)), /budget/);
+  } finally {
+    if (crypto) Object.defineProperty(globalThis, "crypto", crypto);
+    else Reflect.deleteProperty(globalThis, "crypto");
+  }
+});
 
 function contractValue() {
   return {
@@ -51,8 +72,8 @@ function contractValue() {
       pitch_degrees: { minimum: -85, maximum: 85 }
     },
     provenance: {
-      validation_image_ids_used: [],
-      test_image_ids_used: []
+      validation_image_ids_used: [] as string[],
+      test_image_ids_used: [] as string[]
     },
     collision: {
       sha256: "a".repeat(64),

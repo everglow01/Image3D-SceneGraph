@@ -452,6 +452,7 @@ def _fixture_job(tmp_path: Path) -> Path:
     second[0, 3] = 1.0
     contract = {
         "dataset_hash": "a" * 64,
+        "source": {"image_root": "undistorted"},
         "coordinate_system": {"camera_convention": "opencv"},
         "normalization": {
             "normalized_from_world": [
@@ -483,6 +484,96 @@ def _fixture_job(tmp_path: Path) -> Path:
     }
     (job / "dataset.json").write_text(json.dumps(contract), encoding="utf-8")
     return job
+
+
+@pytest.mark.parametrize("wrong_folder", [False, True])
+def test_diagnostics_matches_full_relative_image_identity(tmp_path, wrong_folder):
+    job = _fixture_job(tmp_path)
+    contract_path = job / "dataset.json"
+    contract = json.loads(contract_path.read_text())
+    image_root = job / "frames/selected"
+    with sqlite3.connect((job / "colmap/database.db").as_uri() + "?mode=rw", uri=True) as db:
+        for image_id in (1, 2):
+            name = f"camera-{image_id}/same.jpg"
+            (image_root / name).parent.mkdir()
+            (image_root / f"frame-{image_id}.jpg").rename(image_root / name)
+            db.execute("UPDATE images SET name=? WHERE image_id=?", (name, image_id))
+            contract["images"][image_id - 1]["path"] = f"undistorted/{name}"
+    if wrong_folder:
+        contract["images"][0]["path"] = "undistorted/camera-2/same.jpg"
+    contract_path.write_text(json.dumps(contract))
+    kwargs = dict(
+        job_dir=job, database_path=job / "colmap/database.db", source_image_root=image_root,
+        dataset_contract_path=contract_path, output_dir=job / "diagnostics/sfm",
+        feature=SIFT_FEATURE, pairing="exhaustive",
+        geometric_verification=DEFAULT_GEOMETRIC_VERIFICATION,
+        camera_calibration=SHARED_OPENCV_CALIBRATION,
+        camera_calibration_diagnostics_path=job / "diagnostics/sfm_camera_calibration.json",
+        colmap_build="COLMAP 4.0.0",
+    )
+    if wrong_folder:
+        with pytest.raises(ColmapDiagnosticsError, match="does not match"):
+            export_colmap_diagnostics(**kwargs)
+    else:
+        path, metrics = export_colmap_diagnostics(**kwargs)
+        assert metrics["sfm_diagnostics_status"] == "available"
+        images = json.loads(path.read_text())["images"]
+        assert [entry["name"] for entry in images[:2]] == ["camera-1/same.jpg", "camera-2/same.jpg"]
+
+
+def test_completed_job_repair_is_locked_atomic_and_preserves_model_and_geometry(tmp_path):
+    from image3d_scenegraph.gpu_lease import FileLease, LeaseBusy
+    from scripts.repair_job_sfm_diagnostics import repair_diagnostics
+
+    job = _fixture_job(tmp_path)
+    (job / "input").mkdir()
+    (job / "frames/selected").rename(job / "input/images")
+    (job / "diagnostics/colmap_timing.json").write_text(json.dumps({
+        "colmap_build": "COLMAP 4.0.0", "feature": SIFT_FEATURE,
+        "geometric_verification": DEFAULT_GEOMETRIC_VERIFICATION,
+        "camera_calibration": SHARED_OPENCV_CALIBRATION,
+    }))
+    (job / "model.pt").write_bytes(b"unchanged model; must never be loaded")
+    (job / "diagnostics/geometry_bundle.json").write_bytes(b"frozen geometry bundle")
+    manifest = {
+        "job_id": "job", "status": "done", "mode": "multi_image",
+        "geometry_backend": "project_3dgs", "output_type": "gaussian_splat",
+        "gaussian_geometry_effective_source": "colmap", "navigation_status": "unavailable",
+        "sfm_feature_effective_profile": "sift_v1", "sfm_local_matcher_effective": "bruteforce",
+        "sfm_pairing_effective": "exhaustive", "sfm_geometric_verification_effective": "default_v1",
+        "sfm_camera_calibration_effective": "shared_opencv_v1", "sfm_mapper_effective": "incremental",
+        "inputs": [], "assets": {"gaussian_dataset": "dataset.json", "gaussian_model": "model.pt"},
+        "metrics": {"sfm_diagnostics_status": "unavailable", "sfm_diagnostics_reason": "old failure", "psnr": 27.5},
+    }
+    path = job / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    before = path.read_bytes()
+    hashes = _tree_hashes(job)
+    with FileLease(tmp_path / ".worker.lock"), pytest.raises(LeaseBusy):
+        repair_diagnostics(tmp_path, "job")
+    assert path.read_bytes() == before
+    with pytest.raises(ValueError, match="directory name"):
+        repair_diagnostics(tmp_path, "../job")
+    dataset_before = (job / "dataset.json").read_bytes()
+    bad_dataset = json.loads(dataset_before)
+    bad_dataset["images"][0]["path"] = "undistorted/wrong/frame-1.jpg"
+    (job / "dataset.json").write_text(json.dumps(bad_dataset))
+    with pytest.raises(ValueError, match="does not match"):
+        repair_diagnostics(tmp_path, "job")
+    assert path.read_bytes() == before
+    (job / "dataset.json").write_bytes(dataset_before)
+    repaired = repair_diagnostics(tmp_path, "job")
+    current = json.loads(path.read_text())
+    assert current["status"] == "done" and current["navigation_status"] == "unavailable"
+    assert current["assets"]["sfm_diagnostics"] == repaired["sfm_diagnostics"]
+    assert current["metrics"]["sfm_diagnostics_status"] == "available"
+    assert "sfm_diagnostics_reason" not in current["metrics"]
+    assert current["metrics"]["psnr"] == 27.5
+    assert (job / repaired["sfm_diagnostics"]).parent.joinpath("manifest-before-repair.json").read_bytes() == before
+    after_hashes = _tree_hashes(job)
+    assert all(after_hashes[name] == digest for name, digest in hashes.items() if name != "manifest.json")
+    with pytest.raises(ValueError, match="already published"):
+        repair_diagnostics(tmp_path, "job")
 
 
 def _write_database(path: Path) -> None:

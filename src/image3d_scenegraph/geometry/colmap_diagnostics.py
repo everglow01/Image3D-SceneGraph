@@ -110,7 +110,7 @@ def export_colmap_diagnostics(
     temporary.mkdir(parents=True)
 
     try:
-        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
         try:
             _require_tables(connection)
             _check_cancelled(cancel_requested)
@@ -119,6 +119,7 @@ def export_colmap_diagnostics(
                 root,
                 image_root,
                 registered,
+                Path(str(contract.get("source", {}).get("image_root", ""))),
                 splits,
                 normalized_from_world,
                 selection,
@@ -529,6 +530,7 @@ def _image_records(
     root: Path,
     image_root: Path,
     registered: dict[int, dict[str, Any]],
+    registered_image_root: Path,
     splits: dict[int, str],
     normalized_from_world: np.ndarray,
     selection: dict[str, dict[str, Any]],
@@ -553,6 +555,8 @@ def _image_records(
         image_id, name, camera_id = int(image_id), str(name), int(camera_id)
         if camera_id < 1:
             raise ColmapDiagnosticsError("COLMAP image camera ID is invalid")
+        if Path(name).is_absolute() or ".." in Path(name).parts or Path(name).as_posix() != name:
+            raise ColmapDiagnosticsError("COLMAP image name must be a canonical relative path")
         source = _contained(image_root / name, root, file=True, label="feature source image")
         relative = source.relative_to(root).as_posix()
         selected = selection.get(name)
@@ -579,7 +583,15 @@ def _image_records(
                 record["selection_reason"] = str(selected["selection_reason"])
         if image_id in registered:
             registered_image = registered[image_id]
-            if Path(str(registered_image.get("path", ""))).name != name:
+            registered_path = Path(str(registered_image.get("path", "")))
+            if (
+                registered_image_root == Path(".")
+                or registered_image_root.is_absolute()
+                or ".." in registered_image_root.parts
+                or registered_path.is_absolute()
+                or ".." in registered_path.parts
+                or registered_path != registered_image_root / name
+            ):
                 raise ColmapDiagnosticsError(
                     f"final registered image {image_id} does not match the COLMAP database"
                 )
