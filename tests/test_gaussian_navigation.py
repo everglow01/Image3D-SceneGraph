@@ -9,6 +9,9 @@ import pytest
 from image3d_scenegraph.gaussian.dataset import contract_hash
 from scripts.build_gaussian_navigation import (
     load_sparse_initialization,
+    capsule_clearance_mask,
+    build_walkable_mask,
+    obstacle_height_mask,
     walkable_collision_proxy,
     select_depth_view_ids,
     load_train_cameras,
@@ -20,6 +23,97 @@ from scripts.build_gaussian_navigation import (
     validate_inputs,
     validate_train_images,
 )
+
+
+def test_doorway_clearance_is_counted_once_but_narrow_openings_still_block():
+    from scipy import ndimage
+
+    free = np.ones((40, 80), dtype=bool)
+    free[:, 39:41] = False
+    free[14:26, 39:41] = True
+    centers = capsule_clearance_mask(free, cell=0.05, radius=0.18)
+    labels, _ = ndimage.label(centers)
+    assert labels[20, 20] == labels[20, 60] != 0
+    assert np.all(free[centers]) and not centers[20, 0]
+    twice, _ = ndimage.label(capsule_clearance_mask(centers, cell=0.05, radius=0.18))
+    assert twice[20, 20] != twice[20, 60]
+    free[:, 39:41] = False
+    free[17:23, 39:41] = True
+    narrow, _ = ndimage.label(capsule_clearance_mask(free, cell=0.05, radius=0.18))
+    assert narrow[20, 20] != narrow[20, 60]
+
+
+def test_walkable_builder_keeps_door_connected_and_proxy_on_physical_boundary(tmp_path):
+    from types import SimpleNamespace
+
+    vertices, triangles = walkable_collision_proxy(np.ones((12, 30), bool), max_triangles=50_000)
+    vertices *= np.array([0.1, 0.1, 2.0])
+    for low, high in [(0.0, 0.3), (0.9, 1.2)]:
+        offset = len(vertices)
+        vertices = np.concatenate((vertices, [[1.5, low, 0], [1.5, high, 0], [1.5, high, 2], [1.5, low, 2]]))
+        triangles = np.concatenate((triangles, np.array([[0, 1, 2], [0, 2, 3]]) + offset))
+    mesh = SimpleNamespace(vertices=vertices, triangles=triangles)
+
+    def tensor(values):
+        return SimpleNamespace(cpu=lambda: SimpleNamespace(numpy=lambda: values))
+
+    cameras = []
+    for index, x in enumerate([0.5, 1.0, 1.3, 1.7, 2.0, 2.5]):
+        world = np.diag([1.0, -1.0, -1.0, 1.0])
+        world[:3, 3] = [x, 0.6, 1]
+        cameras.append(SimpleNamespace(image_id=str(index), width=64, height=64,
+            camera_from_normalized=tensor(np.linalg.inv(world)),
+            intrinsic=tensor(np.array([[32., 0., 32.], [0., 32., 32.], [0., 0., 1.]]))))
+    x, y = np.meshgrid(np.arange(0.05, 2.96, 0.025), np.arange(0.05, 1.16, 0.025))
+    sparse = np.column_stack((x.ravel(), y.ravel(), np.zeros(x.size)))
+    center, physical, minimum, cell, basis, stats = build_walkable_mask(
+        mesh, sparse, cameras, list(zip(range(5), range(1, 6))),
+        np.array([0., 0., 1.]), 0., 1., 0.01, tmp_path / "masks",
+    )
+    origin, u, v = basis
+    for position in ([0.5, 0.6, 0], [1.5, 0.6, 0], [2.5, 0.6, 0]):
+        relative = np.asarray(position) - origin
+        px, py = np.floor((np.array([relative @ u, relative @ v]) - minimum) / cell).astype(int)
+        assert center[py, px], "两个房间与中间门口必须属于同一可达分量"
+    assert np.all(physical[center]) and physical.sum() > center.sum()
+    assert stats["clearance_policy"] == "center_mask_once_physical_proxy_unexpanded"
+    assert stats["passages"]["candidate_pairs"] == 5
+
+
+def test_obstacle_heights_ignore_steps_but_keep_walls_and_tabletops():
+    low = np.array([0, 0, 0, 0, 0.5, 1.2, -0.05])
+    high = np.array([0.05, 0.12, 0.1201, 1.0, 0.51, 1.3, 0.09])
+    expected = [False, False, True, True, True, False, False]
+    assert obstacle_height_mask(low, high, 1.0).tolist() == expected
+    assert obstacle_height_mask(2 * low, 2 * high, 2.0).tolist() == expected
+
+
+def test_passages_only_repair_short_supported_floor_gaps():
+    floor = np.ones((40, 60), dtype=bool)
+    floor[:, 29:31] = False
+    support = np.ones_like(floor)
+    obstacle = np.zeros_like(floor)
+    cameras = np.array([[22, 20], [39, 20]])
+    heights = np.ones(2)
+    kwargs = dict(cell=0.025, height=1.0, allow_floor_repair=True)
+    repaired, stats = protect_train_passages(floor, support, obstacle, cameras, heights, [(0, 1)], **kwargs)
+    assert repaired[20, 29:31].all() and not repaired[0, 29:31].any()
+    assert stats["accepted_pairs"] == 1 and stats["repaired_floor_cells"] > 0
+    inferred_only, _ = protect_train_passages(floor, support, obstacle, cameras, heights, [(0, 1)], cell=0.025, height=1.0)
+    assert not inferred_only.any()
+    no_path, _ = protect_train_passages(floor, support, obstacle, cameras, heights, [], **kwargs)
+    assert not no_path.any()
+    obstacle[:, 30] = True
+    blocked, stats = protect_train_passages(floor, support, obstacle, cameras, heights, [(0, 1)], **kwargs)
+    assert not blocked.any() and stats["rejected_obstacle_pairs"] == 1
+    obstacle[:] = False
+    support[:, 29:31] = False
+    unsupported, _ = protect_train_passages(floor, support, obstacle, cameras, heights, [(0, 1)], **kwargs)
+    assert not unsupported.any()
+    support[:] = True
+    floor[:, 27:35] = False
+    wide, _ = protect_train_passages(floor, support, obstacle, cameras, heights, [(0, 1)], **kwargs)
+    assert not wide.any()
 
 
 def test_depth_selection_is_bounded_deterministic_train_only_and_pose_diverse():
@@ -265,13 +359,40 @@ def test_trajectory_pairs_follow_filename_sequence_not_contract_order():
     assert pairs[:2] == [(0, 2), (2, 1)]
 
 
+def test_trajectory_pairs_accept_capture_gaps_and_keep_camera_groups_separate():
+    contract = _contract()
+    for index, entry in enumerate(contract["images"]):
+        entry["path"] = f"images/camera-{index // 6}/DSC{index % 6 * 9:04d}.jpg"
+    cameras = [type("Camera", (), {"image_id": str(index)})() for index in range(8)]
+    assert train_trajectory_pairs(contract, contract["splits"]["train"], cameras) == [
+        (0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (6, 7)
+    ]
+
+
+def test_explicit_capture_order_overrides_filenames_without_using_held_out_views():
+    contract = _contract()
+    metadata = {"schema_version": 1, "images": {}}
+    for index, entry in enumerate(contract["images"]):
+        camera = f"camera-{index // 6}"
+        name = f"{camera}/DSC{999-index:04d}.jpg"
+        entry["path"] = "images/" + name
+        metadata["images"][name] = {"camera_id": camera, "capture_index": index % 6 * 100}
+    cameras = [type("Camera", (), {"image_id": str(index)})() for index in range(8)]
+    assert train_trajectory_pairs(contract, contract["splits"]["train"], cameras, metadata) == [
+        (0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (6, 7)
+    ]
+    del metadata["images"]["camera-0/DSC0999.jpg"]
+    with pytest.raises(Exception, match="missing from capture metadata"):
+        train_trajectory_pairs(contract, contract["splits"]["train"], cameras, metadata)
+
+
 def test_passage_protection_rejects_wall_and_level_change():
     floor = np.ones((20, 20), dtype=bool)
     support = floor.copy()
     obstacle = np.zeros_like(floor)
     obstacle[:, 10] = True
-    pixels = np.asarray([[2, 5], [7, 5], [12, 5], [17, 5], [2, 15], [7, 15]])
-    heights = np.asarray([1.0, 1.0, 1.0, 1.0, 1.0, 1.3])
+    pixels = np.asarray([[2, 5], [7, 5], [12, 5], [13, 5], [17, 5], [2, 15], [7, 15]])
+    heights = np.asarray([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.3])
 
     protected, stats = protect_train_passages(
         floor,
@@ -279,14 +400,15 @@ def test_passage_protection_rejects_wall_and_level_change():
         obstacle,
         pixels,
         heights,
-        [(0, 1), (1, 2), (2, 3), (4, 5)],
+        [(0, 1), (1, 2), (3, 4), (5, 6)],
         cell=0.1,
         height=1.0,
     )
 
     assert protected[5, 2:9].any()
     assert protected[5, 13:18].any()
-    assert not protected[:, 9:12].any()
+    assert not protected[:, 10].any()
+    assert stats["rejected_obstacle_pairs"] == 1
     assert stats["rejected_level_change_pairs"] == 1
 
 

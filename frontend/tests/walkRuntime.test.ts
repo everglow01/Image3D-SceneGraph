@@ -14,12 +14,18 @@ const code = ts.transpileModule(readFileSync(new URL("../src/GaussianSplatViewer
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
 }).outputText + "\nexports.probe = { loadWalkRuntime, installWalkHandlers, uninstallWalkHandlers, stepWalk };";
 
-async function harness(wall = false, navigationDir?: string) {
+async function harness(wall: boolean | "doorway" = false, navigationDir?: string) {
   const scene = new THREE.Scene(), collision = new THREE.Group();
   collision.add(new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial()));
-  if (wall) {
+  if (wall === true) {
     const obstacle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 5, 3), new THREE.MeshBasicMaterial());
     obstacle.position.set(1, 0, 1.5); collision.add(obstacle);
+  }
+  if (wall === "doorway") {
+    for (const side of [-1, 1]) {
+      const obstacle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.7, 3), new THREE.MeshBasicMaterial());
+      obstacle.position.set(0.85, side * 1.15, 1.5); collision.add(obstacle);
+    }
   }
   collision.updateMatrixWorld(true);
   let bytes = new Uint8Array([1, 2, 3]).buffer;
@@ -35,8 +41,12 @@ async function harness(wall = false, navigationDir?: string) {
       mouse_sensitivity_radians_per_pixel: { default: 0.002, minimum: 0.0005, maximum: 0.005 },
       pitch_degrees: { minimum: -85, maximum: 85 } },
     provenance: { validation_image_ids_used: [], test_image_ids_used: [] },
-    collision: { bytes: 3, triangles: wall ? 14 : 2, sha256: await walk.collisionSha256(bytes) }
+    collision: { bytes: 3, triangles: wall === "doorway" ? 26 : wall ? 14 : 2, sha256: await walk.collisionSha256(bytes) }
   };
+  if (wall === "doorway") {
+    contract.boundary.outer = [[-1, -1], [0.62, -1], [0.62, -0.12], [1.08, -0.12], [1.08, -1], [3, -1],
+      [3, 1], [1.08, 1], [1.08, 0.12], [0.62, 0.12], [0.62, 1], [-1, 1]];
+  }
   if (navigationDir) {
     contract = JSON.parse(readFileSync(join(navigationDir, "navigation.json"), "utf8"));
     bytes = Uint8Array.from(readFileSync(join(navigationDir, "collision.glb"))).buffer;
@@ -128,6 +138,19 @@ test("WASD 碰墙停止并沿墙滑动，不能越界或因碰撞持续升高", 
   h.key("KeyW", false); h.advance(12);
   assert.ok(h.runtime.capsule.start.y >= -4);
   assert.ok(!h.runtime.octree.capsuleIntersect(h.runtime.capsule));
+  h.close();
+});
+
+test("WASD 能双向穿过0.6H门口，但不能从旁边穿墙", async () => {
+  const h = await harness("doorway"); h.lock();
+  h.key("KeyW"); h.advance(2); h.key("KeyW", false);
+  assert.ok(h.runtime.capsule.start.x > 1.5, "必须真正进入另一侧房间，而不是只在出生点附近移动");
+  h.key("KeyS"); h.advance(2); h.key("KeyS", false);
+  assert.ok(Math.abs(h.runtime.capsule.start.x) < 1e-6, "必须能通过同一门口返回");
+  h.key("KeyA"); h.advance(1); h.key("KeyA", false);
+  h.key("KeyW"); h.advance(2); h.key("KeyW", false);
+  assert.ok(h.runtime.capsule.start.x > 0.3 && h.runtime.capsule.start.x <= 0.62, "门口旁的墙体必须继续阻挡");
+  assert.ok(Math.abs(h.runtime.capsule.start.z - 0.182) < 1e-6);
   h.close();
 });
 

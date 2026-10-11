@@ -149,7 +149,13 @@ The desktop Gaussian viewer enables Walk only when `scene_splat`, `collision_mes
 
 ### 可行走区域碰撞代理（2026-10-11 用户确认）
 
-新导航以 `generation.collision_representation=train_supported_walkable_prism_v1` 明确替代前述TSDF障碍网格＋补地板的混合碰撞表示。深度一致性、稀疏地板、Train相机支持、障碍膨胀、通道检查、连通域及覆盖门禁仍从真实重建证据推导；原TSDF网格只保留为 `collision-debug.ply` 证据，不再直接充当碰撞体。代理逐格生成已选可达区域的地板，并沿外边界与所有孔洞生成朝内、1.5H高的护栏，保留凹边界和孔洞，不填补未支持区域，不把护栏声称为重建墙体。碰撞胶囊会在边界内额外保守留距，窄通道可能因此不可通行。
+新导航以 `generation.collision_representation=train_supported_walkable_prism_v1` 明确替代前述TSDF障碍网格＋补地板的混合碰撞表示。深度一致性、稀疏地板、Train相机支持、通道检查、连通域及覆盖门禁仍从真实重建证据推导；原TSDF网格只保留为 `collision-debug.ply` 证据，不再直接充当碰撞体。代理保留凹边界和孔洞，不把护栏声称为重建墙体。
+
+门口误阻挡修正后，`quality.boundary.clearance_policy=center_mask_once_physical_proxy_unexpanded` 区分两个区域：GLB地板/1.5H护栏沿未按玩家半径收缩的物理自由区域生成；`boundary.outer/holes` 则表示按0.18H半径及半格离散余量计算的玩家中心区域。两者不得复用同一个已收缩区域，从而避免重复扣除半径；小于胶囊直径的窄缝仍不可通行。分别保存 `collision-component.png`、`reachable-component.png`。
+
+低于或等于既有max_step=0.12H的表面不再作为阻挡墙，地板支持高度范围同步覆盖该门槛容差；高于门槛且进入1.12H身体高度范围的墙体、台面等仍投影为实体障碍。优先按Job内已验证 `diagnostics/capture_metadata.json` 的相机组与采集顺序建立相邻Train视角，记录其SHA；不存在该清单时只按目录＋文件名前缀/编号排序作为候选，不再用编号差≤2硬过滤，不跨相机组、不加入Validation/Test视角。
+
+只有显式采集清单允许地板缺口修补：端点已有地板和Train支持、距离≤0.5H、相机高度差≤0.12H，完整中心线须有胶囊净空；新增格子必须仍在Train支持区域且离原地板≤0.06H。真实障碍绝不因轨迹穿过而清除，无采集清单、大缺口、跨层或净空不足均不修补。统计区分候选/实际接受/障碍及支持拒绝/新增地板格数，不将候选当作通过。
 
 代理GLB的顶点以精确整数网格坐标存储，节点矩阵将其映射到normalized坐标（`collision_geometry_encoding=integer_grid_with_normalized_node_transform`）；不用逐顶点float32量化倾斜长护栏。写后读回必须验证该矩阵及顶点坐标，拓扑检查在恢复的整数网格空间进行，并要求映射有限、可逆、保持朝向。这是仿射不变的拓扑校验，不移除三角形或放宽门禁；浏览器仍通过GLTF节点矩阵取得场景坐标。
 

@@ -175,7 +175,7 @@ def _camera_sequence_key(entry: dict[str, Any]) -> tuple[str, int] | None:
     match = re.fullmatch(r"(.*?)(\d+)", name)
     if match is None:
         return None
-    return match.group(1), int(match.group(2))
+    return f"{Path(str(entry['path'])).parent.as_posix()}/{match.group(1)}", int(match.group(2))
 
 
 def load_train_cameras(
@@ -241,22 +241,36 @@ def select_depth_view_ids(contract: dict[str, Any], train_ids: list[str]) -> lis
 
 
 def train_trajectory_pairs(
-    contract: dict[str, Any], train_ids: list[str], cameras: list[RenderCamera]
+    contract: dict[str, Any], train_ids: list[str], cameras: list[RenderCamera],
+    capture: dict[str, Any] | None = None,
 ) -> list[tuple[int, int]]:
     selected = set(train_ids)
     camera_index = {camera.image_id: index for index, camera in enumerate(cameras)}
+    image_root = Path(contract.get("source", {}).get("image_root", "."))
+    if capture is not None:
+        from image3d_scenegraph.geometry.rig_pairing import capture_metadata
+        capture = capture_metadata(capture, set(capture.get("images", {})))
     ordered = []
     for entry in contract["images"]:
         image_id = str(entry["image_id"])
-        sequence = _camera_sequence_key(entry)
-        if image_id in selected and sequence is not None:
+        if image_id not in selected:
+            continue
+        if capture is None:
+            sequence = _camera_sequence_key(entry)
+        else:
+            name = Path(entry["path"]).relative_to(image_root).as_posix()
+            if name not in capture["images"]:
+                raise NavigationBuildError("Train image is missing from capture metadata")
+            record = capture["images"][name]
+            sequence = record["camera_id"], record["capture_index"]
+        if sequence is not None:
             ordered.append((sequence, image_id))
     ordered.sort(key=lambda item: item[0])
-    pairs = []
-    for (previous, previous_id), (current, current_id) in zip(ordered, ordered[1:]):
-        if previous[0] == current[0] and current[1] - previous[1] <= 2:
-            pairs.append((camera_index[previous_id], camera_index[current_id]))
-    return pairs
+    return [
+        (camera_index[previous_id], camera_index[current_id])
+        for (previous, previous_id), (current, current_id) in zip(ordered, ordered[1:])
+        if previous[0] == current[0] and current[1] > previous[1]
+    ]
 
 
 def _camera_center(camera: RenderCamera) -> np.ndarray:
@@ -667,6 +681,11 @@ def remove_diagonal_pinches(mask: np.ndarray) -> tuple[np.ndarray, int]:
         removed += 1
 
 
+def capsule_clearance_mask(free_space: np.ndarray, *, cell: float, radius: float) -> np.ndarray:
+    distance = ndimage.distance_transform_edt(np.pad(free_space, 1))[1:-1, 1:-1] * cell
+    return free_space & (distance >= radius + cell * 0.5)
+
+
 def protect_train_passages(
     floor_mask: np.ndarray,
     support_mask: np.ndarray,
@@ -677,35 +696,58 @@ def protect_train_passages(
     *,
     cell: float,
     height: float,
+    allow_floor_repair: bool = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    radius_cells = max(1, int(math.ceil(0.18 * height / cell)))
-    max_step = 0.5 * height / cell
-    candidate = Image.new("1", (floor_mask.shape[1], floor_mask.shape[0]))
-    accepted_pairs = 0
-    rejected_distance = rejected_level = 0
+    radius = 0.18 * height
+    radius_cells = max(1, int(math.ceil(radius / cell)))
+    repairable = floor_mask.copy()
+    if allow_floor_repair and floor_mask.any():
+        repairable |= ndimage.distance_transform_edt(~floor_mask) * cell <= 0.06 * height
+    proposed_free = repairable & support_mask & ~obstacle_mask
+    clear_centers = capsule_clearance_mask(proposed_free, cell=cell, radius=radius)
+    centerlines = np.zeros_like(floor_mask)
+    accepted_pairs = rejected_distance = rejected_level = rejected_obstacle = rejected_support = 0
+    rows, columns = floor_mask.shape
     for first, second in trajectory_pairs:
-        start = camera_pixels[first]
-        end = camera_pixels[second]
-        if float(np.linalg.norm(end - start)) > max_step:
+        start, end = camera_pixels[first], camera_pixels[second]
+        if float(np.linalg.norm(end - start)) > 0.5 * height / cell:
             rejected_distance += 1
             continue
         if abs(float(camera_heights[first] - camera_heights[second])) > 0.12 * height:
             rejected_level += 1
             continue
-        _draw_grid_line(candidate, start, end, fill=1, width=radius_cells * 2 + 1)
+        if not all(0 <= x < columns and 0 <= y < rows and floor_mask[y, x] and support_mask[y, x]
+                   for x, y in (start, end)):
+            rejected_support += 1
+            continue
+        line = Image.new("1", (columns, rows))
+        _draw_grid_line(line, start, end, fill=1, width=1)
+        pixels = np.asarray(line, dtype=bool)
+        if np.any(pixels & obstacle_mask):
+            rejected_obstacle += 1
+            continue
+        if np.any(pixels & ~clear_centers):
+            rejected_support += 1
+            continue
+        centerlines |= pixels
         accepted_pairs += 1
-    corridor = np.asarray(candidate, dtype=bool).copy()
-    corridor &= floor_mask & support_mask
-    # Camera trajectories provide free-space evidence only where the Capsule centerline
-    # remains clear after the same radius expansion used for normal navigation.
-    corridor &= ~ndimage.binary_dilation(obstacle_mask, iterations=radius_cells)
+    yy, xx = np.ogrid[-radius_cells:radius_cells + 1, -radius_cells:radius_cells + 1]
+    disk = (xx * xx + yy * yy) * cell * cell <= (radius + cell * 0.5) ** 2
+    corridor = ndimage.binary_dilation(centerlines, structure=disk) & proposed_free
     return corridor, {
         "candidate_pairs": len(trajectory_pairs),
         "accepted_pairs": accepted_pairs,
         "rejected_distance_pairs": rejected_distance,
         "rejected_level_change_pairs": rejected_level,
+        "rejected_obstacle_pairs": rejected_obstacle,
+        "rejected_support_pairs": rejected_support,
         "protected_cells": int(corridor.sum()),
+        "repaired_floor_cells": int((corridor & ~floor_mask).sum()),
     }
+
+
+def obstacle_height_mask(triangle_min: np.ndarray, triangle_max: np.ndarray, height: float) -> np.ndarray:
+    return (triangle_max > 0.12 * height) & (triangle_min <= 1.12 * height)
 
 
 def build_walkable_mask(
@@ -718,7 +760,9 @@ def build_walkable_mask(
     height: float,
     voxel: float,
     debug_dir: Path,
-) -> tuple[np.ndarray, np.ndarray, float, tuple[np.ndarray, np.ndarray, np.ndarray], dict[str, Any]]:
+    *,
+    allow_floor_repair: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, tuple[np.ndarray, np.ndarray, np.ndarray], dict[str, Any]]:
     vertices = np.asarray(mesh.vertices)
     triangles = np.asarray(mesh.triangles)
     a, b, c = vertices[triangles[:, 0]], vertices[triangles[:, 1]], vertices[triangles[:, 2]]
@@ -727,7 +771,7 @@ def build_walkable_mask(
     normals = cross / np.maximum(np.linalg.norm(cross, axis=1, keepdims=True), 1e-12)
     centers = (a + b + c) / 3
     levels = centers @ up - floor_offset
-    floor_triangles = (np.abs(normals @ up) >= math.cos(math.radians(35))) & (np.abs(levels) <= max(voxel * 3, height * 0.08))
+    floor_triangles = (np.abs(normals @ up) >= math.cos(math.radians(35))) & (np.abs(levels) <= max(voxel * 3, height * 0.12))
     if floor_triangles.sum() < 20:
         raise NavigationBuildError("collision mesh has no usable walkable floor triangles")
 
@@ -801,18 +845,12 @@ def build_walkable_mask(
 
     obstacle_image = Image.new("1", (width, rows))
     draw_obstacle = ImageDraw.Draw(obstacle_image)
-    vertical = np.abs(normals @ up) < 0.7
     triangle_min = np.minimum.reduce((a @ up, b @ up, c @ up)) - floor_offset
     triangle_max = np.maximum.reduce((a @ up, b @ up, c @ up)) - floor_offset
-    obstacles = (
-        vertical
-        & (triangle_max >= height * 0.08)
-        & (triangle_min <= height * 1.12)
-    )
+    obstacles = obstacle_height_mask(triangle_min, triangle_max, height)
     for triangle in vertices[triangles[obstacles]]:
         polygon = _grid_index(_uv(triangle, origin, basis_u, basis_v), minimum, cell)
-        points = [tuple(point) for point in polygon] + [tuple(polygon[0])]
-        draw_obstacle.line(points, fill=1, width=2)
+        draw_obstacle.polygon([tuple(point) for point in polygon], fill=1)
     obstacle_mask = np.asarray(obstacle_image, dtype=bool).copy()
     labels, obstacle_components = ndimage.label(obstacle_mask)
     component_sizes = np.bincount(labels.ravel())
@@ -837,15 +875,13 @@ def build_walkable_mask(
         trajectory_pairs,
         cell=cell,
         height=height,
+        allow_floor_repair=allow_floor_repair,
     )
-    radius = 0.18 * height
-    iterations = max(1, int(math.ceil(radius / cell)))
-    obstacle_mask = ndimage.binary_dilation(obstacle_mask, iterations=iterations)
-    walkable = floor_mask & support_mask & ~obstacle_mask
-    walkable = ndimage.binary_opening(walkable, iterations=1)
-    walkable |= passage_mask
+    free_space = ((floor_mask & support_mask) | passage_mask) & ~obstacle_mask
+    free_space, physical_pinch_cells_removed = remove_diagonal_pinches(free_space)
+    walkable = capsule_clearance_mask(free_space, cell=cell, radius=0.18 * height)
     Image.fromarray((passage_mask * 255).astype(np.uint8)).save(debug_dir / "protected-passages-mask.png")
-    Image.fromarray((obstacle_mask * 255).astype(np.uint8)).save(debug_dir / "obstacle-mask-expanded.png")
+    Image.fromarray((free_space * 255).astype(np.uint8)).save(debug_dir / "physical-free-mask.png")
     Image.fromarray((walkable * 255).astype(np.uint8)).save(debug_dir / "walkable-mask.png")
     labels, count = ndimage.label(walkable)
     if count == 0:
@@ -883,7 +919,13 @@ def build_walkable_mask(
             f"height={height:.6f}, floor_offset={floor_offset:.6f}, "
             f"up={up.tolist()}, components={scores}"
         )
-    return component, minimum, cell, (origin, basis_u, basis_v), {
+    physical_labels, _ = ndimage.label(free_space)
+    physical_component = physical_labels == int(physical_labels[component][0])
+    return component, physical_component, minimum, cell, (origin, basis_u, basis_v), {
+        "clearance_policy": "center_mask_once_physical_proxy_unexpanded",
+        "physical_free_cells": int(physical_component.sum()),
+        "physical_pinch_cells_removed": physical_pinch_cells_removed,
+        "ignored_low_obstacle_triangles": int((triangle_max <= 0.12 * height).sum()),
         "floor_triangle_count": int(floor_triangles.sum()),
         "floor_area": float(areas[floor_triangles].sum()),
         "sparse_floor_point_count": len(sparse_floor_points),
@@ -1256,7 +1298,15 @@ def build_navigation_assets(
         raise NavigationBuildError("Gaussian navigation depth rendering requires CUDA")
     model = load_model_snapshot(model_path, device)
     cameras = load_train_cameras(contract, train_ids, options.render_longest_edge)
-    trajectory_pairs = train_trajectory_pairs(contract, train_ids, cameras)
+    capture_path = dataset_root / "diagnostics" / "capture_metadata.json"
+    capture = None
+    capture_sha256 = None
+    if capture_path.exists():
+        if capture_path.is_symlink() or not capture_path.resolve().is_relative_to(dataset_root.resolve()):
+            raise NavigationBuildError("capture metadata escapes the Job")
+        capture = _read_json(capture_path)
+        capture_sha256 = sha256_file(capture_path)
+    trajectory_pairs = train_trajectory_pairs(contract, train_ids, cameras, capture)
     sh_degree = int(config["effective_config"]["sh_schedule"]["max_degree"])
     depth_ids = set(select_depth_view_ids(contract, train_ids))
     depth_cameras = [camera for camera in cameras if camera.image_id in depth_ids]
@@ -1319,7 +1369,7 @@ def build_navigation_assets(
     if not np.isfinite(vertices).all() or not np.isfinite(triangles).all():
         raise NavigationBuildError("collision mesh contains non-finite geometry")
 
-    component, minimum, cell, basis, boundary_stats = build_walkable_mask(
+    component, physical_component, minimum, cell, basis, boundary_stats = build_walkable_mask(
         mesh,
         sparse_floor_points,
         cameras,
@@ -1329,6 +1379,7 @@ def build_navigation_assets(
         height,
         options.voxel_length,
         output_dir / "masks",
+        allow_floor_repair=capture is not None,
     )
     polygons = mask_to_polygons(component, minimum, cell)
     if not polygons:
@@ -1342,7 +1393,7 @@ def build_navigation_assets(
             f"train_camera_ratio={reachable_camera_ratio:.6f}, "
             f"area_h2={reachable_area_h2:.6f}"
         )
-    vertices, triangles = walkable_collision_proxy(component, max_triangles=options.max_triangles)
+    vertices, triangles = walkable_collision_proxy(physical_component, max_triangles=options.max_triangles)
     origin, basis_u, basis_v = basis
     normalized_from_proxy = np.eye(4)
     normalized_from_proxy[:3, :3] = np.column_stack((cell * basis_u, cell * basis_v, 1.5 * height * up))
@@ -1355,9 +1406,10 @@ def build_navigation_assets(
         o3d.utility.Vector3dVector(vertices @ normalized_from_proxy[:3, :3].T + normalized_from_proxy[:3, 3]),
         o3d.utility.Vector3iVector(triangles),
     )
-    cleanup["navigation_floor_triangles"] = 2 * int(component.sum())
+    cleanup["navigation_floor_triangles"] = 2 * int(physical_component.sum())
     cleanup["navigation_guard_triangles"] = len(triangles) - cleanup["navigation_floor_triangles"]
     Image.fromarray((component * 255).astype(np.uint8)).save(output_dir / "masks" / "reachable-component.png")
+    Image.fromarray((physical_component * 255).astype(np.uint8)).save(output_dir / "masks" / "collision-component.png")
 
     mesh.compute_vertex_normals()
     mesh.remove_duplicated_triangles()
@@ -1456,6 +1508,7 @@ def build_navigation_assets(
             "image_rgb_access": "hash_verification_only",
             "train_image_layout": train_image_layout,
             "sparse_initialization_sha256": sparse_sha256,
+            "capture_metadata_sha256": capture_sha256,
         },
         "collision": {
             "asset": "collision.glb",
@@ -1468,15 +1521,16 @@ def build_navigation_assets(
             "options": asdict(options),
             "elapsed_seconds": elapsed,
             "depth_view_selection": "train_pose_farthest_256_v1",
-            "small_hole_policy": "implicit_tsdf_fusion_only",
+            "small_hole_policy": "train_corridor_floor_gap_distance_at_most_0.06H" if capture is not None else "no_floor_gap_repair_without_capture_metadata",
             "floor_support": "contracted_colmap_sparse_dominant_plane_intersect_train_support",
             "collision_representation": "train_supported_walkable_prism_v1",
             "collision_geometry_encoding": "integer_grid_with_normalized_node_transform",
             "topology_evaluation_frame": "proxy_integer_grid",
-            "collision_floor": "triangulated_reachable_train_supported_floor_cells",
+            "collision_floor": "unexpanded_supported_free_component_cells",
             "collision_guards": "inward_boundary_extrusion_1.5H_not_reconstructed_walls",
-            "navigation_scope": "single_floor_planar_conservative_capsule_clearance",
-            "door_protection": "train_sequence_short_level_consistent_obstacle_clear_corridors",
+            "navigation_scope": "single_floor_planar_capsule_clearance_once",
+            "trajectory_adjacency": "explicit_capture_order_v1" if capture is not None else "filename_order_spatial_gated_v1",
+            "door_protection": "short_level_train_corridors_bounded_floor_gaps_no_obstacle_override",
         },
         "quality": {"consistency": consistency, "tsdf": tsdf, "cleanup": cleanup, "floor": floor, "boundary": boundary_stats, "topology": topology},
     }
