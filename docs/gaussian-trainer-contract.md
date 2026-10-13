@@ -34,6 +34,10 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 其余修复只有通过对应数值与质量对照后才可判断有效，不能一次混改后归因。隔离重定位修复必须匹配包装层/内核并绑定源码和二进制身份；保留旧目标动量是参考实现共有行为，其清零只作为单独实验变体。已有内部 `loss.clamp_render=false` 和 `learning_rate.position.delay_multiplier=1.0` 分别用于单字段对照，不改公开 schema10 默认。位置LR对位置噪声的联动必须披露。完整场景实验的启动、资源门禁和真实结果随后记录，不以准备完成冒充训练完成。
 
+第二项的最小隔离实现为 `scripts/prepare_gsplat_mcmc.py`：核对安装包三个文件的审计SHA，只复制包到全新目录，保留原 `csrc*.so` 光栅化二进制；独立编译重定位小扩展，而非重编整个光栅化器。包装层向扩展传递实际 `min_opacity`，内核在尺度计算前执行上下限；`relocate`/`sample_add`均显式传参，旧动量处理不变。每次编译最多一个并行任务，不修改生产依赖或全局编译缓存。`overlay.json`绑定全部包源码和二进制，训练provenance检查实际文件集合与SHA后将其身份加入environment hash，旧环境不能冒充修复态或跨环境resume。上游公式依据是2026-10-12归档的RelocationCUDA.cu SHA `9f77224f…`，不宣称某已发布版本含修复。
+
+`scripts/smoke_mcmc_stability.py`仅用于获授权远端双卡验证：原库诊断态与显式 `--relocation` 修复态分开执行；验证健康/96%退化两分片均可见且不推进CUDA RNG，6个重定位公式输入（含ratio超上限）、两条拓扑入口各两个opacity下限、无floor时与原二进制对照（atol2e-6/rtol2e-4）、SH3/64px/60点/12更新的实际分布式trainer、增点、Validation、末态checkpoint和合并。输出独立且拒绝覆盖；这些不是apartment质量证据。当前仅源码SHA/锚点、AST、标准库补丁回归和Ruff通过，CUDA编译/实际GPU运行尚未通过，禁止据此启动后续场景臂。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。

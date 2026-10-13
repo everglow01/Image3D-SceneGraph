@@ -1660,5 +1660,24 @@ def _gsplat_version() -> str:
 
     if getattr(rendering, "PROJECT_DISTRIBUTED_ABSGRAD_VERSION", None) == 1:
         digest = hashlib.sha256(Path(rendering.__file__).read_bytes()).hexdigest()
-        return f"{version};project_absgrad_v1_sha256={digest}"
+        version += f";project_absgrad_v1_sha256={digest}"
+    from gsplat import relocation
+
+    if getattr(relocation, "PROJECT_MCMC_RELOCATION_VERSION", None) == 1:
+        root = Path(gsplat.__file__).resolve().parent.parent
+        record_path = root / "overlay.json"
+        record = json.loads(record_path.read_text())
+        if record["profile"] != "mcmc_relocation_floor_overlay_v1":
+            raise TrainingError("unexpected MCMC relocation overlay identity")
+        actual_files = {
+            str(path.relative_to(root)) for path in (root / "gsplat").rglob("*")
+            if path.is_file() and path.suffix in {".py", ".so", ".cpp", ".cu", ".h"}
+        }
+        if actual_files != set(record["files"]) or "gsplat/relocation.py" not in actual_files:
+            raise TrainingError("incomplete MCMC relocation overlay identity")
+        for name, expected in record["files"].items():
+            path = (root / name).resolve()
+            if not path.is_relative_to(root) or sha256_file(path) != expected:
+                raise TrainingError(f"MCMC relocation overlay hash mismatch: {name}")
+        version += f";project_mcmc_relocation_v1_sha256={sha256_file(record_path)}"
     return version

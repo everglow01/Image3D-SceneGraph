@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Remote-only CUDA gates for isolated MCMC relocation and per-rank diagnostics."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import torch
+from gsplat.distributed import cli
+from gsplat.strategy import ops
+from gsplat.cuda._wrapper import _make_lazy_cuda_func
+from gsplat.relocation import compute_relocation
+
+from image3d_scenegraph.gaussian.config import resolve_internal_config
+from image3d_scenegraph.gaussian.initialization import InitializationResult
+from image3d_scenegraph.gaussian.trainer import (
+    _gather_rank_health, _gsplat_version, _mcmc_parameter_health, train_gaussians,
+)
+from smoke_gaussian_trainer import generate_scene
+
+
+ATOL = 2e-6
+RTOL = 2e-4
+
+
+def relocation_reference(alpha: float, ratio: int, minimum: float) -> tuple[float, float]:
+    ratio = min(51, max(1, ratio))
+    opacity = min(1. - 2.**-23, max(minimum, 1. - (1. - alpha)**(1. / ratio)))
+    denominator = math.fsum(
+        (-1.)**(k + 1) * math.comb(ratio, k) * opacity**k / math.sqrt(k)
+        for k in range(1, ratio + 1)
+    )
+    return opacity, alpha / denominator
+
+
+def relocation_checks(device: torch.device) -> dict:
+    import gsplat.relocation as relocation
+
+    if getattr(relocation, "PROJECT_MCMC_RELOCATION_VERSION", None) != 1:
+        raise RuntimeError("the separately built relocation overlay is required")
+    binoms = torch.tensor([[math.comb(n, k) if k <= n else 0 for k in range(51)]
+                           for n in range(51)], dtype=torch.float32, device=device)
+    alpha = torch.tensor([.006, .01, .05, .0001, .5, .99], device=device)
+    ratios = torch.tensor([2, 10, 51, 75, 2, 1], device=device)
+    scales = torch.full((len(alpha), 3), .2, device=device)
+    expected = torch.tensor([relocation_reference(float(a), int(n), .005)
+                             for a, n in zip(alpha, ratios)], device=device)
+    actual_opacity, actual_scale = compute_relocation(alpha, scales, ratios.clone(), binoms)
+    torch.testing.assert_close(actual_opacity, expected[:, 0], atol=ATOL, rtol=RTOL)
+    torch.testing.assert_close(actual_scale, scales * expected[:, 1, None], atol=ATOL, rtol=RTOL)
+    assert torch.isfinite(actual_scale).all() and (actual_scale > 0).all()
+    old_opacity, old_scale = _make_lazy_cuda_func("relocation")(
+        alpha, scales, ratios.clamp(1, 51).int(), binoms, 51,
+    )
+    torch.testing.assert_close(actual_opacity[-2:], old_opacity[-2:], atol=ATOL, rtol=RTOL)
+    torch.testing.assert_close(actual_scale[-2:], old_scale[-2:], atol=ATOL, rtol=RTOL)
+    for minimum in (.005, .01):
+        for operation in ("relocate", "sample_add"):
+            params = torch.nn.ParameterDict({
+                "means": torch.nn.Parameter(torch.zeros((2, 3), device=device)),
+                "scales": torch.nn.Parameter(torch.full((2, 3), math.log(.2), device=device)),
+                "opacities": torch.nn.Parameter(torch.logit(torch.tensor([.006, 1e-6], device=device))),
+            })
+            optimizers = {key: torch.optim.Adam([value], lr=.01) for key, value in params.items()}
+            sampler = ops._multinomial_sample
+            ops._multinomial_sample = lambda weights, count, **kwargs: torch.zeros(count, dtype=torch.long, device=device)
+            try:
+                if operation == "relocate":
+                    ops.relocate(params, optimizers, {}, torch.tensor([False, True], device=device), binoms, minimum)
+                else:
+                    ops.sample_add(params, optimizers, {}, 1, binoms, minimum)
+            finally:
+                ops._multinomial_sample = sampler
+            expected_opacity, coefficient = relocation_reference(.006, 2, minimum)
+            indices = [0, 1] if operation == "relocate" else [0, 2]
+            torch.testing.assert_close(params["opacities"].sigmoid()[indices],
+                                       torch.full((2,), expected_opacity, device=device), atol=ATOL, rtol=RTOL)
+            torch.testing.assert_close(params["scales"].exp()[indices],
+                                       torch.full((2, 3), .2 * coefficient, device=device), atol=ATOL, rtol=RTOL)
+    return {"formula_cases": len(alpha), "operation_cases": 4,
+            "no_floor_original_binary_equivalent": True,
+            "scale_max_absolute_error": float((actual_scale - scales * expected[:, 1, None]).abs().max())}
+
+
+def trainer_check(rank: int, world_size: int, output: Path) -> dict:
+    dataset_root = output / "synthetic-dataset"
+    if rank == 0:
+        generate_scene(dataset_root)
+    torch.distributed.barrier()
+    contract = json.loads((dataset_root / "dataset.json").read_text())
+    initialization = InitializationResult(
+        points=np.random.RandomState(7).uniform(-.15, .15, (60, 3)).astype(np.float32),
+        colors=np.full((60, 3), 128, dtype=np.uint8), scales=np.full(60, .02, dtype=np.float32),
+        diagnostics={"kind": "synthetic_mcmc_stability"},
+    )
+    config = resolve_internal_config("mcmc_v1", {
+        "iterations": 12, "resolution": {"longest_edge": 64},
+        "sh_schedule": {"initial_degree": 3, "max_degree": 3, "increase_every_iterations": 1},
+        "densification": {"start_iteration": 2, "end_iteration": 10, "every_iterations": 2},
+        "opacity_reset": {"every_iterations": 12, "recovery_prune": {"window_iterations": 2}},
+        "evaluation": {"validation_iterations": [6, 12]},
+    })
+    result = train_gaussians(
+        contract=contract, dataset_root=dataset_root, initialization=initialization,
+        resolved_config=config, run_dir=output / "trainer", local_rank=rank,
+        world_rank=rank, world_size=world_size, save_intermediate_previews=False,
+    )
+    if rank != 0:
+        return {"updates": 12}
+    events = [json.loads(line) for line in (output / "trainer" / result.progress_path).read_text().splitlines()]
+    steps = [event for event in events if "loss" in event]
+    assert len(steps) == 12 and any(event.get("mcmc_added_count", 0) > 0 for event in steps)
+    for event in events:
+        due = event.get("event") == "validation" or event["iteration"] == 1 or event["iteration"] % 2 == 0
+        if due:
+            assert len(event["mcmc_health_by_rank"]) == world_size
+            if "loss" in event:
+                assert [item["rank"] for item in event["mcmc_health_by_rank"]] == list(range(world_size))
+                for item in event["mcmc_health_by_rank"]:
+                    assert item["rgb_range_before_optimizer"]["nonfinite_count"] == 0
+            else:
+                assert all("rgb_range" in view for view in event["per_view"])
+    return {"updates": 12, "result": result.__dict__, "diagnostics_checked": True}
+
+
+def worker(local_rank: int, rank: int, world_size: int, args) -> None:
+    assert world_size == 2 and local_rank == rank
+    device = torch.device(f"cuda:{local_rank}")
+    torch.cuda.set_device(device)
+    config = resolve_internal_config("mcmc_v1").effective_config
+    opacity = torch.tensor(([.1] * 100 if rank == 0 else [1e-6] * 96 + [.1] * 4), device=device)
+    shard = SimpleNamespace(count=100, opacity_logits=torch.logit(opacity),
+                            log_scales=torch.full((100, 3), -5., device=device),
+                            means=torch.zeros((100, 3), device=device))
+    rng = torch.cuda.get_rng_state(device).clone()
+    health = _gather_rank_health(_mcmc_parameter_health(shard, config), world_size)
+    assert [item["dead_count"] for item in health] == [0, 96]
+    assert torch.equal(rng, torch.cuda.get_rng_state(device))
+    record = {"rank": rank, "environment": _gsplat_version(), "rank_health": health}
+    if args.relocation:
+        record["relocation"] = relocation_checks(device)
+    record["trainer"] = trainer_check(rank, world_size, args.output_dir)
+    record["status"] = "passed"
+    (args.output_dir / f"rank-{rank}.json").write_text(json.dumps(record, indent=2) + "\n")
+    torch.distributed.barrier()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--relocation", action="store_true")
+    args = parser.parse_args()
+    if torch.cuda.device_count() != 2:
+        raise SystemExit("this smoke requires exactly two visible GPUs")
+    args.output_dir = args.output_dir.resolve()
+    args.output_dir.mkdir(parents=True, exist_ok=False)
+    cli(worker, args, verbose=True)
+    records = [json.loads((args.output_dir / f"rank-{rank}.json").read_text()) for rank in range(2)]
+    summary = {"status": "passed", "world_size": 2, "ranks": records,
+               "atol": ATOL, "rtol": RTOL, "real_scene_training": "not_run", "test_rgb": "not_loaded"}
+    (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -186,6 +186,32 @@ def test_mcmc_health_reports_degraded_shard_without_changing_state(monkeypatch):
     assert image.grad is None
 
 
+def test_mcmc_overlay_provenance_binds_actual_files(tmp_path, monkeypatch):
+    import hashlib
+    import gsplat
+    from gsplat import relocation
+    from image3d_scenegraph.gaussian.trainer import _gsplat_version
+
+    package = tmp_path / "gsplat"
+    package.mkdir()
+    source = package / "relocation.py"
+    source.write_text("# isolated test identity\n")
+    monkeypatch.setattr(gsplat, "__file__", str(package / "__init__.py"))
+    monkeypatch.setattr(relocation, "PROJECT_MCMC_RELOCATION_VERSION", 1, raising=False)
+    record = {"profile": "mcmc_relocation_floor_overlay_v1",
+              "files": {"gsplat/relocation.py": hashlib.sha256(source.read_bytes()).hexdigest()}}
+    path = tmp_path / "overlay.json"
+    path.write_text(json.dumps(record))
+    assert f"project_mcmc_relocation_v1_sha256={hashlib.sha256(path.read_bytes()).hexdigest()}" in _gsplat_version()
+    source.write_text("changed")
+    with pytest.raises(TrainingError, match="hash mismatch"):
+        _gsplat_version()
+    record["files"] = {}
+    path.write_text(json.dumps(record))
+    with pytest.raises(TrainingError, match="incomplete"):
+        _gsplat_version()
+
+
 def test_mcmc_global_cap_is_split_exactly_across_ranks():
     assert [_local_gaussian_cap(3_000_001, rank, 2) for rank in range(2)] == [
         1_500_001,

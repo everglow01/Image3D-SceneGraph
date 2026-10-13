@@ -600,6 +600,9 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-13，诊断实现38d98d0已单项提交。远端Git写入被权限层要求本轮明确点名主机/路径而拦截，未换通道；用户手动pull后核对仍b8b6b19，首次命令运行的76项通过是旧版回归，不计新实现验收。已将工作分支快进main并推送，随后提交号门禁正确拒绝旧版本测试，未再次自动同步。独立完成第二项隔离重定位候选与验证入口：审计SHA锁定旧wrapper/ops/CUDA源码，仅编译匹配的小扩展，保留原光栅化二进制；floor先于scale，两个拓扑入口均传实际下限，动量不变。环境身份检查全包源码/二进制集合与SHA。新增远端双卡健康/退化分片、CUDA公式及12步实际MCMC训练检查入口，不读Test、不覆写产物。本地3项纯标准库/AST补丁与公式回归、实际安装源码SHA/全部锚点及Ruff通过；CUDA编译、新版Torch回归、双卡smoke和apartment场景臂均尚未执行，不能宣称修复有效或门禁通过。待远端取得对应提交并通过门禁再按推荐顺序推进后续单因素臂；线上模型、依赖与服务未改。原导航未提交记录保持未暂存。
+
+
 - 2026-10-13，用户授权按已推荐顺序完成MCMC稳定性修复和验证实验，每项独立commit。当前执行顺序为逐rank/RGB诊断→隔离重定位opacity-floor/scale一致性及GPU数值门禁→fresh冻结apartment replay基线与raw-loss、重定位、目标Adam动量清零、位置LR各单因素对照；不执行旧AbsGrad计划，不推广生产默认、不覆写两个旧Job、不使用Test、不启动subagent。使用单一mcmc-stability-validation工作分支保留main集成基线，新源码仅Git同步。第一项实现无RNG/参数副作用的逐rank策略前后小摘要及逐视角原始RGB范围；本地仅静态检查，Torch/真实双卡验证经Git同步后在远端进行，其结果单独记录。原有未提交导航记录及个人草稿不混入本轮提交。
 
 
