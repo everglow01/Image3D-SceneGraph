@@ -42,6 +42,20 @@ def load_model_snapshot(path: Path, device: torch.device) -> GaussianModel:
         raise GaussianEvaluationError(f"invalid Gaussian model snapshot: {exc}") from exc
 
 
+@torch.no_grad()
+def rgb_range_summary(image: torch.Tensor) -> dict[str, Any]:
+    image = image.detach()
+    return {
+        "scope": "raw_render_channels_before_display_clamp",
+        "channel_count": image.numel(),
+        "below_zero_count": int((image < 0).sum()),
+        "above_one_count": int((image > 1).sum()),
+        "nonfinite_count": int((~torch.isfinite(image)).sum()),
+        "min": float(image.min()),
+        "max": float(image.max()),
+    }
+
+
 def evaluate_model(
     model: GaussianModel,
     views: Sequence[TrainingView],
@@ -110,6 +124,7 @@ def evaluate_model(
                         structural_similarity(display_image_float, display_reference_float)
                     ),
                     "render_milliseconds": render_ms,
+                    "rgb_range": rgb_range_summary(rendered.image),
                 }
                 if not all(
                     np.isfinite(float(entry[key]))

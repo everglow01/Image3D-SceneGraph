@@ -26,6 +26,14 @@ The 2026-09-15 UHD extension permits an explicit longest edge through 3840px whi
 
 Gaussian evaluation schema 2 preserves the historical top-level and per-view `psnr`/`ssim` fields as the primary `raw_float_v1` profile: metrics are computed directly from the unclamped gsplat float render and the float reference. It additionally reports `display_psnr`/`display_ssim` under `display_clamped_uint8_v1`, applying the preview path independently to prediction and reference (`clamp(0,1)`, multiply by 255, floor to uint8, divide by 255) before scoring. `quality_profiles` records both identities. These profiles are parallel reports: display metrics do not replace raw metrics, change Validation selection, or rewrite historical evaluation artifacts. Frozen-candidate and Test-consumption records remain schema 1 so previously frozen candidates retain their authorization identity.
 
+## MCMC 稳定性修复与单因素验证（2026-10-13）
+
+用户授权按诊断、重定位数值门禁、RGB 损失、目标动量、位置学习率的顺序修复与实验，每项独立提交。实验只在 i-94B8D131 的指定项目内，经 Git 同步，在独立 outputs 目录执行；现有两个 apartment Job、生产依赖、公开默认和 Test 保持不变。场景对照从 MCMC Job 的冻结 replay fresh 初始化，seed20260729、2048、双卡、全局3M、名义30k日程保持一致；3k无完整优化器/RNG，不能伪称精确恢复。旧 AbsGrad 计划不是本轮执行计划。
+
+首项仅补诊断：MCMC 第1步、每次配置的 refinement 间隔、Validation步和末步收集逐rank的小摘要，明确优化器更新后/策略前及重定位、增点、噪声后的作用域；记录存活/低透明度数量、opacity/max-axis-scale分位数、最大原点距离、位置LR和本rank相机的原始RGB范围。Validation另有按rank排序的参数摘要；历史顶层参数健康字段仍是rank0，不冒充全模型。所有新评估逐视角增加 `rgb_range` 的越界通道计数和极值，raw/display分数及选择逻辑不变。统计不消耗RNG、不修改张量/优化器，不把96%低透明度擅自新增为硬失败。
+
+其余修复只有通过对应数值与质量对照后才可判断有效，不能一次混改后归因。隔离重定位修复必须匹配包装层/内核并绑定源码和二进制身份；保留旧目标动量是参考实现共有行为，其清零只作为单独实验变体。已有内部 `loss.clamp_render=false` 和 `learning_rate.position.delay_multiplier=1.0` 分别用于单字段对照，不改公开 schema10 默认。位置LR对位置噪声的联动必须披露。完整场景实验的启动、资源门禁和真实结果随后记录，不以准备完成冒充训练完成。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。

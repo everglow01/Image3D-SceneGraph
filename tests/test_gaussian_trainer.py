@@ -155,6 +155,37 @@ def test_mcmc_strategy_uses_frozen_global_budget_method_settings():
     assert strategy.min_opacity == pytest.approx(0.005)
 
 
+def test_mcmc_health_reports_degraded_shard_without_changing_state(monkeypatch):
+    from image3d_scenegraph.gaussian.trainer import _gather_rank_health, _mcmc_parameter_health
+    from image3d_scenegraph.gaussian.evaluation import rgb_range_summary
+
+    opacity = torch.tensor([1e-6] * 96 + [.1] * 4)
+    shard = SimpleNamespace(count=100, opacity_logits=torch.logit(opacity),
+                            log_scales=torch.full((100, 3), -5.),
+                            means=torch.zeros((100, 3)))
+    rng = torch.get_rng_state().clone()
+    before = shard.opacity_logits.clone()
+    health = _mcmc_parameter_health(shard, resolve_mcmc_config().effective_config)
+    assert health["dead_count"] == 96
+    assert health["alive_count"] == 4
+    assert health["dead_fraction"] == .96
+    assert health["opacity_quantiles"][1] == pytest.approx(1e-6)
+    assert torch.equal(before, shard.opacity_logits)
+    assert torch.equal(rng, torch.get_rng_state())
+    healthy = {**health, "dead_count": 0, "dead_fraction": 0.}
+    monkeypatch.setattr(torch.distributed, "all_gather_object",
+                        lambda target, local: target.__setitem__(slice(None), [local, health]))
+    assert _gather_rank_health(healthy, 2) == [healthy, health]
+    assert _gather_rank_health(health, 1) == [health]
+    image = torch.tensor([[[-.1, .5, 4.]]], requires_grad=True)
+    summary = rgb_range_summary(image)
+    assert summary["above_one_count"] == 1
+    assert summary["below_zero_count"] == 1
+    assert summary["channel_count"] == 3
+    assert summary["max"] == 4.
+    assert image.grad is None
+
+
 def test_mcmc_global_cap_is_split_exactly_across_ranks():
     assert [_local_gaussian_cap(3_000_001, rank, 2) for rank in range(2)] == [
         1_500_001,

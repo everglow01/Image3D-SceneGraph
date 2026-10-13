@@ -32,7 +32,7 @@ from .checkpoint import (
     write_checkpoint,
 )
 from .config import ResolvedGaussianConfig, validate_effective_config
-from .evaluation import evaluate_model
+from .evaluation import evaluate_model, rgb_range_summary
 from .initialization import InitializationResult
 from .model import GaussianModel, GaussianModelError
 from .model_io import (
@@ -366,6 +366,13 @@ def train_gaussians(
             for optimizer in optimizers.values():
                 optimizer.step()
 
+            mcmc_diagnostic_due = is_mcmc and (
+                iteration == 1 or iteration % int(config["densification"]["every_iterations"]) == 0
+                or iteration in config["evaluation"]["validation_iterations"]
+                or iteration == total_iterations
+            )
+            if mcmc_diagnostic_due:
+                mcmc_before = _mcmc_parameter_health(model, config)
             mcmc_refinement = is_mcmc and _mcmc_refinement_due(config, iteration)
             mcmc_dead_local = 0
             mcmc_dead_global = 0
@@ -466,6 +473,16 @@ def train_gaussians(
                         "mcmc_noise_applied": True,
                     }
                 )
+            if mcmc_diagnostic_due:
+                local_health = {
+                    "rank": world_rank,
+                    "before_strategy_after_optimizer": mcmc_before,
+                    "after_strategy_and_noise": _mcmc_parameter_health(model, config),
+                    "render_image_id": view.camera.image_id,
+                    "rgb_range_before_optimizer": rgb_range_summary(rendered.image),
+                    "position_lr": float(optimizers["means"].param_groups[0]["lr"]),
+                }
+                event["mcmc_health_by_rank"] = _gather_rank_health(local_health, world_size)
             if global_after != global_before:
                 event.update(
                     {
@@ -1067,6 +1084,12 @@ def evaluate_views(
             "opacity_threshold": float(config["pruning"]["opacity_threshold"]),
         },
     )
+    if config["strategy"]["name"] == "mcmc_v1":
+        evaluated["mcmc_health_by_rank"] = _gather_rank_health(
+            _mcmc_parameter_health(model, config),
+            torch.distributed.get_world_size() if distributed else 1,
+        )
+        evaluated["mcmc_parameter_health_scope"] = "all_rank_shards_in_rank_order"
     return {
         **evaluated,
         "mean_psnr": evaluated["psnr"]["mean"],
@@ -1111,6 +1134,34 @@ def _build_strategy(
         revised_opacity=False,
         verbose=False,
     )
+
+
+@torch.no_grad()
+def _mcmc_parameter_health(model: GaussianModel, config: dict[str, Any]) -> dict[str, Any]:
+    opacity = model.opacity_logits.detach().sigmoid()
+    scale = model.log_scales.detach().exp().amax(dim=1)
+    quantiles = torch.tensor([0., .5, .9, .99, 1.], device=opacity.device)
+    threshold = float(config["strategy"]["mcmc_min_opacity"])
+    dead = int((opacity <= threshold).sum())
+    return {
+        "gaussian_count": model.count,
+        "min_opacity": threshold,
+        "dead_count": dead,
+        "alive_count": model.count - dead,
+        "dead_fraction": dead / model.count,
+        "quantile_levels": [0., .5, .9, .99, 1.],
+        "opacity_quantiles": torch.quantile(opacity, quantiles).cpu().tolist(),
+        "max_axis_scale_quantiles": torch.quantile(scale, quantiles).cpu().tolist(),
+        "maximum_origin_distance": float(model.means.detach().norm(dim=1).max()),
+    }
+
+
+def _gather_rank_health(local: dict[str, Any], world_size: int) -> list[dict[str, Any]]:
+    if world_size == 1:
+        return [local]
+    gathered = [None] * world_size
+    torch.distributed.all_gather_object(gathered, local)
+    return gathered
 
 
 def _mcmc_regularizers(
