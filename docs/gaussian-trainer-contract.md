@@ -42,6 +42,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 2026-10-13 GPU门禁已通过：用户精确授权后，执行任务20261013-113308-8473、只读监控20261013-113419-54ef，代码79eae01，受限unit运行56.526s/exit0。原库和隔离修复库两L2均完成SH3/12更新/60→66点、增点、Validation、末态checkpoint与合并；两rank健康统计准确报告[0,96]个dead且不推进CUDA RNG。修复态每rank6组公式、4组拓扑/下限检查通过，尺度最大绝对误差1.862645149230957e-8，无floor时与原二进制在预声明容差内一致。原库/修复态summary SHA分别1e713f9e…/b1a1012f…，隔离overlay身份f034e1f3…，产物outputs/analysis/mcmc-stability-gates-20261013-v1。面板外层命令提前exit使GP结束标志缺失，列表STOP不能当作失败；以独立unit成功、exit-code=0及两份完整报告交叉验证，不伪造GP状态。此为实现门禁，不是apartment质量通过；场景单因素实验仍须fresh冻结配置和资源保护。
 
+独立 `--variant destination_moments` 只在SHA锁定的原版ops中增加目标索引的优化器状态清零，不编译新CUDA、不应用floor修复、保留step及无关行。环境身份为 `mcmc_destination_moments_overlay_v1`；训练入口拒绝同时启用两个overlay标记。`smoke_mcmc_stability.py --destination-moments`验证六参数组搬迁目标在5次零梯度更新中不漂移、未搬迁行仍有动量、step从100到105，并运行同一12步trainer。它是算法消融，不是默认行为或参考实现缺陷的既定结论。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。

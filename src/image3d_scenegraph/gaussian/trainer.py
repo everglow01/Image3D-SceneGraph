@@ -1662,12 +1662,18 @@ def _gsplat_version() -> str:
         digest = hashlib.sha256(Path(rendering.__file__).read_bytes()).hexdigest()
         version += f";project_absgrad_v1_sha256={digest}"
     from gsplat import relocation
+    from gsplat.strategy import ops
 
+    profile = getattr(ops, "PROJECT_MCMC_OVERLAY_PROFILE", None)
     if getattr(relocation, "PROJECT_MCMC_RELOCATION_VERSION", None) == 1:
+        if profile is not None:
+            raise TrainingError("MCMC single-factor overlays cannot be combined")
+        profile = "mcmc_relocation_floor_overlay_v1"
+    if profile is not None:
         root = Path(gsplat.__file__).resolve().parent.parent
         record_path = root / "overlay.json"
         record = json.loads(record_path.read_text())
-        if record["profile"] != "mcmc_relocation_floor_overlay_v1":
+        if profile not in {"mcmc_relocation_floor_overlay_v1", "mcmc_destination_moments_overlay_v1"} or record["profile"] != profile:
             raise TrainingError("unexpected MCMC relocation overlay identity")
         actual_files = {
             str(path.relative_to(root)) for path in (root / "gsplat").rglob("*")
@@ -1679,5 +1685,7 @@ def _gsplat_version() -> str:
             path = (root / name).resolve()
             if not path.is_relative_to(root) or sha256_file(path) != expected:
                 raise TrainingError(f"MCMC relocation overlay hash mismatch: {name}")
-        version += f";project_mcmc_relocation_v1_sha256={sha256_file(record_path)}"
+        identity = ("project_mcmc_relocation_v1" if profile == "mcmc_relocation_floor_overlay_v1"
+                    else "project_mcmc_destination_moments_v1")
+        version += f";{identity}_sha256={sha256_file(record_path)}"
     return version

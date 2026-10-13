@@ -93,12 +93,26 @@ def patch_sources(sources: dict[str, str]) -> dict[str, str]:
             "cuda/csrc/RelocationCUDA.cu": kernel}
 
 
-def prepare(output_dir: Path) -> dict:
+def patch_destination_moments(source: str) -> str:
+    if hashlib.sha256(source.encode()).hexdigest() != SOURCE_SHA256["strategy/ops.py"]:
+        raise ValueError("gsplat ops.py does not match audited wheel")
+    return replace_once(source, "        v[sampled_idxs] = 0\n        return v",
+                        "        v[sampled_idxs] = 0\n        v[dead_indices] = 0\n        return v") + (
+        '\nPROJECT_MCMC_OVERLAY_PROFILE = "mcmc_destination_moments_overlay_v1"\n'
+    )
+
+
+def prepare(output_dir: Path, variant: str = "relocation_floor") -> dict:
     spec = importlib.util.find_spec("gsplat")
     if spec is None or spec.origin is None:
         raise ValueError("the pinned gsplat wheel must already be installed")
     package = Path(spec.origin).resolve().parent
-    patched = patch_sources({name: (package / name).read_text() for name in SOURCE_SHA256})
+    if variant not in {"relocation_floor", "destination_moments"}:
+        raise ValueError("unknown MCMC overlay variant")
+    sources = {name: (package / name).read_text() for name in SOURCE_SHA256}
+    patched = patch_sources(sources)
+    if variant == "destination_moments":
+        patched = {"strategy/ops.py": patch_destination_moments(sources["strategy/ops.py"])}
     if not list(package.glob("csrc*.so")):
         raise ValueError("the audited precompiled rasterizer is required; do not rebuild it")
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -106,27 +120,28 @@ def prepare(output_dir: Path) -> dict:
     shutil.copytree(package, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for name, source in patched.items():
         (destination / name).write_text(source)
-    binding_path = destination / f"{EXTENSION_NAME}.cpp"
-    binding_path.write_text(BINDING)
-    build_dir = output_dir / "build"
-    build_dir.mkdir()
-    os.environ["MAX_JOBS"] = "1"
-    from torch.utils.cpp_extension import load
+    if variant == "relocation_floor":
+        binding_path = destination / f"{EXTENSION_NAME}.cpp"
+        binding_path.write_text(BINDING)
+        build_dir = output_dir / "build"
+        build_dir.mkdir()
+        os.environ["MAX_JOBS"] = "1"
+        from torch.utils.cpp_extension import load
 
-    extension = load(
-        name=EXTENSION_NAME,
-        sources=[str(binding_path), str(destination / "cuda/csrc/RelocationCUDA.cu")],
-        build_directory=str(build_dir), extra_cflags=["-O3"],
-        extra_cuda_cflags=["-O3", "--use_fast_math"], verbose=True,
-    )
-    shutil.copy2(extension.__file__, destination / Path(extension.__file__).name)
+        extension = load(
+            name=EXTENSION_NAME,
+            sources=[str(binding_path), str(destination / "cuda/csrc/RelocationCUDA.cu")],
+            build_directory=str(build_dir), extra_cflags=["-O3"],
+            extra_cuda_cflags=["-O3", "--use_fast_math"], verbose=True,
+        )
+        shutil.copy2(extension.__file__, destination / Path(extension.__file__).name)
     files = {
         str(path.relative_to(output_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(destination.rglob("*"))
         if path.is_file() and path.suffix in {".py", ".so", ".cpp", ".cu", ".h"}
     }
     record = {
-        "profile": "mcmc_relocation_floor_overlay_v1", "source_package": str(package),
+        "profile": f"mcmc_{variant}_overlay_v1", "source_package": str(package),
         "audited_source_sha256": SOURCE_SHA256, "files": files,
         "installed_package_modified": False, "rasterizer_binary_reused": True,
         "quality_status": "not_evaluated",
@@ -139,8 +154,9 @@ def prepare(output_dir: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--variant", choices=("relocation_floor", "destination_moments"), default="relocation_floor")
     args = parser.parse_args()
-    print(json.dumps(prepare(args.output_dir.resolve()), indent=2))
+    print(json.dumps(prepare(args.output_dir.resolve(), args.variant), indent=2))
 
 
 if __name__ == "__main__":

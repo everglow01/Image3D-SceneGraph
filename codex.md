@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-13，新增独立destination_moments消融候选，复用隔离包准备工具，SHA锁定ops.py后只清本次搬迁目标行的优化器张量状态，保留step、来源清零和其他点历史；不改relocation公式，不与floor修复混合。provenance区分两种overlay并拒绝混用，默认库不变。双卡smoke新增六参数组/5次零梯度/目标零漂移及非目标动量保留断言，再走12步trainer；当前仅本地4项非模型补丁/公式回归与静态检查通过，实际远端门禁随后单独记录。此变体不是原论文接入bug定论，不推广默认；所有场景臂将在包含该身份校验的同一训练核心上fresh运行。
+
 - 2026-10-13，精确授权后完成MCMC双卡诊断与重定位门禁。代码79eae01、任务20261013-113308-8473/只读监控20261013-113419-54ef，独立8GiB/禁swap/30min unit成功退出，实耗56.526s；原库及修复态SH3/64px/60点/12步均完成全训练保存链，终态66点，reserved峰值23,068,672bytes。两rank聚合正确保留健康与96%退化分片且CUDA RNG不变；每rank6公式/4拓扑检查通过，scale最大绝对误差1.862645149230957e-8，无floor对原二进制容差等价。overlay f034e1f38b58157e9ef2dbd7334f0ac74fac329e538b259c849df40f1ffdc3c5；产物outputs/analysis/mcmc-stability-gates-20261013-v1，本地摘要归档mcmc-stability-implementation-20261013-v1/gpu-gates。面板外层exit使GP无结束标志，gp wait返回异常；未重跑，通过unit成功、exit-code0、两份完整summary确认实际门禁通过，后续任务改用子shell返回状态以保留面板终态标志。此次只完成实现门禁，不宣称场景质量改善；按用户已批准顺序继续独立场景对照，线上模型/依赖/默认不变。
 
 - 2026-10-13，用户手动拉取最新后继续验证。03:21:48Z确认远端79eae01/无tracked改动，trainer/evaluation/config/隔离补丁共81项回归通过（3.23s），两L2各3MiB/0%利用率、MemAvailable19376MiB、磁盘192G。工具链存在于/usr/local/cuda-12.2/bin/nvcc，原csrc.so可复用；后端image3d-cloud.service正常。本轮拟提交独立MCMC双卡诊断及重定位GPU门禁（8GiB主存、无swap、30分钟，flock/once/GPU租约），被权限层以本轮须明确点名远端主机及该GPU/systemd任务为由拒绝，未执行或换通道。随后只读确认实验目录和once不存在、unit not-found/inactive、无GPU计算进程、源码未变/后端active；CUDA编译、双卡smoke及apartment单因素场景臂均未启动。完成本次回归结果的独立记录提交，不把CPU回归冒充数值/质量门禁。证据outputs/analysis/mcmc-stability-implementation-20261013-v1/remote-regression.json；继续GPU门禁需精确任务授权，源码已到位，不需用户再次pull实现代码。

@@ -87,6 +87,46 @@ def relocation_checks(device: torch.device) -> dict:
             "scale_max_absolute_error": float((actual_scale - scales * expected[:, 1, None]).abs().max())}
 
 
+def destination_moment_checks(device: torch.device) -> dict:
+    if getattr(ops, "PROJECT_MCMC_OVERLAY_PROFILE", None) != "mcmc_destination_moments_overlay_v1":
+        raise RuntimeError("the destination-moment-only overlay is required")
+    binoms = torch.tensor([[math.comb(n, k) if k <= n else 0 for k in range(51)]
+                           for n in range(51)], dtype=torch.float32, device=device)
+    shapes = {"means": (3, 3), "scales": (3, 3), "quats": (3, 4),
+              "sh0": (3, 1, 3), "shN": (3, 15, 3), "opacities": (3,)}
+    params = torch.nn.ParameterDict({key: torch.nn.Parameter(torch.zeros(shape, device=device))
+                                     for key, shape in shapes.items()})
+    with torch.no_grad():
+        params["opacities"].copy_(torch.logit(torch.tensor([.5, 1e-6, .1], device=device)))
+    optimizers = {key: torch.optim.Adam([value], lr=.01) for key, value in params.items()}
+    for key, value in params.items():
+        optimizers[key].state[value] = {"step": torch.tensor(100.),
+                                      "exp_avg": torch.full_like(value, .2),
+                                      "exp_avg_sq": torch.full_like(value, .04)}
+    sampler = ops._multinomial_sample
+    ops._multinomial_sample = lambda weights, count, **kwargs: torch.zeros(count, dtype=torch.long, device=device)
+    try:
+        ops.relocate(params, optimizers, {}, torch.tensor([False, True, False], device=device), binoms)
+    finally:
+        ops._multinomial_sample = sampler
+    snapshots = {key: value.detach().clone() for key, value in params.items()}
+    for key, value in params.items():
+        state = optimizers[key].state[value]
+        assert state["step"] == 100
+        assert (state["exp_avg"][1] == 0).all() and (state["exp_avg_sq"][1] == 0).all()
+        assert (state["exp_avg"][2] == .2).all()
+    for _ in range(5):
+        for key, value in params.items():
+            value.grad = torch.zeros_like(value)
+            optimizers[key].step()
+    for key, value in params.items():
+        torch.testing.assert_close(value[1], snapshots[key][1], atol=0, rtol=0)
+        assert not torch.equal(value[2], snapshots[key][2])
+        assert optimizers[key].state[value]["step"] == 105
+    return {"parameter_groups": len(params), "zero_gradient_steps": 5,
+            "destination_drift": 0., "unrelated_rows_keep_momentum": True}
+
+
 def trainer_check(rank: int, world_size: int, output: Path) -> dict:
     dataset_root = output / "synthetic-dataset"
     if rank == 0:
@@ -144,6 +184,8 @@ def worker(local_rank: int, rank: int, world_size: int, args) -> None:
     record = {"rank": rank, "environment": _gsplat_version(), "rank_health": health}
     if args.relocation:
         record["relocation"] = relocation_checks(device)
+    if args.destination_moments:
+        record["destination_moments"] = destination_moment_checks(device)
     record["trainer"] = trainer_check(rank, world_size, args.output_dir)
     record["status"] = "passed"
     (args.output_dir / f"rank-{rank}.json").write_text(json.dumps(record, indent=2) + "\n")
@@ -153,7 +195,9 @@ def worker(local_rank: int, rank: int, world_size: int, args) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--relocation", action="store_true")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--relocation", action="store_true")
+    group.add_argument("--destination-moments", action="store_true")
     args = parser.parse_args()
     if torch.cuda.device_count() != 2:
         raise SystemExit("this smoke requires exactly two visible GPUs")

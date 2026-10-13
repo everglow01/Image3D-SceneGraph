@@ -34,6 +34,18 @@ def test_relocation_reference_uses_floor_and_ratio_cap_without_torch():
         assert .005 <= opacity < 1 and math.isfinite(coefficient) and coefficient > 0
 
 
+def test_destination_moments_patch_is_independent(monkeypatch):
+    source = "def optimizer_fn(key, v):\n        v[sampled_idxs] = 0\n        return v\n"
+    monkeypatch.setitem(prepare.SOURCE_SHA256, "strategy/ops.py", hashlib.sha256(source.encode()).hexdigest())
+    patched = prepare.patch_destination_moments(source)
+    ast.parse(patched)
+    assert "v[dead_indices] = 0" in patched
+    assert "mcmc_destination_moments_overlay_v1" in patched
+    assert "compute_relocation" not in patched
+    with pytest.raises(ValueError, match="audited wheel"):
+        prepare.patch_destination_moments(source + "# changed\n")
+
+
 def test_patch_rejects_unaudited_sources():
     with pytest.raises(ValueError, match="audited wheel"):
         prepare.patch_sources(dict.fromkeys(prepare.SOURCE_SHA256, "wrong source"))
