@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-13，用户手动拉取最新后继续验证。03:21:48Z确认远端79eae01/无tracked改动，trainer/evaluation/config/隔离补丁共81项回归通过（3.23s），两L2各3MiB/0%利用率、MemAvailable19376MiB、磁盘192G。工具链存在于/usr/local/cuda-12.2/bin/nvcc，原csrc.so可复用；后端image3d-cloud.service正常。本轮拟提交独立MCMC双卡诊断及重定位GPU门禁（8GiB主存、无swap、30分钟，flock/once/GPU租约），被权限层以本轮须明确点名远端主机及该GPU/systemd任务为由拒绝，未执行或换通道。随后只读确认实验目录和once不存在、unit not-found/inactive、无GPU计算进程、源码未变/后端active；CUDA编译、双卡smoke及apartment单因素场景臂均未启动。完成本次回归结果的独立记录提交，不把CPU回归冒充数值/质量门禁。证据outputs/analysis/mcmc-stability-implementation-20261013-v1/remote-regression.json；继续GPU门禁需精确任务授权，源码已到位，不需用户再次pull实现代码。
+
 - 2026-10-13，诊断实现38d98d0已单项提交。远端Git写入被权限层要求本轮明确点名主机/路径而拦截，未换通道；用户手动pull后核对仍b8b6b19，首次命令运行的76项通过是旧版回归，不计新实现验收。已将工作分支快进main并推送，随后提交号门禁正确拒绝旧版本测试，未再次自动同步。独立完成第二项隔离重定位候选与验证入口：审计SHA锁定旧wrapper/ops/CUDA源码，仅编译匹配的小扩展，保留原光栅化二进制；floor先于scale，两个拓扑入口均传实际下限，动量不变。环境身份检查全包源码/二进制集合与SHA。新增远端双卡健康/退化分片、CUDA公式及12步实际MCMC训练检查入口，不读Test、不覆写产物。本地3项纯标准库/AST补丁与公式回归、实际安装源码SHA/全部锚点及Ruff通过；CUDA编译、新版Torch回归、双卡smoke和apartment场景臂均尚未执行，不能宣称修复有效或门禁通过。待远端取得对应提交并通过门禁再按推荐顺序推进后续单因素臂；线上模型、依赖与服务未改。原导航未提交记录保持未暂存。
 
 

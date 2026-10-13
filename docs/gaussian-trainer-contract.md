@@ -38,6 +38,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 `scripts/smoke_mcmc_stability.py`仅用于获授权远端双卡验证：原库诊断态与显式 `--relocation` 修复态分开执行；验证健康/96%退化两分片均可见且不推进CUDA RNG，6个重定位公式输入（含ratio超上限）、两条拓扑入口各两个opacity下限、无floor时与原二进制对照（atol2e-6/rtol2e-4）、SH3/64px/60点/12更新的实际分布式trainer、增点、Validation、末态checkpoint和合并。输出独立且拒绝覆盖；这些不是apartment质量证据。当前仅源码SHA/锚点、AST、标准库补丁回归和Ruff通过，CUDA编译/实际GPU运行尚未通过，禁止据此启动后续场景臂。
 
+2026-10-13远端验证更新：用户手动拉取后确认i-94B8D131为79eae01，trainer/evaluation/config/隔离补丁共81项回归通过（3.23s）；此前旧版76项不算新实现验收。两L2空闲、compute capability8.9，CUDA12.2工具链已存在但不在默认PATH。提交MCMC诊断与重定位独立GPU门禁-v1（原库双卡smoke→隔离编译→修复态smoke，8GiB MemoryMax、禁用任务swap、30分钟上限）时被权限层要求本轮精确主机/任务授权而拦截。只读确认输出目录/once均不存在、unit未创建、无GPU计算进程、后端active；未换通道重试，CUDA与apartment实验仍未运行。证据为outputs/analysis/mcmc-stability-implementation-20261013-v1/remote-regression.json。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。
