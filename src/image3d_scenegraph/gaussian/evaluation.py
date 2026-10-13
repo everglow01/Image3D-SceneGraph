@@ -15,6 +15,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from .absgrad_resources import record_training_phase
 from .config import ResolvedGaussianConfig, resolved_config_record
 from .dataset import sha256_file, validate_contract
 from .model import GaussianModel
@@ -67,6 +68,7 @@ def evaluate_model(
     renderer: Callable[..., Any] = render_gaussians,
     health_thresholds: dict[str, float] | None = None,
     reset_memory_peak: bool = True,
+    iteration: int = 0,
 ) -> dict[str, Any]:
     if split not in {"validation", "test", "fit_validation", "control_validation"}:
         raise GaussianEvaluationError(
@@ -87,7 +89,10 @@ def evaluate_model(
         torch.cuda.reset_peak_memory_stats(model.means.device)
 
     with torch.no_grad():
-        for stored_view in views:
+        for index in range(len(views)):
+            record_training_phase("validation_view", iteration,
+                                  completed_views=index, total_views=len(views))
+            stored_view = views[index]
             view = (
                 stored_view.to(model.means.device)
                 if hasattr(stored_view, "to")
@@ -150,6 +155,8 @@ def evaluate_model(
             except (RuntimeError, ValueError) as exc:
                 failures.append({"image_id": view.camera.image_id, "reason": str(exc)})
 
+    record_training_phase("validation_health", iteration,
+                          completed_views=len(views), total_views=len(views))
     if not per_view:
         raise GaussianEvaluationError(f"every {split} view failed")
     if model.means.is_cuda:
@@ -211,8 +218,8 @@ def evaluate_model(
         "render_milliseconds": _distribution(render_values),
         "render_fps": len(per_view) / total_seconds if total_seconds > 0 else 0.0,
         "gaussian_count": model.count,
-        "opacity": _distribution(opacity.cpu().tolist()),
-        "scale": _distribution(max_scale.cpu().tolist()),
+        "opacity": _distribution(opacity.cpu().numpy()),
+        "scale": _distribution(max_scale.cpu().numpy()),
         "health": health,
         "topology": topology,
         "memory_peak_scope": "evaluation" if reset_memory_peak else "enclosing_training_lifecycle",
@@ -472,20 +479,20 @@ def _model_health(
     return {
         "thresholds": thresholds,
         "visible_gaussian_count": int(visible.sum()),
-        "screen_radius": _distribution(max_screen_radius[visible].cpu().tolist()) if visible.any() else None,
+        "screen_radius": _distribution(max_screen_radius[visible].cpu().numpy()) if visible.any() else None,
         "screen_split_count": int(split_screen.sum()),
         "screen_prune_count": int(prune_screen.sum()),
         "high_opacity_screen_prune_count": int((prune_screen & (opacity > 0.1)).sum()),
-        "max_scale": _distribution(max_scale.cpu().tolist()),
+        "max_scale": _distribution(max_scale.cpu().numpy()),
         "world_scale_prune_count": int(oversized_world.sum()),
         "high_opacity_world_scale_prune_count": int((oversized_world & (opacity > 0.1)).sum()),
-        "distance_from_robust_center": _distribution(distance.cpu().tolist()),
+        "distance_from_robust_center": _distribution(distance.cpu().numpy()),
         "robust_radius_p95": float(robust_radius),
         "effective_outside_twice_robust_radius_count": int(outside_twice_robust.sum()),
     }
 
 
-def _distribution(values: list[float]) -> dict[str, float]:
+def _distribution(values: list[float] | np.ndarray) -> dict[str, float]:
     array = np.asarray(values, dtype=np.float64)
     if array.size == 0 or not np.isfinite(array).all():
         raise GaussianEvaluationError("metric distribution must contain finite values")

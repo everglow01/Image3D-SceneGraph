@@ -102,6 +102,24 @@ def event(iteration, count=100):
     return json.dumps({"iteration": iteration, "world_size": 2, "gaussian_count": count, "batch_view_ids": ["1", "2"]}) + "\n"
 
 
+def test_validation_progress_timeout_is_opt_in_and_independent_of_heartbeat(tmp_path):
+    monitor = monitor_fixture(tmp_path)
+    path = monitor.telemetry / "rank-1.phase.json"
+    phase = {"phase": "validation_view", "iteration": 10000,
+             "completed_views": 17, "total_views": 351,
+             "monotonic_seconds": time.monotonic() - 301}
+    path.write_text(json.dumps(phase))
+    assert monitor(10) is None
+    monitor.limits = {**monitor.limits, "validation_progress_timeout_seconds": 300}
+    assert monitor(10) == "rank_1_validation_progress_stalled"
+    phase["monotonic_seconds"] = time.monotonic()
+    path.write_text(json.dumps(phase))
+    assert monitor(10) is None
+    phase.update(phase="training", monotonic_seconds=time.monotonic() - 301)
+    path.write_text(json.dumps(phase))
+    assert monitor(10) is None
+
+
 def test_progress_partial_lines_and_final_checks(tmp_path):
     monitor = monitor_fixture(tmp_path)
     second = event(2)

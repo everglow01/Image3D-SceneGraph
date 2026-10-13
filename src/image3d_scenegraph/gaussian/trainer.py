@@ -520,6 +520,8 @@ def train_gaussians(
 
             validation_due = iteration in config["evaluation"]["validation_iterations"]
             if validation_due:
+                if isinstance(train_views, TrainingViews):
+                    train_views.clear_cache()
                 record_training_phase("validation", iteration)
                 last_validation = evaluate_views(
                     model,
@@ -1074,6 +1076,7 @@ def evaluate_views(
         sh_degree=active_sh_degree(int(config["iterations"]), config["sh_schedule"]),
         preview_dir=preview_dir,
         progress_events=progress_events,
+        iteration=int(progress_events[-1]["iteration"]) if progress_events else 0,
         renderer=lambda model, camera, **kwargs: render_gaussians(
             model, camera, distributed=distributed, **kwargs
         ),
@@ -1084,7 +1087,10 @@ def evaluate_views(
             "opacity_threshold": float(config["pruning"]["opacity_threshold"]),
         },
     )
+    if isinstance(views, TrainingViews):
+        views.clear_cache()
     if config["strategy"]["name"] == "mcmc_v1":
+        record_training_phase("validation_rank_health", int(progress_events[-1]["iteration"]) if progress_events else 0)
         evaluated["mcmc_health_by_rank"] = _gather_rank_health(
             _mcmc_parameter_health(model, config),
             torch.distributed.get_world_size() if distributed else 1,

@@ -14,6 +14,17 @@ runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
 
 
+def test_memory_v2_budget_preserves_host_headroom_without_soft_throttling():
+    assert runner.PROFILE == "apartment_mcmc_single_factor_memory_v2"
+    policy = runner.HOST_POLICY
+    assert policy["memory_high_bytes"] is None
+    assert policy["memory_max_bytes"] == 12 * 1024**3
+    assert policy["stop_current_bytes"] == 11.5 * 1024**3
+    assert policy["startup_available_bytes"] >= policy["memory_max_bytes"] + policy["minimum_available_bytes"]
+    assert policy["memory_swap_max_bytes"] == 0
+    assert runner.LIMITS["validation_progress_timeout_seconds"] == 300
+
+
 def test_apartment_configs_are_frozen_single_factor():
     records = runner.configs()
     assert set(records) == set(runner.ARMS)

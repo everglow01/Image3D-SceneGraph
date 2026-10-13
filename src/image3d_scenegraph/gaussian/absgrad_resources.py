@@ -57,7 +57,8 @@ def write_json(path: Path, value: dict) -> None:
 _phase_target: ContextVar[tuple | None] = ContextVar("training_phase_target", default=None)
 
 
-def record_training_phase(phase: str, iteration: int = 0) -> None:
+def record_training_phase(phase: str, iteration: int = 0, *,
+                          completed_views: int | None = None, total_views: int | None = None) -> None:
     target = _phase_target.get()
     if target is None:
         return
@@ -65,6 +66,8 @@ def record_training_phase(phase: str, iteration: int = 0) -> None:
     temporary = path.with_suffix(".tmp")
     value = {"rank": rank, "pid": os.getpid(), "phase": phase,
         "iteration": iteration, "monotonic_seconds": time.monotonic()}
+    if completed_views is not None:
+        value.update(completed_views=completed_views, total_views=total_views)
     with path.with_suffix(".jsonl").open("a", buffering=1) as events:
         events.write(json.dumps(value, allow_nan=False) + "\n")
     write_json(temporary, value)
@@ -265,6 +268,13 @@ class TrainingMonitor:
                 raise ValueError("invalid rank telemetry")
             if now - stamp > TELEMETRY_STALE_SECONDS:
                 return f"rank_{rank}_telemetry_stale"
+            validation_timeout = self.limits.get("validation_progress_timeout_seconds")
+            phase_path = self.telemetry / f"rank-{rank}.phase.json"
+            if validation_timeout is not None and phase_path.exists():
+                phase = json.loads(phase_path.read_text())
+                if (phase["phase"].startswith("validation")
+                        and now - phase["monotonic_seconds"] > validation_timeout):
+                    return f"rank_{rank}_validation_progress_stalled"
             self.peak_reserved[rank] = max(self.peak_reserved[rank], peak)
             if self.peak_reserved[rank] > limit:
                 return f"rank_{rank}_reserved_exceeded_{self.limit_label}"

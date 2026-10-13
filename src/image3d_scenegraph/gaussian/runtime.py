@@ -112,10 +112,13 @@ class TrainingViews(Sequence[TrainingView]):
     def __add__(self, other: TrainingViews) -> TrainingViews:
         return TrainingViews(self.sources + other.sources, cache_max_bytes=self.cache_max_bytes)
 
-    def clear(self) -> None:
+    def clear_cache(self) -> None:
         self._cache.clear()
-        self.sources.clear()
         self.cached_bytes = 0
+
+    def clear(self) -> None:
+        self.clear_cache()
+        self.sources.clear()
 
 
 def view_cameras(views: Sequence[TrainingView]) -> list[RenderCamera]:

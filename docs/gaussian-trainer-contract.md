@@ -48,6 +48,16 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 每场景臂使用独立systemd unit，主存硬上限8GiB/MemoryHigh7GiB/无swap，14GiB主机空闲准入、运行中6GiB底线、cgroup7.5GiB停止、两卡各18GiB reserved上限，全局3M不变；每stage6小时，unit6.5小时，磁盘20GiB准入/4GiB停止。MemoryHigh先回收缓存，不以额外剪枝或降分辨率避资源失败；失败保留证据，不自动增预算或重跑。先研究主训练失稳并统一SOR/held-out Selection，不做新final-fit或发布模型；结果报告raw/display/尾部失败视角/RGB越界/各rank终态与资源，不自动决定推广。所有源码先提交经Git同步，本机只运行无Torch的配置/AST回归。
 
+### 主存修复与重新基线（memory-v2，2026-10-13）
+
+上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。
+
+运行时新增仅释放已解码图像的`TrainingViews.clear_cache()`，保留sources/相机/采样顺序；主训练进入Validation前清Train缓存，验证返回后清Validation缓存，不使用会销毁sources的`clear()`。健康统计由CPU张量直接转NumPy，避免百万Python浮点对象，保留原float64/分位数算法及数值口径。验证每个视角加载前记录完成数/总数，分开标记健康统计与逐rank汇总；只有新MCMC协议启用300秒无Validation进度停止门禁，120秒遥测陈旧与原有保护不关闭。缓存/RNG/指标等价由远端回归验证，不宣称释放对象必然等于RSS即时归还。
+
+新profile为`apartment_mcmc_single_factor_memory_v2`，unit后缀`20261013-v2`、全新输出目录与once。主存硬限12GiB、`MemoryHigh=infinity`（协议记null、cgroup须为max）、SwapMax0，18GiB整机空闲准入、6GiB运行余量、11.5GiB任务主动停止；逐卡18GiB/global3M、30k/2048/seed及五臂单因素保持不变。12GiB上限依据约19.4GiB现场可用及6GiB共享主机余量，不能将“尽可能放宽”解释为取消所有保护；运行中不自动加预算或重试。
+
+新核心必须重跑三环境小型双卡门禁，并通过`scripts/smoke_mcmc_validation_memory.py`：读取旧MCMC 30k检查点的哈希验证模型分片（仅作资源负载，不续训），实际3M点/SH3/2048、分配Adam两矩，每rank三次完整351视角Validation；每轮先暖Train图像缓存再释放，检查缓存释放后sources仍可用、CUDA RNG不变、各轮逐视角PSNR差<1e-4、每轮<600秒且任务内存低于11.5GiB。父控制器复用run_stage/cgroup/遥测/进度门禁，失败不生成passed。此负载不是失败10k堆的完全重演，也不是新场景画质证据。准备新协议必须绑定当前core的内存门禁summary及三环境报告，旧v1报告不能替代；源训练/config/replay、协议和失败记录均保留，重启必须fresh。完整基线还需跨过10k、30k保存、SOR和Selection才能宣称完成，不保证任何未来负载绝不失败。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。

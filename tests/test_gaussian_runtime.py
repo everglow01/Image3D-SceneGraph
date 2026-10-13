@@ -76,6 +76,23 @@ def test_lazy_images_preserve_pixels_cameras_and_byte_bound(tmp_path, monkeypatc
     assert len(views._cache) == 0
 
 
+def test_cache_release_preserves_sources_pixels_and_rng(tmp_path, monkeypatch):
+    contract = make_views(tmp_path, monkeypatch)
+    views = load_training_views(contract, tmp_path, split="train", longest_edge=6,
+                                device=torch.device("cpu"))
+    expected = views[0].image.clone()
+    cameras = view_cameras(views)
+    python_state, numpy_state, torch_state = random.getstate(), np.random.get_state(), torch.get_rng_state()
+    assert views.cached_bytes > 0
+    views.clear_cache()
+    assert views.cached_bytes == 0 and not views._cache and len(views) == 2
+    assert view_cameras(views) == cameras
+    assert torch.equal(views[0].image, expected)
+    assert random.getstate() == python_state
+    assert np.array_equal(np.random.get_state()[1], numpy_state[1])
+    assert torch.equal(torch.get_rng_state(), torch_state)
+
+
 def test_final_fit_concat_stays_lazy_and_preserves_order(tmp_path, monkeypatch):
     contract = make_views(tmp_path, monkeypatch)
     train = load_training_views(contract, tmp_path, split="train", longest_edge=3840, device=torch.device("cpu"))

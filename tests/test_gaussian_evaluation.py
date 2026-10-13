@@ -26,6 +26,30 @@ def model() -> GaussianModel:
     )
 
 
+def test_distribution_numpy_path_exactly_matches_float_list():
+    from image3d_scenegraph.gaussian.evaluation import _distribution
+
+    values = torch.linspace(-2, 3, 10001, dtype=torch.float32)
+    assert _distribution(values.numpy()) == _distribution(values.tolist())
+    assert _distribution(values[::3].numpy()) == _distribution(values[::3].tolist())
+
+
+def test_evaluation_emits_view_and_health_progress(monkeypatch):
+    from image3d_scenegraph.gaussian import evaluation
+
+    events = []
+    monkeypatch.setattr(evaluation, "record_training_phase",
+                        lambda phase, iteration, **kw: events.append((phase, iteration, kw)))
+    view = SimpleNamespace(camera=SimpleNamespace(image_id="a"), image=torch.full((4, 4, 3), .5))
+    evaluate_model(model(), [view, view], split="validation", sh_degree=0, iteration=10000,
+                   renderer=lambda *_args, **_kw: SimpleNamespace(image=view.image))
+    assert events == [
+        ("validation_view", 10000, {"completed_views": 0, "total_views": 2}),
+        ("validation_view", 10000, {"completed_views": 1, "total_views": 2}),
+        ("validation_health", 10000, {"completed_views": 2, "total_views": 2}),
+    ]
+
+
 def test_evaluation_reports_distributions_resources_and_topology(tmp_path, monkeypatch):
     gaussian = model()
     views = [

@@ -23,11 +23,11 @@ from image3d_scenegraph.gpu_lease import FileLease, require_idle_gpu
 PROJECT = Path(__file__).resolve().parents[1]
 SOURCE_CONFIG_HASH = "02f02cfe692b6e1c266a5d0fc2677ad1c9085110f7f70bdf6349a32d23911c7c"
 ARMS = ("baseline", "raw_loss", "relocation_floor", "destination_moments", "position_lr")
-HOST_POLICY = {**STREAMING_HOST_POLICY, "startup_available_bytes": 14 * 1024**3,
-               "stop_current_bytes": 15 * 1024**3 // 2, "memory_max_bytes": 8 * 1024**3,
-               "memory_high_bytes": 7 * 1024**3}
+PROFILE = "apartment_mcmc_single_factor_memory_v2"
+HOST_POLICY = {**STREAMING_HOST_POLICY, "memory_high_bytes": None}
 LIMITS = {"max_observed_global_gaussians": 3_000_000,
           "max_main_stage_wall_seconds": 21600,
+          "validation_progress_timeout_seconds": 300,
           "max_per_rank_peak_reserved_bytes": [18 * 1024**3] * 2}
 
 
@@ -58,8 +58,8 @@ def code_hash() -> str:
 def prepare(args) -> None:
     from image3d_scenegraph.gaussian.replay import validate_replay_bundle
 
-    if any(value is None for value in (args.source_job, args.gates_root, args.floor_overlay, args.moments_overlay)):
-        raise ValueError("preparation requires source Job, three-arm gates and both isolated overlays")
+    if any(value is None for value in (args.source_job, args.gates_root, args.floor_overlay, args.moments_overlay, args.memory_gate)):
+        raise ValueError("preparation requires source Job, three-arm gates, overlays and the validation memory gate")
     source = args.source_job.resolve()
     if source.name != "20261010_172759_d4dda4b3":
         raise ValueError("this experiment is bound to the audited apartment MCMC Job")
@@ -75,7 +75,14 @@ def prepare(args) -> None:
     if {key: len(value) for key, value in dataset["splits"].items()} != {"train": 2808, "validation": 351, "test": 351}:
         raise ValueError("apartment split changed")
     core = code_hash()
-    gate_hashes, environments = {}, {}
+    memory_path = args.memory_gate.resolve()
+    memory_report = json.loads(memory_path.read_text())
+    if (memory_report["status"] != "passed" or memory_report["training_code_hash"] != core
+            or memory_report["host_policy"] != HOST_POLICY
+            or memory_report["global_gaussians"] != 3000000
+            or memory_report["validation_views"] != 351 or memory_report["passes"] != 3):
+        raise ValueError("validation memory gate differs from the new baseline")
+    gate_hashes, environments = {str(memory_path): sha256_file(memory_path)}, {}
     for arm, folder in (("baseline", "baseline"), ("relocation_floor", "relocation"),
                         ("destination_moments", "destination")):
         path = args.gates_root.resolve() / folder / "summary.json"
@@ -104,7 +111,7 @@ def prepare(args) -> None:
     bound = [original_path, replay / "replay.json", replay / "dataset.json",
              PROJECT / "scripts/run_gaussian_training.py", Path(__file__).resolve()]
     write_json(args.output_root / "protocol.json", {
-        "profile": "apartment_mcmc_single_factor_v1", "status": "frozen_before_training",
+        "profile": PROFILE, "status": "frozen_before_training",
         "training_code_hash": core, "source_job": str(source), "replay": str(replay),
         "dataset_hash": dataset["dataset_hash"], "world_size": 2, "updates": 30000,
         "camera_samples": 60000, "seed": 20260729, "longest_edge": 2048,
@@ -124,6 +131,8 @@ def prepare(args) -> None:
 def run(args) -> None:
     root = args.output_root
     protocol = json.loads((root / "protocol.json").read_text())
+    if protocol["profile"] != PROFILE or protocol["host_policy"] != HOST_POLICY or protocol["limits"] != LIMITS:
+        raise ValueError("a fresh memory-v2 protocol is required; old failed protocols remain immutable")
     if protocol["training_code_hash"] != code_hash():
         raise ValueError("training core changed since preparation")
     for filename, digest in protocol["files"].items():
@@ -136,10 +145,10 @@ def run(args) -> None:
         raise ValueError("a completed matched baseline is required")
     if shutil.disk_usage(root).free < 20 * 1024**3:
         raise ValueError("less than 20 GiB free disk at admission")
-    unit = f"image3d-mcmc-{args.arm}-20261013-v1.service"
+    unit = f"image3d-mcmc-{args.arm}-20261013-v2.service"
     group = quality_cgroup(policy=protocol["host_policy"], unit=unit)
-    if int((group / "memory.high").read_text()) != protocol["host_policy"]["memory_high_bytes"]:
-        raise ValueError("unexpected task memory.high")
+    if (group / "memory.high").read_text().strip() != "max":
+        raise ValueError("memory-v2 requires no cgroup memory.high throttling")
     with FileLease(PROJECT / "outputs/.gpu.lock") as lease:
         require_idle_gpu()
         output = root / args.arm
@@ -204,6 +213,7 @@ def main() -> None:
     parser.add_argument("--gates-root", type=Path)
     parser.add_argument("--floor-overlay", type=Path)
     parser.add_argument("--moments-overlay", type=Path)
+    parser.add_argument("--memory-gate", type=Path)
     args = parser.parse_args()
     args.output_root = args.output_root.resolve()
     if args.prepare:
