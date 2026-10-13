@@ -20,6 +20,7 @@ from image3d_scenegraph.gaussian.config import resolve_internal_config
 from image3d_scenegraph.gaussian.initialization import InitializationResult
 from image3d_scenegraph.gaussian.trainer import (
     _gather_rank_health, _gsplat_version, _mcmc_parameter_health, train_gaussians,
+    training_provenance,
 )
 from smoke_gaussian_trainer import generate_scene
 
@@ -181,7 +182,9 @@ def worker(local_rank: int, rank: int, world_size: int, args) -> None:
     health = _gather_rank_health(_mcmc_parameter_health(shard, config), world_size)
     assert [item["dead_count"] for item in health] == [0, 96]
     assert torch.equal(rng, torch.cuda.get_rng_state(device))
-    record = {"rank": rank, "environment": _gsplat_version(), "rank_health": health}
+    record = {"rank": rank, "environment": _gsplat_version(), "rank_health": health,
+              "training_code_hash": training_provenance(dataset_hash="0" * 64,
+                  effective_config_hash="0" * 64, world_size=2).code_hash}
     if args.relocation:
         record["relocation"] = relocation_checks(device)
     if args.destination_moments:

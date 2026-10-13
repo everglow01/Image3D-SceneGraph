@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-13，按已批准单因素方案增加薄研究入口run_mcmc_stability_ablation.py，复用现有trainer/replay/资源保护/SOR/evaluation；冻结同core五臂baseline、raw_loss、relocation_floor、destination_moments、position_lr，不读Test或改线上默认。三环境同core双卡门禁、完整源Job配置哈希、源replay/入口/overlay身份和单字段差异在训练前冻结；baseline完成及camera序列SHA一致才接受其他臂。MCMC开放显式既有遥测开关；30k主训练及SOR/held-out Selection，不把final-fit混入失稳归因。每臂8GiB硬限/7GiB MemoryHigh/禁swap，14GiB空闲准入/6GiB运行底线/7.5GiB任务停止、每卡18GiB reserved、3M、每stage6h/unit6.5h；先回收缓存，失败不擅自扩预算。11项本地非模型配置/AST/补丁回归与Ruff通过；新入口尚待Git同步和远端门禁，场景尚未启动。此提交只准备顺序实验与可验证记录，不宣称任何候选画质改善。
+
 - 2026-10-13，新增独立destination_moments消融候选，复用隔离包准备工具，SHA锁定ops.py后只清本次搬迁目标行的优化器张量状态，保留step、来源清零和其他点历史；不改relocation公式，不与floor修复混合。provenance区分两种overlay并拒绝混用，默认库不变。双卡smoke新增六参数组/5次零梯度/目标零漂移及非目标动量保留断言，再走12步trainer；当前仅本地4项非模型补丁/公式回归与静态检查通过，实际远端门禁随后单独记录。此变体不是原论文接入bug定论，不推广默认；所有场景臂将在包含该身份校验的同一训练核心上fresh运行。
 
 - 2026-10-13，精确授权后完成MCMC双卡诊断与重定位门禁。代码79eae01、任务20261013-113308-8473/只读监控20261013-113419-54ef，独立8GiB/禁swap/30min unit成功退出，实耗56.526s；原库及修复态SH3/64px/60点/12步均完成全训练保存链，终态66点，reserved峰值23,068,672bytes。两rank聚合正确保留健康与96%退化分片且CUDA RNG不变；每rank6公式/4拓扑检查通过，scale最大绝对误差1.862645149230957e-8，无floor对原二进制容差等价。overlay f034e1f38b58157e9ef2dbd7334f0ac74fac329e538b259c849df40f1ffdc3c5；产物outputs/analysis/mcmc-stability-gates-20261013-v1，本地摘要归档mcmc-stability-implementation-20261013-v1/gpu-gates。面板外层exit使GP无结束标志，gp wait返回异常；未重跑，通过unit成功、exit-code0、两份完整summary确认实际门禁通过，后续任务改用子shell返回状态以保留面板终态标志。此次只完成实现门禁，不宣称场景质量改善；按用户已批准顺序继续独立场景对照，线上模型/依赖/默认不变。

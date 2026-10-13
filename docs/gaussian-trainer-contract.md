@@ -44,6 +44,10 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 独立 `--variant destination_moments` 只在SHA锁定的原版ops中增加目标索引的优化器状态清零，不编译新CUDA、不应用floor修复、保留step及无关行。环境身份为 `mcmc_destination_moments_overlay_v1`；训练入口拒绝同时启用两个overlay标记。`smoke_mcmc_stability.py --destination-moments`验证六参数组搬迁目标在5次零梯度更新中不漂移、未搬迁行仍有动量、step从100到105，并运行同一12步trainer。它是算法消融，不是默认行为或参考实现缺陷的既定结论。
 
+场景对照入口 `scripts/run_mcmc_stability_ablation.py` 只服务冻结apartment Job，复用既有runner、replay、GPU租约、逐rank遥测、TrainingMonitor、SOR与Validation，不新增训练平台。五臂为baseline/raw_loss/relocation_floor/destination_moments/position_lr：raw_loss和position_lr复用既有单字段override，库变体保持全部配置相同；各臂fresh、30k/60k相机样本，严格同camera-sequence SHA、同training core，需三种环境当前core的双卡门禁。准备阶段先冻结输入/配置/overlay/gate/入口哈希，再按臂运行，baseline完成前拒绝其他臂。MCMC显式允许既有 `--resource-telemetry-dir`，Project原限制不放宽。
+
+每场景臂使用独立systemd unit，主存硬上限8GiB/MemoryHigh7GiB/无swap，14GiB主机空闲准入、运行中6GiB底线、cgroup7.5GiB停止、两卡各18GiB reserved上限，全局3M不变；每stage6小时，unit6.5小时，磁盘20GiB准入/4GiB停止。MemoryHigh先回收缓存，不以额外剪枝或降分辨率避资源失败；失败保留证据，不自动增预算或重跑。先研究主训练失稳并统一SOR/held-out Selection，不做新final-fit或发布模型；结果报告raw/display/尾部失败视角/RGB越界/各rank终态与资源，不自动决定推广。所有源码先提交经Git同步，本机只运行无Torch的配置/AST回归。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。

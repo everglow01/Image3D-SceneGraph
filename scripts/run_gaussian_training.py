@@ -93,11 +93,13 @@ def main() -> None:
         )
     validate_trainer_strategy(args.trainer, resolved.effective_config)
     if args.resource_telemetry_dir is not None and (
-        not args.distributed or args.trainer != "project"
-        or resolved.requested_profile != "absgrad_ablation_v1"
+        not args.distributed
+        or (args.trainer, resolved.requested_profile) not in {
+            ("project", "absgrad_ablation_v1"), ("mcmc", "mcmc_v1")
+        }
         or args.prepare_only or args.readiness_only
     ):
-        parser.error("resource telemetry requires distributed Project AbsGrad training")
+        parser.error("resource telemetry requires distributed Project AbsGrad or MCMC training")
     if args.initialization == "frozen":
         if args.trainer not in {"project", "mcmc"}:
             raise SystemExit("frozen initialization is supported only by project and mcmc trainers")
