@@ -58,6 +58,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 新核心必须重跑三环境小型双卡门禁，并通过`scripts/smoke_mcmc_validation_memory.py`：读取旧MCMC 30k检查点的哈希验证模型分片（仅作资源负载，不续训），实际3M点/SH3/2048、分配Adam两矩，每rank三次完整351视角Validation；每轮先暖Train图像缓存再释放，检查缓存释放后sources仍可用、CUDA RNG不变、各轮逐视角PSNR差<1e-4、每轮<600秒且任务内存低于11.5GiB。父控制器复用run_stage/cgroup/遥测/进度门禁，失败不生成passed。此负载不是失败10k堆的完全重演，也不是新场景画质证据。准备新协议必须绑定当前core的内存门禁summary及三环境报告，旧v1报告不能替代；源训练/config/replay、协议和失败记录均保留，重启必须fresh。完整基线还需跨过10k、30k保存、SOR和Selection才能宣称完成，不保证任何未来负载绝不失败。
 
+2026-10-13验证结果：42c26f6远端161项回归通过；任务20261013-162310-eedc/只读监控20261013-162445-be3a正常exit0。三环境两rank均通过新core `55ea2ce2…` 门禁。真实3M/SH3/2048、Adam两矩常驻的三轮351-view验证全部完成，逐轮最慢rank耗时46.818/45.377/45.275秒，每rank每轮实际释放Train缓存536205312bytes，逐视角PSNR跨轮最大差0、CUDA RNG不变。2秒采样任务主存峰值6724980736bytes约6.26GiB，high/max/oom/oom_kill均0，逐卡reserved峰值3391094784bytes；这是代表负载门禁而非原10k堆的严格前后对照或完整30k稳定性证明。新协议已冻结在`outputs/analysis/mcmc-stability-ablation-20261013-v2/protocol.json`，SHA `05f55c4bada35cfc7e5c4c35b1c63eb41f15f24e1556054cd71d863184568d33`，内存summary SHA `561292e7…`；独立记录后才启动新基线，不为文档提交改变远端核心。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。
