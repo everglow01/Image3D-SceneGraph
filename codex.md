@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-13，后续实验Git同步被网络阻塞而非授权：实现3f14079及此前独立动量候选482fb7c已推main，但远端fetch首次GnuTLS recv -110；确认HEAD未变后以HTTP/1.1及45s低速限制有界重试，25.377s后GitHub443 Connection refused。最终只读确认远端仍79eae01，未上传源码包或改网络配置，未新建gates-v2/ablation目录，目标动量门禁/同core三环境复核/apartment训练均未开始；此前floor GPU门禁保持真实通过。原installed wrapper/ops/kernel SHA均与审计一致，csrc.so为e2a6cf59…；按manifest真实gaussian/final-fit/train-001/model.pt核对两交付模型SHA仍0e78dafa…/66708d44…，两Job done、GPU无计算进程、后端active。只读监控20261013-113419-54ef exit0；本轮无后台训练遗留。完整摘要outputs/analysis/mcmc-stability-implementation-20261013-v1/gpu-gates/assessment.json。恢复到Git提交3f14079或其后代后可按已获授权继续，不需再次重复授权；不得跳过新入口的冻结与资源门禁。
+
 - 2026-10-13，按已批准单因素方案增加薄研究入口run_mcmc_stability_ablation.py，复用现有trainer/replay/资源保护/SOR/evaluation；冻结同core五臂baseline、raw_loss、relocation_floor、destination_moments、position_lr，不读Test或改线上默认。三环境同core双卡门禁、完整源Job配置哈希、源replay/入口/overlay身份和单字段差异在训练前冻结；baseline完成及camera序列SHA一致才接受其他臂。MCMC开放显式既有遥测开关；30k主训练及SOR/held-out Selection，不把final-fit混入失稳归因。每臂8GiB硬限/7GiB MemoryHigh/禁swap，14GiB空闲准入/6GiB运行底线/7.5GiB任务停止、每卡18GiB reserved、3M、每stage6h/unit6.5h；先回收缓存，失败不擅自扩预算。11项本地非模型配置/AST/补丁回归与Ruff通过；新入口尚待Git同步和远端门禁，场景尚未启动。此提交只准备顺序实验与可验证记录，不宣称任何候选画质改善。
 
 - 2026-10-13，新增独立destination_moments消融候选，复用隔离包准备工具，SHA锁定ops.py后只清本次搬迁目标行的优化器张量状态，保留step、来源清零和其他点历史；不改relocation公式，不与floor修复混合。provenance区分两种overlay并拒绝混用，默认库不变。双卡smoke新增六参数组/5次零梯度/目标零漂移及非目标动量保留断言，再走12步trainer；当前仅本地4项非模型补丁/公式回归与静态检查通过，实际远端门禁随后单独记录。此变体不是原论文接入bug定论，不推广默认；所有场景臂将在包含该身份校验的同一训练核心上fresh运行。
