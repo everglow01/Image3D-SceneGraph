@@ -40,6 +40,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 2026-10-13远端验证更新：用户手动拉取后确认i-94B8D131为79eae01，trainer/evaluation/config/隔离补丁共81项回归通过（3.23s）；此前旧版76项不算新实现验收。两L2空闲、compute capability8.9，CUDA12.2工具链已存在但不在默认PATH。提交MCMC诊断与重定位独立GPU门禁-v1（原库双卡smoke→隔离编译→修复态smoke，8GiB MemoryMax、禁用任务swap、30分钟上限）时被权限层要求本轮精确主机/任务授权而拦截。只读确认输出目录/once均不存在、unit未创建、无GPU计算进程、后端active；未换通道重试，CUDA与apartment实验仍未运行。证据为outputs/analysis/mcmc-stability-implementation-20261013-v1/remote-regression.json。
 
+2026-10-13 GPU门禁已通过：用户精确授权后，执行任务20261013-113308-8473、只读监控20261013-113419-54ef，代码79eae01，受限unit运行56.526s/exit0。原库和隔离修复库两L2均完成SH3/12更新/60→66点、增点、Validation、末态checkpoint与合并；两rank健康统计准确报告[0,96]个dead且不推进CUDA RNG。修复态每rank6组公式、4组拓扑/下限检查通过，尺度最大绝对误差1.862645149230957e-8，无floor时与原二进制在预声明容差内一致。原库/修复态summary SHA分别1e713f9e…/b1a1012f…，隔离overlay身份f034e1f3…，产物outputs/analysis/mcmc-stability-gates-20261013-v1。面板外层命令提前exit使GP结束标志缺失，列表STOP不能当作失败；以独立unit成功、exit-code=0及两份完整报告交叉验证，不伪造GP状态。此为实现门禁，不是apartment质量通过；场景单因素实验仍须fresh冻结配置和资源保护。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。
