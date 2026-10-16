@@ -71,6 +71,15 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 此改动仅在研究runner，不改trainer/absgrad_resources或训练核心SHA；三环境GPU门禁及3M Validation报告仍验证同一核心，但受限内存门禁是历史执行证据，不是新无限额政策的安全证明。新协议重新绑定runner及所有输入/config SHA，仍不读Test RGB、不改线上默认/模型、不执行新final-fit。取消主存限额本身不授权重试已失败臂、拼装未验证checkpoint或覆盖旧现场。已失败raw_loss的八次验证是SOR前质量证据，不能标成完整实验通过。
 
+
+### 串行总控与失败继续（2026-10-16）
+
+用户随后明确要求一次性串行跑完任务、最后统一查看，并指定“如果失败就跳到下一个串行任务”。这覆盖此前每臂失败停止续接/等待人工审查的调度规则，并授权本次新目录fresh重跑；不是旧目录的自动重试或checkpoint恢复。`scripts/run_mcmc_stability_suite.py`在独立suite目录准备新的无限额v3协议，顺序为baseline→raw_loss→relocation_floor→destination_moments→position_lr；重跑新基线以保持五臂同资源政策和同冻结身份，旧成功/失败臂不覆盖、不伪装成新协议结果。
+
+总控持专用flock和一次性标记、每臂同步等待独立systemd任务；单臂继续复用GPU租约和显存/磁盘/时长保护，RAM/high/swap均infinity，没有主存主动停止线。每臂前重新查GPU；有残留占用则该臂记失败，不强行并行或杀其他进程。基线不可用时依赖它的候选记录skipped/matched_baseline_unavailable，不绕过基线门禁。单臂非零退出或完整性核验失败记录后继续下一臂，不重试；整个主机OOM、总控被杀或协议准备失败仍可能阻止后续调度，不能承诺故障后总控永不退出。
+
+每个成功臂在继续前自动核验30k/60k/world2、八次351-view Validation、相机序列与新基线一致、完整最终checkpoint六组件流式大小/SHA及元数据SHA、三阶段退出结果、模型和Selection评估SHA；不把GPU利用率、模型分片或退出码0单独当成功。每臂review及日志即时独立落盘，结束写suite.summary.json（含相对新基线的质量差值）与suite.exit.json；有任一失败/跳过时最终返回1，但不是在首个失败时停队列。suite和单臂入口都绑定进新协议，训练核心保持不变。总控运行在远端面板任务，不依赖本地会话续接；另外只有一个独立只读监控。最终集中审查时仍按每臂分别归档/提交结果，不在训练中修改远端Git或发布模型，不读取Test RGB、不做final-fit。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。

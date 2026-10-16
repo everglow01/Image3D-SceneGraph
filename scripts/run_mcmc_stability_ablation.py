@@ -114,7 +114,8 @@ def prepare(args) -> None:
     for arm, record in records.items():
         write_json(args.output_root / f"{arm}.config.json", record)
     bound = [original_path, replay / "replay.json", replay / "dataset.json",
-             PROJECT / "scripts/run_gaussian_training.py", Path(__file__).resolve()]
+             PROJECT / "scripts/run_gaussian_training.py", Path(__file__).resolve(),
+             PROJECT / "scripts/run_mcmc_stability_suite.py"]
     write_json(args.output_root / "protocol.json", {
         "profile": UNLIMITED_PROFILE if args.unlimited_host_memory else PROFILE,
         "status": "frozen_before_training",
