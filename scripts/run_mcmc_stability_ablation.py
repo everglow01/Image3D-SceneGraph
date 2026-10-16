@@ -25,6 +25,11 @@ SOURCE_CONFIG_HASH = "02f02cfe692b6e1c266a5d0fc2677ad1c9085110f7f70bdf6349a32d23
 ARMS = ("baseline", "raw_loss", "relocation_floor", "destination_moments", "position_lr")
 PROFILE = "apartment_mcmc_single_factor_memory_v2"
 HOST_POLICY = {**STREAMING_HOST_POLICY, "memory_high_bytes": None}
+UNLIMITED_PROFILE = "apartment_mcmc_single_factor_unlimited_host_memory_v3"
+UNLIMITED_HOST_POLICY = {**HOST_POLICY, **dict.fromkeys((
+    "startup_available_bytes", "minimum_available_bytes", "stop_current_bytes",
+    "memory_max_bytes", "memory_high_bytes", "memory_swap_max_bytes",
+))}
 LIMITS = {"max_observed_global_gaussians": 3_000_000,
           "max_main_stage_wall_seconds": 21600,
           "validation_progress_timeout_seconds": 300,
@@ -111,7 +116,8 @@ def prepare(args) -> None:
     bound = [original_path, replay / "replay.json", replay / "dataset.json",
              PROJECT / "scripts/run_gaussian_training.py", Path(__file__).resolve()]
     write_json(args.output_root / "protocol.json", {
-        "profile": PROFILE, "status": "frozen_before_training",
+        "profile": UNLIMITED_PROFILE if args.unlimited_host_memory else PROFILE,
+        "status": "frozen_before_training",
         "training_code_hash": core, "source_job": str(source), "replay": str(replay),
         "dataset_hash": dataset["dataset_hash"], "world_size": 2, "updates": 30000,
         "camera_samples": 60000, "seed": 20260729, "longest_edge": 2048,
@@ -119,7 +125,8 @@ def prepare(args) -> None:
         "gpu_gate_environments": environments,
         "files": {**gate_hashes, **{str(path): sha256_file(path) for path in bound}},
         "configs": {arm: sha256_file(args.output_root / f"{arm}.config.json") for arm in ARMS},
-        "host_policy": HOST_POLICY, "limits": LIMITS,
+        "host_policy": UNLIMITED_HOST_POLICY if args.unlimited_host_memory else HOST_POLICY,
+        "limits": LIMITS,
         "evaluation": "same eight full Validation checkpoints; raw selection unchanged; common SOR and Selection evaluation",
         "comparison": "paired raw/display metrics, negative-PSNR views, RGB excursions, terminal per-rank health and resource deltas; no automatic promotion",
         "final_fit": "not_run_in_this_main_training_instability_ablation",
@@ -128,11 +135,28 @@ def prepare(args) -> None:
     })
 
 
+def unlimited_host_cgroup(unit: str) -> Path:
+    expected = f"/system.slice/{unit}"
+    if f"0::{expected}" not in Path("/proc/self/cgroup").read_text().splitlines():
+        raise ValueError("unlimited host memory requires its own systemd cgroup")
+    group = Path("/sys/fs/cgroup") / expected.lstrip("/")
+    for directory in (group, group.parent, group.parent.parent):
+        for name in ("memory.max", "memory.high", "memory.swap.max"):
+            path = directory / name
+            if directory == group.parent.parent and not path.exists():
+                continue
+            if path.read_text().strip() != "max":
+                raise ValueError(f"host memory is still limited: {path}")
+    return group
+
+
 def run(args) -> None:
     root = args.output_root
     protocol = json.loads((root / "protocol.json").read_text())
-    if protocol["profile"] != PROFILE or protocol["host_policy"] != HOST_POLICY or protocol["limits"] != LIMITS:
-        raise ValueError("a fresh memory-v2 protocol is required; old failed protocols remain immutable")
+    unlimited = protocol["profile"] == UNLIMITED_PROFILE
+    policy = UNLIMITED_HOST_POLICY if unlimited else HOST_POLICY
+    if protocol["profile"] not in (PROFILE, UNLIMITED_PROFILE) or protocol["host_policy"] != policy or protocol["limits"] != LIMITS:
+        raise ValueError("a matching frozen resource protocol is required; old protocols remain immutable")
     if protocol["training_code_hash"] != code_hash():
         raise ValueError("training core changed since preparation")
     for filename, digest in protocol["files"].items():
@@ -145,10 +169,15 @@ def run(args) -> None:
         raise ValueError("a completed matched baseline is required")
     if shutil.disk_usage(root).free < 20 * 1024**3:
         raise ValueError("less than 20 GiB free disk at admission")
-    unit = f"image3d-mcmc-{args.arm}-20261013-v2.service"
-    group = quality_cgroup(policy=protocol["host_policy"], unit=unit)
-    if (group / "memory.high").read_text().strip() != "max":
-        raise ValueError("memory-v2 requires no cgroup memory.high throttling")
+    suffix = "20261016-v3" if unlimited else "20261013-v2"
+    unit = f"image3d-mcmc-{args.arm}-{suffix}.service"
+    if unlimited:
+        unlimited_host_cgroup(unit)
+        group = None
+    else:
+        group = quality_cgroup(policy=policy, unit=unit)
+        if (group / "memory.high").read_text().strip() != "max":
+            raise ValueError("memory-v2 requires no cgroup memory.high throttling")
     with FileLease(PROJECT / "outputs/.gpu.lock") as lease:
         require_idle_gpu()
         output = root / args.arm
@@ -214,7 +243,11 @@ def main() -> None:
     parser.add_argument("--floor-overlay", type=Path)
     parser.add_argument("--moments-overlay", type=Path)
     parser.add_argument("--memory-gate", type=Path)
+    parser.add_argument("--unlimited-host-memory", action="store_true",
+                        help="prepare a new protocol without task RAM/swap limits or host-memory stop gates")
     args = parser.parse_args()
+    if args.unlimited_host_memory and not args.prepare:
+        parser.error("--unlimited-host-memory is only valid with --prepare; runs use their frozen protocol")
     args.output_root = args.output_root.resolve()
     if args.prepare:
         prepare(args)

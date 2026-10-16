@@ -60,6 +60,17 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 2026-10-13验证结果：42c26f6远端161项回归通过；任务20261013-162310-eedc/只读监控20261013-162445-be3a正常exit0。三环境两rank均通过新core `55ea2ce2…` 门禁。真实3M/SH3/2048、Adam两矩常驻的三轮351-view验证全部完成，逐轮最慢rank耗时46.818/45.377/45.275秒，每rank每轮实际释放Train缓存536205312bytes，逐视角PSNR跨轮最大差0、CUDA RNG不变。2秒采样任务主存峰值6724980736bytes约6.26GiB，high/max/oom/oom_kill均0，逐卡reserved峰值3391094784bytes；这是代表负载门禁而非原10k堆的严格前后对照或完整30k稳定性证明。新协议已冻结在`outputs/analysis/mcmc-stability-ablation-20261013-v2/protocol.json`，SHA `05f55c4bada35cfc7e5c4c35b1c63eb41f15f24e1556054cd71d863184568d33`，内存summary SHA `561292e7…`；独立记录后才启动新基线，不为文档提交改变远端核心。
 
+
+### 用户明确取消任务主存限制（unlimited-host-memory-v3，2026-10-16）
+
+用户在raw_loss最终checkpoint因11.5GiB主动停止后，明确要求取消12GiB硬限及所有任务主存保护；此授权取代上文memory-v2的主存资源政策，不重写v2协议、预算、失败结论或产物。无主存限制可能触发整机OOM并影响面板/其他服务，不能承诺只有训练进程会被杀；不改主机swap配置或其他服务限额。
+
+`scripts/run_mcmc_stability_ablation.py --prepare --unlimited-host-memory`只在新的输出目录生成`apartment_mcmc_single_factor_unlimited_host_memory_v3`协议，unit后缀`20261016-v3`。host policy的`memory_max_bytes`、`memory_high_bytes`、`memory_swap_max_bytes`、`startup_available_bytes`、`minimum_available_bytes`、`stop_current_bytes`全部记null；实际启动必须显式`MemoryMax=infinity`、`MemoryHigh=infinity`、`MemorySwapMax=infinity`，运行入口核对本unit及祖先cgroup没有继承的有限max/high/swap限制。无主存限额不等于物理内存无限，不关闭内核OOM机制。
+
+新模式不向`run_stage`传host_group，因此不调用`host_failure`，不再按18GiB启动余量/6GiB运行余量/11.5GiB任务总量提前拒绝或终止，也不生成原受限模式的内部host-memory时间线；需要内存观察时使用独立只读面板监控，不将观测重新接成停止条件。原CUDA遥测、逐视角进度、显存/磁盘/时长保护与GPU串行租约仍在，它们不是本次取消的主存限制。新模式通过协议显式选择，不能用run时开关覆盖已冻结v2。
+
+此改动仅在研究runner，不改trainer/absgrad_resources或训练核心SHA；三环境GPU门禁及3M Validation报告仍验证同一核心，但受限内存门禁是历史执行证据，不是新无限额政策的安全证明。新协议重新绑定runner及所有输入/config SHA，仍不读Test RGB、不改线上默认/模型、不执行新final-fit。取消主存限额本身不授权重试已失败臂、拼装未验证checkpoint或覆盖旧现场。已失败raw_loss的八次验证是SOR前质量证据，不能标成完整实验通过。
+
 ## 双卡绝对梯度实验（2026-09-30）
 
 内部 `absgrad_ablation_v1` 使用配置 schema 11，在 schema 10 的 Project 参数上仅增加 `densification.absgrad`（默认 `false`）。公开配置、MCMC 配置及其 schema 10 哈希不变。双臂使用该内部 profile，唯一 changed leaf 为 `densification.absgrad`；通过 `--resolved-config-json` 进入既有 runner，不增加 API／前端入口。MCMC 拒绝绝对梯度。该实验称为“AbsGS 启发的绝对梯度消融”，不是完整 AbsGS 复现，不构成默认推广。
