@@ -70,6 +70,14 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 原库/capacity门禁通过`smoke_mcmc_stability.py --guarded`运行，固定在`image3d-mcmc-capacity-20261017-v1.service`及指定远端仓库；复用GPU租约/空闲准入、逐rank显存遥测和TrainingMonitor，运行中检查18GiB reserved/每臂300秒及最终12步完整性。外层unit900秒，磁盘20GiB准入/4GiB停止；主存max/high/swap无限额且host_group=None，无主存主动停止。输出仅新建研究目录，原库/capacity分别保留probe及资源/退出记录，子进程只执行既有小smoke。
 
+### Capacity 多周期受控验证（2026-10-17）
+
+用户明确授权原库/capacity的三合成用例，每rank128点、每例最多1000更新，不含10k/30k/Test/生产变更。`run_mcmc_capacity_cycles.py`只在指定远端与`image3d-mcmc-capacity-cycles-20261017-v1.service`运行；复用已通过的同core两环境，不改core/配置默认。每rank4个来源初始opacity=.5，其余1e-6；两个64px固定合成相机与黑背景、可见点z=2，负对照全在z=-2，失衡仅rank1在相机后。模型/优化器及参考图像初始哈希须配对；这是刻意构造的困难状态，不是旧失败现场重放或held-out场景质量。
+
+初始Adam step9300，opacity两矩设为稳态正则梯度及平方，其他矩为0；使用名义30k LR的9301..10300、原100步搬迁间隔、固定local cap128。核心正则乘128/1500000保持全局3M下的逐点正则量级，明确为虚拟归一化而非3M模型。两实现同初始seed，不承诺采样路径分化后的噪声轨迹一致。图像梯度统计为总梯度减去独立autograd正则梯度，可能有float舍入残差。记录前后健康、实际K/投影、可用来源容量、candidate接纳数与实际步数；来源耗尽按原alive门槛在搬迁前同步终止，不伪造剩余更新。固定点数排除通过少增点降低负载的混淆，但不证明大模型资源表现。
+
+预声明探索性安全否决线：可见与失衡用例两实现均完成1000更新、两分片终态均有有效可见点、candidate原始合成PSNR相对原库下降不超过0.5dB；无图像信号负对照可耗尽来源，不把共同失败称为candidate新增退化。任何缺失/输入不配对/非有限或否决均阻止给出后续10k资格；即使通过，本脚本也不启动真实场景。保留六用例失败继续且不重试；逐case独立取消/日志/遥测目录，18GiB reserved/每例900秒、磁盘20GiB准入/4GiB停止、unit6000秒、GPU串行锁；RAM max/high/swap无限额，不设置主存保护。摘要的受控提前结束必须与逐行真实进度、耗尽rank、最终健康和显存遥测吻合。
+
 ### 主存修复与重新基线（memory-v2，2026-10-13）
 
 上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。
