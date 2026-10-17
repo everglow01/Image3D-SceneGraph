@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，mechanism-details实现dc9c19f已推送两分支。远端首次Git拉取HTTP2 framing失败，一次状态核对后HTTP1重试Connection refused；仓库未变/目录未创建。仅做最多6次有界只读HTTPS检查后确认网络恢复，再经Git ff-only拉取成功，未改代理/DNS/防火墙或上传源码。171项远端回归通过/4.45s，本机禁止Torch的扩展122项通过/.84s；训练核心仍cac0668c…未变。提交MCMC真实梯度与尺度失效分类-v1及MCMC机制细节只读监控-v1时被权限层以Modify Shared Resources拒绝，要求本轮明确点名两任务及远端范围。03:25:47Z只读确认任务列表无这两个名字，once/lock及baseline/floor输出均不存在、专用unit not-found、两卡空闲、后端active；只创建了回归日志目录，未启动GPU或取得新的梯度/尺度分类结果。未重试或换通道。准备命令与阻塞记录在outputs/analysis/mcmc-mechanism-details-launch-20261017-v1；需明确授权i-94B8D131指定仓库原库/floor两环境小型合成验证与唯一只读监控，独立目录、无主存限额、18GiB显存/600秒/锁保护、不覆盖/不跑30k/不读Test/不改生产。个人文档保持原地，原codex未提交7行不纳入本次记录。
+
 - 2026-10-17，用户继续验证，新增smoke_mcmc_degeneration.py --mechanism-details窄门禁：两卡各自运行单高斯/64px真实gsplat渲染，在packed/unpacked两路径测量阈值上下7种opacity的图像logit梯度、正则梯度、alpha、投影数量和实际K；合成白色目标使可见点存在提高opacity的重建方向，不假设图像梯度天然为0。另保存每轮固定低opacity重定位前后全部3轴、GPU log结果以及零/负有限/NaN/±Inf计数，以闭合此前第23轮只有非正/非有限标签的缺口；逐条先落盘后断言。独立专用unit/新目录、无主存限额、GPU锁/预算与主机限制保持；不修改训练核心/策略/生产默认，不运行30k、不读取Test。新增标准库非有限分类回归，本机禁止Torch的30项回归及Ruff通过，远端尚未运行，不把预期判据当实测结果。
 
 - 2026-10-17，旧destination_moments环境亦完成同core双卡小型训练与检查点SHA验收，三环境六rank的实际Torch Adam非零正则探针一致：m/v清零且step9300，opacity从.005经1/2/100步变为.0042731962/.0034643139/2.384890649409499e-5；100步值与旧9400步退化分片中位数完全一致，第二步已低于1/255渲染cutoff。step0的100步值.0003512397也低于cutoff，故仅重置step不足；该探针明确无图像梯度，不能冒充逐点实测梯度。logit/sigmoid复活往返.00499999942258仍满足dead条件；真实184副本拓扑及钳制前ratio观测已通过，公式仍只看51。三环境均完成，未重试/并发/启动30k/改生产；GPU计算进程为空、后端active。后续算法修复仍需把复活/正则/渲染cutoff和有限来源复制能力作为联动约束，不能单抬floor或单清moments后直接跑全场景。
