@@ -54,6 +54,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 每个MCMC attempt新增独立`artifacts/mcmc-rank-N.jsonl`，在已有诊断频率的策略前/后写入本卡摘要，后摘要必须早于参数校验和全卡汇总。增加最小轴/最小log尺度及零/次正规/NaN/Inf分类；仅有限值参与分位数。成功渲染记录实际瓦片交集数K及24K索引数组估算（不含排序工作区），不是失败帧预分配统计。异常记录本rank阶段、步数和原始cause栈，禁止为记录错误再分配CUDA张量或执行collective；磁盘记录失败不能替换原训练异常。不改变优化器、搬迁、噪声、阈值或预算。
 
+`scripts/smoke_mcmc_degeneration.py`是第二轮的远端复现门禁，不是算法候选或完整场景训练。原库/旧floor/旧moments分别在全新目录运行；实际100步Adam正则更新覆盖step0与9300，184真实副本覆盖公式上限，40轮固定低透明度公式压力覆盖尺度动态范围，复用已有12步双卡trainer/Validation/checkpoint。进程内钩子仅用于该小门禁，记录钳制前的真实ratio输入（非unique-source分布）、瓦片分配前分块包围盒估算和分配后的实际K；小例中逐项核对估算/实际、原函数输出和RNG，不宣称任意未来CUDA输入均位级等价。报告绑定脚本/复用smoke哈希、训练核心和overlay环境。期望终态为`diagnostic_complete`且`stability_gate=blocked_by_reproduced_failures`，不能被既有passed门禁替代。运行需专用`image3d-mcmc-degeneration-20261017-v1.service`，主存max/high/swap均无限额，GPU租约、空闲检查、单卡18GiB峰值检查保留；调度仍必须经面板任务和只读监控、限时unit，禁止本机执行或直接用面板同步exec承载GPU任务。尚未远端运行，不能据此启动完整场景或推广候选。
+
 ### 主存修复与重新基线（memory-v2，2026-10-13）
 
 上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。

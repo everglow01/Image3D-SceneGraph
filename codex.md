@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，第三项新增仅远端的smoke_mcmc_degeneration.py，复用原12步双卡trainer门禁，不创建新训练框架。压力项覆盖step0/9300且实际非零opacity正则的100步Adam、真实184副本搬迁及公式51截断、低透明度40轮尺度收缩；期望记录已知失败机制，终态diagnostic_complete/stability_gate=blocked_by_reproduced_failures绝非稳定性通过。进程内观测钩子在原公式修改ratio前记录真实输入，在瓦片分配前以65536点分块估算屏幕包围盒K、成功后核对真实K；估算不冒充CUDA第一遍结果，钩子始终恢复，额外对比原函数输出/RNG。限定目标主机/仓库、全新outputs/analysis目录、专用unlimited-host-memory systemd cgroup和GPU租约/空闲两卡，不关闭已有显存预算。121项本地回归在禁止Torch导入下通过(.82s)，全部改动Ruff通过；实际Torch/双卡/旧overlay压力复现尚未运行，既有Git推送拒绝未获解除信息，不再次尝试或改走源码上传。先远端验证本轮诊断与复现，再设计逐项算法修复；尚未改透明度阈值、Adam时钟、复制策略、尺度公式或噪声，也未重跑30k/部署模型。
+
 - 2026-10-17，第二项补齐MCMC失败现场：逐rank诊断JSONL在策略前及策略后/model.validate和汇总collective之前写入；增加最小轴尺度/log-scale分位、激活零值/次正规/非有限数量、log-scale NaN/+Inf/-Inf计数、渲染cutoff以下数量。分位数显式仅统计有限值，非有限值另计数，避免诊断JSON自身因NaN失败。已成功渲染的isect_ids记录真实K及24K索引数组字节，明确不含sort workspace且不能冒充OOM帧K。异常记录包含rank/iteration/本地阶段/完整cause栈，记录时不分配CUDA张量或进入collective；原异常传播保留。本机禁止Torch的26项回归与Ruff通过，新增极小轴/非有限张量回归未在本机运行；远端仍待Git同步，未声称数值退化已修复。
 
 - 2026-10-17，用户要求继续按计划验证和修复，接续MCMC退化排查而非旧AbsGrad计划。首项修复双卡Validation屏幕健康统计：实际gsplat元数据在all-to-all前保留本分片[C,N,2]投影，按相机维度归并可见性/最大半径，拒绝分片形状错配；packed路径保留索引归并并排除零半径，新增screen_health_views区分缺失数据与真实零可见。未改变渲染、损失、随机数或公开默认；新增Torch回归仅待远端执行，本机AST/Ruff及禁止Torch导入的22项研究编排回归通过。此修改改变evaluation.py训练核心身份，旧冻结门禁不能冒充新core通过。既有Git推送权限拒绝尚未解除，不换通道同步，远端仍36433bf；未启动训练、不使用Test、不改旧产物。后续先补失败阶段/最小轴/真实复制次数及瓦片诊断、执行小压力门禁，再逐项评估算法候选，不直接重跑30k。
