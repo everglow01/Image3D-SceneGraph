@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，独立capacity-overlay创建成功，身份SHA6848fc95…，283个包源码/二进制文件与本地候选helper哈希复核通过；受保护原安装包源码/二进制前后哈希不变，未改生产依赖。真实CUDA在两rank均验证：183搬迁请求接纳50/延期133，实际51总副本中心合成opacity=.5000006264210048，相对源.5绝对误差6.26421e-7，小于预声明ATOL2e-6；183增点请求亦仅增50，不再让真实副本超过公式计数。alpha=.006近死来源40轮relocate/add均返回0，全部参数/RNG/原动量不变，避免强迫复制后的尺度收缩；不是40轮训练，也没有把未搬迁点宣称恢复。成熟step9300与来源/目标动量原策略通过。候选同core双卡12步训练、Validation/保存/合并及真实relocated/deferred字段通过，stage7.677s，资源无失败；两个rank reserved峰各22MiB。独立最终checkpoint/模型/相机序列与overlay哈希验收通过，但两模型文件哈希不同，不宣称位级等价或质量改善。结论为small_cuda_gate_passed_quality_not_evaluated；原库/候选均无新30k/Test/线上变更，GPU进程空、后端active。完整结果及局限见mcmc-capacity-results-20261017-v1/assessment.json；长期存活、跨rank池、全场景K/资源/质量仍未通过。
+
 - 2026-10-17，用户明确授权后，b92ce27经Git同步远端，190项CPU/相关回归通过/4.57s；原库与capacity串行任务20261017-121422-ee86和唯一只读监控20261017-121435-cbda均finished=true/exit0，unit21.340s/exit0，主存max/high/swap无限额，主动逐卡18GiB/每臂300秒/磁盘监控与unit900秒生效。原库在新core8df617cd…完成双卡12更新/24相机样本、60→66点、6/12步两轮2-view Validation、最终checkpoint与合并；stage7.627s、两卡峰reserved各23068672bytes=22MiB，resource_failure=null，最终遥测finished。独立checkpoint组件/元数据SHA及progress/报告哈希全部复核，和capacity相机序列同7e08e95f…；该小模型峰值不含CUDA上下文，不是3M资源证据，合成PSNR不当真实质量指标。证据远端outputs/analysis/mcmc-capacity-gates-20261017-v1，本地mcmc-capacity-results-20261017-v1。
 
 - 2026-10-17，用户明确授权原库/capacity独立环境及具名候选门禁/唯一只读监控。启动审查发现原小smoke只记录最终显存峰，缺少运行中超限停止，先补--guarded执行路径以满足保护要求：复用memory_telemetry、TrainingMonitor、run_stage及FileLease，逐卡18GiB reserved、每臂300秒、磁盘20GiB准入/4GiB停止、双卡12步完整性；专用unit及父cgroup主存max/high/swap均须无限额，host_group=None不恢复主存门槛。仅支持原库/capacity，子进程不递归guard，默认旧smoke路径保持兼容，候选算法和训练core不变；unit总时限拟900秒。新增无Torch接线回归，本机相关29项及Ruff通过。此为执行保护补齐，尚未创建候选GPU任务或环境，不将CPU结果当CUDA通过。
