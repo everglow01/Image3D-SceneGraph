@@ -146,6 +146,102 @@ def pressure_checks(device) -> dict:
             "rng_unchanged": True}
 
 
+
+def describe_values(values: list[float]) -> dict:
+    return {"values": [value if math.isfinite(value) else str(value) for value in values],
+            "zero_count": sum(value == 0 for value in values),
+            "negative_finite_count": sum(math.isfinite(value) and value < 0 for value in values),
+            "nan_count": sum(math.isnan(value) for value in values),
+            "positive_inf_count": sum(value == math.inf for value in values),
+            "negative_inf_count": sum(value == -math.inf for value in values)}
+
+
+def mechanism_details_worker(local_rank, rank, world_size, args):
+    import torch
+    from gsplat.rendering import rasterization
+    from gsplat.relocation import compute_relocation
+    from image3d_scenegraph.gaussian.trainer import _gsplat_version, training_provenance
+
+    assert world_size == 2 and local_rank == rank
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+    trace = args.output_dir / f"details-rank-{rank}.jsonl"
+    rng = torch.cuda.get_rng_state(device).clone()
+    gradients = []
+    cases = [.01, .005, .004273196216672659, (1 / 255) * 1.0001,
+             (1 / 255) * .9999, .0034643139224499464, 2.384890649409499e-5]
+    for packed in (False, True):
+        for requested in cases:
+            logit = torch.logit(torch.tensor([requested], device=device)).requires_grad_()
+            opacity = logit.sigmoid()
+            image, alpha, metadata = rasterization(
+                torch.tensor([[0., 0., 2.]], device=device),
+                torch.tensor([[1., 0., 0., 0.]], device=device),
+                torch.full((1, 3), .1, device=device), opacity,
+                torch.ones((1, 3), device=device), torch.eye(4, device=device)[None],
+                torch.tensor([[[50., 0., 32.5], [0., 50., 32.5], [0., 0., 1.]]], device=device),
+                width=64, height=64, packed=packed, sh_degree=None,
+            )
+            loss = (1. - image).square().mean()
+            image_gradient = (torch.autograd.grad(loss, logit, retain_graph=True, allow_unused=True)[0]
+                              if loss.requires_grad else None)
+            regularizer_gradient = torch.autograd.grad(.01 / 3_000_000 * opacity.sum(), logit)[0]
+            value = float(opacity.detach()[0])
+            row = {"event": "render_gradient", "packed": packed, "opacity": value,
+                   "image_gradient_connected": image_gradient is not None,
+                   "image_logit_gradient": float(image_gradient[0]) if image_gradient is not None else 0.,
+                   "regularizer_logit_gradient": float(regularizer_gradient[0]),
+                   "alpha_max": float(alpha.detach().max()),
+                   "projected_entries": int((metadata["radii"] > 0).all(dim=-1).sum()),
+                   "actual_intersections": metadata["isect_ids"].numel()}
+            emit(trace, row)
+            assert row["regularizer_logit_gradient"] > 0
+            if value < 1 / 255:
+                assert row["alpha_max"] == 0 and row["image_logit_gradient"] == 0
+                assert row["projected_entries"] == 0 and row["actual_intersections"] == 0
+            else:
+                assert row["alpha_max"] > 0 and row["image_logit_gradient"] < 0
+            gradients.append(row)
+
+    binoms = torch.tensor([[math.comb(n, k) if k <= n else 0 for k in range(51)]
+                           for n in range(51)], dtype=torch.float32, device=device)
+    scales = torch.full((1, 3), .01, device=device)
+    source_opacity = torch.tensor([.006], device=device)
+    ratios = torch.tensor([51], device=device)
+    first_invalid = None
+    for step in range(1, 41):
+        before = describe_values(scales.flatten().cpu().tolist())
+        new_opacity, scales = compute_relocation(source_opacity, scales, ratios.clone(), binoms)
+        output = describe_values(scales.flatten().cpu().tolist())
+        log_output = describe_values(scales.log().flatten().cpu().tolist())
+        row = {"event": "scale_round", "round": step, "input": before,
+               "opacity_after_formula": float(new_opacity[0]),
+               "output": output, "log_output": log_output}
+        emit(trace, row)
+        if not bool(torch.isfinite(scales).all() & (scales > 0).all()):
+            first_invalid = row
+            break
+    identity = _gsplat_version()
+    if "project_mcmc_relocation_v1" in identity:
+        assert first_invalid is not None
+        assert first_invalid["output"]["zero_count"] == 3
+        assert first_invalid["log_output"]["negative_inf_count"] == 3
+    else:
+        assert first_invalid is None
+    assert torch.equal(rng, torch.cuda.get_rng_state(device))
+    reserved = int(torch.cuda.max_memory_reserved(device))
+    assert reserved < 18 * 1024**3
+    record = {"rank": rank, "environment": identity, "status": "diagnostic_complete",
+              "training_code_hash": training_provenance(dataset_hash="0" * 64,
+                  effective_config_hash="0" * 64, world_size=world_size).code_hash,
+              "render_gradients": gradients, "first_invalid_scale": first_invalid,
+              "scope": "isolated_single_gaussian_per_gpu_not_distributed_scene_gradient",
+              "scale_scope": "fixed_opacity_formula_stress_not_failed_scene_lineage",
+              "rng_unchanged": True, "peak_reserved_bytes": reserved,
+              "stability_gate": "blocked_by_reproduced_failures"}
+    (args.output_dir / f"rank-{rank}.json").write_text(json.dumps(record, indent=2, allow_nan=False) + "\n")
+
+
 def worker(local_rank, rank, world_size, args):
     import torch
     from gsplat import rendering
@@ -199,6 +295,7 @@ def worker(local_rank, rank, world_size, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--mechanism-details", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     if socket.gethostname() != "i-94B8D131" or str(root) != "/usr/local/3dgs_new/Image3D-SceneGraph":
@@ -209,7 +306,9 @@ def main():
     from image3d_scenegraph.gpu_lease import FileLease, require_idle_gpu
     from run_mcmc_stability_ablation import unlimited_host_cgroup
 
-    unlimited_host_cgroup("image3d-mcmc-degeneration-20261017-v1.service")
+    unit = ("image3d-mcmc-mechanism-details-20261017-v1.service" if args.mechanism_details
+            else "image3d-mcmc-degeneration-20261017-v1.service")
+    unlimited_host_cgroup(unit)
     import torch
     from gsplat.distributed import cli
 
@@ -220,12 +319,13 @@ def main():
             raise SystemExit("需要现场确认的两张可见GPU")
         args.output_dir.mkdir(parents=True)
         try:
-            cli(worker, args, verbose=True)
+            cli(mechanism_details_worker if args.mechanism_details else worker, args, verbose=True)
         except Exception as exc:
             emit(args.output_dir / "failure.jsonl", {"status": "failed", "reason": f"{type(exc).__name__}: {exc}"})
             raise
     records = [json.loads((args.output_dir / f"rank-{rank}.json").read_text()) for rank in range(2)]
     summary = {"status": "diagnostic_complete", "stability_gate": "blocked_by_reproduced_failures",
+               "probe": "mechanism_details" if args.mechanism_details else "degeneration",
                "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                "reused_smoke_sha256": hashlib.sha256((root / "scripts/smoke_mcmc_stability.py").read_bytes()).hexdigest(),
                "ranks": records, "scene_training": "not_run", "test_rgb": "not_loaded"}

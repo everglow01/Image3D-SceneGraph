@@ -83,3 +83,16 @@ def test_main_rejects_local_model_execution_before_torch_import(tmp_path, monkey
         gate.main()
     assert not (tmp_path / "new").exists()
     assert sys.modules.get("torch") is previous_torch
+
+
+def test_nonfinite_scale_classification_preserves_values_in_valid_json():
+    values = [0., -0., -1., 1e-40, float("nan"), float("inf"), -float("inf")]
+    record = gate.describe_values(values)
+    assert record["zero_count"] == 2
+    assert record["negative_finite_count"] == 1
+    assert record["nan_count"] == 1
+    assert record["positive_inf_count"] == 1
+    assert record["negative_inf_count"] == 1
+    assert record["values"][-3:] == ["nan", "inf", "-inf"]
+    assert record["values"][3] == 1e-40
+    json.dumps(record, allow_nan=False)
