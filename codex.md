@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，多周期失衡用例仅rank1在相机后，rank0保有图像信号；原库与capacity均在第200实际更新因rank1零alive而同步控制终止。第100步candidate弱rank接纳36/延期88、暂得40alive，之后仍全部死亡；结束时健康rank原库/candidate分别127/128有效可见点，另一rank均0。健康分片不能向耗尽分片提供来源是两者共有的局部池限制，capacity没有解决；不能称为candidate新增独有失败，也不声称单纯跨rank复制就能恢复缺失几何覆盖。六case共2800真实更新/5600训练相机样本，不是6000更新；无非有限/零尺度观测、无资源保护触发，两卡各case peak reserved均22MiB，不外推3M内存。两环境/输入哈希及early-stop步数已核验；本轮判定eligible_for_10k=false，遵守授权不启动10k或30k、不读取Test、不改生产。结果与限制写入上述assessment，active-run已更新终态并保留started-run原始记录；个人文档和codex原7行不纳入结果提交。
+
 - 2026-10-17，多周期无图像信号负对照（两rank点均在相机后、黑色目标）两实现实际运行200更新、仅完成第100步的一次搬迁，第200步按原alive条件控制终止，未伪造剩余800步。第100步前各rank均4个alive；原库搬迁后直接0个，capacity各接纳36/延期88，暂得40个alive，但可再次提供副本的来源容量已为0。图像梯度观测始终为0，第200步两臂均零alive。说明capacity确实避免即时低于阈值的无效复活，却无法在没有图像恢复信号时维持这些点；不是把所有请求成功或更高存活率声称长期有效。此例是负对照，共同耗尽不单独构成candidate画质退化；黑色预测/目标MSE0对应的120dB是数值下限结果，不作质量成绩。该结论不把人为相机后状态当旧apartment分片起始退化的实测原因。
 
 - 2026-10-17，用户具名授权的多周期对照代码c3de62d经Git同步，203项远端回归通过/4.74s。执行任务20261017-125610-f545完成finished=true/exit1、只读监控20261017-125623-9431 finished=true/exit0，unit75.201s；六case的训练进程均exit0/resource_failure=null，总控exit1是预声明资格否决而非CUDA/资源崩溃。可见用例原库/capacity均完成1000实际更新、10次搬迁、两rank各128有效可见点，candidate482请求全部接纳/0延期。终态raw合成PSNR61.772827/60.512685，差-1.260142dB，超过预声明-.5dB否决；MSE6.6484017e-7/8.8865153e-7均很小。事后上下文分析末100步平均pre-update MSE反为candidate更低（5.4763071e-7/4.6733510e-7），不能替换原终点门禁。初始参数/优化器、参考图像、相机序列SHA均相同，但第4步已出现7.28e-12 raw MSE差异，早于第100步首次搬迁；不把单seed、两固定相机的终点差异当确定的普遍质量退化或全部归因capacity，CUDA非确定性原因也未单独证明。全部报告/进度SHA、实际步数、数值健康与显存遥测复核通过；证据outputs/analysis/mcmc-capacity-cycles-results-20261017-v1，未启动10k/30k。
