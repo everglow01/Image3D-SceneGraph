@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，串行suite position_lr监控记录14317更新，收到取消前progress最终追加到14318（28636样本），3M点，验证到10k共4次；训练4522.88秒returncode1。明确触发保留的rank0 reserved显存预算：19662897152bytes=18.3125GiB超过18GiB，随后TrainingCancelled；不是已证实CUDA OOM，更不是被取消的主存停止条件。10k raw PSNR17.74426，低于同次baseline10k22.66851；此delay_multiplier=.01→1单因素没有正向证据，不能推广或把部分进度当完整30k。相机实际前缀与基线一致。此为最后一臂，总控已按“失败继续”运行完全部五项，两个通过/三个失败，GPU计算进程空、后端active；无新训练、重试、Test或线上变更。所有成功模型/失败现场保留，active-run更新终态，证据suite-results-20261017-v1；raw_loss改善颜色但分片退化未解，其他变体不宜原样推广。
+
 - 2026-10-17，串行suite destination_moments最后落盘9400更新/18800样本、3M点、仅3k/5k/7k三次Validation；训练2901.86秒returncode1。真实异常为Process1在gsplat intersect_tile分配6.07GiB时CUDA OOM（当时可用5.99GiB），不是主存OOM或11.5GiB主动停止。外层rank_0_telemetry_unfinished掩盖真实子进程原因，应引用train.log；不因allocator提示就认定碎片或调整配置。7k raw PSNR18.60366，相比同次baseline7k22.65466更差，无法产生合格30k/SOR/Selection。已执行相机前缀与基线相同；错误现场在suite-results-20261017-v1/incoming/experiment/destination_moments，未自动重试或与floor组合；总控继续position_lr。
 
 - 2026-10-17，串行suite relocation_floor最后完整进度24899/30000、3M点、验证到20k共6次351-view；训练7938.00秒后returncode1，无最终checkpoint/SOR/Selection。训练栈Process1在trainer.model.validate明确报scales contains non-finite values，不能从日志区分NaN/Inf或断言具体公式是根因；外层rank_0_telemetry_unfinished是异常退出后的结束状态检查，不能误当主存停止或遥测导致数值错误。20k raw PSNR23.84938高于同次baseline20k22.17204，但早期多点低于基线、RGB最大8.23737，不能以该中途分数替代完整30k比较或证明floor修复稳定有效。已执行相机前缀与基线逐样本一致；错误原始日志与failure在suite-results-20261017-v1/incoming/experiment/relocation_floor保留，后续两臂确实继续执行，不自动重试、补checkpoint或推广此变体。
