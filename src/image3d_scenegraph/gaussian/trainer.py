@@ -6,6 +6,7 @@ import gc
 import hashlib
 import io
 import json
+import traceback
 import platform
 import os
 import shutil
@@ -317,8 +318,12 @@ def train_gaussians(
     final_checkpoint_record = None
 
     record_training_phase("training", start_iteration)
+    phase = "iteration_start"
+    iteration = start_iteration
+    diagnostic_path = artifact_dir / f"mcmc-rank-{world_rank}.jsonl"
     try:
         for iteration in range(start_iteration, total_iterations + 1):
+            phase = "iteration_start"
             if cancel_requested is not None and cancel_requested():
                 _release_training_views(train_views, validation_views)
                 raise TrainingCancelled("Gaussian training cancellation requested")
@@ -332,6 +337,7 @@ def train_gaussians(
             )
             for optimizer in optimizers.values():
                 optimizer.zero_grad(set_to_none=True)
+            phase = "render"
             collect_absgrad = absgrad and iteration < int(config["densification"]["end_iteration"])
             view, rendered = _render_visible_training_view(
                 model,
@@ -341,6 +347,7 @@ def train_gaussians(
                 distributed=world_size > 1,
                 gradient_statistics=collect_absgrad,
             )
+            phase = "loss_and_backward"
             strategy.step_pre_backward(
                 model.params, optimizers, strategy_state, iteration, rendered.metadata
             )
@@ -363,6 +370,7 @@ def train_gaussians(
             if collect_absgrad and world_size > 1:
                 collect_distributed_absgrad(rendered.metadata)
             model.validate_gradients()
+            phase = "optimizer"
             for optimizer in optimizers.values():
                 optimizer.step()
 
@@ -373,10 +381,16 @@ def train_gaussians(
             )
             if mcmc_diagnostic_due:
                 mcmc_before = _mcmc_parameter_health(model, config)
+                _publish_event(diagnostic_path, {
+                    "iteration": iteration, "rank": world_rank,
+                    "phase": "before_strategy_after_optimizer", "health": mcmc_before,
+                    "render_intersections": _mcmc_render_health(rendered.metadata),
+                }, None)
             mcmc_refinement = is_mcmc and _mcmc_refinement_due(config, iteration)
             mcmc_dead_local = 0
             mcmc_dead_global = 0
             if mcmc_refinement:
+                phase = "alive_set_collective"
                 mcmc_dead_local, mcmc_dead_global = _validate_mcmc_alive_set(
                     model,
                     iteration=iteration,
@@ -385,6 +399,7 @@ def train_gaussians(
                     world_size=world_size,
                 )
             before_count = model.count
+            phase = "strategy"
             if is_mcmc:
                 strategy.step_post_backward(
                     params=model.params,
@@ -423,7 +438,15 @@ def train_gaussians(
                     mask=model.opacity_logits.detach().sigmoid()
                     < recovery_prune_threshold,
                 )
+            phase = "parameter_validation"
+            if mcmc_diagnostic_due:
+                mcmc_after = _mcmc_parameter_health(model, config)
+                _publish_event(diagnostic_path, {
+                    "iteration": iteration, "rank": world_rank,
+                    "phase": "after_strategy_before_validation", "health": mcmc_after,
+                }, None)
             model.validate(max_count=local_cap)
+            phase = "summary_collective"
             after_count = model.count
             summary = torch.tensor(
                 [
@@ -477,7 +500,7 @@ def train_gaussians(
                 local_health = {
                     "rank": world_rank,
                     "before_strategy_after_optimizer": mcmc_before,
-                    "after_strategy_and_noise": _mcmc_parameter_health(model, config),
+                    "after_strategy_and_noise": mcmc_after,
                     "render_image_id": view.camera.image_id,
                     "rgb_range_before_optimizer": rgb_range_summary(rendered.image),
                     "position_lr": float(optimizers["means"].param_groups[0]["lr"]),
@@ -522,6 +545,7 @@ def train_gaussians(
             if validation_due:
                 if isinstance(train_views, TrainingViews):
                     train_views.clear_cache()
+                phase = "validation"
                 record_training_phase("validation", iteration)
                 last_validation = evaluate_views(
                     model,
@@ -570,12 +594,14 @@ def train_gaussians(
                         if world_size == 1
                         else f".best-model-rank-{world_rank:03d}.pt"
                     )
+                    phase = "best_model"
                     record_training_phase("best_model", iteration)
                     save_model_snapshot(model, candidate_path, replace=True)
 
             if validation_due:
                 record_training_phase("training", iteration)
             if iteration == total_iterations:
+                phase = "checkpoint"
                 record_training_phase("checkpoint", iteration)
                 _release_training_views(train_views, validation_views)
                 final_checkpoint_record = _write_streaming_checkpoint(
@@ -584,11 +610,15 @@ def train_gaussians(
                     camera_order=camera_order, camera_cursor=camera_cursor, history=history,
                     world_rank=world_rank, world_size=world_size,
                 )
-    except torch.cuda.OutOfMemoryError as exc:
-        torch.cuda.empty_cache()
-        raise TrainingOutOfMemory("CUDA out of memory during Gaussian training") from exc
-    except GaussianModelError as exc:
-        raise TrainingError(str(exc)) from exc
+    except Exception as exc:
+        if is_mcmc:
+            _record_mcmc_failure(diagnostic_path, world_rank, iteration, phase, exc)
+        if isinstance(exc, torch.cuda.OutOfMemoryError):
+            torch.cuda.empty_cache()
+            raise TrainingOutOfMemory("CUDA out of memory during Gaussian training") from exc
+        if isinstance(exc, GaussianModelError):
+            raise TrainingError(str(exc)) from exc
+        raise
 
     elapsed = time.perf_counter() - started
     if best_validation_iteration is None or best_validation_payload is None:
@@ -1142,23 +1172,65 @@ def _build_strategy(
     )
 
 
+def _record_mcmc_failure(path: Path, rank: int, iteration: int, phase: str, exc: Exception) -> None:
+    # Do not allocate CUDA tensors or enter collectives after a rank has failed.
+    event = {"event": "failure", "rank": rank, "iteration": iteration, "phase": phase,
+             "exception_type": type(exc).__name__, "reason": str(exc),
+             "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))}
+    try:
+        _publish_event(path, event, None)
+    except OSError as error:
+        print(f"MCMC failure record could not be written: {error}", flush=True)
+
+
+def _mcmc_render_health(metadata: dict[str, Any]) -> dict[str, Any]:
+    intersections = metadata.get("isect_ids")
+    if intersections is None:
+        return {"status": "unavailable"}
+    count = intersections.numel()
+    return {"status": "available", "scope": "rendered_camera_after_all_to_all",
+            "tile_intersection_count": count, "sorted_index_arrays_bytes": 24 * count,
+            "excludes": "sort_workspace_projection_and_other_render_buffers"}
+
+
 @torch.no_grad()
 def _mcmc_parameter_health(model: GaussianModel, config: dict[str, Any]) -> dict[str, Any]:
     opacity = model.opacity_logits.detach().sigmoid()
-    scale = model.log_scales.detach().exp().amax(dim=1)
+    log_scales = model.log_scales.detach()
+    scales = log_scales.exp()
     quantiles = torch.tensor([0., .5, .9, .99, 1.], device=opacity.device)
+
+    def finite_quantiles(values):
+        values = values[torch.isfinite(values)]
+        return torch.quantile(values, quantiles).cpu().tolist() if values.numel() else None
+
     threshold = float(config["strategy"]["mcmc_min_opacity"])
     dead = int((opacity <= threshold).sum())
+    finite_opacity = torch.isfinite(opacity)
+    distances = model.means.detach().norm(dim=1)
+    finite_distances = distances[torch.isfinite(distances)]
     return {
         "gaussian_count": model.count,
         "min_opacity": threshold,
         "dead_count": dead,
-        "alive_count": model.count - dead,
+        "alive_count": int(((opacity > threshold) & finite_opacity).sum()),
         "dead_fraction": dead / model.count,
+        "opacity_nonfinite_count": int((~finite_opacity).sum()),
+        "below_render_cutoff_count": int((opacity < 1. / 255.).sum()),
         "quantile_levels": [0., .5, .9, .99, 1.],
-        "opacity_quantiles": torch.quantile(opacity, quantiles).cpu().tolist(),
-        "max_axis_scale_quantiles": torch.quantile(scale, quantiles).cpu().tolist(),
-        "maximum_origin_distance": float(model.means.detach().norm(dim=1).max()),
+        "quantile_scope": "finite_values_only",
+        "opacity_quantiles": finite_quantiles(opacity),
+        "max_axis_scale_quantiles": finite_quantiles(scales.amax(dim=1)),
+        "min_axis_scale_quantiles": finite_quantiles(scales.amin(dim=1)),
+        "min_axis_log_scale_quantiles": finite_quantiles(log_scales.amin(dim=1)),
+        "log_scale_nan_count": int(torch.isnan(log_scales).sum()),
+        "log_scale_positive_inf_count": int(torch.isposinf(log_scales).sum()),
+        "log_scale_negative_inf_count": int(torch.isneginf(log_scales).sum()),
+        "activated_scale_zero_count": int((scales == 0).sum()),
+        "activated_scale_subnormal_count": int(((scales > 0) & (scales < torch.finfo(scales.dtype).tiny)).sum()),
+        "activated_scale_nonfinite_count": int((~torch.isfinite(scales)).sum()),
+        "maximum_origin_distance": float(finite_distances.max()) if finite_distances.numel() else None,
+        "origin_distance_nonfinite_count": int((~torch.isfinite(distances)).sum()),
     }
 
 

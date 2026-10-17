@@ -52,6 +52,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 用户授权继续验证和修复。先修复unpacked双卡屏幕健康统计：使用gsplat元数据中all-to-all前的本分片投影，沿相机维归并可见性和最大屏幕半径；不把全局渲染buffer误作本分片索引。packed路径排除零半径。新增`screen_health_views`标明有诊断数据的视角数，0表示不可据此判断真实可见性；`screen_health_scope`明确本分片/参与投影相机作用域。统计不修改模型、RNG、渲染结果或选择指标。此诊断修复改变训练核心身份，旧core的完整实验与门禁只保留为历史证据。新张量回归、双卡验证未运行前，不宣称修复已获远端验收，不推广生产默认。
 
+每个MCMC attempt新增独立`artifacts/mcmc-rank-N.jsonl`，在已有诊断频率的策略前/后写入本卡摘要，后摘要必须早于参数校验和全卡汇总。增加最小轴/最小log尺度及零/次正规/NaN/Inf分类；仅有限值参与分位数。成功渲染记录实际瓦片交集数K及24K索引数组估算（不含排序工作区），不是失败帧预分配统计。异常记录本rank阶段、步数和原始cause栈，禁止为记录错误再分配CUDA张量或执行collective；磁盘记录失败不能替换原训练异常。不改变优化器、搬迁、噪声、阈值或预算。
+
 ### 主存修复与重新基线（memory-v2，2026-10-13）
 
 上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。

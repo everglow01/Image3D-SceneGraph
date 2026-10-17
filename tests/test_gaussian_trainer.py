@@ -811,3 +811,24 @@ def test_file_model_snapshots_match_legacy_and_support_atomic_best_updates(tmp_p
     assert all(count == gaussian.count for _, count in shards)
     for key, value in gaussian.state_dict().items():
         assert torch.equal(torch.cat([shard.state_dict()[key] for shard, _ in shards]), value)
+
+
+def test_mcmc_health_preserves_smallest_axis_and_nonfinite_failure_evidence():
+    from image3d_scenegraph.gaussian.trainer import _mcmc_parameter_health
+
+    log_scales = torch.tensor([[-90., -5., -5.], [-float("inf"), -5., -5.],
+                               [float("nan"), -5., -5.], [float("inf"), -5., -5.]])
+    shard = SimpleNamespace(count=4, opacity_logits=torch.tensor([0., 0., float("nan"), 0.]),
+                            log_scales=log_scales, means=torch.zeros((4, 3)))
+    health = _mcmc_parameter_health(shard, resolve_mcmc_config().effective_config)
+    assert health["log_scale_nan_count"] == 1
+    assert health["log_scale_negative_inf_count"] == 1
+    assert health["log_scale_positive_inf_count"] == 1
+    assert health["activated_scale_zero_count"] == 1
+    assert health["activated_scale_nonfinite_count"] == 2
+    assert health["min_axis_log_scale_quantiles"][0] == -90.
+    assert health["max_axis_scale_quantiles"][0] > .001
+    assert health["min_axis_scale_quantiles"][0] == 0.
+    assert health["opacity_nonfinite_count"] == 1
+    assert health["alive_count"] == 3
+    json.dumps(health, allow_nan=False)

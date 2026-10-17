@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，第二项补齐MCMC失败现场：逐rank诊断JSONL在策略前及策略后/model.validate和汇总collective之前写入；增加最小轴尺度/log-scale分位、激活零值/次正规/非有限数量、log-scale NaN/+Inf/-Inf计数、渲染cutoff以下数量。分位数显式仅统计有限值，非有限值另计数，避免诊断JSON自身因NaN失败。已成功渲染的isect_ids记录真实K及24K索引数组字节，明确不含sort workspace且不能冒充OOM帧K。异常记录包含rank/iteration/本地阶段/完整cause栈，记录时不分配CUDA张量或进入collective；原异常传播保留。本机禁止Torch的26项回归与Ruff通过，新增极小轴/非有限张量回归未在本机运行；远端仍待Git同步，未声称数值退化已修复。
+
 - 2026-10-17，用户要求继续按计划验证和修复，接续MCMC退化排查而非旧AbsGrad计划。首项修复双卡Validation屏幕健康统计：实际gsplat元数据在all-to-all前保留本分片[C,N,2]投影，按相机维度归并可见性/最大半径，拒绝分片形状错配；packed路径保留索引归并并排除零半径，新增screen_health_views区分缺失数据与真实零可见。未改变渲染、损失、随机数或公开默认；新增Torch回归仅待远端执行，本机AST/Ruff及禁止Torch导入的22项研究编排回归通过。此修改改变evaluation.py训练核心身份，旧冻结门禁不能冒充新core通过。既有Git推送权限拒绝尚未解除，不换通道同步，远端仍36433bf；未启动训练、不使用Test、不改旧产物。后续先补失败阶段/最小轴/真实复制次数及瓦片诊断、执行小压力门禁，再逐项评估算法候选，不直接重跑30k。
 
 - 2026-10-17，用户keep do后继续同一只读排查，补标准库数值边界探针numerical_edges.py/numerical-edges.json并量化小门禁缺口。alpha=.5真实184同中心副本的数学算例：正确未钳制单份约.003760，硬按51算得.013499，合成中心alpha约.917978而非.5；说明实际重复数与公式截断不一致会破坏透明度近似，不冒充噪声后真实图像。CPU libm float32顺序分母对100位Decimal参考，alpha=.006/N51误差2.13e-7、.8541186/N51误差2.91e-8，常规样本分母为正，进一步将本次floor主嫌指向长程尺度收缩/下溢而非笼统舍入误差。独立饱和alpha=1边界下，N51顺序float32分母-5121361而Decimal2.376548，存在负尺度→log NaN风险；这是CPU算术示例非CUDA位级复现，五臂已落盘诊断alpha最大均<1，不能说该饱和路径实际造成本次失败。baseline/raw_loss分别23/36次策略后live净减少，最大149179/190338；floor等其他臂无净减少不代表恢复成功，因为间隔内死亡/尺度问题更重。原floor门禁常规尺度.2、单次公式及12步训练；参考同样ratio cap51，75测试验证的是截断一致而非真实高副本守恒。原目标动量门禁step100/零梯度5步只证明清零后不随旧动量漂移，未覆盖成熟step9300/非零正则/渲染cutoff。此前小门禁通过事实保留，但不升级成场景稳定性证明。本轮仍无源码修复、GPU模型执行、重跑、预算变更或Test，完整发现及尚缺失败行/交集K/初始分片分化证据的边界写入同audit assessment；仅本地记录提交不重试推送。
