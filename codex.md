@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，串行suite destination_moments最后落盘9400更新/18800样本、3M点、仅3k/5k/7k三次Validation；训练2901.86秒returncode1。真实异常为Process1在gsplat intersect_tile分配6.07GiB时CUDA OOM（当时可用5.99GiB），不是主存OOM或11.5GiB主动停止。外层rank_0_telemetry_unfinished掩盖真实子进程原因，应引用train.log；不因allocator提示就认定碎片或调整配置。7k raw PSNR18.60366，相比同次baseline7k22.65466更差，无法产生合格30k/SOR/Selection。已执行相机前缀与基线相同；错误现场在suite-results-20261017-v1/incoming/experiment/destination_moments，未自动重试或与floor组合；总控继续position_lr。
+
 - 2026-10-17，串行suite relocation_floor最后完整进度24899/30000、3M点、验证到20k共6次351-view；训练7938.00秒后returncode1，无最终checkpoint/SOR/Selection。训练栈Process1在trainer.model.validate明确报scales contains non-finite values，不能从日志区分NaN/Inf或断言具体公式是根因；外层rank_0_telemetry_unfinished是异常退出后的结束状态检查，不能误当主存停止或遥测导致数值错误。20k raw PSNR23.84938高于同次baseline20k22.17204，但早期多点低于基线、RGB最大8.23737，不能以该中途分数替代完整30k比较或证明floor修复稳定有效。已执行相机前缀与基线逐样本一致；错误原始日志与failure在suite-results-20261017-v1/incoming/experiment/relocation_floor保留，后续两臂确实继续执行，不自动重试、补checkpoint或推广此变体。
 
 - 2026-10-17，串行suite raw_loss完整30k/60k、八次351-view、checkpoint/SOR/Selection通过，选30k；三阶段9678.53/30.72/218.13秒，模型/组件SHA及与suite baseline相机序列一致复核通过。SOR保留2997823点；Selection raw PSNR29.755298（相对同协议新基线+4.839247dB）、display29.757070（+.336944dB）、SSIM.916087（+.007598）。逐视角原始PSNR294改善/57退化，中位差+2.44144、最差-4.07806（view3673）；display226改善/125退化，中位差+.15698、最差-4.86169，并非全视角改善。30k SOR前RGB最大1.67354、超1通道.9121%，raw/display平均差约.00177dB，支持训练裁剪是RGB失控的重要因素；仍非零越界且未做新视觉/跨seed/跨场景验证。rank0/1低于.005比例15.1856%/92.9949%，达到阈值点1377293，分片失衡未解，不能说几何空洞已修复。与旧失败raw_loss不同，此次完整保存和后处理成功；主存限制未加回，60秒采样峰8.10GiB可能漏保存短峰。raw_loss是当前唯一完整通过且有正向质量证据的修复候选，但不自动推广或替换线上模型。证据同suite-results-20261017-v1，单项本地记录。
