@@ -48,6 +48,10 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 每场景臂使用独立systemd unit，主存硬上限8GiB/MemoryHigh7GiB/无swap，14GiB主机空闲准入、运行中6GiB底线、cgroup7.5GiB停止、两卡各18GiB reserved上限，全局3M不变；每stage6小时，unit6.5小时，磁盘20GiB准入/4GiB停止。MemoryHigh先回收缓存，不以额外剪枝或降分辨率避资源失败；失败保留证据，不自动增预算或重跑。先研究主训练失稳并统一SOR/held-out Selection，不做新final-fit或发布模型；结果报告raw/display/尾部失败视角/RGB越界/各rank终态与资源，不自动决定推广。所有源码先提交经Git同步，本机只运行无Torch的配置/AST回归。
 
+### 退化修复第二轮：诊断先行（2026-10-17）
+
+用户授权继续验证和修复。先修复unpacked双卡屏幕健康统计：使用gsplat元数据中all-to-all前的本分片投影，沿相机维归并可见性和最大屏幕半径；不把全局渲染buffer误作本分片索引。packed路径排除零半径。新增`screen_health_views`标明有诊断数据的视角数，0表示不可据此判断真实可见性；`screen_health_scope`明确本分片/参与投影相机作用域。统计不修改模型、RNG、渲染结果或选择指标。此诊断修复改变训练核心身份，旧core的完整实验与门禁只保留为历史证据。新张量回归、双卡验证未运行前，不宣称修复已获远端验收，不推广生产默认。
+
 ### 主存修复与重新基线（memory-v2，2026-10-13）
 
 上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。

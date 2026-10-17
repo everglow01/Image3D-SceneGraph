@@ -248,3 +248,46 @@ def test_test_authorization_rejects_changed_model(tmp_path):
             config_hash="b" * 64,
             model_hash="d" * 64,
         )
+
+
+def test_unpacked_screen_health_uses_local_shard_across_cameras():
+    from image3d_scenegraph.gaussian.evaluation import _accumulate_screen_health
+
+    maximum = torch.zeros(3)
+    visible = torch.zeros(3, dtype=torch.bool)
+    radii = torch.tensor([[[0, 0], [3, 2], [9, 0]], [[4, 1], [0, 0], [0, 0]]])
+    before = radii.clone()
+    rng = torch.get_rng_state().clone()
+    metadata = {"gaussian_ids": None, "radii": radii, "width": 20, "height": 10}
+    assert _accumulate_screen_health(metadata, maximum, visible)
+    torch.testing.assert_close(maximum, torch.tensor([.2, .15, 0.]))
+    assert visible.tolist() == [True, True, False]
+    assert torch.equal(radii, before) and torch.equal(rng, torch.get_rng_state())
+    assert _accumulate_screen_health({**metadata, "radii": torch.zeros_like(radii)}, maximum, visible)
+    torch.testing.assert_close(maximum, torch.tensor([.2, .15, 0.]))
+    assert not _accumulate_screen_health({}, maximum, visible)
+    with pytest.raises(GaussianEvaluationError, match="local shard"):
+        _accumulate_screen_health({**metadata, "radii": radii[:, :2]}, maximum, visible)
+
+
+def test_packed_screen_health_reduces_duplicates_and_ignores_zero_radii():
+    from image3d_scenegraph.gaussian.evaluation import _accumulate_screen_health
+
+    maximum = torch.zeros(3)
+    visible = torch.zeros(3, dtype=torch.bool)
+    metadata = {"gaussian_ids": torch.tensor([1, 1, 2]),
+                "radii": torch.tensor([[2, 2], [5, 4], [0, 0]]), "width": 10, "height": 10}
+    assert _accumulate_screen_health(metadata, maximum, visible)
+    torch.testing.assert_close(maximum, torch.tensor([0., .5, 0.]))
+    assert visible.tolist() == [False, True, False]
+    empty = {**metadata, "gaussian_ids": torch.empty(0, dtype=torch.long),
+             "radii": torch.empty((0, 2), dtype=torch.int32)}
+    assert _accumulate_screen_health(empty, maximum, visible)
+
+
+def test_missing_screen_metadata_is_reported_as_unavailable():
+    view = SimpleNamespace(camera=SimpleNamespace(image_id="a"), image=torch.full((4, 4, 3), .5))
+    result = evaluate_model(model(), [view], split="validation", sh_degree=0,
+                            renderer=lambda *_args, **_kw: SimpleNamespace(image=view.image))
+    assert result["health"]["screen_health_views"] == 0
+    assert result["health"]["screen_health_scope"] == "local_gaussians_across_projected_cameras"

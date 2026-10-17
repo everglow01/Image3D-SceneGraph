@@ -81,6 +81,7 @@ def evaluate_model(
 
     per_view: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    screen_health_views = 0
     max_screen_radius = torch.zeros(model.count, device=model.means.device)
     visible = torch.zeros(model.count, dtype=torch.bool, device=model.means.device)
     peak_allocated = 0
@@ -108,11 +109,11 @@ def evaluate_model(
                     sh_degree=sh_degree,
                     background=None,
                 )
-                _accumulate_screen_health(
+                screen_health_views += int(_accumulate_screen_health(
                     getattr(rendered, "metadata", {}),
                     max_screen_radius,
                     visible,
-                )
+                ))
                 if model.means.is_cuda:
                     torch.cuda.synchronize(model.means.device)
                 render_ms = (time.perf_counter() - started) * 1000.0
@@ -175,6 +176,8 @@ def evaluate_model(
         visible,
         health_thresholds,
     )
+    health["screen_health_views"] = screen_health_views
+    health["screen_health_scope"] = "local_gaussians_across_projected_cameras"
     return {
         "schema_version": EVALUATION_SCHEMA_VERSION,
         "status": "complete" if not failures else "complete_with_failures",
@@ -441,17 +444,33 @@ def _accumulate_screen_health(
     metadata: dict[str, Any],
     max_screen_radius: torch.Tensor,
     visible: torch.Tensor,
-) -> None:
+) -> bool:
     ids = metadata.get("gaussian_ids")
     radii = metadata.get("radii")
     width = metadata.get("width")
     height = metadata.get("height")
-    if ids is None or radii is None or width is None or height is None or not len(ids):
-        return
-    ids = ids.long()
-    normalized = radii.to(torch.float32).amax(dim=-1) / float(max(width, height))
-    max_screen_radius.scatter_reduce_(0, ids, normalized, reduce="amax", include_self=True)
-    visible[ids] = True
+    if radii is None or width is None or height is None:
+        return False
+    if width <= 0 or height <= 0:
+        raise GaussianEvaluationError("invalid screen-health image dimensions")
+    if ids is None:
+        # gsplat metadata retains local projections before the camera all-to-all.
+        if radii.ndim != 3 or tuple(radii.shape[1:]) != (visible.numel(), 2):
+            raise GaussianEvaluationError("unpacked screen-health radii do not match the local shard")
+        projected = (radii > 0).all(dim=-1)
+        normalized = radii.to(torch.float32).amax(dim=-1) / float(max(width, height))
+        normalized = torch.where(projected, normalized, 0.).amax(dim=0)
+        max_screen_radius.copy_(torch.maximum(max_screen_radius, normalized))
+        visible.logical_or_(projected.any(dim=0))
+    else:
+        if radii.ndim != 2 or tuple(radii.shape) != (ids.numel(), 2):
+            raise GaussianEvaluationError("packed screen-health radii do not match Gaussian ids")
+        projected = (radii > 0).all(dim=-1)
+        ids = ids[projected].long()
+        normalized = radii[projected].to(torch.float32).amax(dim=-1) / float(max(width, height))
+        max_screen_radius.scatter_reduce_(0, ids, normalized, reduce="amax", include_self=True)
+        visible[ids] = True
+    return True
 
 
 def _model_health(
