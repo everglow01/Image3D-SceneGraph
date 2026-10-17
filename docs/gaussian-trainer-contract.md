@@ -68,6 +68,8 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 新增CPU回归覆盖两条拓扑入口、183请求最多50新副本、严格阈值/饱和输入、原公式非法输出整组无写入、目标顺序和成熟Adam状态；CUDA `smoke_mcmc_stability.py --capacity`验证真实kernel/51总副本中心透明度、近死40轮无强迫收缩及既有双卡12步trainer完整生命周期。未获独立新候选GPU任务授权前不运行；小门禁通过也不等于30k稳定性或质量通过。
 
+原库/capacity门禁通过`smoke_mcmc_stability.py --guarded`运行，固定在`image3d-mcmc-capacity-20261017-v1.service`及指定远端仓库；复用GPU租约/空闲准入、逐rank显存遥测和TrainingMonitor，运行中检查18GiB reserved/每臂300秒及最终12步完整性。外层unit900秒，磁盘20GiB准入/4GiB停止；主存max/high/swap无限额且host_group=None，无主存主动停止。输出仅新建研究目录，原库/capacity分别保留probe及资源/退出记录，子进程只执行既有小smoke。
+
 ### 主存修复与重新基线（memory-v2，2026-10-13）
 
 上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。

@@ -6,6 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
+import socket
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -236,7 +239,7 @@ def capacity_checks(device: torch.device) -> dict:
             "optimizer_policy_unchanged": True, "quality_status": "not_evaluated"}
 
 
-def worker(local_rank: int, rank: int, world_size: int, args) -> None:
+def probe_worker(local_rank: int, rank: int, world_size: int, args) -> None:
     assert world_size == 2 and local_rank == rank
     device = torch.device(f"cuda:{local_rank}")
     torch.cuda.set_device(device)
@@ -264,14 +267,59 @@ def worker(local_rank: int, rank: int, world_size: int, args) -> None:
     torch.distributed.barrier()
 
 
+
+def worker(local_rank: int, rank: int, world_size: int, args) -> None:
+    from image3d_scenegraph.gaussian.absgrad_resources import memory_telemetry
+
+    torch.cuda.set_device(local_rank)
+    with memory_telemetry(args.resource_telemetry_dir, local_rank, rank):
+        probe_worker(local_rank, rank, world_size, args)
+
+
+def guarded_gate(args) -> None:
+    from image3d_scenegraph.gaussian.absgrad_resources import TrainingMonitor, run_stage
+    from image3d_scenegraph.gpu_lease import FileLease, require_idle_gpu
+    from run_mcmc_stability_ablation import LIMITS, PROJECT, unlimited_host_cgroup
+
+    if socket.gethostname() != "i-94B8D131" or str(PROJECT) != "/usr/local/3dgs_new/Image3D-SceneGraph":
+        raise ValueError("guarded MCMC gates require the authorized remote project")
+    if args.relocation or args.destination_moments or args.resource_telemetry_dir is not None:
+        raise ValueError("guarded gate supports original and capacity environments only")
+    unlimited_host_cgroup("image3d-mcmc-capacity-20261017-v1.service")
+    root = args.output_dir.resolve()
+    if not root.is_relative_to(PROJECT / "outputs/analysis"):
+        raise ValueError("guarded gate output must be an independent research directory")
+    with FileLease(PROJECT / "outputs/.gpu.lock") as lease:
+        require_idle_gpu()
+        if shutil.disk_usage(PROJECT).free < 20 * 1024**3:
+            raise ValueError("guarded gate requires 20 GiB free disk")
+        root.mkdir(parents=True, exist_ok=False)
+        telemetry = root / "memory"
+        command = [sys.executable, str(Path(__file__).resolve()),
+                   "--output-dir", str(root / "probe"),
+                   "--resource-telemetry-dir", str(telemetry)]
+        if args.capacity:
+            command.append("--capacity")
+        monitor = TrainingMonitor(root / "probe/trainer/attempts/train-001/artifacts/progress.jsonl",
+                                  telemetry, updates=12, main_stage=True,
+                                  limits={**LIMITS, "max_main_stage_wall_seconds": 300})
+        run_stage(root, "probe", command, cwd=PROJECT, monitor=monitor,
+                  pass_fds=(lease.fileno(),), host_group=None)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--guarded", action="store_true")
+    parser.add_argument("--resource-telemetry-dir", type=Path)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--relocation", action="store_true")
     group.add_argument("--destination-moments", action="store_true")
     group.add_argument("--capacity", action="store_true")
     args = parser.parse_args()
+    if args.guarded:
+        guarded_gate(args)
+        return
     if torch.cuda.device_count() != 2:
         raise SystemExit("this smoke requires exactly two visible GPUs")
     args.output_dir = args.output_dir.resolve()

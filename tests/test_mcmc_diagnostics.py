@@ -72,3 +72,53 @@ def test_capacity_progress_uses_actual_global_relocations_not_requests():
     exec(compile(ast.Module(body=[block], type_ignores=[]), str(SOURCE), "exec"), namespace)
     assert namespace["event"]["mcmc_relocated_count"] == 3
     assert namespace["event"]["mcmc_deferred_count"] == 7
+
+
+def test_guarded_gate_reuses_active_gpu_monitor_without_host_limit(tmp_path, monkeypatch):
+    import shutil
+    import socket
+    import sys
+    from image3d_scenegraph.gaussian import absgrad_resources
+    from image3d_scenegraph import gpu_lease
+    from scripts import run_mcmc_stability_ablation as ablation
+
+    path = ROOT / "scripts/smoke_mcmc_stability.py"
+    tree = ast.parse(path.read_text())
+    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "guarded_gate")
+    namespace = {"Path": Path, "socket": socket, "shutil": shutil, "sys": sys, "__file__": str(path)}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), namespace)
+    project = Path("/usr/local/3dgs_new/Image3D-SceneGraph")
+    root = project / "outputs/analysis/gate"
+    args = SimpleNamespace(output_dir=root, relocation=False, destination_moments=False,
+                           resource_telemetry_dir=None, capacity=True)
+    checked = []
+    monkeypatch.setattr(socket, "gethostname", lambda: "i-94B8D131")
+    monkeypatch.setattr(ablation, "PROJECT", project)
+    monkeypatch.setattr(ablation, "unlimited_host_cgroup", lambda unit: checked.append(unit))
+    monkeypatch.setitem(sys.modules, "run_mcmc_stability_ablation", ablation)
+    monkeypatch.setattr(gpu_lease, "require_idle_gpu", lambda: checked.append("idle"))
+    class Lease:
+        def __init__(self, path):
+            assert path == project / "outputs/.gpu.lock"
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def fileno(self):
+            return 123
+    monkeypatch.setattr(gpu_lease, "FileLease", Lease)
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: SimpleNamespace(free=30 * 1024**3))
+    monkeypatch.setattr(Path, "mkdir", lambda *a, **kw: None)
+    def stage(output, name, command, **kw):
+        assert output == root and name == "probe"
+        assert "--capacity" in command and "--resource-telemetry-dir" in command
+        assert "--guarded" not in command
+        assert kw["host_group"] is None and kw["pass_fds"] == (123,)
+        monitor = kw["monitor"]
+        assert monitor.updates == 12 and monitor.main_stage
+        assert monitor.limits["max_main_stage_wall_seconds"] == 300
+        assert monitor.limits["max_per_rank_peak_reserved_bytes"] == [18 * 1024**3] * 2
+        checked.append("stage")
+    monkeypatch.setattr(absgrad_resources, "run_stage", stage)
+    namespace["guarded_gate"](args)
+    assert checked == ["image3d-mcmc-capacity-20261017-v1.service", "idle", "stage"]
