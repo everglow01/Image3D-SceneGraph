@@ -58,3 +58,17 @@ def test_rank_health_is_published_before_validation_and_summary_collective():
                    if isinstance(node, ast.FunctionDef) and node.name == "_record_mcmc_failure")
     assert "torch" not in ast.unparse(handler)
     assert "all_gather" not in ast.unparse(handler)
+
+
+def test_capacity_progress_uses_actual_global_relocations_not_requests():
+    block = next(node for node in ast.walk(TREE) if isinstance(node, ast.If)
+                 and any(isinstance(item, ast.Assign) and any(
+                     isinstance(target, ast.Name) and target.id == "actual" for target in item.targets)
+                         for item in node.body)
+                 and "project_mcmc_relocated_count" in ast.unparse(node.test))
+    namespace = {"strategy_state": {"project_mcmc_relocated_count": 2},
+                 "event": {"mcmc_health_by_rank": [{"relocated_count": 2}, {"relocated_count": 1}]},
+                 "mcmc_dead_global": 10}
+    exec(compile(ast.Module(body=[block], type_ignores=[]), str(SOURCE), "exec"), namespace)
+    assert namespace["event"]["mcmc_relocated_count"] == 3
+    assert namespace["event"]["mcmc_deferred_count"] == 7

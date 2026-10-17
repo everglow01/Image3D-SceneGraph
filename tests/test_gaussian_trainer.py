@@ -832,3 +832,34 @@ def test_mcmc_health_preserves_smallest_axis_and_nonfinite_failure_evidence():
     assert health["opacity_nonfinite_count"] == 1
     assert health["alive_count"] == 3
     json.dumps(health, allow_nan=False)
+
+
+def test_capacity_overlay_identity_requires_and_hashes_implementation(tmp_path, monkeypatch):
+    import hashlib
+    import gsplat
+    from gsplat import relocation
+    from gsplat.strategy import ops
+    from image3d_scenegraph.gaussian.trainer import _gsplat_version
+
+    package = tmp_path / "gsplat"
+    (package / "strategy").mkdir(parents=True)
+    monkeypatch.setattr(gsplat, "__file__", str(package / "__init__.py"))
+    monkeypatch.setattr(relocation, "PROJECT_MCMC_RELOCATION_VERSION", 0, raising=False)
+    monkeypatch.setattr(ops, "PROJECT_MCMC_OVERLAY_PROFILE", "mcmc_capacity_overlay_v1", raising=False)
+    paths = ["relocation.py", "strategy/ops.py", "strategy/mcmc.py", "strategy/_project_mcmc_capacity.py"]
+    for name in paths:
+        (package / name).write_text("# identity fixture\n")
+    record = {"profile": "mcmc_capacity_overlay_v1", "files": {
+        f"gsplat/{name}": hashlib.sha256((package / name).read_bytes()).hexdigest() for name in paths}}
+    path = tmp_path / "overlay.json"
+    path.write_text(json.dumps(record))
+    assert "project_mcmc_capacity_v1_sha256=" in _gsplat_version()
+    implementation = package / "strategy/_project_mcmc_capacity.py"
+    implementation.write_text("# changed\n")
+    with pytest.raises(TrainingError, match="hash mismatch"):
+        _gsplat_version()
+    implementation.unlink()
+    del record["files"]["gsplat/strategy/_project_mcmc_capacity.py"]
+    path.write_text(json.dumps(record))
+    with pytest.raises(TrainingError, match="incomplete"):
+        _gsplat_version()

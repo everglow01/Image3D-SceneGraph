@@ -99,3 +99,35 @@ def compute_relocation(
     assert source["relocation.py"] == wrapper
     with pytest.raises(ValueError, match="not unique"):
         prepare.replace_once("x x", "x", "y")
+
+
+def test_capacity_patch_is_isolated_and_reports_actual_counts(monkeypatch):
+    ops = "# original ops\n"
+    strategy = """class Strategy:
+    def refine(self, params, optimizers, binoms, state):
+            n_relocated_gs = self._relocate_gs(params, optimizers, binoms)
+    def relocate(self):
+            relocate(
+                params=None,
+            )
+            return n_gs
+    def add(self):
+            sample_add(
+                params=None,
+            )
+            return n_gs
+"""
+    monkeypatch.setitem(prepare.SOURCE_SHA256, "strategy/ops.py", hashlib.sha256(ops.encode()).hexdigest())
+    monkeypatch.setattr(prepare, "MCMC_SHA256", hashlib.sha256(strategy.encode()).hexdigest())
+    patched = prepare.patch_capacity(ops, strategy)
+    assert set(patched) == {"strategy/ops.py", "strategy/mcmc.py", "strategy/_project_mcmc_capacity.py"}
+    for source in patched.values():
+        ast.parse(source)
+    assert 'n_gs = relocate(' in patched["strategy/mcmc.py"]
+    assert 'n_gs = sample_add(' in patched["strategy/mcmc.py"]
+    assert 'state["project_mcmc_relocated_count"] = n_relocated_gs' in patched["strategy/mcmc.py"]
+    assert 'mcmc_capacity_overlay_v1' in patched["strategy/ops.py"]
+    assert 'relocation.py' not in patched
+    assert 'min_opacity=min_opacity' not in patched["strategy/ops.py"]
+    with pytest.raises(ValueError, match="audited wheel"):
+        prepare.patch_capacity(ops, strategy + "# changed")

@@ -505,6 +505,8 @@ def train_gaussians(
                     "rgb_range_before_optimizer": rgb_range_summary(rendered.image),
                     "position_lr": float(optimizers["means"].param_groups[0]["lr"]),
                 }
+                if mcmc_refinement and "project_mcmc_relocated_count" in strategy_state:
+                    local_health["relocated_count"] = int(strategy_state["project_mcmc_relocated_count"])
                 event["mcmc_health_by_rank"] = _gather_rank_health(local_health, world_size)
             if global_after != global_before:
                 event.update(
@@ -526,6 +528,10 @@ def train_gaussians(
                         "mcmc_global_cap": global_cap,
                     }
                 )
+                if "project_mcmc_relocated_count" in strategy_state:
+                    actual = sum(row["relocated_count"] for row in event["mcmc_health_by_rank"])
+                    event["mcmc_relocated_count"] = actual
+                    event["mcmc_deferred_count"] = mcmc_dead_global - actual
             if not is_mcmc and _opacity_reset_due(config, iteration):
                 event["opacity_reset"] = True
             if recovery_prune_threshold is not None:
@@ -1751,19 +1757,24 @@ def _gsplat_version() -> str:
         root = Path(gsplat.__file__).resolve().parent.parent
         record_path = root / "overlay.json"
         record = json.loads(record_path.read_text())
-        if profile not in {"mcmc_relocation_floor_overlay_v1", "mcmc_destination_moments_overlay_v1"} or record["profile"] != profile:
+        if profile not in {"mcmc_relocation_floor_overlay_v1", "mcmc_destination_moments_overlay_v1", "mcmc_capacity_overlay_v1"} or record["profile"] != profile:
             raise TrainingError("unexpected MCMC relocation overlay identity")
         actual_files = {
             str(path.relative_to(root)) for path in (root / "gsplat").rglob("*")
             if path.is_file() and path.suffix in {".py", ".so", ".cpp", ".cu", ".h"}
         }
-        if actual_files != set(record["files"]) or "gsplat/relocation.py" not in actual_files:
+        required = {"gsplat/relocation.py"}
+        if profile == "mcmc_capacity_overlay_v1":
+            required.update({"gsplat/strategy/ops.py", "gsplat/strategy/mcmc.py",
+                             "gsplat/strategy/_project_mcmc_capacity.py"})
+        if actual_files != set(record["files"]) or not required.issubset(actual_files):
             raise TrainingError("incomplete MCMC relocation overlay identity")
         for name, expected in record["files"].items():
             path = (root / name).resolve()
             if not path.is_relative_to(root) or sha256_file(path) != expected:
                 raise TrainingError(f"MCMC relocation overlay hash mismatch: {name}")
-        identity = ("project_mcmc_relocation_v1" if profile == "mcmc_relocation_floor_overlay_v1"
-                    else "project_mcmc_destination_moments_v1")
+        identity = {"mcmc_relocation_floor_overlay_v1": "project_mcmc_relocation_v1",
+                    "mcmc_destination_moments_overlay_v1": "project_mcmc_destination_moments_v1",
+                    "mcmc_capacity_overlay_v1": "project_mcmc_capacity_v1"}[profile]
         version += f";{identity}_sha256={sha256_file(record_path)}"
     return version

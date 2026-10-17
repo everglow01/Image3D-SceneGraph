@@ -58,6 +58,16 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 第二轮补充`--mechanism-details`使用独立`image3d-mcmc-mechanism-details-20261017-v1.service`和全新输出目录。只运行两卡各自单高斯合成渲染及固定opacity的尺度压力，不执行真实场景或重复12步trainer。packed/unpacked各7个阈值上下样本记录真实图像/正则logit梯度与alpha/投影/K；这不是双卡全场景逐点梯度。尺度压力逐轮保存3轴输入/输出/GPU log及零/负有限/NaN/±Inf分类，JSON不写非标准NaN。所有观测先落盘再断言，不把预期下溢路径当观测；summary仍为诊断完成/稳定性阻塞，训练核心不变。
 
+### 来源容量准入候选（capacity-v1，2026-10-17）
+
+此候选仅隔离研究，不改schema10或生产默认，也不与raw_loss、floor、目标动量或position_lr变体混合。`prepare_gsplat_mcmc.py --variant capacity`复制审计原包到新目录，以共享`mcmc_capacity_ops.py`替换relocate/sample_add入口，原CUDA公式和光栅化二进制不变；额外锁定strategy/mcmc.py的SHA，记录实际接纳数量而非请求数。完整包源码/二进制及候选helper均纳入overlay身份；trainer核心的身份/计数接入变化必须重新通过同core门禁，禁止复用旧passed报告作为新场景准入。
+
+令`t=max(min_opacity,1/255)`，来源alpha有限且<1，容量由`1-(1-alpha)^(1/N)>t`严格不等式导出，并受原binomial表最大N限制。每次只做一批原opacity加权提议，按来源容量稳定接纳并保留提议/目标对应顺序；不通过展开每个来源的容量槽占用巨量显存。内存O(points+requests)，排序O(requests log requests)，可能未用尽所有来源容量，不无限重采样。仅对实际获准来源按真实副本数计算公式。写入前检查logit往返仍高于t、尺度log与exp往返为正常正有限值；失败则拒绝整个来源组，绝不部分复制后改变N、强抬透明度、压尺度或修补NaN。未获准的死亡点及其优化器状态原样保留；增点可不足请求数，cap仍为上限而非必须达到的目标。
+
+保持原动量语义：relocate仅清接受来源行、保留目标行；sample_add保留来源状态、新行置零，Adam共享step不变；正则/噪声/LR不改。`mcmc_relocated_count`记录实际全局接纳数，新增`mcmc_deferred_count`记录未完成搬迁。此候选只阻断不满足容量/数值约束的复制，不保证点长期高于cutoff、不解决跨rank来源池隔离，不保证任意尺度/相机的K或显存受限，需独立质量与资源对照。
+
+新增CPU回归覆盖两条拓扑入口、183请求最多50新副本、严格阈值/饱和输入、原公式非法输出整组无写入、目标顺序和成熟Adam状态；CUDA `smoke_mcmc_stability.py --capacity`验证真实kernel/51总副本中心透明度、近死40轮无强迫收缩及既有双卡12步trainer完整生命周期。未获独立新候选GPU任务授权前不运行；小门禁通过也不等于30k稳定性或质量通过。
+
 ### 主存修复与重新基线（memory-v2，2026-10-13）
 
 上述8GiB/7GiB策略保留为失败v1的历史合同，不再用于新实验。v1在10k Validation出现匿名内存与shmem合计超过memory.high、反复回收/缺页，最终遥测陈旧保护自动终止；不是OOM或质量失败，不恢复无optimizer/RNG的best模型分片。用户明确授权先修复主存、验证后重新启动基线并放宽内存限制。

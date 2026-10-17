@@ -17,6 +17,7 @@ SOURCE_SHA256 = {
     "strategy/ops.py": "b30fa9e4d60a97ec619eb54d43d158d3e9dc8102c3d971acbb46da8385b53074",
     "cuda/csrc/RelocationCUDA.cu": "dca4b1cef039e94eb2c902f20e645e777cca3f9be352da8bab9cffa4ac794051",
 }
+MCMC_SHA256 = "0c2fc042833f39fae0b785de07d0472fe0d1f22437108b0d04a45c0e4fe67c16"
 EXTENSION_NAME = "_project_mcmc_relocation_v1"
 BINDING = r'''
 #include <torch/extension.h>
@@ -102,17 +103,40 @@ def patch_destination_moments(source: str) -> str:
     )
 
 
+
+def patch_capacity(ops: str, strategy: str) -> dict[str, str]:
+    if hashlib.sha256(ops.encode()).hexdigest() != SOURCE_SHA256["strategy/ops.py"]:
+        raise ValueError("gsplat ops.py does not match audited wheel")
+    if hashlib.sha256(strategy.encode()).hexdigest() != MCMC_SHA256:
+        raise ValueError("gsplat mcmc.py does not match audited wheel")
+    strategy = replace_once(strategy, "            relocate(\n", "            n_gs = relocate(\n")
+    strategy = replace_once(strategy, "            sample_add(\n", "            n_gs = sample_add(\n")
+    anchor = "            n_relocated_gs = self._relocate_gs(params, optimizers, binoms)"
+    strategy = replace_once(strategy, anchor, anchor +
+                            '\n            state["project_mcmc_relocated_count"] = n_relocated_gs')
+    return {
+        "strategy/ops.py": ops + '\nfrom ._project_mcmc_capacity import relocate, sample_add\n'
+                          'PROJECT_MCMC_OVERLAY_PROFILE = "mcmc_capacity_overlay_v1"\n',
+        "strategy/mcmc.py": strategy,
+        "strategy/_project_mcmc_capacity.py": Path(__file__).with_name("mcmc_capacity_ops.py").read_text(),
+    }
+
+
 def prepare(output_dir: Path, variant: str = "relocation_floor") -> dict:
     spec = importlib.util.find_spec("gsplat")
     if spec is None or spec.origin is None:
         raise ValueError("the pinned gsplat wheel must already be installed")
     package = Path(spec.origin).resolve().parent
-    if variant not in {"relocation_floor", "destination_moments"}:
+    if variant not in {"relocation_floor", "destination_moments", "capacity"}:
         raise ValueError("unknown MCMC overlay variant")
     sources = {name: (package / name).read_text() for name in SOURCE_SHA256}
     patched = patch_sources(sources)
     if variant == "destination_moments":
         patched = {"strategy/ops.py": patch_destination_moments(sources["strategy/ops.py"])}
+    audited = dict(SOURCE_SHA256)
+    if variant == "capacity":
+        patched = patch_capacity(sources["strategy/ops.py"], (package / "strategy/mcmc.py").read_text())
+        audited["strategy/mcmc.py"] = MCMC_SHA256
     if not list(package.glob("csrc*.so")):
         raise ValueError("the audited precompiled rasterizer is required; do not rebuild it")
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -142,7 +166,7 @@ def prepare(output_dir: Path, variant: str = "relocation_floor") -> dict:
     }
     record = {
         "profile": f"mcmc_{variant}_overlay_v1", "source_package": str(package),
-        "audited_source_sha256": SOURCE_SHA256, "files": files,
+        "audited_source_sha256": audited, "files": files,
         "installed_package_modified": False, "rasterizer_binary_reused": True,
         "quality_status": "not_evaluated",
         "reference_kernel_sha256": "9f77224f21bf62f7440494248c4549a2af0556cb2540ae7964af7b8faff50eda",
@@ -154,7 +178,7 @@ def prepare(output_dir: Path, variant: str = "relocation_floor") -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--variant", choices=("relocation_floor", "destination_moments"), default="relocation_floor")
+    parser.add_argument("--variant", choices=("relocation_floor", "destination_moments", "capacity"), default="relocation_floor")
     args = parser.parse_args()
     print(json.dumps(prepare(args.output_dir.resolve(), args.variant), indent=2))
 

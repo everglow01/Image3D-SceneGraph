@@ -164,9 +164,76 @@ def trainer_check(rank: int, world_size: int, output: Path) -> dict:
                 assert [item["rank"] for item in event["mcmc_health_by_rank"]] == list(range(world_size))
                 for item in event["mcmc_health_by_rank"]:
                     assert item["rgb_range_before_optimizer"]["nonfinite_count"] == 0
+                if "mcmc_deferred_count" in event:
+                    assert event["mcmc_relocated_count"] == sum(
+                        item["relocated_count"] for item in event["mcmc_health_by_rank"])
+                    assert event["mcmc_deferred_count"] == event["mcmc_dead_global"] - event["mcmc_relocated_count"]
             else:
                 assert all("rgb_range" in view for view in event["per_view"])
     return {"updates": 12, "result": result.__dict__, "diagnostics_checked": True}
+
+
+
+def capacity_checks(device: torch.device) -> dict:
+    from gsplat.strategy import MCMCStrategy
+
+    if getattr(ops, "PROJECT_MCMC_OVERLAY_PROFILE", None) != "mcmc_capacity_overlay_v1":
+        raise RuntimeError("the independent donor-capacity overlay is required")
+    binoms = torch.tensor([[math.comb(n, k) if k <= n else 0 for k in range(51)]
+                           for n in range(51)], dtype=torch.float32, device=device)
+
+    def parameters(count, alpha):
+        params = torch.nn.ParameterDict({
+            "means": torch.nn.Parameter(torch.zeros((count, 3), device=device)),
+            "quats": torch.nn.Parameter(torch.tensor([[1., 0., 0., 0.]], device=device).repeat(count, 1)),
+            "scales": torch.nn.Parameter(torch.full((count, 3), math.log(.01), device=device)),
+            "opacities": torch.nn.Parameter(torch.logit(torch.tensor([alpha] + [1e-6] * (count - 1), device=device))),
+            "sh0": torch.nn.Parameter(torch.zeros((count, 1, 3), device=device)),
+            "shN": torch.nn.Parameter(torch.zeros((count, 15, 3), device=device)),
+        })
+        optimizers = {key: torch.optim.Adam([value], lr=.01) for key, value in params.items()}
+        for key, value in params.items():
+            optimizers[key].state[value] = {"step": torch.tensor(9300.),
+                                          "exp_avg": torch.ones_like(value),
+                                          "exp_avg_sq": torch.ones_like(value)}
+        return params, optimizers
+
+    params, optimizers = parameters(184, .5)
+    strategy = MCMCStrategy(cap_max=1000)
+    accepted = strategy._relocate_gs(params, optimizers, binoms)
+    assert accepted == 50 and len(params["means"]) == 184
+    opacity = params["opacities"].sigmoid()
+    assert int((opacity > .005).sum()) == 51
+    composed = -math.expm1(51 * math.log1p(-float(opacity[0])))
+    assert abs(composed - .5) < ATOL
+    assert torch.isfinite(params["scales"]).all() and (params["scales"].exp() > 0).all()
+    for key, value in params.items():
+        state = optimizers[key].state[value]
+        assert state["step"] == 9300 and (state["exp_avg"][0] == 0).all()
+        assert (state["exp_avg"][1:] == 1).all()
+    params, optimizers = parameters(1, .5)
+    added = ops.sample_add(params, optimizers, {}, 183, binoms)
+    assert added == 50 and len(params["means"]) == 51
+    assert (params["opacities"].sigmoid() > .005).all()
+    for key, value in params.items():
+        state = optimizers[key].state[value]
+        assert state["step"] == 9300 and (state["exp_avg"][0] == 1).all()
+        assert (state["exp_avg"][1:] == 0).all()
+    params, optimizers = parameters(184, .006)
+    snapshots = {key: value.detach().clone() for key, value in params.items()}
+    rng = torch.cuda.get_rng_state(device).clone()
+    for _ in range(40):
+        assert strategy._relocate_gs(params, optimizers, binoms) == 0
+        assert strategy._add_new_gs(params, optimizers, binoms) == 0
+    assert torch.equal(rng, torch.cuda.get_rng_state(device))
+    for key, value in params.items():
+        assert torch.equal(value, snapshots[key])
+        assert (optimizers[key].state[value]["exp_avg"] == 1).all()
+    return {"requested_relocations": 183, "accepted_relocations": accepted,
+            "deferred_relocations": 183 - accepted, "actual_total_copies": 51,
+            "composed_center_opacity": composed, "requested_additions": 183,
+            "accepted_additions": added, "near_dead_rounds_without_mutation": 40,
+            "optimizer_policy_unchanged": True, "quality_status": "not_evaluated"}
 
 
 def worker(local_rank: int, rank: int, world_size: int, args) -> None:
@@ -189,6 +256,8 @@ def worker(local_rank: int, rank: int, world_size: int, args) -> None:
         record["relocation"] = relocation_checks(device)
     if args.destination_moments:
         record["destination_moments"] = destination_moment_checks(device)
+    if args.capacity:
+        record["capacity"] = capacity_checks(device)
     record["trainer"] = trainer_check(rank, world_size, args.output_dir)
     record["status"] = "passed"
     (args.output_dir / f"rank-{rank}.json").write_text(json.dumps(record, indent=2) + "\n")
@@ -201,6 +270,7 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--relocation", action="store_true")
     group.add_argument("--destination-moments", action="store_true")
+    group.add_argument("--capacity", action="store_true")
     args = parser.parse_args()
     if torch.cuda.device_count() != 2:
         raise SystemExit("this smoke requires exactly two visible GPUs")
