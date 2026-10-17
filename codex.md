@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-17，用户明确授权后，b92ce27经Git同步远端，190项CPU/相关回归通过/4.57s；原库与capacity串行任务20261017-121422-ee86和唯一只读监控20261017-121435-cbda均finished=true/exit0，unit21.340s/exit0，主存max/high/swap无限额，主动逐卡18GiB/每臂300秒/磁盘监控与unit900秒生效。原库在新core8df617cd…完成双卡12更新/24相机样本、60→66点、6/12步两轮2-view Validation、最终checkpoint与合并；stage7.627s、两卡峰reserved各23068672bytes=22MiB，resource_failure=null，最终遥测finished。独立checkpoint组件/元数据SHA及progress/报告哈希全部复核，和capacity相机序列同7e08e95f…；该小模型峰值不含CUDA上下文，不是3M资源证据，合成PSNR不当真实质量指标。证据远端outputs/analysis/mcmc-capacity-gates-20261017-v1，本地mcmc-capacity-results-20261017-v1。
+
 - 2026-10-17，用户明确授权原库/capacity独立环境及具名候选门禁/唯一只读监控。启动审查发现原小smoke只记录最终显存峰，缺少运行中超限停止，先补--guarded执行路径以满足保护要求：复用memory_telemetry、TrainingMonitor、run_stage及FileLease，逐卡18GiB reserved、每臂300秒、磁盘20GiB准入/4GiB停止、双卡12步完整性；专用unit及父cgroup主存max/high/swap均须无限额，host_group=None不恢复主存门槛。仅支持原库/capacity，子进程不递归guard，默认旧smoke路径保持兼容，候选算法和训练core不变；unit总时限拟900秒。新增无Torch接线回归，本机相关29项及Ruff通过。此为执行保护补齐，尚未创建候选GPU任务或环境，不将CPU结果当CUDA通过。
 
 - 2026-10-17，capacity实现66e14bd已通过Git快进同步i-94B8D131指定main，远端CUDA_VISIBLE_DEVICES为空的189项CPU/张量回归全部通过/4.75s（含15项容量策略参数化用例）；本机124项禁止Torch回归通过。验证183个请求只接纳50个新副本、调用公式的真实N为51；.006近死来源40轮搬迁/增点均不强迫执行且参数/RNG/动量不漂移；非法公式组整组无写入、两种opacity形状、成熟step9300/旧目标动量保留、源与新行状态语义、提议对应次序、全局actual/deferred计数和完整overlay身份均有回归。CPU拓扑用例替换CUDA公式，只验证准入/更新语义，不冒充实际kernel、场景质量或显存通过。新训练核心8df617cd…；独立assessment和原始回归日志在outputs/analysis/mcmc-capacity-implementation-20261017-v1。当前未构建或启动候选GPU环境，未改已安装gsplat或生产默认；此前明确授权只覆盖原库/旧floor，新的MCMC容量准入候选门禁-v1及其只读监控须扩展授权后才运行，范围为原库与独立capacity小型门禁，不含30k/Test/部署。04:07:02ZGPU进程空、后端active，原个人文件和codex未提交记录保留。
