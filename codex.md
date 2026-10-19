@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，原库异尺寸实际CUDA观测：1361×2048/1372×2048首步宽图RGB最大差.1337936223、alpha差.2511268258，81颜色通道/27alpha像素超容差，均在32px边带；窄图首步RGB/alpha相同但两卡means梯度均超容差，短程Adam随后分化。交换相机后首步图像问题随宽图从rank1转rank0（RGB差.1467771232、alpha差.2488085628），不支持固定GPU1硬件损坏；放大64×64/96×80及所有权交换也见差异。已知目标相机尺寸未跨卡传播和这些观测形成强证据，但因equal_small控制失败且合成等深度排序未隔离，不能把全部误差唯一归因尺寸或宣布真实apartment长期根因闭合。授权9例共45分布式更新/90相机样本完成，未重试、未改判据/渲染器/通信/MCMC、未启动10k/30k；下一步应先修正数值参考的排序对应或增加唯一深度对照，再独立验证尺寸修复。远端61项相关回归通过/3.48s；结束GPU空闲、服务active，个人文件9份哈希未变。
+
 - 2026-10-19，具名异尺寸门禁执行20261019-153853-425f finished/exit1，唯一监控20261019-153853-99dc finished/exit0，unit92.618秒；9例子进程均exit0、各5更新，无resource_failure/非有限，原安装包SHA不变，173文件下载整体SHA匹配，单卡reserved最大1.43555GiB。同尺寸1361×2048、连续7/9不等长分片及一分片不可见控制全部通过；所有例首步packed/dense控制通过。但64×64交错分片控制首步RGB最大差.003625929、alpha最大差5.96e-8且梯度不一致，预声明总门禁维持control_blocked而非通过。合成边缘点含相同深度，单卡原序与双卡rank拼接序不同，排序key无原始全局ID，结合连续分片通过支持同深度顺序敏感线索；未做新GPU重排参考消融，不把它宣称已排除的混淆。32px边带在64px图覆盖全图，不作局部性证据。记录outputs/analysis/camera-size-equivalence-results-20261019-v1/{assessment,verification,tie-order-evidence}.json。
 
 - 2026-10-19，异尺寸一致性实现e70d615已原子推送main及既有研究分支；远端Git拉取/回归写入被权限层拦截，要求明确主机和项目目录授权，未绕过。只读确认i-94B8D131仓库仍c3de62d，regression/实验/execution三个新目录不存在、专用unit not-found、GPU计算进程空；无新面板任务。当前仅本地15项无Torch回归通过、7项远端NumPy测试跳过，不能宣称CUDA验证或异尺寸根因已实测。阻塞状态保存outputs/analysis/camera-size-equivalence-launch-20261019-v1/status.json；个人文档、旧锁与codex原7行保持不动。
