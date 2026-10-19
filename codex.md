@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，排序控制通过后实现camera_sizes_overlay_v1候选：SHA锁定原rendering.py，在新包副本同步每rank宽高；同尺寸保留原批量投影，不同尺寸逐目标相机调用原fully_fused_projection并沿camera维拼接可微输出，继续原颜色/交换/raster；单卡不改，仅支持每rank1相机、dense普通pinhole，未覆盖模式明确拒绝。不编译CUDA、不修改原包或生产core，不做max画布/resize/cutoff/MCMC改动。repair-v1复用12例同序参考，严格绑定排序基线控制/包SHA/输入/optimizer及全局ID，另记完整overlay身份；任一候选数值或运行失败停止后续例，未运行不冒充通过。新增prepare窄测试和文件篡改拒绝，本机25项禁Torch回归通过、8项远端限定跳过，Ruff通过。代码尚未远端验收，独立GPU门禁按已获具名授权执行，结果另记。
+
 - 2026-10-19，排序隔离任务20261019-160538-338f/唯一监控20261019-160538-c09d分别finished exit1/0，unit100.971s；12例各5更新、所有子进程exit0/资源正常/无非有限，230文件整体SHA62231733…与远端一致，原包不变。单卡参考按rank顺序后，equal_small图像/梯度/5步参数及Adam全部通过；额外canonical单卡仍重现原RGB差.003625929/.000547767且alpha通过，闭合本合成例的排序混淆。全部同尺寸（含unique、不等长、不可见）及全部packed/dense控制通过；7个异尺寸变体仍不一致，repair_ready=true。historical宽图首步RGB/alpha差.133793622/.251126826；mixed_unique首步差.132594779/.240296423，排除完全等深度作为所有异尺寸误差的解释。historical_unique首步通过但后续失败，不误报全部unique首步失败。阶段二依赖门槛已满足，按授权实施隔离尺寸候选；不推广生产。证据outputs/analysis/camera-size-order-results-20261019-v2。
 
 - 2026-10-19，排序隔离c16a757已Git快进至i-94B8D131指定仓库，CUDA_VISIBLE_DEVICES为空的远端相关63项回归通过/3.15s。新12例任务提交被权限层要求扩展此前9例具名授权而阻塞，未重试或换通道。只读确认order-v2实验/execution目录及once不存在、unit not-found、GPU进程空；本地启动命令也未执行。阶段一GPU尚未运行，阶段二尺寸补丁按依赖门槛尚未实施。状态outputs/analysis/camera-size-order-launch-20261019-v2/status.json；旧结果和个人文件保持原样。

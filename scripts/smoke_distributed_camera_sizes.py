@@ -24,6 +24,7 @@ CASES = ("equal_small", "equal_large", "historical", "historical_camera_swap",
 CONTROLS = ("equal_small", "equal_large", "unequal_shards", "invisible_owner")
 ORDER_CASES = CASES + ("equal_small_unique", "historical_unique", "mixed_unique")
 ORDER_UNIT = "image3d-camera-size-order-20261019-v2.service"
+REPAIR_UNIT = "image3d-camera-size-repair-20261019-v1.service"
 
 
 def reference_mapping(spec, ordered):
@@ -161,7 +162,7 @@ def worker(local_rank, rank, world_size, args):
     rank_dir = root / f"rank-{rank}"
     rank_dir.mkdir()
     spec = case_spec(args.case)
-    ordered = args.profile == "order-v2"
+    ordered = args.profile != "legacy-v1"
     order, mappings = reference_mapping(spec, ordered)
     reference_indices = mappings[rank]
     canonical_indices = [order.index(i) for i in range(16)]
@@ -169,8 +170,18 @@ def worker(local_rank, rank, world_size, args):
     ids = spec["ids"][rank]
     camera_index = spec["camera_assignment"][rank]
     with memory_telemetry(root / "memory", local_rank, rank), failure_record(rank_dir, args.case, "camera_equivalence"):
+        import gsplat
+        from gsplat import rendering
+        patch_identity = None
+        if args.profile == "repair-v1":
+            from scripts.prepare_gsplat_camera_sizes import verify_overlay
+            patch_identity = verify_overlay(args.overlay, Path(gsplat.__file__).parent)
+            if getattr(rendering, "PROJECT_CAMERA_SIZES_VERSION", None) != 1:
+                raise ValueError("camera-size overlay marker missing")
+        elif getattr(rendering, "PROJECT_CAMERA_SIZES_VERSION", None) is not None:
+            raise ValueError("unexpected camera-size overlay")
         if ";" in _gsplat_version():
-            raise ValueError("overlays are not allowed")
+            raise ValueError("other overlays are not allowed")
         def model(indices):
             full_points = torch.tensor(spec["points"], device=device, dtype=torch.float32)
             colors = torch.tensor([[.3 + .02*i, .25 + .01*(i % 5), .4] for i in range(16)], device=device)
@@ -204,7 +215,7 @@ def worker(local_rank, rank, world_size, args):
             raise ValueError("initial shard differs from full reference")
         identity = {"rank": rank, "case": args.case, "ids": ids, "camera_index": camera_index,
                     "initial_full_sha256": initial_hash, "reference_global_ids": order,
-                    "reference_indices": reference_indices, "profile": args.profile,
+                    "reference_indices": reference_indices, "profile": args.profile, "camera_size_overlay": patch_identity,
                     "targets_sha256": tensor_hash({str(i): t for i, t in enumerate(targets)}),
                     "spec": spec, "environment": _gsplat_version(),
                     "training_core": training_provenance(dataset_hash="0"*64, effective_config_hash="0"*64, world_size=2).code_hash,
@@ -290,8 +301,9 @@ def worker(local_rank, rank, world_size, args):
 
 
 def run(args):
-    ordered = args.profile == "order-v2"
-    unit = ORDER_UNIT if ordered else UNIT
+    ordered = args.profile != "legacy-v1"
+    repair = args.profile == "repair-v1"
+    unit = REPAIR_UNIT if repair else ORDER_UNIT if ordered else UNIT
     cases = ORDER_CASES if ordered else CASES
     unlimited_host_cgroup(unit)
     with FileLease(PROJECT / "outputs/.gpu.lock") as lease:
@@ -306,9 +318,26 @@ def run(args):
             raise ValueError("original gsplat required")
         hashes = {str(p.relative_to(package)): sha256_file(p) for p in package.rglob("*")
                   if p.is_file() and p.suffix in (".py", ".cu", ".cuh", ".so")}
+        baseline = None
+        overlay_identity = None
+        if repair:
+            from scripts.prepare_gsplat_camera_sizes import prepare, verify_overlay
+            baseline = json.loads((args.reference_root / "summary.json").read_text())
+            base_protocol = json.loads((args.reference_root / "protocol.json").read_text())
+            if (not baseline.get("repair_ready") or assess(baseline["cases"], ordered=True)["status"] != "not_equivalent"
+                    or base_protocol["profile"] != "order-v2"
+                    or base_protocol["atol"] != ATOL or base_protocol["rtol"] != RTOL
+                    or base_protocol["cases"] != [case_spec(c) for c in cases]
+                    or base_protocol["package_hashes"] != hashes):
+                raise ValueError("matching original order controls are required")
+            args.overlay = args.output_root / "camera-size-overlay"
+            prepare(args.overlay)
+            overlay_identity = verify_overlay(args.overlay, args.overlay / "gsplat")
         write_json(args.output_root / "protocol.json", {"profile": args.profile, "cases": [case_spec(c) for c in cases],
             "updates": UPDATES, "atol": ATOL, "rtol": RTOL, "unit": unit,
             "environment": _gsplat_version(), "package_hashes": hashes,
+            "camera_size_overlay": overlay_identity,
+            "reference_summary_sha256": sha256_file(args.reference_root / "summary.json") if repair else None,
             "core": training_provenance(dataset_hash="0"*64, effective_config_hash="0"*64, world_size=2).code_hash,
             "script_sha256": sha256_file(Path(__file__)), "host_limits": None,
             "stage_seconds": 300, "unit_seconds": 4200 if ordered else 3600, "max_reserved_each": 18*1024**3,
@@ -324,15 +353,35 @@ def run(args):
                 main_stage=True, limits={**LIMITS, "max_main_stage_wall_seconds": 300, "max_observed_global_gaussians": 16})
             command = ["/usr/bin/env", "-u", "PYTHONPATH", sys.executable, str(Path(__file__).resolve()),
                        "--output-root", str(output), "--case", case, "--profile", args.profile]
+            if repair:
+                command = ["/usr/bin/env", "PYTHONPATH=" + str(args.overlay)] + command[3:] + ["--overlay", str(args.overlay)]
             try:
                 run_stage(stage, "probe", command, cwd=PROJECT, monitor=monitor, pass_fds=(lease.fileno(),), host_group=None)
-                records[case] = json.loads((output / "summary.json").read_text())
+                record = json.loads((output / "summary.json").read_text())
+                if repair:
+                    for actual, expected in zip(record["ranks"], baseline["cases"][case]["ranks"]):
+                        for field in ("initial_full_sha256", "targets_sha256", "spec", "training_core", "environment",
+                                      "optimizer", "reference_global_ids", "reference_indices", "ids", "camera_index"):
+                            if actual[field] != expected[field]:
+                                raise ValueError(f"paired input differs: {case}/{field}")
+                    if any(rank["camera_size_overlay"] != overlay_identity for rank in record["ranks"]):
+                        raise ValueError("worker overlay identity differs")
+                records[case] = record
+                if repair and (not record["equivalent"] or not record["packed_control_passed"]):
+                    break
             except Exception as exc:
                 write_json(stage / "case.failure.json", {"reason": f"{type(exc).__name__}: {exc}"})
+                if repair:
+                    break
         unchanged = all(sha256_file(package / name) == value for name, value in hashes.items())
         summary = {**assess(records, ordered=ordered), "cases": records, "installed_package_unchanged": unchanged}
-        if ordered:
+        if ordered and not repair:
             summary["repair_ready"] = unchanged and summary["status"] == "not_equivalent"
+        if repair:
+            summary["camera_size_overlay"] = overlay_identity
+            summary["overlay_unchanged"] = verify_overlay(args.overlay, args.overlay / "gsplat") == overlay_identity
+            if not summary["overlay_unchanged"]:
+                summary.update(status="environment_changed", passed=False)
         if not unchanged:
             summary.update(status="environment_changed", passed=False)
         write_json(args.output_root / "summary.json", summary)
@@ -344,7 +393,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--case", choices=ORDER_CASES)
-    parser.add_argument("--profile", choices=("legacy-v1", "order-v2"), default="legacy-v1")
+    parser.add_argument("--profile", choices=("legacy-v1", "order-v2", "repair-v1"), default="legacy-v1")
+    parser.add_argument("--reference-root", type=Path)
+    parser.add_argument("--overlay", type=Path)
     args = parser.parse_args()
     if socket.gethostname() != "i-94B8D131" or str(PROJECT) != "/usr/local/3dgs_new/Image3D-SceneGraph":
         raise SystemExit("仅在已授权远端执行，不运行本机模型")
@@ -353,6 +404,12 @@ def main():
     args.output_root = args.output_root.resolve()
     if not args.output_root.is_relative_to(PROJECT / "outputs/analysis"):
         raise ValueError("independent research output required")
+    if args.profile == "repair-v1":
+        required = args.overlay if args.case else args.reference_root
+        if required is None or not required.resolve().is_relative_to(PROJECT / "outputs/analysis"):
+            raise ValueError("repair requires a bounded reference or overlay path")
+    elif args.reference_root is not None or args.overlay is not None:
+        raise ValueError("overlay/reference only valid for repair profile")
     if args.case:
         import torch
         from gsplat.distributed import cli
@@ -361,7 +418,7 @@ def main():
         args.output_root.mkdir(parents=True, exist_ok=False)
         cli(worker, args, verbose=True)
         ranks = [json.loads((args.output_root / f"rank-{r}/summary.json").read_text()) for r in (0, 1)]
-        for field in ("initial_full_sha256", "targets_sha256", "spec", "environment", "training_core", "optimizer"):
+        for field in ("initial_full_sha256", "targets_sha256", "spec", "environment", "training_core", "optimizer", "camera_size_overlay"):
             if ranks[0][field] != ranks[1][field]:
                 raise ValueError(f"rank identity differs: {field}")
         write_json(args.output_root / "summary.json", {"ranks": ranks, "completed_updates": UPDATES,

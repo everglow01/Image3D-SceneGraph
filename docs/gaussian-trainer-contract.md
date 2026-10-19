@@ -38,6 +38,12 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 上一轮legacy-v1控制失败保留。新profile按rank拼接顺序建立全模型参考，并以显式全局ID逆映射比较所有参数、梯度和Adam状态；canonical顺序用于内容hash以及equal_small首步排序敏感性观测，该附加观测不替代主控制。原9例保持原定义，另增加equal_small/historical/mixed三个unique例：z=2+.05*i，xyz与尺度同比缩放，真实float32深度必须无并列。共12例，每例16点/SH3/5更新；边带为min(32,max(1,min(width,height)//4))，避免小图边带覆盖全图。主容差仍2e-6/2e-4，只有完整、所有同尺寸及packed控制通过且原库异尺寸仍不一致，才允许下一阶段隔离尺寸修复验证；控制失败停止，不自动补跑。专用image3d-camera-size-order-20261019-v2.service，新目录与唯一只读监控，unit4200秒、每例300秒，原显存18GiB、磁盘20/4GiB、RAM无限额和GPU锁不变。本轮尚未修改安装gsplat、生产入口、MCMC或通信配置；后续补丁必须独立commit并保留原CUDA二进制，不直接推广。
 
+### 目标相机尺寸隔离修复 repair-v1（2026-10-19）
+
+仅order-v2完整且全部同尺寸/packed控制通过、异尺寸仍不一致时允许新候选。`prepare_gsplat_camera_sizes.py`锁定原rendering.py SHA，复制原包并只修改Python渲染层、保留所有CUDA二进制。分布式汇集每rank宽高；每rank一相机/dense/普通pinhole EWA范围内，同尺寸保留原投影调用，不同尺寸逐目标viewmat/K及对应width/height调用原kernel并可微拼接。禁止用max画布或resize代替目标尺寸语义；未覆盖模式明确拒绝。不触碰原安装包、生产核心、公开默认和其他overlay。
+
+repair-v1使用相同12例/16点/5更新、相同输入与同序参考/容差，独立记录base environment及补丁profile/全文件SHA，不冒充原库身份。基线repair_ready、原包SHA、canonical初始参数/目标/K/pose、参考ID/optimizer/core均须配对；每rank核验实际导入路径。任一数值/资源/身份失败保留并停止余例，缺失记录维持未完成，只有全矩阵完整通过才passed。专用image3d-camera-size-repair-20261019-v1.service、新实验目录和唯一只读监控；每例300秒/unit4200秒、显存18GiB/磁盘20-4GiB/RAM无限额/GPU锁保留。不推广生产、不读Test、不重跑场景或10k/30k；小门禁不当真实场景长期质量与3M性能证明。
+
 ## MCMC 稳定性修复与单因素验证（2026-10-13）
 
 用户授权按诊断、重定位数值门禁、RGB 损失、目标动量、位置学习率的顺序修复与实验，每项独立提交。实验只在 i-94B8D131 的指定项目内，经 Git 同步，在独立 outputs 目录执行；现有两个 apartment Job、生产依赖、公开默认和 Test 保持不变。场景对照从 MCMC Job 的冻结 replay fresh 初始化，seed20260729、2048、双卡、全局3M、名义30k日程保持一致；3k无完整优化器/RNG，不能伪称精确恢复。旧 AbsGrad 计划不是本轮执行计划。
