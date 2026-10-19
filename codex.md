@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，排序隔离任务20261019-160538-338f/唯一监控20261019-160538-c09d分别finished exit1/0，unit100.971s；12例各5更新、所有子进程exit0/资源正常/无非有限，230文件整体SHA62231733…与远端一致，原包不变。单卡参考按rank顺序后，equal_small图像/梯度/5步参数及Adam全部通过；额外canonical单卡仍重现原RGB差.003625929/.000547767且alpha通过，闭合本合成例的排序混淆。全部同尺寸（含unique、不等长、不可见）及全部packed/dense控制通过；7个异尺寸变体仍不一致，repair_ready=true。historical宽图首步RGB/alpha差.133793622/.251126826；mixed_unique首步差.132594779/.240296423，排除完全等深度作为所有异尺寸误差的解释。historical_unique首步通过但后续失败，不误报全部unique首步失败。阶段二依赖门槛已满足，按授权实施隔离尺寸候选；不推广生产。证据outputs/analysis/camera-size-order-results-20261019-v2。
+
 - 2026-10-19，排序隔离c16a757已Git快进至i-94B8D131指定仓库，CUDA_VISIBLE_DEVICES为空的远端相关63项回归通过/3.15s。新12例任务提交被权限层要求扩展此前9例具名授权而阻塞，未重试或换通道。只读确认order-v2实验/execution目录及once不存在、unit not-found、GPU进程空；本地启动命令也未执行。阶段一GPU尚未运行，阶段二尺寸补丁按依赖门槛尚未实施。状态outputs/analysis/camera-size-order-launch-20261019-v2/status.json；旧结果和个人文件保持原样。
 
 - 2026-10-19，用户批准先排除排序再验证尺寸修复的两阶段计划；首阶段扩展既有camera_sizes门禁为显式order-v2，旧legacy-v1和结果不改。完整参考按rank0+rank1全局ID排列，梯度/参数/Adam以逆映射比较，初始内容哈希按canonical ID还原；equal_small首步另保存canonical与rank顺序单卡图像差异，不参与主一致性否决。原9例加equal_small/historical/mixed三个唯一深度例（z=2+.05*i，xyz/scale同步缩放，首步检查float32无并列），每例16点/SH3/5更新；小图边带min(32,min尺寸//4)。同尺寸及packed控制全通过、全部完整且异尺寸仍不一致才repair_ready；不把预期原库差异当全部通过。本机17项禁Torch回归通过、7项远端NumPy跳过、Ruff通过；尚未新GPU验证，尺寸补丁尚未实施。指定排序隔离v2及唯一监控、每例300s/unit4200s、RAM无限额及18GiB/磁盘/GPU锁保留。
