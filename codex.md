@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，用户批准先验证异尺寸相机单双卡一致性，不修复渲染器或MCMC。新增smoke_distributed_camera_sizes.py：原安装gsplat，9个合成用例、每例16全局点/SH3/5更新；同尺寸64及1361×2048、历史1361/1372宽差、放大64×64/96×80、交换相机/所有权、不等长7/9与不可见分片。单卡dense完整模型逐相机loss/2累积后一次fresh Adam，对照双卡unpacked分片loss/2，首步另查packed/dense；关闭噪声/拓扑/正则。逐步保存raw RGB/alpha、六参数梯度、参数/Adam矩/step差异，atol2e-6/rtol2e-4预声明不改；先落盘再校验，正常差异不提前打断collective。控制失败标control_blocked，非一致不冒充通过。具名远端任务及唯一只读监控、每例300秒/unit3600秒、每卡18GiB、磁盘20/4GiB、RAM无限额/GPU锁；新目录不覆盖、不Test、不10k/30k、不改依赖/生产。训练core未变。本机15项禁止Torch轻量回归通过、7项NumPy边界测试按远端限定跳过，Ruff通过；尚未GPU验证，结果另记。个人文件及原codex7行保持不动。
+
 - 2026-10-17，多周期失衡用例仅rank1在相机后，rank0保有图像信号；原库与capacity均在第200实际更新因rank1零alive而同步控制终止。第100步candidate弱rank接纳36/延期88、暂得40alive，之后仍全部死亡；结束时健康rank原库/candidate分别127/128有效可见点，另一rank均0。健康分片不能向耗尽分片提供来源是两者共有的局部池限制，capacity没有解决；不能称为candidate新增独有失败，也不声称单纯跨rank复制就能恢复缺失几何覆盖。六case共2800真实更新/5600训练相机样本，不是6000更新；无非有限/零尺度观测、无资源保护触发，两卡各case peak reserved均22MiB，不外推3M内存。两环境/输入哈希及early-stop步数已核验；本轮判定eligible_for_10k=false，遵守授权不启动10k或30k、不读取Test、不改生产。结果与限制写入上述assessment，active-run已更新终态并保留started-run原始记录；个人文档和codex原7行不纳入结果提交。
 
 - 2026-10-17，多周期无图像信号负对照（两rank点均在相机后、黑色目标）两实现实际运行200更新、仅完成第100步的一次搬迁，第200步按原alive条件控制终止，未伪造剩余800步。第100步前各rank均4个alive；原库搬迁后直接0个，capacity各接纳36/延期88，暂得40个alive，但可再次提供副本的来源容量已为0。图像梯度观测始终为0，第200步两臂均零alive。说明capacity确实避免即时低于阈值的无效复活，却无法在没有图像恢复信号时维持这些点；不是把所有请求成功或更高存活率声称长期有效。此例是负对照，共同耗尽不单独构成candidate画质退化；黑色预测/目标MSE0对应的120dB是数值下限结果，不作质量成绩。该结论不把人为相机后状态当旧apartment分片起始退化的实测原因。

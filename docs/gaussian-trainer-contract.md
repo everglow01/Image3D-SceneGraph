@@ -26,6 +26,14 @@ The 2026-09-15 UHD extension permits an explicit longest edge through 3840px whi
 
 Gaussian evaluation schema 2 preserves the historical top-level and per-view `psnr`/`ssim` fields as the primary `raw_float_v1` profile: metrics are computed directly from the unclamped gsplat float render and the float reference. It additionally reports `display_psnr`/`display_ssim` under `display_clamped_uint8_v1`, applying the preview path independently to prediction and reference (`clamp(0,1)`, multiply by 255, floor to uint8, divide by 255) before scoring. `quality_profiles` records both identities. These profiles are parallel reports: display metrics do not replace raw metrics, change Validation selection, or rewrite historical evaluation artifacts. Frozen-candidate and Test-consumption records remain schema 1 so previously frozen candidates retain their authorization identity.
 
+## 异尺寸相机分布式一致性诊断（2026-10-19）
+
+用户批准指定远端原安装gsplat的独立小门禁，不修改生产渲染器/MCMC/通信配置。`smoke_distributed_camera_sizes.py`用9个确定性合成用例，每例16全局Gaussian、SH3、5次fresh Adam更新；覆盖同尺寸64×64与1361×2048、历史宽差1361/1372×2048、放大64×64/96×80、相机交换/所有权交换、不等长7/9分片及一分片不可见。历史用例仅复用尺寸，K/pose/点/目标均合成，不是apartment重放。固定全参数、相机、目标、环境/core和脚本哈希，原包源码/二进制前后校验。
+
+单卡完整模型采用dense非分布式路径，每相机L1+SSIM损失除2累积后只做一次Adam更新；双卡每卡一图、unpacked且损失除2，不使用DDP额外平均。沿用clamp规则，噪声、拓扑与正则关闭；首步额外对比公开单卡packed路径与dense参考。逐rank在collective前保存raw RGB/alpha、六组梯度、每步参数/Adam两矩/step误差，主判据atol=2e-6/rtol=2e-4，非有限不得填零冒充通过；报告边缘32px及内部超容差元素数。首步图像/梯度与后续轨迹误差分开，不能由Adam微小梯度放大单独归因通信。
+
+同尺寸或packed参考失败标control_blocked；缺用例/缺rank/缺更新标incomplete；数值不一致仍执行剩余用例并最终非零退出，只有全部完整且一致才passed。真实子进程/资源失败独立记录、不自动重试。专用unit image3d-camera-size-equivalence-20261019-v1.service和新outputs/analysis目录，唯一只读监控；每例300秒、unit3600秒、每卡reserved18GiB、磁盘20GiB准入/4GiB停止、GPU租约；RAM max/high/swap无限额、host_group=None。新代码只Git同步，本机禁止Torch；不读取Test/RGB或checkpoint，不启动10k/30k，不自行修复或推广。门禁不证明该问题解释全部长期退化。
+
 ## MCMC 稳定性修复与单因素验证（2026-10-13）
 
 用户授权按诊断、重定位数值门禁、RGB 损失、目标动量、位置学习率的顺序修复与实验，每项独立提交。实验只在 i-94B8D131 的指定项目内，经 Git 同步，在独立 outputs 目录执行；现有两个 apartment Job、生产依赖、公开默认和 Test 保持不变。场景对照从 MCMC Job 的冻结 replay fresh 初始化，seed20260729、2048、双卡、全局3M、名义30k日程保持一致；3k无完整优化器/RNG，不能伪称精确恢复。旧 AbsGrad 计划不是本轮执行计划。
