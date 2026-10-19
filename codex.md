@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，异尺寸一致性实现e70d615已原子推送main及既有研究分支；远端Git拉取/回归写入被权限层拦截，要求明确主机和项目目录授权，未绕过。只读确认i-94B8D131仓库仍c3de62d，regression/实验/execution三个新目录不存在、专用unit not-found、GPU计算进程空；无新面板任务。当前仅本地15项无Torch回归通过、7项远端NumPy测试跳过，不能宣称CUDA验证或异尺寸根因已实测。阻塞状态保存outputs/analysis/camera-size-equivalence-launch-20261019-v1/status.json；个人文档、旧锁与codex原7行保持不动。
+
 - 2026-10-19，用户批准先验证异尺寸相机单双卡一致性，不修复渲染器或MCMC。新增smoke_distributed_camera_sizes.py：原安装gsplat，9个合成用例、每例16全局点/SH3/5更新；同尺寸64及1361×2048、历史1361/1372宽差、放大64×64/96×80、交换相机/所有权、不等长7/9与不可见分片。单卡dense完整模型逐相机loss/2累积后一次fresh Adam，对照双卡unpacked分片loss/2，首步另查packed/dense；关闭噪声/拓扑/正则。逐步保存raw RGB/alpha、六参数梯度、参数/Adam矩/step差异，atol2e-6/rtol2e-4预声明不改；先落盘再校验，正常差异不提前打断collective。控制失败标control_blocked，非一致不冒充通过。具名远端任务及唯一只读监控、每例300秒/unit3600秒、每卡18GiB、磁盘20/4GiB、RAM无限额/GPU锁；新目录不覆盖、不Test、不10k/30k、不改依赖/生产。训练core未变。本机15项禁止Torch轻量回归通过、7项NumPy边界测试按远端限定跳过，Ruff通过；尚未GPU验证，结果另记。个人文件及原codex7行保持不动。
 
 - 2026-10-17，多周期失衡用例仅rank1在相机后，rank0保有图像信号；原库与capacity均在第200实际更新因rank1零alive而同步控制终止。第100步candidate弱rank接纳36/延期88、暂得40alive，之后仍全部死亡；结束时健康rank原库/candidate分别127/128有效可见点，另一rank均0。健康分片不能向耗尽分片提供来源是两者共有的局部池限制，capacity没有解决；不能称为candidate新增独有失败，也不声称单纯跨rank复制就能恢复缺失几何覆盖。六case共2800真实更新/5600训练相机样本，不是6000更新；无非有限/零尺度观测、无资源保护触发，两卡各case peak reserved均22MiB，不外推3M内存。两环境/输入哈希及early-stop步数已核验；本轮判定eligible_for_10k=false，遵守授权不启动10k或30k、不读取Test、不改生产。结果与限制写入上述assessment，active-run已更新终态并保留started-run原始记录；个人文档和codex原7行不纳入结果提交。
