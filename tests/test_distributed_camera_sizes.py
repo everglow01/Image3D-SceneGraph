@@ -72,7 +72,7 @@ def test_gate_wires_protection_and_retains_differences_before_collectives():
     run = ast.unparse(next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run"))
     assert worker.index("before-update.jsonl") < worker.index("shard.validate_gradients()")
     assert worker.index("comparisons.jsonl") < worker.index("torch.distributed.barrier()")
-    for expected in ("TrainingMonitor", "host_group=None", "pass_fds=(lease.fileno(),)", "unlimited_host_cgroup(UNIT)"):
+    for expected in ("TrainingMonitor", "host_group=None", "pass_fds=(lease.fileno(),)", "unlimited_host_cgroup(unit)"):
         assert expected in run
     assert "packed=False" in worker and "loss / 2" in worker
     assert "step_post_backward" not in worker
@@ -112,3 +112,30 @@ def test_comparison_threshold_and_nonfinite_values(actual, expected, passed):
     assert result["elements"] == len(actual)
     import json
     json.dumps(result, allow_nan=False)
+
+
+def test_order_mapping_preserves_ids_and_unique_depths():
+    for name in gate.ORDER_CASES:
+        spec = gate.case_spec(name)
+        order, maps = gate.reference_mapping(spec, True)
+        assert order == spec["ids"][0] + spec["ids"][1]
+        for rank in (0, 1):
+            assert [order[i] for i in maps[rank]] == spec["ids"][rank]
+        assert gate.reference_mapping(spec, False)[1] == spec["ids"]
+    for base in ("equal_small", "historical", "mixed"):
+        original, unique = gate.case_spec(base), gate.case_spec(base + "_unique")
+        assert original["cameras"] == unique["cameras"]
+        assert len(set(p[2] for p in unique["points"])) == 16
+        assert [p[2] for p in unique["points"]] == [2 + .05*i for i in range(16)]
+
+
+def test_order_assessment_requires_new_controls_and_complete_matrix():
+    trial = records()
+    assert gate.assess(trial, ordered=True)["status"] == "incomplete"
+    for case in gate.ORDER_CASES[len(gate.CASES):]:
+        trial[case] = copy.deepcopy(trial["equal_small"])
+    assert gate.assess(trial, ordered=True)["passed"]
+    trial["historical"]["equivalent"] = False
+    assert gate.assess(trial, ordered=True)["status"] == "not_equivalent"
+    trial["equal_small_unique"]["equivalent"] = False
+    assert gate.assess(trial, ordered=True)["status"] == "control_blocked"

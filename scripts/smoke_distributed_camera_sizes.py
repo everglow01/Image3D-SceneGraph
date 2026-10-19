@@ -22,10 +22,22 @@ UNIT = "image3d-camera-size-equivalence-20261019-v1.service"
 CASES = ("equal_small", "equal_large", "historical", "historical_camera_swap",
          "mixed", "mixed_camera_swap", "mixed_owner_swap", "unequal_shards", "invisible_owner")
 CONTROLS = ("equal_small", "equal_large", "unequal_shards", "invisible_owner")
+ORDER_CASES = CASES + ("equal_small_unique", "historical_unique", "mixed_unique")
+ORDER_UNIT = "image3d-camera-size-order-20261019-v2.service"
+
+
+def reference_mapping(spec, ordered):
+    order = spec["ids"][0] + spec["ids"][1] if ordered else list(range(16))
+    inverse = {global_id: index for index, global_id in enumerate(order)}
+    return order, [[inverse[i] for i in ids] for ids in spec["ids"]]
 
 
 def case_spec(name):
-    if name not in CASES:
+    original_name = name
+    unique = name.endswith("_unique")
+    if unique:
+        name = name.removesuffix("_unique")
+    if original_name not in ORDER_CASES:
         raise ValueError("unknown camera-size case")
     sizes = [[64, 64], [64, 64]]
     if name == "equal_large":
@@ -60,19 +72,26 @@ def case_spec(name):
     if name == "invisible_owner":
         for i in ids[1]:
             points[i][2] = -2.
-    return {"name": name, "cameras": cameras, "camera_assignment": assignment,
+    if unique:
+        for i, point in enumerate(points):
+            factor = (2 + .05 * i) / point[2]
+            points[i] = [value * factor for value in point]
+            scales[i] *= factor
+    return {"name": original_name, "cameras": cameras, "camera_assignment": assignment,
             "ids": ids, "points": points, "scales": scales, "sh_degree": 3,
             "edge_band_pixels": 32, "synthetic_geometry_not_scene_replay": True}
 
 
-def assess(records):
-    missing = [name for name in CASES if name not in records]
+def assess(records, *, ordered=False):
+    cases = ORDER_CASES if ordered else CASES
+    control_names = CONTROLS + ("equal_small_unique",) if ordered else CONTROLS
+    missing = [name for name in cases if name not in records]
     incomplete = [name for name, row in records.items()
                   if row.get("completed_updates") != UPDATES or len(row.get("ranks", [])) != 2
                   or sorted(r.get("rank") for r in row.get("ranks", [])) != [0, 1]
                   or any(r.get("completed_updates") != UPDATES for r in row.get("ranks", []))]
     packed = [name for name, row in records.items() if not row.get("packed_control_passed", False)]
-    controls = [name for name in CONTROLS if name in records and not records[name].get("equivalent", False)]
+    controls = [name for name in control_names if name in records and not records[name].get("equivalent", False)]
     mismatches = [name for name, row in records.items() if not row.get("equivalent", False)]
     status = ("incomplete" if missing or incomplete else "control_blocked" if packed or controls
               else "not_equivalent" if mismatches else "equivalent")
@@ -81,7 +100,7 @@ def assess(records):
             "non_equivalent_cases": mismatches, "passed": status == "equivalent"}
 
 
-def comparison(actual, expected, *, image=False):
+def comparison(actual, expected, *, image=False, adaptive_edge=False):
     import numpy as np
 
     if actual is None or expected is None:
@@ -107,7 +126,9 @@ def comparison(actual, expected, *, image=False):
               "max_abs_coordinate": [int(v) for v in np.unravel_index(maximum, a.shape)] if a.size else []}
     if image:
         edge = np.ones(a.shape[:2], dtype=bool)
-        edge[32:-32, 32:-32] = False
+        band = min(32, max(1, min(a.shape[:2]) // 4)) if adaptive_edge else 32
+        edge[band:-band, band:-band] = False
+        result["edge_band_pixels"] = band
         result.update(edge_mismatches=int(bad[edge].sum()), interior_mismatches=int(bad[~edge].sum()))
     return result
 
@@ -140,6 +161,10 @@ def worker(local_rank, rank, world_size, args):
     rank_dir = root / f"rank-{rank}"
     rank_dir.mkdir()
     spec = case_spec(args.case)
+    ordered = args.profile == "order-v2"
+    order, mappings = reference_mapping(spec, ordered)
+    reference_indices = mappings[rank]
+    canonical_indices = [order.index(i) for i in range(16)]
     cfg = resolve_internal_config("mcmc_v1").effective_config
     ids = spec["ids"][rank]
     camera_index = spec["camera_assignment"][rank]
@@ -169,14 +194,17 @@ def worker(local_rank, rank, world_size, args):
             y = torch.linspace(0, 1, cam["height"], device=device)[:, None].expand(-1, cam["width"])
             targets.append(torch.stack([.15+.2*x, .2+.15*y, .25+.1*x*y], dim=-1))
 
-        reference, shard = model(list(range(16))), model(ids)
+        reference, shard = model(order), model(ids)
         ref_optim, optim = reference.optimizers(cfg["learning_rate"]), shard.optimizers(cfg["learning_rate"])
-        initial_hash = tensor_hash(dict(reference.params.items()))
-        checks = [comparison(value, reference.params[name][ids]) for name, value in shard.params.items()]
+        initial_hash = tensor_hash({name: value[canonical_indices] for name, value in reference.params.items()})
+        if args.case.endswith("_unique") and torch.unique(reference.means[:, 2]).numel() != 16:
+            raise ValueError("unique-depth fixture contains float32 depth ties")
+        checks = [comparison(value, reference.params[name][reference_indices]) for name, value in shard.params.items()]
         if not all(c["passed"] for c in checks):
             raise ValueError("initial shard differs from full reference")
         identity = {"rank": rank, "case": args.case, "ids": ids, "camera_index": camera_index,
-                    "initial_full_sha256": initial_hash,
+                    "initial_full_sha256": initial_hash, "reference_global_ids": order,
+                    "reference_indices": reference_indices, "profile": args.profile,
                     "targets_sha256": tensor_hash({str(i): t for i, t in enumerate(targets)}),
                     "spec": spec, "environment": _gsplat_version(),
                     "training_core": training_provenance(dataset_hash="0"*64, effective_config_hash="0"*64, world_size=2).code_hash,
@@ -198,11 +226,21 @@ def worker(local_rank, rank, world_size, args):
                     packed=False, distributed=False, near_plane=NEAR_PLANE_NORMALIZED, far_plane=FAR_PLANE_NORMALIZED)
                 if i == camera_index:
                     reference_image, reference_alpha = image[0].detach(), alpha[0].detach()
+                    if step == 1 and ordered and args.case == "equal_small":
+                        canonical = model(list(range(16)))
+                        with torch.no_grad():
+                            other, other_alpha, _ = rasterization(*canonical.activated(), cam.camera_from_normalized[None],
+                                cam.intrinsic[None], width=cam.width, height=cam.height, sh_degree=3,
+                                packed=False, distributed=False, near_plane=NEAR_PLANE_NORMALIZED,
+                                far_plane=FAR_PLANE_NORMALIZED)
+                        measurements["order_probe_rgb"] = comparison(other[0], reference_image, image=True, adaptive_edge=True)
+                        measurements["order_probe_alpha"] = comparison(other_alpha[0], reference_alpha, image=True, adaptive_edge=True)
+                        del canonical, other, other_alpha
                     if step == 1:
                         with torch.no_grad():
                             packed = render_gaussians(reference, cam, sh_degree=3)
                         for label, a, b in [("rgb", packed.image, reference_image), ("alpha", packed.alpha, reference_alpha)]:
-                            check = comparison(a, b, image=True)
+                            check = comparison(a, b, image=True, adaptive_edge=ordered)
                             measurements[f"packed_dense_{label}"] = check
                             packed_pass &= check["passed"]
                         del packed
@@ -211,12 +249,12 @@ def worker(local_rank, rank, world_size, args):
                 del image, alpha, loss
             rendered = render_gaussians(shard, cameras[camera_index], sh_degree=3, distributed=True)
             for label, a, b in [("rgb", rendered.image, reference_image), ("alpha", rendered.alpha, reference_alpha)]:
-                measurements[label] = comparison(a, b, image=True)
+                measurements[label] = comparison(a, b, image=True, adaptive_edge=ordered)
             loss, _ = l1_ssim_loss(rendered.image.clamp(0, 1), targets[camera_index], l1_weight=.8, ssim_weight=.2)
             (loss / 2).backward()
             for name, param in shard.params.items():
                 ref_grad = reference.params[name].grad
-                measurements[f"gradient_{name}"] = comparison(param.grad, None if ref_grad is None else ref_grad[ids])
+                measurements[f"gradient_{name}"] = comparison(param.grad, None if ref_grad is None else ref_grad[reference_indices])
             if step == 1:
                 first_forward = all(measurements[k]["passed"] for k in ("rgb", "alpha"))
                 first_gradient = all(v["passed"] for k, v in measurements.items() if k.startswith("gradient_"))
@@ -228,13 +266,13 @@ def worker(local_rank, rank, world_size, args):
             for opt in [*optim.values(), *ref_optim.values()]:
                 opt.step()
             for name, param in shard.params.items():
-                measurements[f"parameter_{name}"] = comparison(param, reference.params[name][ids])
+                measurements[f"parameter_{name}"] = comparison(param, reference.params[name][reference_indices])
                 a, b = optim[name].state.get(param, {}), ref_optim[name].state.get(reference.params[name], {})
                 for field in ("step", "exp_avg", "exp_avg_sq"):
                     expected = b.get(field)
                     measurements[f"adam_{name}_{field}"] = comparison(a.get(field),
-                        expected if field == "step" or expected is None else expected[ids])
-            passed = all(v["passed"] for k, v in measurements.items() if not k.startswith("packed_dense_"))
+                        expected if field == "step" or expected is None else expected[reference_indices])
+            passed = all(v["passed"] for k, v in measurements.items() if not k.startswith(("packed_dense_", "order_probe_")))
             equivalent &= passed
             with (rank_dir / "comparisons.jsonl").open("a") as f:
                 f.write(json.dumps({"step": step, "passed": passed, "measurements": measurements}, allow_nan=False)+"\n")
@@ -252,7 +290,10 @@ def worker(local_rank, rank, world_size, args):
 
 
 def run(args):
-    unlimited_host_cgroup(UNIT)
+    ordered = args.profile == "order-v2"
+    unit = ORDER_UNIT if ordered else UNIT
+    cases = ORDER_CASES if ordered else CASES
+    unlimited_host_cgroup(unit)
     with FileLease(PROJECT / "outputs/.gpu.lock") as lease:
         require_idle_gpu()
         if shutil.disk_usage(PROJECT).free < 20*1024**3:
@@ -265,16 +306,16 @@ def run(args):
             raise ValueError("original gsplat required")
         hashes = {str(p.relative_to(package)): sha256_file(p) for p in package.rglob("*")
                   if p.is_file() and p.suffix in (".py", ".cu", ".cuh", ".so")}
-        write_json(args.output_root / "protocol.json", {"cases": [case_spec(c) for c in CASES],
-            "updates": UPDATES, "atol": ATOL, "rtol": RTOL, "unit": UNIT,
+        write_json(args.output_root / "protocol.json", {"profile": args.profile, "cases": [case_spec(c) for c in cases],
+            "updates": UPDATES, "atol": ATOL, "rtol": RTOL, "unit": unit,
             "environment": _gsplat_version(), "package_hashes": hashes,
             "core": training_provenance(dataset_hash="0"*64, effective_config_hash="0"*64, world_size=2).code_hash,
             "script_sha256": sha256_file(Path(__file__)), "host_limits": None,
-            "stage_seconds": 300, "unit_seconds": 3600, "max_reserved_each": 18*1024**3,
+            "stage_seconds": 300, "unit_seconds": 4200 if ordered else 3600, "max_reserved_each": 18*1024**3,
             "reference": "full_model_dense_two_camera_mean_loss_one_fresh_Adam_update",
             "topology_noise_regularizers": "disabled", "test_rgb": "not_loaded"})
         records = {}
-        for case in CASES:
+        for case in cases:
             require_idle_gpu()
             stage = args.output_root / case
             stage.mkdir()
@@ -282,14 +323,16 @@ def run(args):
             monitor = TrainingMonitor(output / "progress.jsonl", output / "memory", updates=UPDATES,
                 main_stage=True, limits={**LIMITS, "max_main_stage_wall_seconds": 300, "max_observed_global_gaussians": 16})
             command = ["/usr/bin/env", "-u", "PYTHONPATH", sys.executable, str(Path(__file__).resolve()),
-                       "--output-root", str(output), "--case", case]
+                       "--output-root", str(output), "--case", case, "--profile", args.profile]
             try:
                 run_stage(stage, "probe", command, cwd=PROJECT, monitor=monitor, pass_fds=(lease.fileno(),), host_group=None)
                 records[case] = json.loads((output / "summary.json").read_text())
             except Exception as exc:
                 write_json(stage / "case.failure.json", {"reason": f"{type(exc).__name__}: {exc}"})
         unchanged = all(sha256_file(package / name) == value for name, value in hashes.items())
-        summary = {**assess(records), "cases": records, "installed_package_unchanged": unchanged}
+        summary = {**assess(records, ordered=ordered), "cases": records, "installed_package_unchanged": unchanged}
+        if ordered:
+            summary["repair_ready"] = unchanged and summary["status"] == "not_equivalent"
         if not unchanged:
             summary.update(status="environment_changed", passed=False)
         write_json(args.output_root / "summary.json", summary)
@@ -300,10 +343,13 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", required=True, type=Path)
-    parser.add_argument("--case", choices=CASES)
+    parser.add_argument("--case", choices=ORDER_CASES)
+    parser.add_argument("--profile", choices=("legacy-v1", "order-v2"), default="legacy-v1")
     args = parser.parse_args()
     if socket.gethostname() != "i-94B8D131" or str(PROJECT) != "/usr/local/3dgs_new/Image3D-SceneGraph":
         raise SystemExit("仅在已授权远端执行，不运行本机模型")
+    if args.profile == "legacy-v1" and args.case is not None and args.case not in CASES:
+        raise ValueError("unique-depth cases require the order-v2 protocol")
     args.output_root = args.output_root.resolve()
     if not args.output_root.is_relative_to(PROJECT / "outputs/analysis"):
         raise ValueError("independent research output required")
