@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，排序隔离c16a757已Git快进至i-94B8D131指定仓库，CUDA_VISIBLE_DEVICES为空的远端相关63项回归通过/3.15s。新12例任务提交被权限层要求扩展此前9例具名授权而阻塞，未重试或换通道。只读确认order-v2实验/execution目录及once不存在、unit not-found、GPU进程空；本地启动命令也未执行。阶段一GPU尚未运行，阶段二尺寸补丁按依赖门槛尚未实施。状态outputs/analysis/camera-size-order-launch-20261019-v2/status.json；旧结果和个人文件保持原样。
+
 - 2026-10-19，用户批准先排除排序再验证尺寸修复的两阶段计划；首阶段扩展既有camera_sizes门禁为显式order-v2，旧legacy-v1和结果不改。完整参考按rank0+rank1全局ID排列，梯度/参数/Adam以逆映射比较，初始内容哈希按canonical ID还原；equal_small首步另保存canonical与rank顺序单卡图像差异，不参与主一致性否决。原9例加equal_small/historical/mixed三个唯一深度例（z=2+.05*i，xyz/scale同步缩放，首步检查float32无并列），每例16点/SH3/5更新；小图边带min(32,min尺寸//4)。同尺寸及packed控制全通过、全部完整且异尺寸仍不一致才repair_ready；不把预期原库差异当全部通过。本机17项禁Torch回归通过、7项远端NumPy跳过、Ruff通过；尚未新GPU验证，尺寸补丁尚未实施。指定排序隔离v2及唯一监控、每例300s/unit4200s、RAM无限额及18GiB/磁盘/GPU锁保留。
 
 - 2026-10-19，原库异尺寸实际CUDA观测：1361×2048/1372×2048首步宽图RGB最大差.1337936223、alpha差.2511268258，81颜色通道/27alpha像素超容差，均在32px边带；窄图首步RGB/alpha相同但两卡means梯度均超容差，短程Adam随后分化。交换相机后首步图像问题随宽图从rank1转rank0（RGB差.1467771232、alpha差.2488085628），不支持固定GPU1硬件损坏；放大64×64/96×80及所有权交换也见差异。已知目标相机尺寸未跨卡传播和这些观测形成强证据，但因equal_small控制失败且合成等深度排序未隔离，不能把全部误差唯一归因尺寸或宣布真实apartment长期根因闭合。授权9例共45分布式更新/90相机样本完成，未重试、未改判据/渲染器/通信/MCMC、未启动10k/30k；下一步应先修正数值参考的排序对应或增加唯一深度对照，再独立验证尺寸修复。远端61项相关回归通过/3.48s；结束GPU空闲、服务active，个人文件9份哈希未变。
