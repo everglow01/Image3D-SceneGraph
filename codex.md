@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-19，具名异尺寸门禁执行20261019-153853-425f finished/exit1，唯一监控20261019-153853-99dc finished/exit0，unit92.618秒；9例子进程均exit0、各5更新，无resource_failure/非有限，原安装包SHA不变，173文件下载整体SHA匹配，单卡reserved最大1.43555GiB。同尺寸1361×2048、连续7/9不等长分片及一分片不可见控制全部通过；所有例首步packed/dense控制通过。但64×64交错分片控制首步RGB最大差.003625929、alpha最大差5.96e-8且梯度不一致，预声明总门禁维持control_blocked而非通过。合成边缘点含相同深度，单卡原序与双卡rank拼接序不同，排序key无原始全局ID，结合连续分片通过支持同深度顺序敏感线索；未做新GPU重排参考消融，不把它宣称已排除的混淆。32px边带在64px图覆盖全图，不作局部性证据。记录outputs/analysis/camera-size-equivalence-results-20261019-v1/{assessment,verification,tie-order-evidence}.json。
+
 - 2026-10-19，异尺寸一致性实现e70d615已原子推送main及既有研究分支；远端Git拉取/回归写入被权限层拦截，要求明确主机和项目目录授权，未绕过。只读确认i-94B8D131仓库仍c3de62d，regression/实验/execution三个新目录不存在、专用unit not-found、GPU计算进程空；无新面板任务。当前仅本地15项无Torch回归通过、7项远端NumPy测试跳过，不能宣称CUDA验证或异尺寸根因已实测。阻塞状态保存outputs/analysis/camera-size-equivalence-launch-20261019-v1/status.json；个人文档、旧锁与codex原7行保持不动。
 
 - 2026-10-19，用户批准先验证异尺寸相机单双卡一致性，不修复渲染器或MCMC。新增smoke_distributed_camera_sizes.py：原安装gsplat，9个合成用例、每例16全局点/SH3/5更新；同尺寸64及1361×2048、历史1361/1372宽差、放大64×64/96×80、交换相机/所有权、不等长7/9与不可见分片。单卡dense完整模型逐相机loss/2累积后一次fresh Adam，对照双卡unpacked分片loss/2，首步另查packed/dense；关闭噪声/拓扑/正则。逐步保存raw RGB/alpha、六参数梯度、参数/Adam矩/step差异，atol2e-6/rtol2e-4预声明不改；先落盘再校验，正常差异不提前打断collective。控制失败标control_blocked，非一致不冒充通过。具名远端任务及唯一只读监控、每例300秒/unit3600秒、每卡18GiB、磁盘20/4GiB、RAM无限额/GPU锁；新目录不覆盖、不Test、不10k/30k、不改依赖/生产。训练core未变。本机15项禁止Torch轻量回归通过、7项NumPy边界测试按远端限定跳过，Ruff通过；尚未GPU验证，结果另记。个人文件及原codex7行保持不动。
