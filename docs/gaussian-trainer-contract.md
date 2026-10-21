@@ -50,6 +50,15 @@ repair-v1使用相同12例/16点/5更新、相同输入与同序参考/容差，
 
 内部`train_gaussians(stop_after_iteration=...)`和MCMC CLI `--stop-after-iteration`只设置正常执行端点，不改变effective config的名义iterations/LR/SH/拓扑日程。默认不传保持原行为；显式端点为1..nominal整数且必须晚于resume起点，不用于prepare/readiness/external trainer。实际终点执行完整Validation、终态checkpoint和best模型合并；result.iteration及checkpoint目录为实际步，额外字段记录nominal_iterations/requested_stop_iteration/termination_reason，不把12k称为完成30k。取消仍不写完整checkpoint。首次正式研究仅原库与尺寸修复、同core/同apartment replay/seed/2048/3M，每臂12k、名义30k，不叠加其他MCMC修改、不发布生产。生命周期和场景实际结果另行记录，不以实现完成冒充验收。
 
+
+### 同核心 apartment 尺寸修复 12k 配对（2026-10-21）
+
+`run_camera_size_scene_pair.py`仅在已授权远端执行，先核验同core原库/尺寸overlay原生生命周期passed和跨环境checkpoint拒绝，再冻结来源Job `20261010_172759_d4dda4b3` 的replay、初始化、相机、配置、脚本、门禁与完整安装包SHA。两臂fresh初始化，原MCMC配置、2048最长边、双卡全局3M及seed不变；名义30k日程保留，实际正常结束于12k/24k相机样本。原库baseline先行，repair仅用已验收尺寸overlay，不叠加其他消融。
+
+Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限指标/RGB及两rank健康；末态checkpoint组件流式核验SHA、provenance和12k/30k scheduler，不在本机反序列化模型。两臂必须同输入/core/config及实际相机序列。主要比较同一步尤其12k终态raw/display质量与分片健康，best模型只作补充；若原库本轮未复现历史退化，不宣称修复消灭该退化。
+
+新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
+
 ## MCMC 稳定性修复与单因素验证（2026-10-13）
 
 用户授权按诊断、重定位数值门禁、RGB 损失、目标动量、位置学习率的顺序修复与实验，每项独立提交。实验只在 i-94B8D131 的指定项目内，经 Git 同步，在独立 outputs 目录执行；现有两个 apartment Job、生产依赖、公开默认和 Test 保持不变。场景对照从 MCMC Job 的冻结 replay fresh 初始化，seed20260729、2048、双卡、全局3M、名义30k日程保持一致；3k无完整优化器/RNG，不能伪称精确恢复。旧 AbsGrad 计划不是本轮执行计划。
