@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-21，用户补充具名远端授权后，Git同步a2f48a5、99项远端回归通过/3.56s；同core5941370c…的12k配对协议冻结SHA51b81adcdfbd0cfdae8f68946c6d55dc5d45fcca39e6c26040df97d0828439bb。执行任务20261021-103701-6863、唯一只读监控20261021-103726-9f3a已启动，baseline实测进度201步/515603点/双卡，名义30000与实际预算12000正确；repair排在baseline之后，不并发。两L2启动前空闲、磁盘约160GiB；unit实测MemoryMax/High/SwapMax均infinity、RuntimeMax6h。尚无12k终点或质量结论，不把启动当配对通过；原包/生产/Test边界保持。启动证据outputs/analysis/camera-size-scene-pair-launch-20261021-v1，远端产物outputs/analysis/apartment-camera-size-pair-20261021-v1。
+
 - 2026-10-21，新增同核心apartment尺寸修复12k专用runner；GPU前绑定已通过生命周期、新core、原库/overlay环境、replay/初始化/相机/原配置和脚本SHA。原库→修复串行fresh，实际12k/24k相机样本、名义30k日程不改；五次351-view Validation逐ID/有限值验收，末态checkpoint组件流式SHA和provenance/预算核验，best与终态分开。RAM无限额、每臂6h/18GiB每卡/20-4GiB磁盘/GPU锁保留；独立失败保留后另一臂重新准入，不自动重试或推广。38项本机禁Torch回归及Ruff通过；此条只记录实现，真实12k尚未启动。
 
 - 2026-10-21，原生生命周期任务20261021-100047-aadb及唯一监控20261021-100047-2cb0均finished/exit0，unit19.456秒；新core5941370c…原库/尺寸overlay各完成名义16实际12步、24相机样本、60→66增点、6/12步Validation、12步完整checkpoint、6步best64点合并及合并后单卡2视角评价。两rank保存前后RNG不变，末态参数/全部Adam矩与step/策略/相机状态/预算scheduler逐项相等，best分片合并逐参数相等，原库与修复库环境hash不同且相互checkpoint加载拒绝。终止位置LR6.0704223167e-6按16步日程核验；两臂相机序列同a4d967e0…，单卡reserved24MiB，无资源失败。14份必要报告SHA独立对照远端一致，未下载模型/RGB。94项远端回归通过/3.81s；生命周期依赖门槛通过，可按授权冻结同core真实apartment12k配对，尚未启动场景训练。证据outputs/analysis/camera-size-lifecycle-results-20261021-v1。
