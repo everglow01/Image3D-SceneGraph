@@ -59,6 +59,22 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## MCMC 生命周期观测 Gate 1／2（2026-10-21，仅实现）
+
+`run_mcmc_lifecycle_trace.py`与`mcmc_lifecycle_observer.py`实现`mcmc_lifecycle_observer_v1`。本阶段仅实现与本机禁Torch轻量测试，不意味着任何真实恢复、CUDA观测一致性或机制结论已通过。Gate 3不提供自动入口，源仍是已冻结的apartment原库/尺寸修复各自12k完整checkpoint。
+
+固定窗口12001—12200，名义30000；每环境control_a/control_b/observed三个独立恢复分支，共6分支、1200次新更新。所有分支从对应12k源恢复，不能接着上一分支末态；原库与尺寸修复checkpoint不能互换。12100建立目标/来源/未参与三组，追踪到12200第二次relocation之前的100次优化；12200原操作仍正常完成。每rank保存一次owner/slot/event来源与目标映射，来源reuse不包含原点自身，公式总副本数另为reuse+1。
+
+独立入口临时包装原策略、原sampler、原renderer及优化器实例钩子，原操作只调用一次，不改12个冻结核心文件或依赖包。共同审计比较每步参数、Adam矩/step/参数组、策略、相机order/cursor、RNG及真实来源抽样的规范内容摘要；先检验control_a==control_b，再检验control_a==observed，任一不一致明确失败，不以PSNR或放宽容差替代。first_render审计处于首次恢复渲染之后、backward之前，相机已消费12001批次；不将此记录冒充未推进游标的12k状态。完整checkpoint再与保存时的真实末态逐字段摘要比较，排除序列化时间和封装字节差异。
+
+observed记录各组opacity、最短/最长轴、逐点kappa和Adam分布；区分搬迁后未存活、存活后首次死亡、曾死亡后恢复及再次死亡。图像梯度以总梯度减去局部正则的解析梯度获得，明确logit/log-scale坐标和world_size因子，属于浮点残差，并非独立精确梯度测量；原backward与grad不被替换。按最终存活类别附加100步图像梯度、正则、Adam矩和logit更新暴露统计，相关性不当清零动量的因果证明。
+
+完整诊断从Gate 1开始即包含每步额外no_grad的六通道owner×cohort标签渲染：几何/opacity/相机/遮挡保留，标签替代颜色，累计T·alpha作为覆盖贡献，而非图像质量提升。各通道和须对齐原alpha，辅助alpha亦须对齐原alpha，预声明atol2e-6/rtol2e-4；任一失败不回退到K代理。该检查仅为贡献计算守恒容差，训练状态和采样一致性仍严格相等。cohort尚未建立时所有点归未参与组并明确标记，不与事件后的组统计混算。不声称已有每点投影半径或逐点合成贡献，当前输出为owner×cohort累计权重。
+
+Gate 2只读Gate 1 observed日志，核验六分支完成记录、每rank/每步/两次来源抽样及诊断文件SHA、身份映射和完整100步窗口。Gate 1未通过或文件缺失/改变时禁止可信Gate 2报告；其输出状态为observed_not_causal_intervention。报告只研究已形成不对称后的维持机制，不推断早期首因。
+
+未来准备需`--prepare --authorize-prepare`；未来执行需`--run --authorize-execution --arm ... --branch ... --protocol-sha256 ...`及正确远端/独立systemd unit。内部worker还须继承GPU租约。每分支unit名`image3d-mcmc-lifecycle-{arm}-{branch}-v1.service`，RAM max/high/swap无限额、18GiB/卡reserved、6h阶段上限、磁盘20GiB准入/4GiB停止及额外checkpoint空间预算保留；监控显式从12000计数，新200更新/400样本不冒充12200新更新。禁止自动重试、改算法、运行Test、SOR、final-fit或Gate 3。`--gate1`与`--gate2`仅分析既有文件；源码中的执行开关不是用户授权的替代品。本轮不运行上述准备/执行命令。
+
 ## MCMC 稳定性修复与单因素验证（2026-10-13）
 
 用户授权按诊断、重定位数值门禁、RGB 损失、目标动量、位置学习率的顺序修复与实验，每项独立提交。实验只在 i-94B8D131 的指定项目内，经 Git 同步，在独立 outputs 目录执行；现有两个 apartment Job、生产依赖、公开默认和 Test 保持不变。场景对照从 MCMC Job 的冻结 replay fresh 初始化，seed20260729、2048、双卡、全局3M、名义30k日程保持一致；3k无完整优化器/RNG，不能伪称精确恢复。旧 AbsGrad 计划不是本轮执行计划。
