@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-21，原生生命周期任务20261021-100047-aadb及唯一监控20261021-100047-2cb0均finished/exit0，unit19.456秒；新core5941370c…原库/尺寸overlay各完成名义16实际12步、24相机样本、60→66增点、6/12步Validation、12步完整checkpoint、6步best64点合并及合并后单卡2视角评价。两rank保存前后RNG不变，末态参数/全部Adam矩与step/策略/相机状态/预算scheduler逐项相等，best分片合并逐参数相等，原库与修复库环境hash不同且相互checkpoint加载拒绝。终止位置LR6.0704223167e-6按16步日程核验；两臂相机序列同a4d967e0…，单卡reserved24MiB，无资源失败。14份必要报告SHA独立对照远端一致，未下载模型/RGB。94项远端回归通过/3.81s；生命周期依赖门槛通过，可按授权冻结同core真实apartment12k配对，尚未启动场景训练。证据outputs/analysis/camera-size-lifecycle-results-20261021-v1。
+
 - 2026-10-21，增加原生生命周期小门禁run_camera_size_lifecycle.py，复用合成生成器新增可选逐图尺寸（默认不变）；原库/已验收尺寸overlay共享64×64及96×80合成Train/Validation、60初始点、双卡SH3，名义16/实际12更新，真实正则/噪声/增点及6/12步Validation。包装原checkpoint writer仅作状态核验：原子组件/末态参数、全部Adam矩与step、策略/相机/RNG、名义LR与预算；包装原merge逐参数核对best分片，合并模型再单卡Validation。两臂环境hash须不同、core/数据/配置/相机序列一致，交叉环境checkpoint加载必须拒绝。生命周期每环境600秒/unit1800秒，RAM无限额及既有保护保留。34项本机禁Torch回归和Ruff通过；尚未远端运行，不以准备冒充原生生命周期通过。
 
 - 2026-10-21，用户选择每臂12k并批准先验收修复环境原生生命周期、再同核心fresh apartment配对。先接入camera_sizes_overlay_v1环境身份：核验实际导入/完整文件集及SHA/原rendering来源/二进制不变，禁止与其他overlay混用，checkpoint环境hash区分原库与修复库。新增内部stop_after_iteration预算端点，config.iterations和LR日程保持名义30k，实际终点强制Validation、完整checkpoint和best合并；结果/进度/opaque scheduler记录实际与名义预算，不以cancel或改config迭代数模拟短程。公开默认/API不变；trainer核心改变，两臂必须重新绑定同新core门禁。32项本机禁Torch回归及Ruff通过，远端/生命周期/12k尚未运行。
