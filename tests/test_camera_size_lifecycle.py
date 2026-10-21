@@ -75,3 +75,31 @@ def test_size_overlay_cannot_mix_with_other_profiles():
     version = ast.unparse(next(n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == "_gsplat_version"))
     assert "camera_sizes != 1 or profile is not None" in version
     assert "camera-size rendering import path differs" in version
+
+
+def test_lifecycle_pair_requires_same_inputs_and_distinct_environments():
+    from scripts.run_camera_size_lifecycle import verify_pair
+    row = {"training_core": "core", "dataset_hash": "data", "config_hash": "config",
+           "initialization_sha256": "initial", "camera_sequence_sha256": "sequence",
+           "passed": True, "updates": 12, "nominal_iterations": 16}
+    records = {"baseline": {**row, "environment_hash": "original"},
+               "repair": {**row, "environment_hash": "fixed"}}
+    verify_pair(records)
+    records["repair"]["environment_hash"] = "original"
+    with pytest.raises(ValueError, match="distinct"):
+        verify_pair(records)
+    records["repair"]["environment_hash"] = "fixed"
+    records["repair"]["camera_sequence_sha256"] = "wrong"
+    with pytest.raises(ValueError, match="identity"):
+        verify_pair(records)
+
+
+def test_lifecycle_local_entry_rejected_without_torch(tmp_path, monkeypatch):
+    import sys
+    from scripts import run_camera_size_lifecycle as gate
+    before = sys.modules.get("torch")
+    monkeypatch.setattr(gate.socket, "gethostname", lambda: "local")
+    monkeypatch.setattr(sys, "argv", ["gate", "--output-root", str(tmp_path / "new")])
+    with pytest.raises(SystemExit, match="不运行本机模型"):
+        gate.main()
+    assert before is sys.modules.get("torch") and not (tmp_path / "new").exists()

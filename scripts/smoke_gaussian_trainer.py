@@ -45,12 +45,17 @@ def rotmat_to_qvec(rotation: np.ndarray) -> list[float]:
     return [float(qw), float(qx), float(qy), float(qz)]
 
 
-def generate_scene(root: Path) -> dict:
+def generate_scene(root: Path, *, image_sizes: list[tuple[int, int]] | None = None) -> dict:
     images_dir = root / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     width = height = 64
     intrinsic = np.array([[52.0, 0.0, 32.0], [0.0, 52.0, 32.0], [0.0, 0.0, 1.0]])
     cameras = [{"camera_id": 1, "model": "PINHOLE", "width": width, "height": height, "params": [52.0, 52.0, 32.0, 32.0]}]
+    if image_sizes is not None:
+        if len(image_sizes) != 12 or any(w < 1 or h < 1 for w, h in image_sizes):
+            raise ValueError("synthetic scene requires twelve positive image sizes")
+        cameras = [{"camera_id": i + 1, "model": "PINHOLE", "width": w, "height": h,
+                    "params": [52., 52., w / 2, h / 2]} for i, (w, h) in enumerate(image_sizes)]
     image_records = []
     poses = []
     for index in range(12):
@@ -61,7 +66,7 @@ def generate_scene(root: Path) -> dict:
                 "image_id": index + 1,
                 "qvec": rotmat_to_qvec(camera_from_world[:3, :3]),
                 "tvec": camera_from_world[:3, 3].tolist(),
-                "camera_id": 1,
+                "camera_id": index + 1 if image_sizes is not None else 1,
                 "name": f"view_{index:02d}.png",
             }
         )
@@ -81,6 +86,9 @@ def generate_scene(root: Path) -> dict:
     }
     with torch.no_grad():
         for index, camera_from_world in enumerate(poses):
+            if image_sizes is not None:
+                width, height = image_sizes[index]
+                intrinsic = np.array([[52., 0., width / 2], [0., 52., height / 2], [0., 0., 1.]])
             camera = RenderCamera(
                 image_id=str(index + 1),
                 camera_from_normalized=torch.tensor(
