@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-21，同核心尺寸修复12k配对执行20261021-103701-6863 finished/exit0，两臂均12000更新/24000相机样本、同序列bfd7eada…、五次完整351-view Validation，4200步达3M；只读重验checkpoint全部组件/模型SHA、provenance/预算、原包与overlay，26份必要报告下载SHA一致。unit原库3980.787s/修复4012.898s（约+0.81%），峰值reserved原库5.076/4.607GiB、修复4.701/4.656GiB，无资源/非有限/零激活尺度失败。12k rawPSNR22.4463→22.1288（−0.3175dB）、rawSSIM.882024→.880782、P10 12.5792→11.4476；displayPSNR25.6180→25.7220。两臂best均3k，之后raw各降约1.91/1.95dB；12k搬迁前死亡原库[92975,174115]、修复[181163,89037]，不对称换侧而未消除，总量267090→270200。两臂均未复现历史连续10次搬迁前≥2倍的失衡，不认定旧退化已修复；缺直接K/逐点梯度贡献，长期根因未闭合，不推广或自动加长。唯一监控日志读到两臂/配对exit0，但平台finished=false/exit=null，单独保留该状态，不冒充监控正常完成。证据outputs/analysis/camera-size-scene-pair-results-20261021-v1；Test/生产/通信未动。
+
 - 2026-10-21，用户补充具名远端授权后，Git同步a2f48a5、99项远端回归通过/3.56s；同core5941370c…的12k配对协议冻结SHA51b81adcdfbd0cfdae8f68946c6d55dc5d45fcca39e6c26040df97d0828439bb。执行任务20261021-103701-6863、唯一只读监控20261021-103726-9f3a已启动，baseline实测进度201步/515603点/双卡，名义30000与实际预算12000正确；repair排在baseline之后，不并发。两L2启动前空闲、磁盘约160GiB；unit实测MemoryMax/High/SwapMax均infinity、RuntimeMax6h。尚无12k终点或质量结论，不把启动当配对通过；原包/生产/Test边界保持。启动证据outputs/analysis/camera-size-scene-pair-launch-20261021-v1，远端产物outputs/analysis/apartment-camera-size-pair-20261021-v1。
 
 - 2026-10-21，新增同核心apartment尺寸修复12k专用runner；GPU前绑定已通过生命周期、新core、原库/overlay环境、replay/初始化/相机/原配置和脚本SHA。原库→修复串行fresh，实际12k/24k相机样本、名义30k日程不改；五次351-view Validation逐ID/有限值验收，末态checkpoint组件流式SHA和provenance/预算核验，best与终态分开。RAM无限额、每臂6h/18GiB每卡/20-4GiB磁盘/GPU锁保留；独立失败保留后另一臂重新准入，不自动重试或推广。38项本机禁Torch回归及Ruff通过；此条只记录实现，真实12k尚未启动。
