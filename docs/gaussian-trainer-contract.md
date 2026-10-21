@@ -59,6 +59,20 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## A/A First-Divergence T1（2026-10-21，仅实现）
+
+旧Gate 1实测在原库control_a/control_b的12001步末参数/Adam严格比较失败，完整observed未启动、Gate 2被阻断；原六分支保持停止，不以新判据追认旧门禁通过。`run_mcmc_first_divergence.py`与`mcmc_first_divergence.py`提供独立原库T1：两独立进程组a/b各从同一已验证12k完整状态恢复，只执行12001一次更新（每臂1更新/2相机样本，合计2/4），名义30k/LR/SH/噪声/优化器配置不变。不提供T2/T3或自动串行追加入口，不加入贡献渲染、cohort、消融或确定性设置。
+
+P0在原生恢复后、首次相机采样/forward之前，保存参数、逐组Adam状态/param_groups、策略、原相机order/cursor、RNG及梯度存在性；P1在实际backward调用之前保存原RGB/alpha/GT、真实scaled backward loss（loss/world_size）、原重建/正则loss项、实际相机/SH/LR及renderer元数据；P2在原backward返回且任何Adam step之前保存六组真实梯度/存在性、参数与Adam摘要和RNG；P3在全部六个Adam step完成后、策略之前保存参数/逐组Adam/策略/RNG；P4在原策略及位置噪声完成后保存状态。12001不应refine或变点数，违反即失败。方法包装恢复原引用，backward和策略恰调用一次，每个优化器恰step一次，不另做反向或重算训练。
+
+每阶段先同步当前CUDA设备，逐张量detach并独立复制到CPU，再写非pickle NPY及带dtype/shape/原device/stride、规范SHA、文件SHA/bytes的JSON manifest；不保留所有阶段的GPU clone。快照前后RNG和live state摘要不变，不能恢复RNG掩盖干扰。逐组比较means/scales/quats/opacities/sh0/shN以及exp_avg/exp_avg_sq/step，缺必需字段/文件、阶段、rank或SHA不匹配不得验收。运行环境记录Torch/gsplat/CUDA/cuDNN/NCCL、GPU、确定性/TF32标志及实际Adam类/defaults/param_groups；记录配置不等于证明内部内核选择。不得打印全量环境或凭据。
+
+方向固定A=a、B=b，浮点逐元素判据为abs(A-B)<=2e-6+2e-4*abs(B)。分块float64统计max_abs_error、mean_abs_error（有限对分母）、max_rel_error、超容差数/比例、首个超容差和严格不等坐标、两侧/并集非有限数、规范SHA相等、数值严格不等及逐元素bitwise不等数（保留+0/-0差异）。相对误差以abs(B)为分母：0/0记0，B=0而A非零记unbounded并以null+计数表示，不能用大相对误差替代逐元素容差。NaN/Inf即使两边相同仍失败；整数/bool/索引、RNG、Adam step、结构和梯度存在性严格比较，不广播。输出位级一致、数值等价但非位级一致、超容差/非有限或结构失败，分别给最早非位级及超容差阶段，辅助renderer元数据与主数值流分开。P0不严格相同标restored_state_mismatch，禁止将后续首差当可靠阶段定位；缺梯度即使两臂相同亦不能通过。
+
+P4写完后使用专用ProbeComplete信号结束探针，worker只捕获此专用类型，其他错误保留；不执行完整Validation/checkpoint/模型合并，不伪造TrainingResult、final checkpoint或best。原生恢复可能读取Validation相机/懒加载视图元数据，但不评价或解码Validation RGB；Test仅允许原有replay/合同完整性字节校验，不解码/训练/渲染/评价。输出probe_complete仅表示五阶段一步快照完整，不是正常训练生命周期完成。新增同步可能改变调度，未复现只能报告同步探针未复现；不用于吞吐基准或宣称旧问题已修复，不把首次差异阶段直接解释为具体算子因果。
+
+prepare/run/worker/compare均受指定远端主机/项目及各自显式授权限制，本机不能运行真实张量快照或比较。父attempt/checkpoint复制到独立目录，无可写别名；协议绑定源pair/core/env/package/config/replay、研究runner与依赖SHA，不改12个冻结核心。运行保留GPU空闲/继承租约、独立systemd cgroup、RAM无限额/host_group=None、18GiB每卡reserved、6h上限、20GiB准入/4GiB停止，并按父组件大小保守预留两臂快照空间、逐张量写入再检查磁盘。不重试、不覆盖旧产物、不改公开默认/通信；代码开关不代替用户执行授权。本次只有实现、禁Torch轻量测试及未运行的远端测试代码，真实T1仍not_run。
+
 ## MCMC 生命周期观测 Gate 1／2（2026-10-21，仅实现）
 
 `run_mcmc_lifecycle_trace.py`与`mcmc_lifecycle_observer.py`实现`mcmc_lifecycle_observer_v1`。本阶段仅实现与本机禁Torch轻量测试，不意味着任何真实恢复、CUDA观测一致性或机制结论已通过。Gate 3不提供自动入口，源仍是已冻结的apartment原库/尺寸修复各自12k完整checkpoint。
