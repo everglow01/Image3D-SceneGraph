@@ -62,6 +62,7 @@ def main() -> None:
     parser.add_argument("--parent-attempt-id")
     parser.add_argument("--resume-iteration", type=int)
     parser.add_argument("--cancel-file", type=Path)
+    parser.add_argument("--stop-after-iteration", type=int, help="Research budget endpoint; retain nominal learning-rate schedule.")
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--resource-telemetry-dir", type=Path)
     parser.add_argument("--readiness-only", action="store_true")
@@ -71,6 +72,10 @@ def main() -> None:
     if args.prepare_only and (args.readiness_only or args.attempt_kind != "fresh" or args.initialization == "frozen"):
         parser.error("prepare-only requires fresh sparse/dense initialization and is distinct from readiness-only")
 
+    if args.stop_after_iteration is not None and (
+        args.trainer != "mcmc" or args.prepare_only or args.readiness_only
+    ):
+        parser.error("execution budget requires native MCMC training, not preparation")
     contract = json.loads(args.dataset_contract.read_text(encoding="utf-8"))
     validate_contract(contract, args.dataset_root)
     if args.overrides_json is not None and args.resolved_config_json is not None:
@@ -224,6 +229,7 @@ def main() -> None:
             attempt_kind=args.attempt_kind,
             parent_attempt_id=args.parent_attempt_id,
             resume_iteration=args.resume_iteration,
+            stop_after_iteration=args.stop_after_iteration,
         )
         if args.distributed:
             from gsplat.distributed import cli

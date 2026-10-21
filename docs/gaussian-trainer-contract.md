@@ -44,6 +44,12 @@ Gaussian evaluation schema 2 preserves the historical top-level and per-view `ps
 
 repair-v1使用相同12例/16点/5更新、相同输入与同序参考/容差，独立记录base environment及补丁profile/全文件SHA，不冒充原库身份。基线repair_ready、原包SHA、canonical初始参数/目标/K/pose、参考ID/optimizer/core均须配对；每rank核验实际导入路径。任一数值/资源/身份失败保留并停止余例，缺失记录维持未完成，只有全矩阵完整通过才passed。专用image3d-camera-size-repair-20261019-v1.service、新实验目录和唯一只读监控；每例300秒/unit4200秒、显存18GiB/磁盘20-4GiB/RAM无限额/GPU锁保留。不推广生产、不读Test、不重跑场景或10k/30k；小门禁不当真实场景长期质量与3M性能证明。
 
+### 原生生命周期与保留日程的实验结束（2026-10-21）
+
+尺寸overlay正式进入native训练环境身份：marker/profile/实际导入路径/完整文件SHA/来源rendering SHA及原二进制对应必须有效，禁止与AbsGrad或MCMC库变体混用；原库与尺寸环境不能互换checkpoint。此接线改变core，不用旧core门禁替代新生命周期验收。
+
+内部`train_gaussians(stop_after_iteration=...)`和MCMC CLI `--stop-after-iteration`只设置正常执行端点，不改变effective config的名义iterations/LR/SH/拓扑日程。默认不传保持原行为；显式端点为1..nominal整数且必须晚于resume起点，不用于prepare/readiness/external trainer。实际终点执行完整Validation、终态checkpoint和best模型合并；result.iteration及checkpoint目录为实际步，额外字段记录nominal_iterations/requested_stop_iteration/termination_reason，不把12k称为完成30k。取消仍不写完整checkpoint。首次正式研究仅原库与尺寸修复、同core/同apartment replay/seed/2048/3M，每臂12k、名义30k，不叠加其他MCMC修改、不发布生产。生命周期和场景实际结果另行记录，不以实现完成冒充验收。
+
 ## MCMC 稳定性修复与单因素验证（2026-10-13）
 
 用户授权按诊断、重定位数值门禁、RGB 损失、目标动量、位置学习率的顺序修复与实验，每项独立提交。实验只在 i-94B8D131 的指定项目内，经 Git 同步，在独立 outputs 目录执行；现有两个 apartment Job、生产依赖、公开默认和 Test 保持不变。场景对照从 MCMC Job 的冻结 replay fresh 初始化，seed20260729、2048、双卡、全局3M、名义30k日程保持一致；3k无完整优化器/RNG，不能伪称精确恢复。旧 AbsGrad 计划不是本轮执行计划。

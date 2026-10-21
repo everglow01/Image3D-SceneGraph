@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-21，用户选择每臂12k并批准先验收修复环境原生生命周期、再同核心fresh apartment配对。先接入camera_sizes_overlay_v1环境身份：核验实际导入/完整文件集及SHA/原rendering来源/二进制不变，禁止与其他overlay混用，checkpoint环境hash区分原库与修复库。新增内部stop_after_iteration预算端点，config.iterations和LR日程保持名义30k，实际终点强制Validation、完整checkpoint和best合并；结果/进度/opaque scheduler记录实际与名义预算，不以cancel或改config迭代数模拟短程。公开默认/API不变；trainer核心改变，两臂必须重新绑定同新core门禁。32项本机禁Torch回归及Ruff通过，远端/生命周期/12k尚未运行。
+
 - 2026-10-19，目标尺寸修复任务20261019-161359-aa42及唯一监控20261019-161359-9ed7均finished/exit0，unit105.939s；远端72项回归通过/3.15s。camera_sizes_overlay_v1完整1730文件仅rendering.py变化，原CUDA/安装包和候选前后SHA不变，overlay身份fc3334aa…；230个诊断文件整体SHA96bf944f…独立核验，与order-v2逐rankcanonical参数/目标/相机/ID映射/optimizer/core完全配对。12例全部各5更新（60分布式更新/120相机样本），全部图像/alpha/六组梯度/参数/Adam两矩及step通过原atol2e-6/rtol2e-4，无资源/非有限。首步所有例RGB/alpha差均0，梯度最大2.582965e-10；全5步RGB最大3.039837e-6、alpha6.854534e-6、梯度6.693881e-10、参数1.192093e-7、Adam1.091394e-10，按绝对+相对容差通过，不宣称全程位级一致。历史宽图首步RGB/alpha差.133793622/.251126826降至0，交换相机及mixed_unique同样归零；排序控制隔离后完成尺寸修复的合成因果对照。每卡reserved最高1.43555GiB、GPU结束空闲/服务active、个人9文件未变。仅隔离dense/pinhole小门禁通过，未生产接入、未新overlay完整trainer生命周期/3M性能/真实场景/MCMC长期验证，不启动10k/30k、不读Test。记录outputs/analysis/camera-size-repair-results-20261019-v1/{assessment,verification}.json。
 
 - 2026-10-19，排序控制通过后实现camera_sizes_overlay_v1候选：SHA锁定原rendering.py，在新包副本同步每rank宽高；同尺寸保留原批量投影，不同尺寸逐目标相机调用原fully_fused_projection并沿camera维拼接可微输出，继续原颜色/交换/raster；单卡不改，仅支持每rank1相机、dense普通pinhole，未覆盖模式明确拒绝。不编译CUDA、不修改原包或生产core，不做max画布/resize/cutoff/MCMC改动。repair-v1复用12例同序参考，严格绑定排序基线控制/包SHA/输入/optimizer及全局ID，另记完整overlay身份；任一候选数值或运行失败停止后续例，未运行不冒充通过。新增prepare窄测试和文件篡改拒绝，本机25项禁Torch回归通过、8项远端限定跳过，Ruff通过。代码尚未远端验收，独立GPU门禁按已获具名授权执行，结果另记。

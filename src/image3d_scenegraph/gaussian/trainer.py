@@ -90,6 +90,9 @@ class TrainingResult:
     per_rank_peak_reserved_bytes: tuple[int, ...] = ()
     strategy_name: str = "default_v1"
     gaussian_cap: int | None = None
+    nominal_iterations: int | None = None
+    requested_stop_iteration: int | None = None
+    termination_reason: str = "configured_iterations"
 
 
 def _release_training_views(*groups: list[TrainingView] | TrainingViews) -> None:
@@ -145,6 +148,14 @@ def training_provenance(
     )
 
 
+def _execution_end(nominal_iterations: int, requested: int | None) -> int:
+    if requested is None:
+        return nominal_iterations
+    if type(requested) is not int or not 1 <= requested <= nominal_iterations:
+        raise TrainingError("stop iteration must be an integer within the nominal schedule")
+    return requested
+
+
 def train_gaussians(
     *,
     contract: dict[str, Any],
@@ -162,6 +173,7 @@ def train_gaussians(
     local_rank: int = 0,
     world_rank: int = 0,
     world_size: int = 1,
+    stop_after_iteration: int | None = None,
 ) -> TrainingResult:
     try:
         from gsplat.strategy import DefaultStrategy, MCMCStrategy
@@ -171,6 +183,7 @@ def train_gaussians(
 
     config = resolved_config.effective_config
     validate_effective_config(config)
+    end_iteration = _execution_end(int(config["iterations"]), stop_after_iteration)
     strategy_name = str(config["strategy"]["name"])
     is_mcmc = strategy_name == "mcmc_v1"
     absgrad = bool(config["densification"].get("absgrad", False))
@@ -307,8 +320,8 @@ def train_gaussians(
         strategy.check_sanity(model.params, optimizers)
 
     total_iterations = int(config["iterations"])
-    if start_iteration > total_iterations:
-        raise TrainingError("resume checkpoint already reached configured iterations")
+    if start_iteration > end_iteration:
+        raise TrainingError("resume checkpoint already reached requested execution budget")
     started = time.perf_counter()
     initial_loss = float(history[0]["loss"]) if history else float("nan")
     last_validation: dict[str, Any] = {"status": "not_run"}
@@ -322,7 +335,7 @@ def train_gaussians(
     iteration = start_iteration
     diagnostic_path = artifact_dir / f"mcmc-rank-{world_rank}.jsonl"
     try:
-        for iteration in range(start_iteration, total_iterations + 1):
+        for iteration in range(start_iteration, end_iteration + 1):
             phase = "iteration_start"
             if cancel_requested is not None and cancel_requested():
                 _release_training_views(train_views, validation_views)
@@ -377,7 +390,7 @@ def train_gaussians(
             mcmc_diagnostic_due = is_mcmc and (
                 iteration == 1 or iteration % int(config["densification"]["every_iterations"]) == 0
                 or iteration in config["evaluation"]["validation_iterations"]
-                or iteration == total_iterations
+                or iteration == end_iteration
             )
             if mcmc_diagnostic_due:
                 mcmc_before = _mcmc_parameter_health(model, config)
@@ -487,6 +500,8 @@ def train_gaussians(
                 "gaussian_count": global_after,
                 "world_size": world_size,
             }
+            if stop_after_iteration is not None:
+                event.update(nominal_iterations=total_iterations, requested_stop_iteration=end_iteration)
             if is_mcmc:
                 event.update(
                     {
@@ -547,7 +562,9 @@ def train_gaussians(
             if world_rank == 0:
                 _publish_event(progress_path, event, progress_callback)
 
-            validation_due = iteration in config["evaluation"]["validation_iterations"]
+            validation_due = iteration in config["evaluation"]["validation_iterations"] or (
+                stop_after_iteration is not None and iteration == end_iteration
+            )
             if validation_due:
                 if isinstance(train_views, TrainingViews):
                     train_views.clear_cache()
@@ -560,7 +577,7 @@ def train_gaussians(
                     preview_dir=(
                         artifact_dir / "validation" / f"iteration_{iteration:09d}"
                         if world_rank == 0 and (
-                            save_intermediate_previews or iteration == total_iterations
+                            save_intermediate_previews or iteration == end_iteration
                         )
                         else None
                     ),
@@ -580,6 +597,7 @@ def train_gaussians(
                     "event": "validation",
                     "optimizer_updates": iteration,
                     "nominal_iterations": total_iterations,
+                    "requested_stop_iteration": stop_after_iteration,
                     "attempt_elapsed_seconds": time.perf_counter() - started,
                     **last_validation,
                 }
@@ -606,7 +624,7 @@ def train_gaussians(
 
             if validation_due:
                 record_training_phase("training", iteration)
-            if iteration == total_iterations:
+            if iteration == end_iteration:
                 phase = "checkpoint"
                 record_training_phase("checkpoint", iteration)
                 _release_training_views(train_views, validation_views)
@@ -615,6 +633,8 @@ def train_gaussians(
                     model=model, optimizers=optimizers, strategy_state=strategy_state,
                     camera_order=camera_order, camera_cursor=camera_cursor, history=history,
                     world_rank=world_rank, world_size=world_size,
+                    execution_budget={"nominal_iterations": total_iterations, "requested_stop_iteration": end_iteration}
+                        if stop_after_iteration is not None else None,
                 )
     except Exception as exc:
         if is_mcmc:
@@ -644,7 +664,7 @@ def train_gaussians(
     if world_rank == 0:
         if final_checkpoint_record is None:
             raise TrainingError("final checkpoint was not published")
-        record_training_phase("model_merge", total_iterations)
+        record_training_phase("model_merge", end_iteration)
         model_path = artifact_dir / "model.pt"
         if world_size == 1:
             candidate_path = artifact_dir / ".best-model.pt"
@@ -664,7 +684,7 @@ def train_gaussians(
             candidate_model, len(initial_points), best_validation_payload
         )
         result = TrainingResult(
-            iteration=total_iterations,
+            iteration=end_iteration,
             candidate_iteration=best_validation_iteration,
             gaussian_count=candidate_model.count,
             initial_loss=initial_loss,
@@ -679,7 +699,7 @@ def train_gaussians(
                 Path("attempts")
                 / attempt_id
                 / "checkpoints"
-                / f"iteration_{total_iterations:09d}"
+                / f"iteration_{end_iteration:09d}"
             ).as_posix(),
             model_path=model_path.relative_to(run_dir).as_posix(),
             result_path=result_path.relative_to(run_dir).as_posix(),
@@ -689,6 +709,9 @@ def train_gaussians(
             per_rank_peak_reserved_bytes=tuple(item[1] for item in per_rank_memory),
             strategy_name=strategy_name,
             gaussian_cap=global_cap,
+            nominal_iterations=total_iterations,
+            requested_stop_iteration=stop_after_iteration,
+            termination_reason="execution_budget" if end_iteration < total_iterations else "configured_iterations",
         )
         result_path.write_text(
             json.dumps(result.__dict__, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -1539,6 +1562,7 @@ def _write_streaming_checkpoint(
     run_dir: Path, *, attempt_id: str, iteration: int, provenance: CheckpointProvenance,
     model: GaussianModel, optimizers: dict, strategy_state: dict, camera_order: list[int],
     camera_cursor: int, history: list[dict], world_rank: int, world_size: int,
+    execution_budget: dict | None = None,
 ) -> CheckpointRecord | None:
     staging = run_dir / "attempts" / attempt_id / "checkpoints" / f".stream-{iteration:09d}"
     local = staging / f"rank-{world_rank}"
@@ -1551,7 +1575,7 @@ def _write_streaming_checkpoint(
         _save_torch_file({"strategy_state": strategy_state, "camera_order": camera_order,
                           "camera_cursor": camera_cursor}, local / "densification")
         (local / "rng").write_bytes(_rng_bytes())
-        (local / "scheduler").write_text(json.dumps({"iteration": iteration}))
+        (local / "scheduler").write_text(json.dumps({"iteration": iteration, **(execution_budget or {})}))
         (local / "metric_history").write_text(json.dumps(history, allow_nan=False))
     except Exception as exc:
         error = f"rank {world_rank} staging failed: {type(exc).__name__}: {exc}"
@@ -1734,6 +1758,28 @@ def _publish_event(
         callback(event)
 
 
+def _camera_size_overlay_identity(package: Path) -> str:
+    root = package.resolve().parent
+    path = root / "overlay.json"
+    record = json.loads(path.read_text())
+    audited = "6b5e4101035031afbb26bed7e496382c7502f9d8bc7cc9a432f290674a4d9133"
+    files, original = record["files"], record["source_hashes"]
+    actual = {str(p.relative_to(package)) for p in package.rglob("*")
+              if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"}
+    if (record["profile"] != "camera_sizes_overlay_v1" or record["source_rendering_sha256"] != audited
+            or original.get("rendering.py") != audited or package.name != "gsplat"
+            or actual != set(files) or set(files) != set(original)
+            or not {"rendering.py", "__init__.py"}.issubset(actual)
+            or not any(name.endswith(".so") for name in actual)):
+        raise TrainingError("invalid camera-size overlay identity")
+    for name, expected in files.items():
+        target = (package / name).resolve()
+        if (not target.is_relative_to(package.resolve()) or sha256_file(target) != expected
+                or (name != "rendering.py" and expected != original[name])):
+            raise TrainingError(f"camera-size overlay hash mismatch: {name}")
+    return "project_camera_sizes_v1_sha256=" + sha256_file(path)
+
+
 def _gsplat_version() -> str:
     try:
         import gsplat
@@ -1777,4 +1823,13 @@ def _gsplat_version() -> str:
                     "mcmc_destination_moments_overlay_v1": "project_mcmc_destination_moments_v1",
                     "mcmc_capacity_overlay_v1": "project_mcmc_capacity_v1"}[profile]
         version += f";{identity}_sha256={sha256_file(record_path)}"
+    camera_sizes = getattr(rendering, "PROJECT_CAMERA_SIZES_VERSION", None)
+    if camera_sizes is not None:
+        if (camera_sizes != 1 or profile is not None
+                or getattr(rendering, "PROJECT_DISTRIBUTED_ABSGRAD_VERSION", None) is not None):
+            raise TrainingError("camera-size overlay cannot be combined with other overlays")
+        package = Path(gsplat.__file__).resolve().parent
+        if Path(rendering.__file__).resolve() != package / "rendering.py":
+            raise TrainingError("camera-size rendering import path differs")
+        version += ";" + _camera_size_overlay_identity(package)
     return version
