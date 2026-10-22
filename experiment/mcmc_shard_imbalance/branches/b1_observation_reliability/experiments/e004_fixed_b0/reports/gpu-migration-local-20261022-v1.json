@@ -1,0 +1,37 @@
+{
+  "status": "local_checks_passed_remote_not_run",
+  "kind": "GPU_runner_code_migration_only",
+  "profile": "mcmc_fixed_b0_five_repeats_workspace_v1",
+  "old_profile": "mcmc_fixed_b0_five_repeats_v2",
+  "source_protocol_sha256": "d17d6f12125e3d15fe11f02ce822c872c2663a073f619108f958748a5b53ad0c",
+  "files": {
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/run.py": "e465084684bc1d460f6adddebef2422134027ac30c745daac9f56d8a7f325b24",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tensor_analysis.py": "236990529b2ecdc0867c6c0c7717899b0d471f0aa02fdf9c180bca46ec0493d0",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/legacy.py": "da4b679e3cd3c5477f98d95dc265359cccb17760f411ba05207699a0b5ebac0c",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/gpu-source.json": "5f4cd0426ce359b6f6f57f41ab33dee59576b0a8aa64b42e3dafffcd37f1f3d2",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tests/test_fixed_b0_gpu_runner.py": "4e9cca9469e9f0ff299d41d31b6dabee5129b1ab381ceb212c8f7de715b0814e",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tests/test_fixed_b0_gpu_remote.py": "2b1748874a86595336dcfc0df5a04776394320d19dec48a1b14d608e8d248e28"
+  },
+  "local_targeted_tests": {
+    "passed": 76,
+    "remote_modules_skipped": 1,
+    "scope": "new_gpu_NoTorch_and_old_fixed_B0_T1_boundary_lifecycle"
+  },
+  "pure_compute_ast": "same_as_legacy",
+  "fresh_import_no_torch_numpy_gsplat": true,
+  "remote_validation": "not_run",
+  "remote_preflight": "not_run",
+  "real_replay": "not_run",
+  "remote_accessed": false,
+  "new_GPU_calls": 0,
+  "new_training_updates": 0,
+  "old_gate1": "not_reclassified",
+  "legacy_source_bridge": "SHA_pinned_readonly_validation_and_helpers",
+  "deleted_files": [],
+  "historical_local_analyzer_scope": "original_v2_text_only_not_new_workspace_GPU_results",
+  "full_research_and_legacy_regression": {
+    "passed": 96,
+    "remote_modules_skipped": 1,
+    "subtests_passed": 30
+  }
+}

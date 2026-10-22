@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "run_id": "camera-size-scene-pair-results-20261021-v1",
+  "experiment_id": "MCMC-B2-E005",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed_monitor_terminal_marker_missing",
+  "acceptance_status": "verified_not_promoted",
+  "historical_status": {
+    "status": "complete_and_independently_verified"
+  },
+  "source_commit": {
+    "value": "a2f48a5",
+    "source": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/authorized-run.json",
+    "field": "git_commit"
+  },
+  "protocol_sha256": {
+    "value": "51b81adcdfbd0cfdae8f68946c6d55dc5d45fcca39e6c26040df97d0828439bb",
+    "source": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261021-103701-6863",
+    "source": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/authorized-run.json",
+    "field": "execution"
+  },
+  "monitor_task": {
+    "value": "20261021-103726-9f3a",
+    "source": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/authorized-run.json",
+    "field": "monitor"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261021-103701-6863",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 1065
+      },
+      "source": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261021-103726-9f3a",
+        "running": false,
+        "finished": false,
+        "exit_code": null,
+        "log_size": 35500
+      },
+      "source": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/apartment-camera-size-pair-20261021-v1",
+      "source": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/assessment.json",
+      "sha256": "fb2d6fd45a98032870fcf081789dee151e26c90189e3c0100c1f9418f91df9e3",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/report.md",
+      "sha256": "b40695ef82460970c44c8877e38140d75d4bf939249fb361a276efc30d6f47a2",
+      "role": "report.md",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/execution-status.json",
+      "sha256": "9540e314b268844389613251c40119b052a7addd74c1f7dbd7710e3674acaf41",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/monitor-status.json",
+      "sha256": "c13531fb05bf34dc5e4f43c4543cf6dba2628ddfbd25b49f02ec28b7b744bd52",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/authorized-run.json",
+      "sha256": "7ac62666ad48132111f0c4bdc722491c12ad829a1c5645ee872ff5d9c59492c3",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/incoming/protocol.json",
+      "sha256": "51b81adcdfbd0cfdae8f68946c6d55dc5d45fcca39e6c26040df97d0828439bb",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-results-20261021-v1/incoming/summary.json",
+      "sha256": "d33313ed7019b670d90b94ab5641145f7adcdc831886e46f7c18182785ac04d0",
+      "role": "historical_summary",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/command.sh",
+      "sha256": "57644ad338335447632bf0439f69d66a88f5714913cc58a7fdfb1d70bae7f53f",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "a2f48a5",
+    "source": "outputs/analysis/camera-size-scene-pair-launch-20261021-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

@@ -1,0 +1,11 @@
+# 原始运行与临时工作不进入 Git；records/ 与审核后的 reports/ 不忽略。
+**/runs/
+**/scratch/
+**/incoming/
+*.npy
+*.npz
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.log

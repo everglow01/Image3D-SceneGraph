@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "run_id": "mcmc-lifecycle-results-20261021-v1",
+  "experiment_id": "MCMC-Q1-E002",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "controls_completed_panel_terminal_marker_missing",
+  "acceptance_status": "gate1_failed_gate2_not_run",
+  "historical_status": {
+    "status": "control_reproducibility_failed",
+    "gate1": "failed_at_control_comparison",
+    "gate2": "blocked_not_run"
+  },
+  "source_commit": {
+    "value": "8780977deecf0d0f6195ffa72255f8e5c786016b",
+    "source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/authorized-run.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "d30308a15a5b3387e1530b5328cedf6350204c3147d66b917f2b00357ca3355c",
+    "source": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261021-160834-15be",
+    "source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/authorized-run.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261021-160908-96a1",
+    "source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/authorized-run.json",
+    "field": "unique_readonly_monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261021-160834-15be",
+        "running": false,
+        "finished": false,
+        "exit_code": null,
+        "log_size": 3667
+      },
+      "source": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261021-160908-96a1",
+        "running": false,
+        "finished": false,
+        "exit_code": null,
+        "log_size": 11803
+      },
+      "source": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/mcmc-lifecycle-gates-20261021-v1",
+      "source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/authorized-run.json",
+      "field": "remote_output_root"
+    },
+    "preflight_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/mcmc-lifecycle-preflight-20261021-v1",
+      "source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/authorized-run.json",
+      "field": "remote_preflight"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/assessment.json",
+      "sha256": "33e79c0c3a120fc2981b2e759ea39e2e3c9bf63ace99eba522f2a7f0f128b246",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/report.md",
+      "sha256": "088ac5d3baf10fc89b47d698480290d721109d7fc8f79b9553e7baee7113bdb2",
+      "role": "report.md",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/execution-status.json",
+      "sha256": "8ede1a53200d1d9d237757efcdb8731b1887d15f01f66ca20eaa2b6e9d818010",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/monitor-status.json",
+      "sha256": "5e8fcbdbf07c805fa7de89bccb6ccfa5e2263a940f2067211ba6fd5d9b898e33",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/download-verification.json",
+      "sha256": "3a6fb12027ee2c8f54d0a87d5a6a763bd0ddddb1240dd25590c17f6b5ca7df48",
+      "role": "download-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/authorized-run.json",
+      "sha256": "fee3bf7a50b82f54fce7c6dc54f600a8eef8ce14d99cc1af9b48d3b0ab7491c3",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-results-20261021-v1/incoming/protocol.json",
+      "sha256": "d30308a15a5b3387e1530b5328cedf6350204c3147d66b917f2b00357ca3355c",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/command.sh",
+      "sha256": "23fba57ae0ba4b9dc605ecd2534160eb4ed803e8a45e81cb728694a3d24e33e1",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "8780977deecf0d0f6195ffa72255f8e5c786016b",
+    "source": "outputs/analysis/mcmc-lifecycle-launch-20261021-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "run_id": "first-divergence-backward-readonly-20261021-v1",
+  "experiment_id": "MCMC-B1-E005",
+  "kind": "readonly_analysis",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "analysis_completed",
+  "acceptance_status": "not_causal_isolation",
+  "historical_status": {
+    "status": "readonly_analysis_complete_not_causal_isolation"
+  },
+  "source_commit": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "protocol_sha256": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "execution_task": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "monitor_task": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": null,
+    "project": null,
+    "output_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/first-divergence-backward-readonly-20261021-v1/assessment.json",
+      "sha256": "b62d9c7f83f2a37a87121f0d8698a55f72a63876d4fd6e5489bbcd545023fb6e",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-backward-readonly-20261021-v1/report.md",
+      "sha256": "f6c3c476346bbb00b72930a3c04d4054d727c1c5191014afb89f14ddfd448174",
+      "role": "report.md",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。"
+}

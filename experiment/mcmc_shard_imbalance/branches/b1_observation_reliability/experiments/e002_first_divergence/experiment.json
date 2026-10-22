@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B1-E002",
+  "title": "首步 P0—P4 分歧定位",
+  "owner": "B1",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-Q1-E002"
+  ],
+  "informed_by": [
+    "MCMC-B1-E001"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e002_first_divergence/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_mcmc_first_divergence.py",
+    "scripts/mcmc_first_divergence.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_first_divergence.py",
+    "tests/test_mcmc_first_divergence_remote.py"
+  ],
+  "legacy_analysis_scripts": [
+    "outputs/analysis/first-divergence-t1-results-20261021-v1/analyze.py"
+  ],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e002_first_divergence/records/first-divergence-t1-results-20261021-v1.json"
+  ],
+  "shared_run_records": []
+}

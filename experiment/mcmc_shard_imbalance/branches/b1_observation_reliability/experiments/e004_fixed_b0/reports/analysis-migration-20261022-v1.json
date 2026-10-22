@@ -1,0 +1,49 @@
+{
+  "status": "passed",
+  "kind": "local_analysis_migration_verification",
+  "source_run_id": "fixed-b0-results-20261022-v2",
+  "input_files": 33,
+  "input_bytes": 3367798,
+  "analysis_code_sha256": "b83b2bbd45fa9f3e02bde7b43ad43fbe537b587e5a4c244a3184e981ef9c05f0",
+  "analysis_source_sha256": "1f8490d61d1f156f3518a2fbab4446f09d532809a36017aee5e2f66f22304e58",
+  "analysis_run_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/analysis-migration-20261022-v1/analysis-run.json",
+  "analysis_run_record_sha256": "f4e74fcec8684615f4ec05f9299fc84af78b8cd2caa08277111f0314e7228ad6",
+  "started_at_utc": "2026-10-22T07:31:18.630901+00:00",
+  "ended_at_utc": "2026-10-22T07:31:18.674598+00:00",
+  "outputs": {
+    "assessment.json": {
+      "comparison": "parsed_structure_and_values_exact",
+      "equal": true,
+      "reference_sha256": "894ad957fa1bc3a38fae2b3e9b0666a647af066ff3ef7a1ecf2a7e5ac04139d9",
+      "result_sha256": "39328ed668b58fe0234573b2c336dae46f19b2bd21ee6f08f197c8d847d03b63"
+    },
+    "sensitivity.json": {
+      "comparison": "parsed_structure_and_values_exact",
+      "equal": true,
+      "reference_sha256": "a98f4c18c48ca3c58d356d4149ef392c13293009c518ba82a6fe2ce497640fcd",
+      "result_sha256": "a98f4c18c48ca3c58d356d4149ef392c13293009c518ba82a6fe2ce497640fcd"
+    },
+    "download-verification.json": {
+      "comparison": "parsed_structure_and_values_exact",
+      "equal": true,
+      "reference_sha256": "6c683ea5eefa2945a3bb157042a47419691c44a39a5c35fb045867f451cc6dd0",
+      "result_sha256": "6c683ea5eefa2945a3bb157042a47419691c44a39a5c35fb045867f451cc6dd0"
+    },
+    "repetition-metrics.csv": {
+      "comparison": "byte_exact",
+      "equal": true,
+      "reference_sha256": "d8c2b9024bcb8102925a8b4574ec1c1700c1d2fc6aa3a89fe829d94bc4af0d2f",
+      "result_sha256": "d8c2b9024bcb8102925a8b4574ec1c1700c1d2fc6aa3a89fe829d94bc4af0d2f"
+    },
+    "report.md": {
+      "comparison": "same_nonempty_lines",
+      "equal": true,
+      "reference_sha256": "7f457e15f168ad65b37704e5332ae9a4b261c8af82fdd5be67ba694f45745e13",
+      "result_sha256": "d55e24ce18da9d9168a552c05f90403bafd76e9422aa3bbf7baf649dc37b4ac8"
+    }
+  },
+  "new_GPU_calls": 0,
+  "new_P2_P3_computed": false,
+  "old_gate1": "not_reclassified",
+  "remote_accessed": false
+}

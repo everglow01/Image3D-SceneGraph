@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q1-E002",
+  "title": "12k 后逐点生命周期观测与门禁",
+  "owner": "Q1",
+  "related_questions": [
+    "Q2",
+    "Q3",
+    "B1"
+  ],
+  "depends_on": [
+    "MCMC-B2-E005"
+  ],
+  "informed_by": [
+    "MCMC-Q1-E001"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e002_lifecycle_trace/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_mcmc_lifecycle_trace.py",
+    "scripts/mcmc_lifecycle_observer.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_lifecycle_trace.py",
+    "tests/test_mcmc_lifecycle_trace_remote.py"
+  ],
+  "legacy_analysis_scripts": [
+    "outputs/analysis/mcmc-lifecycle-results-20261021-v1/analyze.py"
+  ],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e002_lifecycle_trace/records/mcmc-lifecycle-results-20261021-v1.json"
+  ],
+  "shared_run_records": []
+}

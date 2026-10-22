@@ -1,0 +1,1012 @@
+{
+  "schema_version": 1,
+  "archived_on": "2026-10-22",
+  "scope": "C1_document_archival_and_maintenance_retirement_only",
+  "deleted_files": [],
+  "runtime_code_changed": false,
+  "remote_accessed": false,
+  "historical_constraints_remain_binding": true,
+  "sources": [
+    {
+      "path": "codex.md",
+      "before_sha256": "3b2347914153ce5ec24ff6b2129120547daba89211e3d26180a0a73b8c3cbf82",
+      "before_bytes": 450661,
+      "region_start": "- 2026-10-22，用户手动同步6230db4",
+      "region_end_before": "- 2026-10-11，用户明确授权在i-94B8D131指定仓库将已验收候选替换Project Job",
+      "region_sha256": "f36c90a3d6bdd6616ea91d03148813f5e6530ba6d8dd1590b4ad0fe580a75e5d",
+      "region_bytes": 91044,
+      "parts": [
+        {
+          "id": "codex-001",
+          "bytes": 2534,
+          "sha256": "47039ed5ca143e0d26d8787f578dafb368cfd09189f7c2eee527ebec2e18470e",
+          "source_line": 607,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-001"
+        },
+        {
+          "id": "codex-002",
+          "bytes": 1006,
+          "sha256": "de8438a9f3698c166615c4d63045101c34d37c14720a41b74b40442a8dbe1b46",
+          "source_line": 609,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-002"
+        },
+        {
+          "id": "codex-003",
+          "bytes": 1628,
+          "sha256": "117cf683a7e3302939e01e708c08bbe895db8a686dfac7050dc575be3074760c",
+          "source_line": 611,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-003"
+        },
+        {
+          "id": "codex-004",
+          "bytes": 1466,
+          "sha256": "aa1f741f5e103ff1b1cfed63d090a9146e053916c4b43bb75607dbd0d4dedf26",
+          "source_line": 613,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-004"
+        },
+        {
+          "id": "codex-005",
+          "bytes": 1709,
+          "sha256": "35ade7e1320dbfc1fc5caccc423d570a2cc1b95b8011b21977939831216e66cc",
+          "source_line": 615,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-005"
+        },
+        {
+          "id": "codex-006",
+          "bytes": 1847,
+          "sha256": "055a38e4c98f86f72f5626227b1095dc70078d8642544dc42d8c27d5069a445c",
+          "source_line": 617,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-006"
+        },
+        {
+          "id": "codex-007",
+          "bytes": 1055,
+          "sha256": "ea21e3be43e6fd4f6e509229b061098dc181d0a3be6429d8307ed64c58bc8f2f",
+          "source_line": 619,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-007"
+        },
+        {
+          "id": "codex-008",
+          "bytes": 1905,
+          "sha256": "04b86f670ebaed48cdf32db695f145d9c051bdf564ca81d075a5e854268ad595",
+          "source_line": 621,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-008"
+        },
+        {
+          "id": "codex-009",
+          "bytes": 2064,
+          "sha256": "55c7c1f3c08bc3a7cdafbc439833b4bdc5f06dbcf04fb8a106459fb39b4de13d",
+          "source_line": 623,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-009"
+        },
+        {
+          "id": "codex-010",
+          "bytes": 1315,
+          "sha256": "ffbd495d1e85bec6f2b28f026ebf529220d640c54e2f9100f6cb4c3e21c8e46e",
+          "source_line": 625,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-010"
+        },
+        {
+          "id": "codex-011",
+          "bytes": 1734,
+          "sha256": "c4fe8d74c99d345d47ca120949755de6daa58d32f34e3d49d02bdf7f2f514949",
+          "source_line": 627,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-011"
+        },
+        {
+          "id": "codex-012",
+          "bytes": 1255,
+          "sha256": "a15666ec289b14a54776cd4c882b14fc268342cd1892da1171a5a6a28e4f6075",
+          "source_line": 629,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-012"
+        },
+        {
+          "id": "codex-013",
+          "bytes": 1513,
+          "sha256": "0f05313b0c9e07f14ace227e8b2f416aa61834506bd6b02d190f1ac36f6bb7bd",
+          "source_line": 631,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-013"
+        },
+        {
+          "id": "codex-014",
+          "bytes": 1186,
+          "sha256": "6e13c24b3d1f49fbc203c0d8be2d83cd1e5bac955cd98c1673ef1bc103c82855",
+          "source_line": 633,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-014"
+        },
+        {
+          "id": "codex-015",
+          "bytes": 769,
+          "sha256": "fa820e6f72a40a9e42eca9789997d5316a2151aaf12191102438dff660189b5b",
+          "source_line": 635,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-015"
+        },
+        {
+          "id": "codex-016",
+          "bytes": 626,
+          "sha256": "3aa410ace70de1848cbc342b32b71529e5158bd39faf02aaa9a7fd1a2f4725b6",
+          "source_line": 637,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-016"
+        },
+        {
+          "id": "codex-017",
+          "bytes": 955,
+          "sha256": "bf7a71366a2cd4b67087fb51ab739f8da26e117c068f2d6cad5ef658932a11da",
+          "source_line": 639,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-017"
+        },
+        {
+          "id": "codex-018",
+          "bytes": 833,
+          "sha256": "3f64ec0186c88a9b7f9fdfdf24fca9c9f28468f58098c4b80dc4375022cf6871",
+          "source_line": 641,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-018"
+        },
+        {
+          "id": "codex-019",
+          "bytes": 761,
+          "sha256": "ca5fea175ec6a985d518aa117bc78453b4d6966328a4d7dde8d98c61176a97c5",
+          "source_line": 643,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-019"
+        },
+        {
+          "id": "codex-020",
+          "bytes": 1354,
+          "sha256": "129490838e7ec9621eac89aea2be89d96df4850d745e160a95208d1852c189b6",
+          "source_line": 645,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-020"
+        },
+        {
+          "id": "codex-021",
+          "bytes": 895,
+          "sha256": "69ea53dc709f9da5be158ffd83154a9ebb7c1b20a588a0c5cd3762ca0d571278",
+          "source_line": 647,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-021"
+        },
+        {
+          "id": "codex-022",
+          "bytes": 998,
+          "sha256": "608370ae9976123f45721980c56f0029f8a4a13aa66f1b61a5ba196abfdd913b",
+          "source_line": 649,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-022"
+        },
+        {
+          "id": "codex-023",
+          "bytes": 562,
+          "sha256": "304fb4278b489ef3fb289a068e77155b3b59cce5ad9b28a3dd0407dbdce7c69e",
+          "source_line": 651,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-023"
+        },
+        {
+          "id": "codex-024",
+          "bytes": 946,
+          "sha256": "78aca1e774f9a00c9e2ff5adc1cee2bbc9184b96a92b864fc21e3ac0e104fdd1",
+          "source_line": 653,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-024"
+        },
+        {
+          "id": "codex-025",
+          "bytes": 1023,
+          "sha256": "e197a54fd46225d5ee610177c4fb2b95f595e816f08c7af8eba5d6af9f6c4b2b",
+          "source_line": 655,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-025"
+        },
+        {
+          "id": "codex-026",
+          "bytes": 1003,
+          "sha256": "0c935e67caa99ba6eccbde5c2d312707576ee66304777fdf1cfddacdfab85873",
+          "source_line": 657,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-026"
+        },
+        {
+          "id": "codex-027",
+          "bytes": 622,
+          "sha256": "fdc9b5ad6c110247ff4d29d11071c084d91b84a86dabee7637397a0f00d2f372",
+          "source_line": 659,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-027"
+        },
+        {
+          "id": "codex-028",
+          "bytes": 1113,
+          "sha256": "2fd2cdb1c325bb8f54547d188f32e95c71cb754d4257c5a298ac0bd51982cc84",
+          "source_line": 661,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-028"
+        },
+        {
+          "id": "codex-029",
+          "bytes": 1035,
+          "sha256": "682c345ae60dec1b7b8edc31ffa75cfd1114592dc29c1aeb65f2a8ec9d6fc7e9",
+          "source_line": 663,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-029"
+        },
+        {
+          "id": "codex-030",
+          "bytes": 877,
+          "sha256": "f24cba99b15db99f4d6dd1ad92fc0670509559a008bee24b323fdb001a40437a",
+          "source_line": 665,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-030"
+        },
+        {
+          "id": "codex-031",
+          "bytes": 1215,
+          "sha256": "30c416eb87549cae85c6fc28f0f2e3e4299b20c1fcb7771b51e5b40cd48de6b6",
+          "source_line": 667,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-031"
+        },
+        {
+          "id": "codex-032",
+          "bytes": 1724,
+          "sha256": "cf1de7047b8458d1b9dfb81b4364f9f5b4b1d40470f4c33f3a12e34e4ec23d4f",
+          "source_line": 669,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-032"
+        },
+        {
+          "id": "codex-033",
+          "bytes": 1310,
+          "sha256": "191e4ae413c6b48ff414fff3ad3fac3c95a6fcbe03677b850561202bab6b9339",
+          "source_line": 671,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-033"
+        },
+        {
+          "id": "codex-034",
+          "bytes": 898,
+          "sha256": "ac998dc8e3c5b559af4cb2939a2b6bf40366c3187ad5693139b5cc83c0d62565",
+          "source_line": 673,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-034"
+        },
+        {
+          "id": "codex-035",
+          "bytes": 805,
+          "sha256": "c063d5cbde3fdee133f7effc8c217757378d9e1cbf0636ce91894f4f70e0d67f",
+          "source_line": 675,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-035"
+        },
+        {
+          "id": "codex-036",
+          "bytes": 1222,
+          "sha256": "aa36e10e8685da5a6267f946389de1547b4e4279a4e38e6255df7e83982f26da",
+          "source_line": 677,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-036"
+        },
+        {
+          "id": "codex-037",
+          "bytes": 1598,
+          "sha256": "7d4f2e45b7291573159a76739fc49cf768921755da197e24121eeb81d501fd0e",
+          "source_line": 679,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-037"
+        },
+        {
+          "id": "codex-038",
+          "bytes": 980,
+          "sha256": "8b13d6eb87ff91cb18b537dc7a5cd41481d133892833ee477046fefb23a233c1",
+          "source_line": 681,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-038"
+        },
+        {
+          "id": "codex-039",
+          "bytes": 1398,
+          "sha256": "f66dde4950b1138aa08b76fb2142363cccc80b7157574ebe5b4b1b183f3002c8",
+          "source_line": 683,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-039"
+        },
+        {
+          "id": "codex-040",
+          "bytes": 1268,
+          "sha256": "40cf5ff8cc686b7654cc2e964c212832454d4943b042529126327c205983b422",
+          "source_line": 685,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-040"
+        },
+        {
+          "id": "codex-041",
+          "bytes": 885,
+          "sha256": "73ead20d1447e47fec973387aaf397ba7c60c3fb973a705bb1056ea204b460f2",
+          "source_line": 687,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-041"
+        },
+        {
+          "id": "codex-042",
+          "bytes": 896,
+          "sha256": "aba2ad58b7bc5763012bcce59751f9e5d87c57700dc23723c8e6247a3794609e",
+          "source_line": 689,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-042"
+        },
+        {
+          "id": "codex-043",
+          "bytes": 891,
+          "sha256": "db8e3780a0cb8cd3e2310aa8a36a812682ab6e35be4caac09fc0f1b8f20d8741",
+          "source_line": 691,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-043"
+        },
+        {
+          "id": "codex-044",
+          "bytes": 1342,
+          "sha256": "af86936d4a3807907a90450b57e031141092246d0174c90fddd606ab1f0235fb",
+          "source_line": 693,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-044"
+        },
+        {
+          "id": "codex-045",
+          "bytes": 1207,
+          "sha256": "3d68742efeeebfb69ab12546784ef06952a6322ddfb9d30e1af79b0d0b415327",
+          "source_line": 695,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-045"
+        },
+        {
+          "id": "codex-046",
+          "bytes": 796,
+          "sha256": "7de1859d12774fa36a99c0195e87121a7b33c322f15f85707f8b6b8a36ea69cb",
+          "source_line": 697,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-046"
+        },
+        {
+          "id": "codex-047",
+          "bytes": 947,
+          "sha256": "dd888b526bf3f729991379c7faae17aba5488356f79f5793e6833e9bcf2261bd",
+          "source_line": 699,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-047"
+        },
+        {
+          "id": "codex-048",
+          "bytes": 1630,
+          "sha256": "34e50e9ec3f294154090a696e88b8dc0f9b50082691576bbaeda44dfdc178f24",
+          "source_line": 701,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-048"
+        },
+        {
+          "id": "codex-049",
+          "bytes": 3262,
+          "sha256": "623a353d44a4cb28602fb28ee8913905b35c7e1657aface2b305b0b619cdc1bf",
+          "source_line": 703,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-049"
+        },
+        {
+          "id": "codex-050",
+          "bytes": 930,
+          "sha256": "40d8dc1f0dcd9c032a3483015725e241464419edd1f934378e32a9329652bf65",
+          "source_line": 705,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-050"
+        },
+        {
+          "id": "codex-051",
+          "bytes": 712,
+          "sha256": "9849303d3ed13b6a1ccc4b4f250c113934cb743d342ec692e65c898ab0aef7d0",
+          "source_line": 707,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-051"
+        },
+        {
+          "id": "codex-052",
+          "bytes": 879,
+          "sha256": "5961e56bcbc0dbbc6f301568876ff88b8ec07bbcbdffc238803e67002c19e88b",
+          "source_line": 709,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-052"
+        },
+        {
+          "id": "codex-053",
+          "bytes": 1178,
+          "sha256": "09cf87d664598935862a52225427f352517a06577df8b6eb254de12ad320fe95",
+          "source_line": 711,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-053"
+        },
+        {
+          "id": "codex-054",
+          "bytes": 1231,
+          "sha256": "18fd96419c779d5fdd60cab30539b6011288457c39288adcfc17969718419f8d",
+          "source_line": 713,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-054"
+        },
+        {
+          "id": "codex-055",
+          "bytes": 1418,
+          "sha256": "8b77feccdbc5b3b310d887bff4e13f1d0eb67d0813c6b6f99b92c807ec4807fe",
+          "source_line": 715,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-055"
+        },
+        {
+          "id": "codex-056",
+          "bytes": 1197,
+          "sha256": "1f2dd95fd548d6335418d2e46b250a9f149b6cb8f7f807cb8cb407ff36392f2f",
+          "source_line": 717,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-056"
+        },
+        {
+          "id": "codex-057",
+          "bytes": 1154,
+          "sha256": "7819454a2c1676cd4b1688cf024ad7588106cdd9886749805b3796d83d3bb89e",
+          "source_line": 719,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-057"
+        },
+        {
+          "id": "codex-058",
+          "bytes": 1216,
+          "sha256": "d8eb1af454676d60bc966399924cb0da149bde4183ce0475d115d92d4d37b549",
+          "source_line": 721,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-058"
+        },
+        {
+          "id": "codex-059",
+          "bytes": 1974,
+          "sha256": "f665c997dd4994e434c4a9c0145c5d1ad3b2160698c960a3a15387d56e0f2560",
+          "source_line": 723,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-059"
+        },
+        {
+          "id": "codex-060",
+          "bytes": 2131,
+          "sha256": "8549fb614ad3478d641464c2e8286051e61d9d6a9633266006b06bdef39e9e46",
+          "source_line": 725,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-060"
+        },
+        {
+          "id": "codex-061",
+          "bytes": 1329,
+          "sha256": "a93ccbe8316f0b69f61bdff726f081e995f7054c729f91ed184604edd25b81e6",
+          "source_line": 727,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-061"
+        },
+        {
+          "id": "codex-062",
+          "bytes": 1314,
+          "sha256": "04399749a203e4a8ae618bfde66c6742cd8de9f6a15b3d73706e70606558d4d1",
+          "source_line": 729,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-062"
+        },
+        {
+          "id": "codex-063",
+          "bytes": 1549,
+          "sha256": "fff09da2e8056398fa5bf970ac6e2eeb6e4d18a4f11e720842c76f909680fff1",
+          "source_line": 731,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-063"
+        },
+        {
+          "id": "codex-064",
+          "bytes": 2032,
+          "sha256": "b5af0b3750054fba245da6b59d999ec556224680c83f48c31bfbe6ccc0822a6f",
+          "source_line": 733,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-064"
+        },
+        {
+          "id": "codex-065",
+          "bytes": 2140,
+          "sha256": "0fddaa65af89a4bdf9e4d365da5bef2a1a1411fe9015269920aeb4b440a9d2b8",
+          "source_line": 735,
+          "disposition": "retained_in_source",
+          "start_prefix": "- 2026-10-13，按用户“先验证双卡增密统计缩放、不要影响正在跑的实验”"
+        },
+        {
+          "id": "codex-066",
+          "bytes": 957,
+          "sha256": "337b9816d1e271721d5453f531645706b0a92582ca13d36068bc883562f51d49",
+          "source_line": 737,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-066"
+        },
+        {
+          "id": "codex-067",
+          "bytes": 1045,
+          "sha256": "3cf95ba2254bba1430f9067a58ba1f7f7efaae44b4f88a2e2c439720a02f36f5",
+          "source_line": 739,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-067"
+        },
+        {
+          "id": "codex-068",
+          "bytes": 984,
+          "sha256": "59f1469510b8542fae1cf6ca2b0c0eeee55c3936fa908c98a6b41588fbcedb13",
+          "source_line": 741,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-068"
+        },
+        {
+          "id": "codex-069",
+          "bytes": 690,
+          "sha256": "cbd0c52e25d206349acfd3834d36717bad98320d2aaa223409873e39ca2f5139",
+          "source_line": 743,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-069"
+        },
+        {
+          "id": "codex-070",
+          "bytes": 1087,
+          "sha256": "265b09579b71d6455f9c7b6619630aa04eef454b8620ec95c74cfe3d843371f7",
+          "source_line": 745,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-070"
+        },
+        {
+          "id": "codex-071",
+          "bytes": 1049,
+          "sha256": "93eefe8f9fe81238db266f9b01ec60a7b43bab29272419aa5e019e6b9e58abb1",
+          "source_line": 747,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-071"
+        },
+        {
+          "id": "codex-072",
+          "bytes": 1177,
+          "sha256": "55c59e4e7b86339803d71416d83453e232677ac5a6035306da599a9d7fb05bba",
+          "source_line": 749,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-072"
+        },
+        {
+          "id": "codex-073",
+          "bytes": 808,
+          "sha256": "1346c2f2d00366d132730635ed4421b7add2ed35100791fcbd4956b1d9c90478",
+          "source_line": 752,
+          "disposition": "archived",
+          "archive_path": "experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md",
+          "anchor": "codex-073"
+        }
+      ],
+      "archived_parts": 72,
+      "retained_parts": 1,
+      "source_gateway": "- 2026-10-22，MCMC 调查的 72 条详细历史决策已逐字归入 [课题历史档案](experiment/mcmc_shard_imbalance/history/codex-decisions-20261013-20261022.md)，源身份/顺序见 [归档清单](experiment/mcmc_shard_imbalance/history/archive-manifest.json)。当前问题、证据与下一步以 [课题入口](experiment/mcmc_shard_imbalance/README.md) 为准；长期恢复不对称的唯一根因尚未证明，旧 Gate1 未追认，原六分支不自动恢复。下列独立 Project 诊断保留原文。\n\n",
+      "after_bytes": 362768,
+      "after_sha256_at_archival": "6969bace2cedde20ac081e60a2a6775cf75ed195a7affb3546dc96f0a3071477",
+      "source_bytes_reduced": 87893,
+      "verification": {
+        "fragment_bytes_equal": true,
+        "original_file_reconstructed_exactly": true,
+        "outside_region_preserved": true
+      }
+    },
+    {
+      "path": "docs/gaussian-trainer-contract.md",
+      "before_sha256": "2bc2b115f18600a4f997ba6cb6bbbba7f31440752ae5c656916eb56f186df87d",
+      "before_bytes": 80774,
+      "region_start": "## 异尺寸相机分布式一致性诊断（2026-10-19）",
+      "region_end_before": "## 双卡绝对梯度实验（2026-09-30）",
+      "region_sha256": "695ac28eb06c80cbbc187c8305b0ef759f52d9564c45a82f08f429809819c875",
+      "region_bytes": 45955,
+      "parts": [
+        {
+          "id": "trainer-001",
+          "disposition": "archived",
+          "heading": "## 异尺寸相机分布式一致性诊断（2026-10-19）",
+          "bytes": 1926,
+          "sha256": "7ea45d53225bdfac6b99c2e1a3ad51b9fba4166244e841792e1eeff6c782fe94",
+          "source_line": 29,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-001",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-001)"
+        },
+        {
+          "id": "trainer-002",
+          "disposition": "archived",
+          "heading": "### 排序隔离 order-v2（2026-10-19）",
+          "bytes": 1116,
+          "sha256": "668ba0ebbbbf05e34989023e437e0d8795119960ce9b3ee6222bc128fb0e69e1",
+          "source_line": 37,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-002",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-002)"
+        },
+        {
+          "id": "trainer-003",
+          "disposition": "archived",
+          "heading": "### 目标相机尺寸隔离修复 repair-v1（2026-10-19）",
+          "bytes": 1374,
+          "sha256": "7737b69d7785486fae76708f42babb2c9882d016620a3bf7b2d9e6224b486d60",
+          "source_line": 41,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-003",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-003)"
+        },
+        {
+          "id": "trainer-004",
+          "disposition": "archived",
+          "heading": "### 原生生命周期与保留日程的实验结束（2026-10-21）",
+          "bytes": 1216,
+          "sha256": "636e3f32c607f9535871d1bcfbddb9058227029afcd982d88978d5f517165957",
+          "source_line": 47,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-004",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-004)"
+        },
+        {
+          "id": "trainer-005",
+          "disposition": "archived",
+          "heading": "### 同核心 apartment 尺寸修复 12k 配对（2026-10-21）",
+          "bytes": 1577,
+          "sha256": "1286746ceafcb529a138ef04aedfa3914d70a8ae3f95081416d017d0fd37b14c",
+          "source_line": 54,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-005",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-005)"
+        },
+        {
+          "id": "trainer-006",
+          "disposition": "archived",
+          "heading": "## 固定B0 v2实测结果（2026-10-22）",
+          "bytes": 1141,
+          "sha256": "f13af5047586a7c83a434f0caf8c94eab22711957363b359419da5f11c492486",
+          "source_line": 62,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-006",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-006)"
+        },
+        {
+          "id": "trainer-007",
+          "disposition": "archived",
+          "heading": "## 固定B0初始化边界修复（2026-10-22，仅实现）",
+          "bytes": 1162,
+          "sha256": "f96cf7df08ca764d4eb9b813b628e9a0c34b1b02785e9f21ffaee85f1bc519a3",
+          "source_line": 68,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-007",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-007)"
+        },
+        {
+          "id": "trainer-008",
+          "disposition": "archived",
+          "heading": "## 固定B0首轮前置结果（2026-10-22）",
+          "bytes": 709,
+          "sha256": "12520ec36d99a05e73135d5ccf3c46f4aff11d0a346b16be5ac6c7c15818d2ce",
+          "source_line": 74,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-008",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-008)"
+        },
+        {
+          "id": "trainer-009",
+          "disposition": "archived",
+          "heading": "## 固定B0五次重复（2026-10-22，仅实现，远端待验证）",
+          "bytes": 2677,
+          "sha256": "28eafceae1cb9f23428661059ce4a12d3e52a109777def6f3e4cb33b813492b5",
+          "source_line": 78,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-009",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-009)"
+        },
+        {
+          "id": "trainer-010",
+          "disposition": "archived",
+          "heading": "## Loss／rasterizer 反向边界一级实验（2026-10-22）",
+          "bytes": 1951,
+          "sha256": "176e56147feed4e756375e4e63f6308388d0a066d3d8780abe12d922465b9027",
+          "source_line": 88,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-010",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-010)"
+        },
+        {
+          "id": "trainer-011",
+          "disposition": "archived",
+          "heading": "## A/A First-Divergence T1（2026-10-21，仅实现）",
+          "bytes": 4410,
+          "sha256": "c4fe0eae15a8e50568a453ad1f033c50a6ecb7da1cfbe44151b65a690ec8f47e",
+          "source_line": 96,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-011",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-011)"
+        },
+        {
+          "id": "trainer-012",
+          "disposition": "archived",
+          "heading": "## MCMC 生命周期观测 Gate 1／2（2026-10-21，仅实现）",
+          "bytes": 3810,
+          "sha256": "33fab05dd04eb14f473ade35a38d6a1e7ec1911a557976482eeac5791a6bd102",
+          "source_line": 110,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-012",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-012)"
+        },
+        {
+          "id": "trainer-013",
+          "disposition": "archived",
+          "heading": "## MCMC 稳定性修复与单因素验证（2026-10-13）",
+          "bytes": 6968,
+          "sha256": "aa245ac44b258d2441540dd03837d0869c393ad7ac879d10ad516407d98f57b5",
+          "source_line": 126,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-013",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-013)"
+        },
+        {
+          "id": "trainer-014",
+          "disposition": "archived",
+          "heading": "### 退化修复第二轮：诊断先行（2026-10-17）",
+          "bytes": 3202,
+          "sha256": "3120ff23a7675ff36ed96adc4eb03f9126940e0615c1eb00e51c6852b33a36a5",
+          "source_line": 148,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-014",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-014)"
+        },
+        {
+          "id": "trainer-015",
+          "disposition": "archived",
+          "heading": "### 来源容量准入候选（capacity-v1，2026-10-17）",
+          "bytes": 2912,
+          "sha256": "32a38895f8c7408cb7ad4fa3b7a2ee3da59f1c2d2136df337d8494a78eb4be6c",
+          "source_line": 158,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-015",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-015)"
+        },
+        {
+          "id": "trainer-016",
+          "disposition": "archived",
+          "heading": "### Capacity 多周期受控验证（2026-10-17）",
+          "bytes": 2118,
+          "sha256": "b27ed9310d30bbea8d1b6cfc8e5ecc4607752d6d401f767977adc09ae14e3ad1",
+          "source_line": 170,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-016",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-016)"
+        },
+        {
+          "id": "trainer-017",
+          "disposition": "archived",
+          "heading": "### 主存修复与重新基线（memory-v2，2026-10-13）",
+          "bytes": 3427,
+          "sha256": "7fd55de3625b1a264206cf65c0220e524dc39c85b0407b5e88c32de25b2b66db",
+          "source_line": 178,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-017",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-017)"
+        },
+        {
+          "id": "trainer-018",
+          "disposition": "archived",
+          "heading": "### 用户明确取消任务主存限制（unlimited-host-memory-v3，2026-10-16）",
+          "bytes": 2167,
+          "sha256": "1a83d7add884a9f8a5cecdf45c348c7ca53efd341cb44d01773c1843e2ae8852",
+          "source_line": 191,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-018",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-018)"
+        },
+        {
+          "id": "trainer-019",
+          "disposition": "archived",
+          "heading": "### 串行总控与失败继续（2026-10-16）",
+          "bytes": 2092,
+          "sha256": "7c83f5f4454bddb35409f305a6f1856d99564ec923c04a3a87230cb27f6850c2",
+          "source_line": 202,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md",
+          "anchor": "trainer-019",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/trainer-research-contracts-20261022.md#trainer-019)"
+        }
+      ],
+      "archived_parts": 19,
+      "retained_parts": 0,
+      "after_bytes": 39546,
+      "after_sha256_at_archival": "1043fbc9a810262a29b88675bfd5c658eb431359299b74d46b1fc338ede4612a",
+      "source_bytes_reduced": 41228,
+      "verification": {
+        "fragment_bytes_equal": true,
+        "original_file_reconstructed_exactly": true,
+        "outside_region_preserved": true
+      }
+    },
+    {
+      "path": "docs/gaussian-checkpoint-contract.md",
+      "before_sha256": "ee771ef260328a46dc86e1672e1d13e2e1e37b84c2a8a1b08f5915a41fcb3e4e",
+      "before_bytes": 16240,
+      "region_start": "## 2026-10-21 bounded research execution",
+      "region_end_before": null,
+      "region_sha256": "e8af19c51b7528982fea4f361c09136e6281da91fe74932477c1a67455e7fab7",
+      "region_bytes": 7836,
+      "parts": [
+        {
+          "id": "checkpoint-001",
+          "disposition": "archived",
+          "heading": "## 2026-10-21 bounded research execution",
+          "bytes": 878,
+          "sha256": "cb3e369fc5d91ba9ab1ea9c2a8f079817795c8e8a0fb1dfbf98dfbb48801aa6b",
+          "source_line": 92,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md",
+          "anchor": "checkpoint-001",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md#checkpoint-001)"
+        },
+        {
+          "id": "checkpoint-002",
+          "disposition": "archived",
+          "heading": "## 2026-10-21 observer resume research boundary (implementation only)",
+          "bytes": 1701,
+          "sha256": "6712b7e701db2f0d4487236fc6704259749c58782a5b6e7895b7d5d214f0ba7b",
+          "source_line": 97,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md",
+          "anchor": "checkpoint-002",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md#checkpoint-002)"
+        },
+        {
+          "id": "checkpoint-003",
+          "disposition": "archived",
+          "heading": "## 2026-10-21 one-step first-divergence probe (implementation only)",
+          "bytes": 1895,
+          "sha256": "c6bd7d118b7a22fc73490956ce9f1a2212bfd3ffb43ac78640930d35753dcb87",
+          "source_line": 106,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md",
+          "anchor": "checkpoint-003",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md#checkpoint-003)"
+        },
+        {
+          "id": "checkpoint-004",
+          "disposition": "archived",
+          "heading": "## 2026-10-22 backward-boundary probe",
+          "bytes": 839,
+          "sha256": "69bd108d9c049c92d1abe689ea19ceda9274bab32a22c9d786945ee84e69512d",
+          "source_line": 115,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md",
+          "anchor": "checkpoint-004",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md#checkpoint-004)"
+        },
+        {
+          "id": "checkpoint-005",
+          "disposition": "archived",
+          "heading": "## 2026-10-22 固定B0独立回放",
+          "bytes": 2523,
+          "sha256": "c3b3aba7bdabb2ce5673bf7d3da83d718543230336089c9e6b72de94c451a700",
+          "source_line": 120,
+          "archive_path": "experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md",
+          "anchor": "checkpoint-005",
+          "source_redirect": "[历史原文与冻结约束](../experiment/mcmc_shard_imbalance/history/checkpoint-research-contracts-20261022.md#checkpoint-005)"
+        }
+      ],
+      "archived_parts": 5,
+      "retained_parts": 0,
+      "after_bytes": 9847,
+      "after_sha256_at_archival": "92413a7724dc9617a66a856659228782ec662cb22467131a7af8b3b66fa7f131",
+      "source_bytes_reduced": 6393,
+      "verification": {
+        "fragment_bytes_equal": true,
+        "original_file_reconstructed_exactly": true,
+        "outside_region_preserved": true
+      }
+    }
+  ],
+  "preserved_user_changes": "codex 原有 7 行导航和所有个人文件保留；未归档无关 Project 诊断。",
+  "maintenance_retirements": [
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/analyze.py",
+      "status": "historical_frozen_not_maintained",
+      "replacement": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/analyze.py",
+      "physical_action": "retained_unchanged",
+      "reason": "bound_by_analysis_source_and_historical_reproduction"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/analyze_sensitivity.py",
+      "status": "historical_frozen_not_maintained",
+      "replacement": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/analyze.py",
+      "physical_action": "retained_unchanged",
+      "reason": "bound_by_analysis_source_and_historical_reproduction"
+    }
+  ]
+}

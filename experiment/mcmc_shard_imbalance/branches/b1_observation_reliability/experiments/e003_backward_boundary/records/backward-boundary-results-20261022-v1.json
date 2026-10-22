@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "run_id": "backward-boundary-results-20261022-v1",
+  "experiment_id": "MCMC-B1-E003",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed",
+  "acceptance_status": "downstream_numerically_inconsistent",
+  "historical_status": {
+    "execution": "completed",
+    "numerical_gate": "numerically_inconsistent"
+  },
+  "source_commit": {
+    "value": "8ee4e429049fd6089960cf4b9e7fe027d01acb70",
+    "source": "outputs/analysis/backward-boundary-launch-20261022-v1/authorized-run.json",
+    "field": "commit"
+  },
+  "protocol_sha256": {
+    "value": "d17d6f12125e3d15fe11f02ce822c872c2663a073f619108f958748a5b53ad0c",
+    "source": "outputs/analysis/backward-boundary-results-20261022-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261022-093008-5edc",
+    "source": "outputs/analysis/backward-boundary-results-20261022-v1/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261022-093034-ff37",
+    "source": "outputs/analysis/backward-boundary-launch-20261022-v1/authorized-run.json",
+    "field": "unique_readonly_monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261022-093008-5edc",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 1810
+      },
+      "source": "outputs/analysis/backward-boundary-results-20261022-v1/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261022-093034-ff37",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 7640
+      },
+      "source": "outputs/analysis/backward-boundary-results-20261022-v1/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/backward-boundary-20261022-v1",
+      "source": "outputs/analysis/backward-boundary-launch-20261022-v1/authorized-run.json",
+      "field": "remote_output_root"
+    },
+    "preflight_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/backward-boundary-preflight-20261022-v1",
+      "source": "outputs/analysis/backward-boundary-launch-20261022-v1/authorized-run.json",
+      "field": "remote_preflight"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/backward-boundary-launch-20261022-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/backward-boundary-results-20261022-v1/assessment.json",
+      "sha256": "aa7eb08fff7d21ddd5bfbc3044cc391f9f3289c774c1af18ec4337ac2534877c",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-results-20261022-v1/report.md",
+      "sha256": "8e638e4b1d96e5507d2269e3cdedaa8ec593decac26456a70a50ec7cd1da8baa",
+      "role": "report.md",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-results-20261022-v1/execution-status.json",
+      "sha256": "6d5ec5373fcdf9984fe2a18bee0f41319f8239c81e2a2f82a543f62fb8d151fb",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-results-20261022-v1/monitor-status.json",
+      "sha256": "2d2146ea92afd7a504d7a30fb7ac6efe8d38662603c9b8d65f59adfaa23a41cc",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-results-20261022-v1/download-verification.json",
+      "sha256": "53f1e127aca2e05682a5b9373b58e6f5db665c5f518b51139d81f8c69eb895ea",
+      "role": "download-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-launch-20261022-v1/authorized-run.json",
+      "sha256": "c21627d0ef9a606786d0eb1fb6631c8033e6ae429708b01fb680bf305d77ac58",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-results-20261022-v1/incoming/protocol.json",
+      "sha256": "d17d6f12125e3d15fe11f02ce822c872c2663a073f619108f958748a5b53ad0c",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/backward-boundary-launch-20261022-v1/command.sh",
+      "sha256": "18a7818d6d30358736865b78f1ec271fa84b94ce56cc7ff761ab53014098453d",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "8ee4e429049fd6089960cf4b9e7fe027d01acb70",
+    "source": "outputs/analysis/backward-boundary-launch-20261022-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

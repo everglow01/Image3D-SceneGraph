@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "migration": "fixed_b0_gpu_workspace_v1",
+  "legacy_profile": "mcmc_fixed_b0_five_repeats_v2",
+  "legacy_scripts": [
+    "scripts/mcmc_first_divergence.py",
+    "scripts/mcmc_fixed_b0_analysis.py",
+    "scripts/mcmc_lifecycle_observer.py",
+    "scripts/prepare_gsplat_camera_sizes.py",
+    "scripts/run_camera_size_lifecycle.py",
+    "scripts/run_camera_size_scene_pair.py",
+    "scripts/run_mcmc_backward_boundary.py",
+    "scripts/run_mcmc_first_divergence.py",
+    "scripts/run_mcmc_fixed_b0.py",
+    "scripts/run_mcmc_lifecycle_trace.py",
+    "scripts/run_mcmc_stability_ablation.py",
+    "scripts/smoke_distributed_camera_sizes.py",
+    "scripts/smoke_gaussian_trainer.py"
+  ],
+  "core_sha256": "5941370c16bb04301db2f59477468eebe62326201d12c487980a1dfb51dcde8a",
+  "source_protocol_sha256": "d17d6f12125e3d15fe11f02ce822c872c2663a073f619108f958748a5b53ad0c",
+  "nomination_protocol_sha256": "f693126c9fd27e2fab269dd3c488830b56e081654886f2baf39175fac1f5e203",
+  "files": {
+    "scripts/mcmc_first_divergence.py": {
+      "sha256": "8f53bfbd279aed35f7ac9dd81f3ecf3336f7b1384c3b6fbfbe756a21fd993b38",
+      "bytes": 29991
+    },
+    "scripts/mcmc_fixed_b0_analysis.py": {
+      "sha256": "ba3d4f6ac8e53bb3f6a61b2b04e35fb6304a68ec752981127516b80a9c9aee0b",
+      "bytes": 14905
+    },
+    "scripts/mcmc_lifecycle_observer.py": {
+      "sha256": "6a19ad5ed5f9a2f83bc6b345f95827eb91d83922a891e366ea6bb06969476f15",
+      "bytes": 22624
+    },
+    "scripts/prepare_gsplat_camera_sizes.py": {
+      "sha256": "1ca701b38851a42c4822badb071b50e21e81f16c4601aeb0d1ae9b89e1d4249f",
+      "bytes": 5424
+    },
+    "scripts/run_camera_size_lifecycle.py": {
+      "sha256": "15e9f7f8f4019752490ceafdd79fd16bc27a40eda50779cc61928940bb55f182",
+      "bytes": 14946
+    },
+    "scripts/run_camera_size_scene_pair.py": {
+      "sha256": "a89dd229afe0b25154ecf0e8d1f7faac2554d5162176f61989ab70bf64b8e5f4",
+      "bytes": 13639
+    },
+    "scripts/run_mcmc_backward_boundary.py": {
+      "sha256": "916056816ad1d63450721c21f2d0902ce9ae64cd59d2265c255a2cf0f7548a1a",
+      "bytes": 10637
+    },
+    "scripts/run_mcmc_first_divergence.py": {
+      "sha256": "3243b832d40b96566a02889aafb1c465c3840c496e0c2d942b928ae1b8029196",
+      "bytes": 16867
+    },
+    "scripts/run_mcmc_fixed_b0.py": {
+      "sha256": "9e9e439ffa7f5d7214e5c373150953d9b040fdb864d7f9ff8d7ff0e68ef92dbb",
+      "bytes": 26810
+    },
+    "scripts/run_mcmc_lifecycle_trace.py": {
+      "sha256": "aaabc1c73712629831c7b173262f4acaecef9b4754365dfbd1d397aeb8691f90",
+      "bytes": 26540
+    },
+    "scripts/run_mcmc_stability_ablation.py": {
+      "sha256": "125a09aafa47365b50f4b29c71ec02104221a77ca684b03cd1afdb63bbdc4178",
+      "bytes": 15217
+    },
+    "scripts/smoke_distributed_camera_sizes.py": {
+      "sha256": "e4ddc90f30060e85c4d8d3c79d40d937c8f79f70b82ca1a2370b5e21521ce4b7",
+      "bytes": 25885
+    },
+    "scripts/smoke_gaussian_trainer.py": {
+      "sha256": "e87f76fc1b068e55104a5b48e42ee7a33272e180edf722711199b66e51323de2",
+      "bytes": 10985
+    },
+    "src/image3d_scenegraph/__init__.py": {
+      "sha256": "437f0f2668d9b5ac218a7a4cc138e9aae4b69feee9cc76ab6773e98fb4875ae1",
+      "bytes": 93
+    },
+    "src/image3d_scenegraph/file_integrity.py": {
+      "sha256": "56519d3999e70a318379fc3d469d1eb27e06fd0e79e6b8208adb93ca0a6e8bf0",
+      "bytes": 2739
+    },
+    "src/image3d_scenegraph/gaussian/__init__.py": {
+      "sha256": "986f0206b5d58c712d7468ac771ccaf8fb2c3ebc222efecdac61c8bc264b9d9d",
+      "bytes": 2155
+    },
+    "src/image3d_scenegraph/gaussian/absgrad_resources.py": {
+      "sha256": "b8fcfe895aa8ee4f78218333d87cff5cc2e61b082e337d46682f4a8a0668ce21",
+      "bytes": 18059
+    },
+    "src/image3d_scenegraph/gaussian/checkpoint.py": {
+      "sha256": "1451adb70ee0da037002e5b61534706a6a7c2d4b1c9793d82fbae7fd1c2aebb3",
+      "bytes": 23961
+    },
+    "src/image3d_scenegraph/gaussian/config.py": {
+      "sha256": "3355a04448e8c94f28bd06a78399139942661fc6fa893468ac491262198c7a6e",
+      "bytes": 20692
+    },
+    "src/image3d_scenegraph/gaussian/dataset.py": {
+      "sha256": "911eef01fc958f52108f6e970862d1909be132cde7d6967e9d357851bfe50681",
+      "bytes": 21209
+    },
+    "src/image3d_scenegraph/gaussian/evaluation.py": {
+      "sha256": "8c75f97020e9ce5d3936587caefe32ac1a490559a7ec0adef50f2bdce6872ebe",
+      "bytes": 21605
+    },
+    "src/image3d_scenegraph/gaussian/initialization.py": {
+      "sha256": "874c1dea259fdd3d0a55337c34ba9595ee9720357b6d7e94741f40783022d537",
+      "bytes": 15929
+    },
+    "src/image3d_scenegraph/gaussian/model.py": {
+      "sha256": "7ea5801f5e4c0c834e6687236b45c0ead4a028a6f11036b3b759f45f9ca2477d",
+      "bytes": 7037
+    },
+    "src/image3d_scenegraph/gaussian/model_io.py": {
+      "sha256": "3759215e4e3703268b591b18c737874f2806c3ff4b4966bc0c350c7dbeeee9cd",
+      "bytes": 2352
+    },
+    "src/image3d_scenegraph/gaussian/readiness.py": {
+      "sha256": "f26c9207e5f447c5a27d1051af0f9158de2c829fe37c2b81d1c46024862d529e",
+      "bytes": 12065
+    },
+    "src/image3d_scenegraph/gaussian/render.py": {
+      "sha256": "387ec5e14ec15780273f984f88261477ca6857cf3022b5002e978ed9a73e70f6",
+      "bytes": 3803
+    },
+    "src/image3d_scenegraph/gaussian/runtime.py": {
+      "sha256": "37df4de9f401f9c68a10c6d7eec5aa85a449154d3ef28f4cb9447cbb2db7d512",
+      "bytes": 9917
+    },
+    "src/image3d_scenegraph/gaussian/trainer.py": {
+      "sha256": "df536369bd3f478ee6071e58b0577213adc37f3bdf6233ebae1eecf2507189d0",
+      "bytes": 78371
+    },
+    "src/image3d_scenegraph/gaussian/training_math.py": {
+      "sha256": "3f7a692291f1128966779416e4d77d7ef60c1ce1a9fbcb7081502f5de4fa5686",
+      "bytes": 2930
+    },
+    "src/image3d_scenegraph/gpu_lease.py": {
+      "sha256": "76889a3b8c6c50f81bc12ec86a637bf0a3a956ce7ce9871f01856b5403d1bae7",
+      "bytes": 2682
+    },
+    "tests/test_mcmc_fixed_b0.py": {
+      "sha256": "42087f0a67e4a557e937a959821f5cd8a89ba566e4e42568eb97f3c0b172174f",
+      "bytes": 12503
+    },
+    "tests/test_mcmc_fixed_b0_remote.py": {
+      "sha256": "5c6cc47a0c2fe7861a86b0751fefa8b11921da955628bd7d85081117baff1ac7",
+      "bytes": 8700
+    }
+  },
+  "reuse_scope": "source_validation_snapshot_schema_rng_resources_only_no_old_main_run_worker",
+  "legacy_files_preserved": true,
+  "core_files": [
+    "dataset.py",
+    "model.py",
+    "model_io.py",
+    "evaluation.py",
+    "checkpoint.py",
+    "absgrad_resources.py",
+    "readiness.py",
+    "render.py",
+    "runtime.py",
+    "trainer.py",
+    "training_math.py",
+    "initialization.py"
+  ],
+  "saved_tensors": [
+    "means2d",
+    "conics",
+    "colors",
+    "opacities",
+    "backgrounds",
+    "masks",
+    "isect_offsets",
+    "flatten_ids",
+    "render_alphas",
+    "last_ids"
+  ],
+  "boundary_order": [
+    "P0",
+    "P1",
+    "B0",
+    "B1",
+    "P2",
+    "P3",
+    "P4"
+  ],
+  "boundary_outputs": [
+    "v_means2d",
+    "v_conics",
+    "v_colors",
+    "v_opacities",
+    "v_backgrounds"
+  ]
+}

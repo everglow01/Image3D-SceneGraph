@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B2-E002",
+  "title": "统一 Gaussian 顺序的尺寸对照",
+  "owner": "B2",
+  "related_questions": [
+    "Q1",
+    "Q2"
+  ],
+  "depends_on": [],
+  "informed_by": [
+    "MCMC-B2-E001"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e002_order_controls/README.md",
+  "legacy_entrypoints": [
+    "scripts/smoke_distributed_camera_sizes.py"
+  ],
+  "legacy_tests": [
+    "tests/test_distributed_camera_sizes.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e002_order_controls/records/camera-size-order-results-20261019-v2.json"
+  ],
+  "shared_run_records": []
+}

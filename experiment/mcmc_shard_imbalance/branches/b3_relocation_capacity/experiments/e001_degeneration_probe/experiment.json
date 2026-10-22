@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B3-E001",
+  "title": "低透明度退化受控检查",
+  "owner": "B3",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [],
+  "informed_by": [
+    "MCMC-Q3-E002"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e001_degeneration_probe/README.md",
+  "legacy_entrypoints": [
+    "scripts/smoke_mcmc_degeneration.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_degeneration_gate.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e001_degeneration_probe/records/mcmc-degeneration-results-20261017-v1.json"
+  ],
+  "shared_run_records": []
+}

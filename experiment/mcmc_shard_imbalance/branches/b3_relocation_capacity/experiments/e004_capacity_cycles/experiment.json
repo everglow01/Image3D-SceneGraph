@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B3-E004",
+  "title": "容量候选多周期恢复检查",
+  "owner": "B3",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B3-E003"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e004_capacity_cycles/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_mcmc_capacity_cycles.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_capacity_cycles.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e004_capacity_cycles/records/mcmc-capacity-cycles-results-20261017-v1.json"
+  ],
+  "shared_run_records": []
+}

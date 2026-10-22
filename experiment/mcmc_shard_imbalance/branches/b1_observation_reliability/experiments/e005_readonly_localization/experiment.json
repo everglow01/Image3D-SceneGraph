@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B1-E005",
+  "title": "反向源码与 ULP／累加规模只读分析",
+  "owner": "B1",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B1-E002",
+    "MCMC-B1-E003"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e005_readonly_localization/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [
+    "outputs/analysis/first-divergence-backward-readonly-20261021-v1/analyze.py",
+    "outputs/analysis/first-divergence-backward-readonly-20261021-v1/inspect_single_camera.py",
+    "outputs/analysis/first-divergence-backward-readonly-20261021-v1/inspect_snapshots.py",
+    "outputs/analysis/rasterizer-internal-readonly-20261022-v1/analyze.py",
+    "outputs/analysis/rasterizer-internal-readonly-20261022-v1/inspect_existing.py"
+  ],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e005_readonly_localization/records/first-divergence-backward-readonly-20261021-v1.json",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e005_readonly_localization/records/rasterizer-internal-readonly-20261022-v1.json"
+  ],
+  "shared_run_records": []
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q2-E001",
+  "title": "原始 apartment 退化与分片状态核验",
+  "owner": "Q2",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q2_rank_accumulation/experiments/e001_initial_audit/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [
+    "tests/test_mcmc_diagnostics.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q2_rank_accumulation/experiments/e001_initial_audit/records/apartment-training-audit-20261012-v1.json",
+    "experiment/mcmc_shard_imbalance/questions/q2_rank_accumulation/experiments/e001_initial_audit/records/mcmc-instability-verification-20261012-v1.json"
+  ],
+  "shared_run_records": []
+}

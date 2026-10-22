@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B2-E003",
+  "title": "目标相机尺寸隔离修复门禁",
+  "owner": "B2",
+  "related_questions": [
+    "Q1",
+    "Q2"
+  ],
+  "depends_on": [
+    "MCMC-B2-E002"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e003_size_repair/README.md",
+  "legacy_entrypoints": [
+    "scripts/prepare_gsplat_camera_sizes.py",
+    "scripts/smoke_distributed_camera_sizes.py"
+  ],
+  "legacy_tests": [
+    "tests/test_prepare_gsplat_camera_sizes.py",
+    "tests/test_distributed_camera_sizes.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e003_size_repair/records/camera-size-repair-results-20261019-v1.json"
+  ],
+  "shared_run_records": []
+}

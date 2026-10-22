@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "run_id": "apartment-training-audit-20261012-v1",
+  "experiment_id": "MCMC-Q2-E001",
+  "kind": "readonly_analysis",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "analysis_completed",
+  "acceptance_status": "historical_observation",
+  "historical_status": {},
+  "source_commit": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "protocol_sha256": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "execution_task": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "monitor_task": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": null,
+    "project": null,
+    "output_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/apartment-training-audit-20261012-v1/assessment.json",
+      "sha256": "658026cfa042e4ab4e5987bd43bd27189eebb6db28c127f8fe94736196cfb559",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。"
+}

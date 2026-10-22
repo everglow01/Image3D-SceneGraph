@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B2-E004",
+  "title": "尺寸修复的原生生命周期门禁",
+  "owner": "B2",
+  "related_questions": [
+    "Q1",
+    "Q2"
+  ],
+  "depends_on": [
+    "MCMC-B2-E003"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e004_native_lifecycle/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_camera_size_lifecycle.py"
+  ],
+  "legacy_tests": [
+    "tests/test_camera_size_lifecycle.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e004_native_lifecycle/records/camera-size-lifecycle-results-20261021-v1.json"
+  ],
+  "shared_run_records": []
+}

@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "run_id": "mcmc-degeneration-results-20261017-v1",
+  "experiment_id": "MCMC-B3-E001",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "unit_completed_panel_terminal_marker_missing",
+  "acceptance_status": "controlled_probe_not_long_term_proof",
+  "historical_status": {
+    "execution_panel_status": {
+      "running": false,
+      "finished": false,
+      "exit_code": null,
+      "note": "外层命令结束标志缺失，未伪造或补写；以独立unit/各臂退出码、完整报告和监控交叉验证。"
+    }
+  },
+  "source_commit": {
+    "value": "23789f4650b00ded7373f28c0ed0b0db997a7d77",
+    "source": "outputs/analysis/mcmc-degeneration-results-20261017-v1/assessment.json",
+    "field": "remote_commit"
+  },
+  "protocol_sha256": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "execution_task": {
+    "value": "20261017-110810-4b6b",
+    "source": "outputs/analysis/mcmc-degeneration-results-20261017-v1/assessment.json",
+    "field": "task"
+  },
+  "monitor_task": {
+    "value": "20261017-110824-d39f",
+    "source": "outputs/analysis/mcmc-degeneration-results-20261017-v1/assessment.json",
+    "field": "monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/mcmc-degeneration-gates-20261017-v1",
+      "source": "outputs/analysis/mcmc-degeneration-launch-20261017-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/mcmc-degeneration-launch-20261017-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/mcmc-degeneration-results-20261017-v1/assessment.json",
+      "sha256": "b25a746a65681124ce2bbe5ab8b0e6c3ac4d292a4624d70e1760c16c3970fa48",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-degeneration-results-20261017-v1/verification.json",
+      "sha256": "42436c605910659542c33a6fc9e82efee45414c237176779402b059e80504fcb",
+      "role": "verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-degeneration-launch-20261017-v1/command.sh",
+      "sha256": "6043c38ede80b39c7c814ec269a8513a591708254821a5169c490f44b3542b22",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "23789f4650b00ded7373f28c0ed0b0db997a7d77",
+    "source": "outputs/analysis/mcmc-degeneration-launch-20261017-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

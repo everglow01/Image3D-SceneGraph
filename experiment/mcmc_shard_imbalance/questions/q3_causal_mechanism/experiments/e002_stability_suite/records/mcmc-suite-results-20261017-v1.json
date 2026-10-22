@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "run_id": "mcmc-suite-results-20261017-v1",
+  "experiment_id": "MCMC-Q3-E002",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed_with_failures",
+  "acceptance_status": "two_arms_completed_three_failed",
+  "historical_status": {
+    "status": "completed_with_failures",
+    "panel_exit_code": 1
+  },
+  "source_commit": {
+    "value": "36433bf",
+    "source": "outputs/analysis/mcmc-suite-launch-20261016-v1/active-run.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "b758a8172717f7933eedbb9d0693969bdb97a83a2759c8fdfe94ae2e33a85114",
+    "source": "outputs/analysis/mcmc-suite-results-20261017-v1/assessment.json",
+    "field": "protocol_sha256"
+  },
+  "execution_task": {
+    "value": "20261016-091558-0c6d",
+    "source": "outputs/analysis/mcmc-suite-results-20261017-v1/assessment.json",
+    "field": "task_id"
+  },
+  "monitor_task": {
+    "value": "20261016-091614-4eca",
+    "source": "outputs/analysis/mcmc-suite-results-20261017-v1/assessment.json",
+    "field": "monitor_task_id"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/mcmc-stability-suite-20261016-v1",
+      "source": "outputs/analysis/mcmc-suite-launch-20261016-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/mcmc-suite-launch-20261016-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/mcmc-suite-results-20261017-v1/assessment.json",
+      "sha256": "b6fa3d9d5e751b9dd43cfe30efdc262b5d7b6bc6162bcaa8356702d227b7a919",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-suite-launch-20261016-v1/command.sh",
+      "sha256": "a884c12af4b74600c8b756dfb58c10907e3c05d9b489b9b707ed67364893a470",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-suite-launch-20261016-v1/active-run.json",
+      "sha256": "6a9de0db9b32d2a822d5179b4228170069f7e783c645fa3711d7f372981e656c",
+      "role": "historical_execution_record",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。"
+}

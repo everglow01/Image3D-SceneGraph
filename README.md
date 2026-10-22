@@ -34,11 +34,14 @@ Image3D-SceneGraph/
   backend/                  # API service, to be initialized later
   src/image3d_scenegraph/   # core algorithm and pipeline code
   scripts/                  # runnable local tools
+  experiment/               # 研究问题、实验代码、证据索引（运行产物忽略）
   docs/                     # design notes and experiment records
   examples/                 # lightweight example placeholders
 ```
 
 See [codex.md](codex.md) for the working plan, milestones, and development rules.
+
+研究入口：[experiment/](experiment/README.md) · [MCMC 分片恢复不对称](experiment/mcmc_shard_imbalance/README.md)。研究按问题组织，历史脚本和产物保留原址；阶段进度见课题入口。
 
 ## Environment
 

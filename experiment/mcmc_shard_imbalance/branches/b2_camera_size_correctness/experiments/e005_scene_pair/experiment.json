@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B2-E005",
+  "title": "真实 apartment 12k 尺寸配对",
+  "owner": "B2",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B2-E004"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e005_scene_pair/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_camera_size_scene_pair.py"
+  ],
+  "legacy_tests": [
+    "tests/test_camera_size_scene_pair.py"
+  ],
+  "legacy_analysis_scripts": [
+    "outputs/analysis/camera-size-scene-pair-results-20261021-v1/analyze.py"
+  ],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e005_scene_pair/records/camera-size-scene-pair-results-20261021-v1.json"
+  ],
+  "shared_run_records": [],
+  "reviewed_reports": [
+    "experiment/mcmc_shard_imbalance/branches/b2_camera_size_correctness/experiments/e005_scene_pair/reports/camera-size-scene-pair-results-20261021-v1.md"
+  ]
+}

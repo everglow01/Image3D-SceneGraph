@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q3-E002",
+  "title": "五臂真实场景稳定性对照",
+  "owner": "Q3",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "B3"
+  ],
+  "depends_on": [],
+  "informed_by": [
+    "MCMC-Q3-E001"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q3_causal_mechanism/experiments/e002_stability_suite/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_mcmc_stability_ablation.py",
+    "scripts/run_mcmc_stability_suite.py",
+    "scripts/prepare_gsplat_mcmc.py",
+    "scripts/smoke_mcmc_stability.py",
+    "scripts/smoke_mcmc_validation_memory.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_stability_ablation.py",
+    "tests/test_mcmc_stability_suite.py",
+    "tests/test_prepare_gsplat_mcmc.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q3_causal_mechanism/experiments/e002_stability_suite/records/mcmc-suite-results-20261017-v1.json"
+  ],
+  "shared_run_records": [],
+  "reviewed_reports": [
+    "experiment/mcmc_shard_imbalance/questions/q3_causal_mechanism/experiments/e002_stability_suite/reports/mcmc-suite-results-20261017-v1.md"
+  ]
+}

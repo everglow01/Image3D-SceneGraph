@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q3-E001",
+  "title": "初始候选机制与参考实现审查",
+  "owner": "Q3",
+  "related_questions": [
+    "Q1",
+    "B3"
+  ],
+  "depends_on": [],
+  "informed_by": [
+    "MCMC-Q2-E001"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q3_causal_mechanism/experiments/e001_candidate_research/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q3_causal_mechanism/experiments/e001_candidate_research/records/mcmc-fix-research-20261012-v1.json"
+  ],
+  "shared_run_records": []
+}

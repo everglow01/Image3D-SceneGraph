@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B3-E003",
+  "title": "容量约束候选的小型 CUDA 门禁",
+  "owner": "B3",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [],
+  "informed_by": [
+    "MCMC-B3-E002"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e003_capacity_gate/README.md",
+  "legacy_entrypoints": [
+    "scripts/mcmc_capacity_ops.py",
+    "scripts/prepare_gsplat_mcmc.py",
+    "scripts/smoke_mcmc_stability.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_capacity.py",
+    "tests/test_prepare_gsplat_mcmc.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e003_capacity_gate/records/mcmc-capacity-results-20261017-v1.json"
+  ],
+  "shared_run_records": []
+}

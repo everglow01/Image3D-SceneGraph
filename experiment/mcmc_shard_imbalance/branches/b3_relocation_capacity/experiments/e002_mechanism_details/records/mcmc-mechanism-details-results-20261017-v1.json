@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "run_id": "mcmc-mechanism-details-results-20261017-v1",
+  "experiment_id": "MCMC-B3-E002",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed",
+  "acceptance_status": "stability_not_passed",
+  "historical_status": {
+    "status": "diagnostic_complete_stability_not_passed"
+  },
+  "source_commit": {
+    "value": "dc9c19f5b314314859936596044c972007e0f606",
+    "source": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/assessment.json",
+    "field": "remote_execution_commit"
+  },
+  "protocol_sha256": {
+    "value": "d7d2f49a3e473670223298031f442ed7c8858c409edce6b0bc7dd1537fbf6585",
+    "source": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261017-114625-9224",
+    "source": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/assessment.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261017-114635-058e",
+    "source": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/assessment.json",
+    "field": "monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/mcmc-mechanism-details-20261017-v1",
+      "source": "outputs/analysis/mcmc-mechanism-details-launch-20261017-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/mcmc-mechanism-details-launch-20261017-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/assessment.json",
+      "sha256": "cee450a5d322b11c209317e106697c1be74f5fae9fa739250c3824ec6f391929",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/verification.json",
+      "sha256": "7fe600f825c8ef2e66b947e9ebac0da33cee1c50883f2b7e29891c448ea1f95e",
+      "role": "verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-mechanism-details-launch-20261017-v1/authorized-run.json",
+      "sha256": "cb6f1ad41cf50acba853fb1fca511ed62785a9fdbddae6de5bba961d89fb257e",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-mechanism-details-results-20261017-v1/incoming/protocol.json",
+      "sha256": "d7d2f49a3e473670223298031f442ed7c8858c409edce6b0bc7dd1537fbf6585",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-mechanism-details-launch-20261017-v1/command.sh",
+      "sha256": "17f4313d1f41e6406733c297e1aac28ca83beee0cb41df7133ce5cdb23051d2f",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "dc9c19f5b314314859936596044c972007e0f606",
+    "source": "outputs/analysis/mcmc-mechanism-details-launch-20261017-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

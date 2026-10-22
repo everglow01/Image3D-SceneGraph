@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B1-E001",
+  "title": "原生控制 A/A 准入比较",
+  "owner": "B1",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-Q1-E002"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e001_native_aa/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_mcmc_lifecycle_trace.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_lifecycle_trace.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [],
+  "shared_run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e002_lifecycle_trace/records/mcmc-lifecycle-results-20261021-v1.json"
+  ]
+}

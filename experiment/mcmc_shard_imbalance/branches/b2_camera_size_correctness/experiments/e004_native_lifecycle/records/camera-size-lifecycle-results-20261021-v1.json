@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "run_id": "camera-size-lifecycle-results-20261021-v1",
+  "experiment_id": "MCMC-B2-E004",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed",
+  "acceptance_status": "short_lifecycle_passed",
+  "historical_status": {
+    "status": "passed"
+  },
+  "source_commit": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "protocol_sha256": {
+    "value": "65abaa9aac43d3441e7ddc8aefce2412bf389a82b2f06d334c95537b8f724fd1",
+    "source": "outputs/analysis/camera-size-lifecycle-results-20261021-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261021-100047-aadb",
+    "source": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/authorized-run.json",
+    "field": "execution"
+  },
+  "monitor_task": {
+    "value": "20261021-100047-2cb0",
+    "source": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/authorized-run.json",
+    "field": "monitor"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/camera-size-lifecycle-20261021-v1",
+      "source": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/camera-size-lifecycle-results-20261021-v1/verification.json",
+      "sha256": "f83cc7aa80ca99191e3469647c254d7910f4ac9a34a01c071c076121c814a6e6",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/authorized-run.json",
+      "sha256": "f9cbea9d6296b06d537e182f25ca7ad97a33364a812a5552d7696750e981a8e8",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-lifecycle-results-20261021-v1/incoming/protocol.json",
+      "sha256": "65abaa9aac43d3441e7ddc8aefce2412bf389a82b2f06d334c95537b8f724fd1",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-lifecycle-results-20261021-v1/incoming/summary.json",
+      "sha256": "4635e2e8afce47d8bae1f99fe82223c5696cec3778857983b65bae27136e0122",
+      "role": "historical_summary",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/command.sh",
+      "sha256": "3d35485115a8b8dbd925b54bbd3c4a893a4377847c9b9b16d83683c34433fe6f",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "12caa42",
+    "source": "outputs/analysis/camera-size-lifecycle-launch-20261021-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

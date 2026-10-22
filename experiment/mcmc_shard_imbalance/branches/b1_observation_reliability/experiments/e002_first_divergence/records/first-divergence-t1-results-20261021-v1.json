@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "run_id": "first-divergence-t1-results-20261021-v1",
+  "experiment_id": "MCMC-B1-E002",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed",
+  "acceptance_status": "numerically_inconsistent",
+  "historical_status": {
+    "execution": "completed",
+    "numerical_gate": "numerically_inconsistent"
+  },
+  "source_commit": {
+    "value": "4d30f27b82f1f2d318832d7c44795b6e49f4e647",
+    "source": "outputs/analysis/first-divergence-t1-launch-20261021-v1/authorized-run.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "f693126c9fd27e2fab269dd3c488830b56e081654886f2baf39175fac1f5e203",
+    "source": "outputs/analysis/first-divergence-t1-results-20261021-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261021-171607-f7a6",
+    "source": "outputs/analysis/first-divergence-t1-results-20261021-v1/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261021-171639-73ac",
+    "source": "outputs/analysis/first-divergence-t1-launch-20261021-v1/authorized-run.json",
+    "field": "unique_readonly_monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261021-171607-f7a6",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 2273
+      },
+      "source": "outputs/analysis/first-divergence-t1-results-20261021-v1/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261021-171639-73ac",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 7611
+      },
+      "source": "outputs/analysis/first-divergence-t1-results-20261021-v1/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/first-divergence-t1-20261021-v1",
+      "source": "outputs/analysis/first-divergence-t1-launch-20261021-v1/authorized-run.json",
+      "field": "remote_output_root"
+    },
+    "preflight_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/first-divergence-t1-preflight-20261021-v1",
+      "source": "outputs/analysis/first-divergence-t1-launch-20261021-v1/authorized-run.json",
+      "field": "remote_preflight"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/first-divergence-t1-launch-20261021-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/first-divergence-t1-results-20261021-v1/assessment.json",
+      "sha256": "22eceba72df1841f7f12c1c99cd3e41a47e4d4f80d695e25d6996d66fdd8a86e",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-results-20261021-v1/report.md",
+      "sha256": "5e615522c77d66d6ce5c483f878a43c72e4b36e24478a50570c386c524327cd1",
+      "role": "report.md",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-results-20261021-v1/execution-status.json",
+      "sha256": "94ad5421b4bfeef5b3e51e70dfd7a5bdb7dc45da1344bcccb75a445bd318c5ee",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-results-20261021-v1/monitor-status.json",
+      "sha256": "a347399092daa263b8ed617dc834e1cf5cd45422a243826d8b28bd6c1782837a",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-results-20261021-v1/download-verification.json",
+      "sha256": "6e15207029ea1ef0c569c70d6f66a083d3ed3f20e4d95ede5e890aafd7a25b79",
+      "role": "download-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-launch-20261021-v1/authorized-run.json",
+      "sha256": "17f407442022b4a04281e9087865b2700365f6ef073a47906a06226328626909",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-results-20261021-v1/incoming/protocol.json",
+      "sha256": "f693126c9fd27e2fab269dd3c488830b56e081654886f2baf39175fac1f5e203",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/first-divergence-t1-launch-20261021-v1/command.sh",
+      "sha256": "e78c300b4657ce465e11af9a880746c74ac4ca1975f449c89843dad379f33c82",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "4d30f27b82f1f2d318832d7c44795b6e49f4e647",
+    "source": "outputs/analysis/first-divergence-t1-launch-20261021-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "run_id": "camera-size-equivalence-results-20261019-v1",
+  "experiment_id": "MCMC-B2-E001",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "diagnostic_completed_with_failure",
+  "acceptance_status": "control_blocked",
+  "historical_status": {
+    "status": "controlled_diagnostic_complete_but_control_blocked"
+  },
+  "source_commit": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+  },
+  "protocol_sha256": {
+    "value": "38c288201e383b424c7f9462d490302d04ac2ae2d821c74404317b8307f91aed",
+    "source": "outputs/analysis/camera-size-equivalence-results-20261019-v1/incoming/camera-size-equivalence-20261019-v1/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261019-153853-425f",
+    "source": "outputs/analysis/camera-size-equivalence-results-20261019-v1/assessment.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261019-153853-99dc",
+    "source": "outputs/analysis/camera-size-equivalence-results-20261019-v1/assessment.json",
+    "field": "monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/camera-size-equivalence-20261019-v1",
+      "source": "outputs/analysis/camera-size-equivalence-launch-20261019-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/camera-size-equivalence-launch-20261019-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/camera-size-equivalence-results-20261019-v1/assessment.json",
+      "sha256": "29e9ba0d8ffc8ac1d09d0402a1269d4784ccc77d5b262e790391dcfe98a7d5a3",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-equivalence-results-20261019-v1/verification.json",
+      "sha256": "355f4596c25e159e4a8b1b2788a1dc2218a9b5eaa36bb7533b7da80b0f4ea23b",
+      "role": "verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-equivalence-launch-20261019-v1/authorized-run.json",
+      "sha256": "4e06264ac60186591830052184d9b375f0034bf7829bee430e109f9dbc16a86e",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-equivalence-results-20261019-v1/incoming/camera-size-equivalence-20261019-v1/protocol.json",
+      "sha256": "38c288201e383b424c7f9462d490302d04ac2ae2d821c74404317b8307f91aed",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/camera-size-equivalence-launch-20261019-v1/command.sh",
+      "sha256": "71cac6e8f2258408f93416f0ac054f31e517869874cab64eccf92310fc17cdef",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "a1eeba3",
+    "source": "outputs/analysis/camera-size-equivalence-launch-20261019-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

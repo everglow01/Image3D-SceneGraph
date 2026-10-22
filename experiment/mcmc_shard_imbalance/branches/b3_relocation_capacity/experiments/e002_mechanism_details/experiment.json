@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B3-E002",
+  "title": "图像恢复梯度与尺度下溢机制",
+  "owner": "B3",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [],
+  "informed_by": [
+    "MCMC-B3-E001"
+  ],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e002_mechanism_details/README.md",
+  "legacy_entrypoints": [
+    "scripts/smoke_mcmc_degeneration.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_degeneration_gate.py"
+  ],
+  "legacy_analysis_scripts": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b3_relocation_capacity/experiments/e002_mechanism_details/records/mcmc-mechanism-details-results-20261017-v1.json"
+  ],
+  "shared_run_records": []
+}

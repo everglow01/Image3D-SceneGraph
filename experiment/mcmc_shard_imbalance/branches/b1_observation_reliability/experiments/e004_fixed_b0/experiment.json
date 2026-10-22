@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B1-E004",
+  "title": "固定 B0 五次重复与六点敏感性",
+  "owner": "B1",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B1-E003"
+  ],
+  "informed_by": [],
+  "migration_status": "gpu_implementation_migrated_remote_not_run",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md",
+  "legacy_entrypoints": [
+    "scripts/run_mcmc_fixed_b0.py",
+    "scripts/mcmc_fixed_b0_analysis.py"
+  ],
+  "legacy_tests": [
+    "tests/test_mcmc_fixed_b0.py",
+    "tests/test_mcmc_fixed_b0_remote.py"
+  ],
+  "legacy_analysis_scripts": [
+    "outputs/analysis/fixed-b0-results-20261022-v1/analyze.py",
+    "outputs/analysis/fixed-b0-results-20261022-v1/inspect_preflight.py",
+    "outputs/analysis/fixed-b0-results-20261022-v2/analyze.py",
+    "outputs/analysis/fixed-b0-results-20261022-v2/analyze_sensitivity.py",
+    "outputs/analysis/fixed-b0-results-20261022-v2/verify_metrics.py",
+    "outputs/analysis/fixed-b0-results-20261022-v2/verify_remote.py"
+  ],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/fixed-b0-results-20261022-v1.json",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/fixed-b0-results-20261022-v2.json"
+  ],
+  "shared_run_records": [],
+  "reviewed_reports": [
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/fixed-b0-results-20261022-v1.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/fixed-b0-results-20261022-v2.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/analysis-migration-20261022-v1.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.md"
+  ],
+  "active_analysis": {
+    "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/analyze.py",
+    "tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tests/test_fixed_b0_analysis_migration.py"
+    ],
+    "source_manifest": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/analysis-source.json",
+    "source_data_root": "outputs/analysis/fixed-b0-results-20261022-v2",
+    "supported_source_run": "fixed-b0-results-20261022-v2",
+    "verification_report": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/analysis-migration-20261022-v1.md",
+    "verification_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/analysis-migration-20261022-v1.json"
+  },
+  "retirement_record": "experiment/mcmc_shard_imbalance/history/archive-manifest.json",
+  "gpu_runner": {
+    "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/run.py",
+    "module": "experiment.mcmc_shard_imbalance.branches.b1_observation_reliability.experiments.e004_fixed_b0.run",
+    "helpers": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tensor_analysis.py",
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/legacy.py"
+    ],
+    "source_manifest": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/gpu-source.json",
+    "local_tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tests/test_fixed_b0_gpu_runner.py"
+    ],
+    "remote_tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/tests/test_fixed_b0_gpu_remote.py"
+    ],
+    "profile": "mcmc_fixed_b0_five_repeats_workspace_v1",
+    "unit": "image3d-fixed-b0-workspace-v1.service",
+    "output_root": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs",
+    "remote_validation": "not_run",
+    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_FIXED_B0_WORKSPACE_TESTS",
+    "verification_report": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.md",
+    "verification_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.json"
+  }
+}

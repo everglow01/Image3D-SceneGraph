@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q1-E001",
+  "title": "死亡起点与搬迁后恢复的时序审计",
+  "owner": "Q1",
+  "related_questions": [
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B2-E005"
+  ],
+  "informed_by": [],
+  "migration_status": "indexed_legacy_not_moved",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e001_asymmetry_onset/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [
+    "outputs/analysis/mcmc-asymmetry-trigger-readonly-20261021-v1/analyze.py"
+  ],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e001_asymmetry_onset/records/mcmc-asymmetry-trigger-readonly-20261021-v1.json"
+  ],
+  "shared_run_records": []
+}

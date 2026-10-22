@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "run_id": "fixed-b0-results-20261022-v1",
+  "experiment_id": "MCMC-B1-E004",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "preflight_failed_real_replay_not_started",
+  "acceptance_status": "not_evaluated",
+  "historical_status": {
+    "status": "preflight_failed_no_real_replay"
+  },
+  "source_commit": {
+    "value": "a6bea0a0703afd2d05191beb4f2c977172bfbb42",
+    "source": "outputs/analysis/fixed-b0-results-20261022-v1/assessment.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": null,
+    "source": "outputs/analysis/fixed-b0-results-20261022-v1/assessment.json",
+    "field": "real_replay",
+    "missing_reason": "前置失败，真实实验未 prepare，未生成真实回放协议"
+  },
+  "execution_task": {
+    "value": "20261022-103920-5e48",
+    "source": "outputs/analysis/fixed-b0-results-20261022-v1/assessment.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261022-103938-7ecd",
+    "source": "outputs/analysis/fixed-b0-results-20261022-v1/assessment.json",
+    "field": "unique_monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261022-103920-5e48",
+        "running": false,
+        "finished": true,
+        "exit_code": 1,
+        "log_size": 2594
+      },
+      "source": "outputs/analysis/fixed-b0-results-20261022-v1/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261022-103938-7ecd",
+        "running": false,
+        "finished": true,
+        "exit_code": 1,
+        "log_size": 2027
+      },
+      "source": "outputs/analysis/fixed-b0-results-20261022-v1/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/fixed-b0-20261022-v1",
+      "source": "outputs/analysis/fixed-b0-launch-20261022-v1/command.sh",
+      "field": "root assignment",
+      "historical_creation": "not_created_preflight_failed"
+    },
+    "preflight_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/fixed-b0-preflight-20261022-v1",
+      "source": "outputs/analysis/fixed-b0-launch-20261022-v1/command.sh",
+      "field": "preflight assignment"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/fixed-b0-launch-20261022-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v1/assessment.json",
+      "sha256": "1d08e75cdc470fcfb2ec70f00c978541ec439d98cf6dcb142c539a463f03d197",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v1/report.md",
+      "sha256": "8f45de5afbd9e6f43b587b305664e5839e2d047a84babf0704f704959fc7bf88",
+      "role": "report.md",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v1/execution-status.json",
+      "sha256": "13aeeacacdd6d81ce25feab11d2a07261eeb0a8ae9c3f465e7ee57a388181268",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v1/monitor-status.json",
+      "sha256": "763a2242a949202e6e7c58db58f27a19c2dcf4fe0b93077b1f766cc7c7991e0f",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v1/download-verification.json",
+      "sha256": "4f79755737a6b06fed928d644fec803788e40f0e0e2b01d619586c5d4d885c63",
+      "role": "download-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-launch-20261022-v1/command.sh",
+      "sha256": "0e0b22ce347f6af65e91aefe7b90db113e7e55055835dc6071aad6c5052a1db8",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "a6bea0a0703afd2d05191beb4f2c977172bfbb42",
+    "source": "outputs/analysis/fixed-b0-launch-20261022-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "run_id": "fixed-b0-results-20261022-v2",
+  "experiment_id": "MCMC-B1-E004",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed",
+  "acceptance_status": "fixed_input_numerically_equivalent",
+  "historical_status": {
+    "status": "numerically_equivalent",
+    "old_gate1": "not_reclassified",
+    "execution_completed": true
+  },
+  "source_commit": {
+    "value": "6230db4f57dff71bfc0c2d06e7cbf3e5ef68fe0c",
+    "source": "outputs/analysis/fixed-b0-launch-20261022-v2/authorized-run.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "ff6e21e794107d8f01f26d4b7b5b7c4c23e61d9d630fd3c496d75fdea8eacf30",
+    "source": "outputs/analysis/fixed-b0-results-20261022-v2/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261022-110306-c47d",
+    "source": "outputs/analysis/fixed-b0-launch-20261022-v2/authorized-run.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261022-110349-97e0",
+    "source": "outputs/analysis/fixed-b0-launch-20261022-v2/authorized-run.json",
+    "field": "unique_monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261022-110306-c47d",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 1463
+      },
+      "source": "outputs/analysis/fixed-b0-results-20261022-v2/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261022-110349-97e0",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 2687
+      },
+      "source": "outputs/analysis/fixed-b0-results-20261022-v2/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/fixed-b0-20261022-v2",
+      "source": "outputs/analysis/fixed-b0-launch-20261022-v2/command.sh",
+      "field": "root assignment",
+      "historical_creation": "created_per_completed_run"
+    },
+    "preflight_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/fixed-b0-preflight-20261022-v2",
+      "source": "outputs/analysis/fixed-b0-launch-20261022-v2/command.sh",
+      "field": "preflight assignment"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/fixed-b0-launch-20261022-v2/command.sh"
+  },
+  "previous_attempt": "fixed-b0-results-20261022-v1",
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/assessment.json",
+      "sha256": "894ad957fa1bc3a38fae2b3e9b0666a647af066ff3ef7a1ecf2a7e5ac04139d9",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/report.md",
+      "sha256": "7f457e15f168ad65b37704e5332ae9a4b261c8af82fdd5be67ba694f45745e13",
+      "role": "report.md",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/execution-status.json",
+      "sha256": "b185fbc788248fde769ed3ede0c80991793a165153aeff8aaf4a902032894e09",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/monitor-status.json",
+      "sha256": "edf107206bc843dc9c5350eedeb9ea276d2b65d0af963c962a05a37b0322b0b8",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/download-verification.json",
+      "sha256": "6c683ea5eefa2945a3bb157042a47419691c44a39a5c35fb045867f451cc6dd0",
+      "role": "download-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/independent-metrics.json",
+      "sha256": "2b5d17afed0e942bdf2b820cd4550c8c8b043236b19958a5a10bc469f5efa4fb",
+      "role": "independent-metrics.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/sensitivity.json",
+      "sha256": "a98f4c18c48ca3c58d356d4149ef392c13293009c518ba82a6fe2ce497640fcd",
+      "role": "sensitivity.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-launch-20261022-v2/authorized-run.json",
+      "sha256": "1bab30f9cbda25c116ba4f7f8ee0a69c14636b5a4eacf533df1f313b000ec982",
+      "role": "historical_launch_record_not_new_authorization",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-results-20261022-v2/incoming/protocol.json",
+      "sha256": "ff6e21e794107d8f01f26d4b7b5b7c4c23e61d9d630fd3c496d75fdea8eacf30",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/fixed-b0-launch-20261022-v2/command.sh",
+      "sha256": "add12b945ebd0c01693466dab1488231eca6a6e9e8a49237f49fe03e91ccc917",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "6230db4f57dff71bfc0c2d06e7cbf3e5ef68fe0c",
+    "source": "outputs/analysis/fixed-b0-launch-20261022-v2/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}

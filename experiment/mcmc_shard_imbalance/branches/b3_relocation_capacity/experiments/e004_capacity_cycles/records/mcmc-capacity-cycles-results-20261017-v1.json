@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "run_id": "mcmc-capacity-cycles-results-20261017-v1",
+  "experiment_id": "MCMC-B3-E004",
+  "kind": "gpu_experiment",
+  "catalogued_on": "2026-10-22",
+  "execution_status": "completed_with_gate_failure",
+  "acceptance_status": "gate_blocked_no_long_training",
+  "historical_status": {
+    "status": "controlled_study_complete_gate_blocked"
+  },
+  "source_commit": {
+    "value": "c3de62d41be102322f777ea7af308ce78216b8a6",
+    "source": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/assessment.json",
+    "field": "execution_commit"
+  },
+  "protocol_sha256": {
+    "value": "64c6d46c9362a0e02236b997e27458a38838a785bc9c62d3d8a8e38a260b00e5",
+    "source": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261017-125610-f545",
+    "source": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/assessment.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261017-125623-9431",
+    "source": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/assessment.json",
+    "field": "monitor_task"
+  },
+  "started_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取起始时间；不使用文件名日期代替"
+  },
+  "ended_at_utc": {
+    "value": null,
+    "missing_reason": "未从已选身份文件提取结束时间；不使用整理时间代替"
+  },
+  "panel_statuses": {},
+  "remote_evidence": {
+    "availability": "remote_not_rechecked",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/outputs/analysis/mcmc-capacity-cycles-20261017-v1",
+      "source": "outputs/analysis/mcmc-capacity-cycles-launch-20261017-v1/command.sh",
+      "field": "literal root / --output-root",
+      "historical_creation": "launch_target_only_not_independently_rechecked"
+    },
+    "preflight_root": {
+      "value": null,
+      "source": null,
+      "field": null,
+      "missing_reason": "未从本次选取的历史身份文件中取得；未远端补查"
+    },
+    "note": "本轮仅核验本地存档；null 表示该字段未从索引来源取得，不表示远端目录不存在。",
+    "location_source": "outputs/analysis/mcmc-capacity-cycles-launch-20261017-v1/command.sh"
+  },
+  "previous_attempt": null,
+  "local_evidence": [
+    {
+      "path": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/assessment.json",
+      "sha256": "33ac6e05ea41d710933b1969a4e49c2a395181a3366beb868ec13c4b47bff49b",
+      "role": "historical_assessment",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/verification.json",
+      "sha256": "619d0e0aee194d3c4e2734b344e481056194a9a570096425443267d176d2da87",
+      "role": "verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/incoming/protocol.json",
+      "sha256": "64c6d46c9362a0e02236b997e27458a38838a785bc9c62d3d8a8e38a260b00e5",
+      "role": "frozen_protocol_copy",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-capacity-cycles-results-20261017-v1/incoming/summary.json",
+      "sha256": "2cbca8b6d8abd3f8697d3deafdd161737c48506a6d5e4fe3ffe9ed123bc8f139",
+      "role": "historical_summary",
+      "availability": "local_verified"
+    },
+    {
+      "path": "outputs/analysis/mcmc-capacity-cycles-launch-20261017-v1/command.sh",
+      "sha256": "79f8e8e78bbba8efe5fcc13495a22402e0f53812304caa4219791f2a8e89d194",
+      "role": "historical_launch_command_not_new_authorization",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本地源码路径是导航入口，不保证等同历史版本；复现必须核对原协议与 commit。本索引不授权执行。",
+  "launch_required_commit": {
+    "value": "c3de62d41be102322f777ea7af308ce78216b8a6",
+    "source": "outputs/analysis/mcmc-capacity-cycles-launch-20261017-v1/command.sh",
+    "field": "git rev-parse guard",
+    "note": "历史启动条件，不单独代替实际完成版本证明。"
+  }
+}
