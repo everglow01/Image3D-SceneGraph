@@ -59,6 +59,10 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## 固定B0首轮前置结果（2026-10-22）
+
+a6bea0a首轮远端前置1失败/2通过，真实回放未开始。第一份微型backward输出保存后Python RNG guard失败；NumPy/TorchCPU/CUDA RNG未变。静态导入链及已有状态的私有CPU推演支持首次lazy backend导入rich.style模块顶层getrandbits(24)副作用，但没有动态调用栈。原检查不放松，不把初始化消耗恢复掉；本轮无重试或源码修复，也无真实五次范围/长期因果结论。后续可另行将已安装扩展显式加载与审计置于测量前，不允许以额外未计数forward/backward作热身。历史实现定义及旧失败结果保留，新的尝试必须使用独立目录。
+
 ## 固定B0五次重复（2026-10-22，仅实现，远端待验证）
 
 `run_mcmc_fixed_b0.py`是另行获授权的窄回放入口，旧一级协议“不授权回放”的历史记录保持不变。只取`backward-boundary-20261022-v1`协议`d17d6f12…`的a臂，两相机各自原B0；校验完整源完成记录/比较身份、manifest/NPY/规范SHA、包/core/研究依赖与实际运行环境。CPU读取不恢复训练图，按原dtype/shape/stride/None/settings搬至对应GPU并回读核SHA；拒绝不支持的布局、非法索引、非有限和非本相机来源。两个独立worker各在同一进程内调用安装库原`_RasterizeToPixels.backward`五次，共十次，不调用forward/loss backward/通信/optimizer/strategy；无额外warmup或重试。保留原输出分配，检查输入/RNG不变、结果不与输入/尚存上一轮输出别名；记录当前worker RNG而不恢复历史RNG或掩盖副作用。微型前置用解析构造的一像素上下文，十次原backward另计，不混入实测预算。
