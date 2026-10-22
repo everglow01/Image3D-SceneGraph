@@ -125,3 +125,6 @@ The level-one boundary probe uses the same immutable baseline 12k parent and the
 
 
 固定B0首轮实测补记（2026-10-22）：前置在首份微型B1快照后因Python RNG变化退出，未生成真实实验protocol或complete；单独存在的trial-0 manifest不是完成证据。不得以该快照补发replay_complete，不得将新尝试覆盖到此失败前置目录。失败报告与初始化副作用定位保留，真实B0/P2/P3及原checkpoint均未重算或改写。
+
+
+固定B0 v2初始化边界（2026-10-22，仅实现）：冻结输入/五次预算不变，新增每rank的`initialization.json`，记录源协议所钉住的已安装二进制身份、显式导入前后Python/NumPy/TorchCPU/CUDA RNG摘要及变化列表、零forward/backward热身声明；worker以SHA绑定，完成校验要求首个trial RNG等于初始化后RNG，缺审计/篡改/边界不符拒绝。不得通过恢复RNG消除首次导入记录，不把旧v1单份微型B1升级成完成；修复后的远端验证仍未执行。

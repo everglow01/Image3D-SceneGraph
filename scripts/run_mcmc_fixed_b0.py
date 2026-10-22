@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+from importlib import import_module
+from importlib.machinery import ExtensionFileLoader
+from importlib.util import find_spec
 import os
 from pathlib import Path
 import shutil
@@ -23,11 +26,11 @@ from image3d_scenegraph.file_integrity import sha256_file
 from image3d_scenegraph.gaussian.absgrad_resources import run_stage
 from image3d_scenegraph.gpu_lease import FileLease, require_idle_gpu
 
-PROFILE = "mcmc_fixed_b0_five_repeats_v1"
+PROFILE = "mcmc_fixed_b0_five_repeats_v2"
 SOURCE = PROJECT / "outputs/analysis/backward-boundary-20261022-v1"
 SOURCE_SHA = "d17d6f12125e3d15fe11f02ce822c872c2663a073f619108f958748a5b53ad0c"
 COMPARISON_SHA = "c5f7efd5bac8b73e16c7067d59ed6a6ea811f2287fab397817922bfeba9b7c24"
-UNIT = "image3d-fixed-b0-v1.service"
+UNIT = "image3d-fixed-b0-v2.service"
 DEPENDENCIES = native.DEPENDENCIES + ("scripts/run_mcmc_backward_boundary.py", "scripts/run_mcmc_fixed_b0.py",
                                     "scripts/mcmc_fixed_b0_analysis.py", "tests/test_mcmc_fixed_b0_remote.py",
                                     "src/image3d_scenegraph/gaussian/absgrad_resources.py")
@@ -37,7 +40,8 @@ CONTRACT = {"profile": PROFILE, "source": str(SOURCE), "source_protocol_sha256":
     "selection": analysis.SELECTION, "anomalies": [list(x) for x in analysis.ANOMALIES],
     "atol": snapshots.ATOL, "rtol": snapshots.RTOL, "host_limits": None, "limits": LIMITS,
     "new_optimizer_updates": 0, "new_forward_calls": 0, "backward_calls": 10, "tensor_pair_count": 80,
-    "rng_policy": "unchanged_current_worker_rng_no_historical_restore",
+    "rng_policy": "unchanged_post_initialization_rng_no_restore",
+    "initialization": "audited_pinned_precompiled_import_without_warmup_v1",
     "old_gate1": "not_reclassified", "scope": "same_process_per_camera_five_repeats_not_global_error_bound",
     "propagation": "historical_AA_only_not_replayed_downstream", "test_boundary": "no_Test_or_Validation_read"}
 read, write_new = native.read, snapshots.write_new
@@ -197,15 +201,50 @@ def storage_ids(values):
     return {(str(v.device), v.untyped_storage().data_ptr()) for v in values if v is not None and v.numel()}
 
 
+def initialize_backend():
+    if sha256_file(SOURCE / "protocol.json") != SOURCE_SHA:
+        raise ValueError("initialization source protocol differs")
+    pair = read(SOURCE / "protocol.json")["pair"]
+    package = Path(pair["source_package"])
+    before = rng_state()
+    before_hash = digest_state(before)
+    components_before = {k: digest_state(v) for k, v in before.items()}
+    spec = find_spec("gsplat.csrc")
+    if spec is None or not isinstance(spec.loader, ExtensionFileLoader) or not spec.origin:
+        raise ValueError("pinned precompiled extension required; no JIT fallback")
+    path = snapshots.safe_file(package, Path(spec.origin).relative_to(package))
+    expected = pair["source_hashes"].get(str(path.relative_to(package)))
+    if expected is None or sha256_file(path) != expected:
+        raise ValueError("precompiled extension identity differs")
+    # Import the installed binary first: a missing binary fails instead of entering backend JIT.
+    extension = import_module("gsplat.csrc")
+    backend = import_module("gsplat.cuda._backend")
+    if (backend._C is not extension or Path(extension.__file__).resolve() != path.resolve()
+            or not callable(getattr(extension, "rasterize_to_pixels_3dgs_bwd", None))
+            or sha256_file(path) != expected):
+        raise ValueError("loaded backend identity differs")
+    after = rng_state()
+    components_after = {k: digest_state(v) for k, v in after.items()}
+    return {"method": CONTRACT["initialization"], "extension": str(path), "extension_sha256": expected,
+            "rng_before": components_before, "rng_after": components_after,
+            "rng_before_sha256": before_hash, "rng_after_sha256": digest_state(after),
+            "changed_rng_components": [k for k in components_before if components_before[k] != components_after[k]],
+            "warmup_forward_calls": 0, "warmup_backward_calls": 0}
+
+
 def replay_five(folder, output, rank):
     import torch
     from gsplat.cuda._wrapper import _RasterizeToPixels
     ctx, payload = load_context(folder, rank)
     output.mkdir(exist_ok=False)
+    initialization = initialize_backend()
+    write_new(output / "initialization.json", initialization)
     inputs = [*ctx.saved_tensors, *payload["image_gradients"].values()]
     torch.cuda.synchronize(rank)
     expected = digest_state(payload)
     rng = digest_state(rng_state())
+    if rng != initialization["rng_after_sha256"]:
+        raise ValueError("RNG changed between initialization and measurement")
     previous, records = None, []
     for trial in range(analysis.REPEATS):
         torch.cuda.synchronize(rank)
@@ -238,6 +277,7 @@ def replay_five(folder, output, rank):
         previous = values
     return {"rank": rank, "status": "replay_complete", "original_backward_calls": len(records),
             "source_manifest_sha256": sha256_file(folder / "manifest.json"), "trials": records,
+            "initialization_sha256": sha256_file(output / "initialization.json"),
             "new_optimizer_updates": 0, "new_forward_calls": 0}
 
 
@@ -252,6 +292,14 @@ def verify_worker(stage, rank):
         raise ValueError("wrong B0 source")
     if len({(r["input_sha256"], r["rng_sha256"]) for r in record["trials"]}) != 1:
         raise ValueError("input/RNG was not fixed")
+    init_path = snapshots.safe_file(stage, f"rank-{rank}/initialization.json")
+    if sha256_file(init_path) != record["initialization_sha256"]:
+        raise ValueError("initialization audit changed")
+    initialization = read(init_path)
+    if (initialization["method"] != CONTRACT["initialization"]
+            or initialization["warmup_forward_calls"] != 0 or initialization["warmup_backward_calls"] != 0
+            or initialization["rng_after_sha256"] != record["trials"][0]["rng_sha256"]):
+        raise ValueError("initialization/measurement boundary differs")
     for trial in record["trials"]:
         folder = stage / f"rank-{rank}" / f"trial-{trial['trial']}"
         if sha256_file(snapshots.safe_file(folder, "manifest.json")) != trial["manifest_sha256"]:
@@ -371,6 +419,7 @@ def compare(root, p, digest):
                        "bitwise_equal" if all(not any(s["bitwise_unequal_ratios"]) for s in summaries) else "numerically_equivalent")
     report = {**CONTRACT, "observed_pairwise_status": observed_status, "protocol_sha256": digest, "complete_sha256": sha256_file(stage / "complete.json"),
               "status": "analysis_complete", "ranks": ranks, "repeat_point_outputs": selected,
+              "initializations": {str(r): read(stage / f"rank-{r}/initialization.json") for r in (0, 1)},
               "historical_point_analysis": historical, "global_boundedness_proven": False,
               "new_P2_P3_computed": False, "MCMC_long_term_causality_proven": False}
     write_new(root / "comparison.json", report)

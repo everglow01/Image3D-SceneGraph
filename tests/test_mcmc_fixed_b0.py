@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import sys
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -91,16 +92,27 @@ def test_input_binding_tamper(tmp_path, monkeypatch):
 def test_worker_missing_reordered_and_changed_trials(tmp_path, monkeypatch):
     trials = [{'trial': i, 'manifest_sha256': 'x', 'input_sha256': 'same', 'rng_sha256': 'same'} for i in range(5)]
     record = {'rank': 0, 'status': 'replay_complete', 'original_backward_calls': 5, 'new_optimizer_updates': 0,
-              'new_forward_calls': 0, 'source_manifest_sha256': 'x', 'trials': trials}
+              'new_forward_calls': 0, 'source_manifest_sha256': 'x', 'trials': trials, 'initialization_sha256': 'x'}
     monkeypatch.setattr(runner, 'sha256_file', lambda _: 'x')
     monkeypatch.setattr(runner.snapshots, 'load_snapshot', lambda _: {})
     monkeypatch.setattr(runner.boundary, 'validate_boundary_schema', lambda *_: None)
-    monkeypatch.setattr(runner, 'read', lambda _: record)
+    initialization = {'method': runner.CONTRACT['initialization'], 'warmup_forward_calls': 0,
+                      'warmup_backward_calls': 0, 'rng_after_sha256': 'same'}
+    monkeypatch.setattr(runner, 'read', lambda p: initialization if p.name == 'initialization.json' else record)
     assert runner.verify_worker(tmp_path, 0) == record
     for changed in (trials[:-1], trials[::-1], [trials[0]] * 5):
         record['trials'] = changed
         with pytest.raises(ValueError, match='trial'):
             runner.verify_worker(tmp_path, 0)
+    record['trials'] = trials
+    initialization['warmup_backward_calls'] = 1
+    with pytest.raises(ValueError, match='boundary differs'):
+        runner.verify_worker(tmp_path, 0)
+    initialization['warmup_backward_calls'] = 0
+    record['initialization_sha256'] = 'tampered'
+    with pytest.raises(ValueError, match='audit changed'):
+        runner.verify_worker(tmp_path, 0)
+    record['initialization_sha256'] = 'x'
     record['trials'] = copy.deepcopy(trials)
     record['trials'][2]['input_sha256'] = 'changed'
     with pytest.raises(ValueError, match='not fixed'):
@@ -135,6 +147,8 @@ def test_no_extra_compute_or_rng_restore_in_runner():
     replay = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'replay_five')
     loops = [n for n in ast.walk(replay) if isinstance(n, ast.For)]
     assert len(loops) == 1 and ast.unparse(loops[0].iter) == 'range(analysis.REPEATS)'
+    init_call = next(n for n in ast.walk(replay) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'initialize_backend')
+    assert init_call.lineno < loops[0].lineno
     source = Path(runner.__file__).read_text()
     assert 'host_group=None' in source and 'require_idle_gpu()' in source and 'FileLease(' in source
 
@@ -176,3 +190,49 @@ def test_source_and_output_path_escape(tmp_path, monkeypatch):
     for name in ('../escape', '/absolute', 'symlink/file'):
         with pytest.raises(ValueError, match='unsafe'):
             runner.snapshots.safe_file(tmp_path, name)
+
+
+def test_backend_initialization_audits_import_without_kernel_or_rng_restore(tmp_path, monkeypatch):
+    binary = tmp_path / 'csrc.so'
+    binary.write_bytes(b'pinned-test-binary-not-executed')
+    expected = runner.sha256_file(binary)
+    monkeypatch.setattr(runner, 'SOURCE', tmp_path)
+    (tmp_path / 'protocol.json').write_text('{}')
+    monkeypatch.setattr(runner, 'SOURCE_SHA', runner.sha256_file(tmp_path / 'protocol.json'))
+    monkeypatch.setattr(runner, 'read', lambda _: {'pair': {'source_package': str(tmp_path), 'source_hashes': {'csrc.so': expected}}})
+    spec = SimpleNamespace(origin=str(binary), loader=runner.ExtensionFileLoader('gsplat.csrc', str(binary)))
+    monkeypatch.setattr(runner, 'find_spec', lambda _: spec)
+    kernel = Mock(side_effect=AssertionError('initialization must not launch kernels'))
+    extension = SimpleNamespace(__file__=str(binary), rasterize_to_pixels_3dgs_bwd=kernel)
+    state = {'python': 0, 'numpy': 0, 'torch': 0, 'cuda': [0, 0]}
+    monkeypatch.setattr(runner, 'rng_state', lambda: copy.deepcopy(state))
+    imported = []
+    def load(name):
+        imported.append(name)
+        if name == 'gsplat.csrc':
+            return extension
+        assert name == 'gsplat.cuda._backend'
+        state['python'] = 1
+        return SimpleNamespace(_C=extension)
+    monkeypatch.setattr(runner, 'import_module', load)
+    result = runner.initialize_backend()
+    assert imported == ['gsplat.csrc', 'gsplat.cuda._backend']
+    assert result['changed_rng_components'] == ['python'] and state['python'] == 1
+    assert result['rng_after_sha256'] == runner.digest_state(state)
+    assert result['extension_sha256'] == expected
+    assert result['warmup_backward_calls'] == result['warmup_forward_calls'] == 0
+    assert runner.initialize_backend()['changed_rng_components'] == []
+    kernel.assert_not_called()
+    monkeypatch.setattr(runner, 'import_module', lambda n: extension if n == 'gsplat.csrc' else SimpleNamespace(_C=object()))
+    with pytest.raises(ValueError, match='loaded backend identity'):
+        runner.initialize_backend()
+    monkeypatch.setattr(runner, 'import_module', load)
+    imported.clear()
+    binary.write_bytes(b'changed')
+    with pytest.raises(ValueError, match='identity differs'):
+        runner.initialize_backend()
+    assert imported == []
+    monkeypatch.setattr(runner, 'find_spec', lambda _: None)
+    with pytest.raises(ValueError, match='no JIT fallback'):
+        runner.initialize_backend()
+    assert imported == [] and 'torch' not in sys.modules

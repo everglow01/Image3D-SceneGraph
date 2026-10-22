@@ -59,6 +59,12 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## 固定B0初始化边界修复（2026-10-22，仅实现）
+
+用户要求修复后手动同步。新profile为`mcmc_fixed_b0_five_repeats_v2`、unit为`image3d-fixed-b0-v2.service`，保留首轮v1失败记录。在共享`replay_five`入口、五次计数和RNG基线建立前，按源协议SHA核验已安装`gsplat.csrc`原生扩展的loader/路径/文件SHA，先直接载入该二进制，再载入后端并确认`_C`对象身份及函数存在；缺扩展或身份不符即失败，不进入JIT fallback，不调用任何额外forward/backward作热身。初始化前后的四类RNG摘要与变化列表写入独立`initialization.json`，不恢复RNG；测量从初始化后的实际RNG状态开始，五次内部的全部输入/RNG严格检查原样保留。
+
+初始化审计SHA由worker记录绑定，完成校验要求零热身调用且首轮RNG摘要等于初始化后摘要；比较报告分别携带两rank审计，不把初始化消耗解释成CUDA核随机性。微型前置和正式回放共用该修复路径。本机只做禁Torch回归，远端修复后的前置/新实验尚未运行；不覆盖旧失败目录，不自行同步或重试。
+
 ## 固定B0首轮前置结果（2026-10-22）
 
 a6bea0a首轮远端前置1失败/2通过，真实回放未开始。第一份微型backward输出保存后Python RNG guard失败；NumPy/TorchCPU/CUDA RNG未变。静态导入链及已有状态的私有CPU推演支持首次lazy backend导入rich.style模块顶层getrandbits(24)副作用，但没有动态调用栈。原检查不放松，不把初始化消耗恢复掉；本轮无重试或源码修复，也无真实五次范围/长期因果结论。后续可另行将已安装扩展显式加载与审计置于测量前，不允许以额外未计数forward/backward作热身。历史实现定义及旧失败结果保留，新的尝试必须使用独立目录。

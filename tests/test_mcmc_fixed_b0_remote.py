@@ -47,6 +47,11 @@ def test_original_backward_five_calls_per_gpu_and_exact_context(tmp_path):
             with patch.object(_RasterizeToPixels, 'backward', staticmethod(counted)):
                 result = runner.replay_five(folder, out, rank)
             assert result['original_backward_calls'] == 5
+            init = runner.read(out / 'initialization.json')
+            assert result['initialization_sha256'] == runner.sha256_file(out / 'initialization.json')
+            assert init['warmup_forward_calls'] == init['warmup_backward_calls'] == 0
+            assert all(t['rng_sha256'] == init['rng_after_sha256'] for t in result['trials'])
+            assert init['method'] == runner.CONTRACT['initialization']
             for trial in range(5):
                 directory = out / f'trial-{trial}'
                 record = runner.snapshots.load_snapshot(directory)
