@@ -115,3 +115,10 @@ The probe exits with a narrowly caught completion signal after P4, before the na
 ## 2026-10-22 backward-boundary probe
 
 The level-one boundary probe uses the same immutable baseline 12k parent and the unchanged T1 native restoration path. Its separate profile binds the additional executable and B0/B1 schemas, leaving old protocol-bound files untouched. B0 saves all rasterizer backward context tensors, incoming image gradients and settings; B1 saves the returned gradients before communication. The worker and completion records bind both boundary manifests as well as the original P0–P4 records. These are CPU diagnostic snapshots, never replacement checkpoint components. Attribution requires bitwise-identical complete B0 inputs; tolerance-only input agreement is insufficient. No loss-only or fixed-input replay is automatically authorized, and no native final checkpoint or Validation candidate is produced.
+
+
+## 2026-10-22 固定B0独立回放
+
+新`mcmc_fixed_b0_five_repeats_v1`绑定原一级边界a臂B0及两臂历史P0/P1/P2/P3、完成/比较记录和全部快照SHA、包/core/脚本依赖、固定五次预算及预选六个owner/slot；旧协议及checkpoint不改、不复制、不反序列化训练状态。B0只重建原backward所需上下文和图像梯度，CPU→GPU回读核内容/布局身份；源文件变更、缺trial/rank、重复/重排、输入/RNG变化、输出别名或非有限均失败。每rank五份非pickle B1快照由worker→complete→comparison逐层绑定，附逐元素频次/range的NPY及SHA；它们不是checkpoint或新模型。
+
+无forward/optimizer/MCMC/Validation，也无Test图像读取；准备只核既有元数据、快照及checkpoint文件完整性，不调用replay图像字节验证。选点先于真实回放冻结，历史Adam状态分析和本轮B1重复数据分开标识来源；不产生新的P2/P3，不宣称长期退化因果或全局数值误差上界。当前是实现合同，不表示远端前置或真实五次观测已经完成。

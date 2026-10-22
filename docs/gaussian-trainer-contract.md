@@ -59,6 +59,16 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## 固定B0五次重复（2026-10-22，仅实现，远端待验证）
+
+`run_mcmc_fixed_b0.py`是另行获授权的窄回放入口，旧一级协议“不授权回放”的历史记录保持不变。只取`backward-boundary-20261022-v1`协议`d17d6f12…`的a臂，两相机各自原B0；校验完整源完成记录/比较身份、manifest/NPY/规范SHA、包/core/研究依赖与实际运行环境。CPU读取不恢复训练图，按原dtype/shape/stride/None/settings搬至对应GPU并回读核SHA；拒绝不支持的布局、非法索引、非有限和非本相机来源。两个独立worker各在同一进程内调用安装库原`_RasterizeToPixels.backward`五次，共十次，不调用forward/loss backward/通信/optimizer/strategy；无额外warmup或重试。保留原输出分配，检查输入/RNG不变、结果不与输入/尚存上一轮输出别名；记录当前worker RNG而不恢复历史RNG或掩盖副作用。微型前置用解析构造的一像素上下文，十次原backward另计，不混入实测预算。
+
+每相机内部全十组i<j比较，j为参考，合计二十组/八十个张量比较；沿用atol=2e-6/rtol=2e-4，输出严格/bitwise/绝对相对误差、ULP、非有限、逐元素十配对差异与超容差频次及五次range。signed zero在ULP中距离为零，但位级差异独立统计。原生a/B1距离单列，不算第六次重复。频次和极值重复率不是独立Gaussian计数；只给本输入/环境/五次的观测范围，不证明全局有界，不追认旧Gate通过。
+
+回放前固定owner0/223955、owner1/709801、owner1/1488267三个先前异常点，并为各点按同owner/可见相机模式、源A/A目标组P2/P3均在容差内筛选对照；以log1p总tile、log轴比、log四元数norm、log opacity平方距离最小且slot小者优先，排除已选点，无候选失败。六点不是无偏样本或因果匹配设计。独立CPU分析记录几何、两相机本轮B1五次变化，以及**历史一级A/A** P0/P2/P3/Adam矩/实际更新与float64标量公式；后者不是重跑Adam，更不把新B1拼成新的P2/P3传播轨迹。旧T1仅作提名依据另绑身份。本轮不回答MCMC长期因果，不自动改六分支验收。
+
+RAM max/high/swap无限额、host_group=None，18GiB/卡reserved、20GiB磁盘准入/4GiB停止与6h上限、继承GPU lease和独立`image3d-fixed-b0-v1.service`保留。新代码仅Git手动同步，远端前置通过才冻结选点/运行；新输出目录不覆盖、不复用失败目录。完成仅`replay_complete`，非训练完成；本机只禁Torch轻量检查，真实CUDA与统计检查必须显式远端opt-in，不能将未执行记作通过。
+
 ## Loss／rasterizer 反向边界一级实验（2026-10-22）
 
 `run_mcmc_backward_boundary.py`复用冻结T1恢复/资源/比较流程，仅在独立进程作用域适配profile与worker，不改旧脚本、12文件核心或安装包。原库a/b各独立从同一12k恢复一步，保留P0—P4，新增严格顺序P0/P1/B0/B1/P2/P3/P4：B0是原`_RasterizeToPixels.backward`入口，保存全部十个ctx.saved_tensors（含colors、last_ids、交换后的投影输入和排序数组）、实际dL/dRGB与dL/dalpha及width/height/tile/absgrad/needs_input_grad；B1是同一原调用返回、反向通信前的v_means2d/v_conics/v_colors/v_opacities/v_backgrounds。原raster backward恰调用一次，两边界均CUDA同步并写独立CPU非pickle快照；检查快照前后live状态、输入/输出张量摘要及RNG不变，失败不恢复掩盖。
