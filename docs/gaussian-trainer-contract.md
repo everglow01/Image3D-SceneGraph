@@ -59,6 +59,14 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## Loss／rasterizer 反向边界一级实验（2026-10-22）
+
+`run_mcmc_backward_boundary.py`复用冻结T1恢复/资源/比较流程，仅在独立进程作用域适配profile与worker，不改旧脚本、12文件核心或安装包。原库a/b各独立从同一12k恢复一步，保留P0—P4，新增严格顺序P0/P1/B0/B1/P2/P3/P4：B0是原`_RasterizeToPixels.backward`入口，保存全部十个ctx.saved_tensors（含colors、last_ids、交换后的投影输入和排序数组）、实际dL/dRGB与dL/dalpha及width/height/tile/absgrad/needs_input_grad；B1是同一原调用返回、反向通信前的v_means2d/v_conics/v_colors/v_opacities/v_backgrounds。原raster backward恰调用一次，两边界均CUDA同步并写独立CPU非pickle快照；检查快照前后live状态、输入/输出张量摘要及RNG不变，失败不恢复掩盖。
+
+协议单独绑定边界脚本与B0/B1完整字段，完成记录绑定边界报告/快照SHA，缺rank/阶段/字段拒绝。归因要求P0/P1及B0保存输入与设置严格位级相同：图像梯度先不同只定位loss backward区间，不能直接称SSIM；B0完整输入位级相同而B1不同才定位rasterizer backward；B0/B1相同但P2不同则定位下游；内部保存输入不同或RNG异常不做rasterizer归因。仍报告严格不等及既有2e-6/2e-4数值误差，不能用输入容差内替代位级相同。
+
+资源边界沿用T1：RAM无限额、18GiB/卡reserved、6h/阶段、快照磁盘准入与4GiB停止、GPU继承租约、独立unit `image3d-backward-boundary-{a,b}-v1.service`。只做一级两臂一步，不关闭SSIM/改Adam/通信/确定性，不自动执行loss-only或fixed-input replay，不恢复旧六分支。正常完成为probe_complete而非完整训练，无Validation评价/final checkpoint/Test解码；源码同步仅Git，真实执行前必须通过微型原生边界检查。本条是实现与执行定义，不表示真实结果已通过。
+
 ## A/A First-Divergence T1（2026-10-21，仅实现）
 
 旧Gate 1实测在原库control_a/control_b的12001步末参数/Adam严格比较失败，完整observed未启动、Gate 2被阻断；原六分支保持停止，不以新判据追认旧门禁通过。`run_mcmc_first_divergence.py`与`mcmc_first_divergence.py`提供独立原库T1：两独立进程组a/b各从同一已验证12k完整状态恢复，只执行12001一次更新（每臂1更新/2相机样本，合计2/4），名义30k/LR/SH/噪声/优化器配置不变。不提供T2/T3或自动串行追加入口，不加入贡献渲染、cohort、消融或确定性设置。
