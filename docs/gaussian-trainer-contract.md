@@ -59,6 +59,12 @@ Validation固定3k/5k/7k/10k/12k，逐次核对完整351个冻结视角、有限
 
 新目录 `outputs/analysis/apartment-camera-size-pair-20261021-v1/`，一个串行执行任务及唯一只读监控。每臂独立systemd unit、6小时上限、18GiB/卡reserved、20GiB磁盘准入/4GiB停止与GPU租约；RAM max/high/swap无限额、host_group=None。独立臂失败保留、不重试；另一臂仍须资源准入，两臂不完整不报成功。现有replay完整性可校验Test文件字节，但不解码或训练/评价Test RGB；不运行SOR、final-fit、30k完整训练或发布推广，不改原包/生产/通信配置。
 
+## 固定B0 v2实测结果（2026-10-22）
+
+6230db4在独立v2目录完成前置3项及双rank各五次原backward；初始化导入仅改变Python RNG，测量内全部输入/RNG不变、无额外热身。协议ff6e21e7…，全部20配对/80张量/5.4亿配对元素中严格与bitwise差异29,719,460、超原容差0、非有限0；90.1303%非零差异≤4ULP、97.7905%≤16ULP。独立CPU复核80配对与32份频次/range数组一致，状态numerically_equivalent不等于位级相同；只代表这组输入/环境/五次，不证明全局误差上界，原六分支Gate仍不追认。
+
+预选三异常及三匹配对照的历史六组Adam分析支持局部更新敏感性，且不能只以“旧矩为零”判断：709801的四元数处在旧v与当前g²混合区，零旧矩的对照413834却给相同更新；1488267的shN分量sigma/eps约.21才是eps主导。新B1没有经projection/通信回传生成新P2/P3，不把跨运行并列数据拼接成完整因果链；来源池恢复不对称及长期退化仍未证明。未改CUDA/确定性/通信/优化器或旧验收标准，后续统计非干预门槛须另行设计。
+
 ## 固定B0初始化边界修复（2026-10-22，仅实现）
 
 用户要求修复后手动同步。新profile为`mcmc_fixed_b0_five_repeats_v2`、unit为`image3d-fixed-b0-v2.service`，保留首轮v1失败记录。在共享`replay_five`入口、五次计数和RNG基线建立前，按源协议SHA核验已安装`gsplat.csrc`原生扩展的loader/路径/文件SHA，先直接载入该二进制，再载入后端并确认`_C`对象身份及函数存在；缺扩展或身份不符即失败，不进入JIT fallback，不调用任何额外forward/backward作热身。初始化前后的四类RNG摘要与变化列表写入独立`initialization.json`，不恢复RNG；测量从初始化后的实际RNG状态开始，五次内部的全部输入/RNG严格检查原样保留。

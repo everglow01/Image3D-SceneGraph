@@ -128,3 +128,6 @@ The level-one boundary probe uses the same immutable baseline 12k parent and the
 
 
 固定B0 v2初始化边界（2026-10-22，仅实现）：冻结输入/五次预算不变，新增每rank的`initialization.json`，记录源协议所钉住的已安装二进制身份、显式导入前后Python/NumPy/TorchCPU/CUDA RNG摘要及变化列表、零forward/backward热身声明；worker以SHA绑定，完成校验要求首个trial RNG等于初始化后RNG，缺审计/篡改/边界不符拒绝。不得通过恢复RNG消除首次导入记录，不把旧v1单份微型B1升级成完成；修复后的远端验证仍未执行。
+
+
+固定B0 v2结果补记（2026-10-22）：独立协议ff6e21e7…的两个worker均完成五次、初始化审计及全部trial绑定有效；真实10次原backward与前置10次分开记账，无额外热身/训练更新。源输入、包、回放快照file/canonical SHA及32份频次/range数组已独立复核，未生成新checkpoint/model/P2/P3；历史源状态仍只读。实测数值容差内不是旧严格Gate通过或全局有界证明，v1失败目录和历史记录保留。
