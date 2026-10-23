@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "run_id": "workspace-20261023-v1",
+  "experiment_id": "MCMC-B1-E004",
+  "kind": "gpu_migration_validation",
+  "catalogued_on": "2026-10-23",
+  "execution_status": "completed",
+  "acceptance_status": "numerical_pass_monitor_incomplete",
+  "historical_status": {
+    "old_gate1": "not_reclassified",
+    "old_reports_unchanged": true
+  },
+  "source_commit": {
+    "value": "4c49e8fa4a9070ee7ef94e259a773d5e9f2c8520",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/remote-verification.json",
+    "field": "git_commit"
+  },
+  "protocol_sha256": {
+    "value": "34126cd50d0c7d02fe508cfec5701cc1c4768cf7e5b0d6efa2f09a5b01025ce0",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261023-103744-3d60",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/submission.json",
+    "field": "execution_task"
+  },
+  "monitor_task": {
+    "value": "20261023-103744-ebc6",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/submission.json",
+    "field": "unique_monitor_task"
+  },
+  "started_at_utc": {
+    "value": "2026-10-23T02:37:44+00:00",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/execution-log.log",
+    "field": "first date -u line"
+  },
+  "ended_at_utc": {
+    "value": "2026-10-23T02:43:47+00:00",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/execution-log.log",
+    "field": "last date -u line after complete"
+  },
+  "panel_statuses": {
+    "execution": {
+      "value": {
+        "id": "20261023-103744-3d60",
+        "running": false,
+        "finished": true,
+        "exit_code": 0,
+        "log_size": 1522
+      },
+      "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/execution-status.json"
+    },
+    "monitor": {
+      "value": {
+        "id": "20261023-103744-ebc6",
+        "running": false,
+        "finished": false,
+        "exit_code": null,
+        "log_size": 3853
+      },
+      "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/monitor-status.json"
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-23T02:52:15.011515+00:00",
+    "host": "i-94B8D131",
+    "project": "/usr/local/3dgs_new/Image3D-SceneGraph",
+    "output_root": {
+      "value": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1",
+      "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/submission.json",
+      "field": "remote_project + remote_run"
+    },
+    "note": "记录时核验有效，不代表未来可用；监控日志包含执行退出码0与最终comparison SHA，但面板监控finished=false、exit_code=null，原因未确定。"
+  },
+  "previous_attempt": null,
+  "validation": {
+    "preflight_tests_passed": 3,
+    "synthetic_backward_calls": 10,
+    "real_backward_calls": 10,
+    "new_forward_calls": 0,
+    "new_optimizer_updates": 0,
+    "within_run_tensor_pairs": 80,
+    "within_run_above_tolerance": 0,
+    "within_run_nonfinite": 0,
+    "old_helper_statistics_rechecked": 80,
+    "new_vs_old_aligned_trial_pairs": 40,
+    "new_vs_old_above_tolerance": 0,
+    "new_vs_old_nonfinite": 0,
+    "historical_points_exactly_equal": true,
+    "data_validity": "passed",
+    "numerical_status": "numerically_equivalent",
+    "monitor_terminal_status": "missing",
+    "per_rank_peak_reserved_bytes": [
+      585105408,
+      572522496
+    ],
+    "replay_elapsed_seconds": 21.01601321902126,
+    "new_P2_P3_computed": false,
+    "global_boundedness_proven": false,
+    "MCMC_long_term_causality_proven": false
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/submission.json",
+      "sha256": "9ed7c024e276066d1045225bde09535809a19f54bd8aa66045376302de6fcaff",
+      "role": "submission.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/command.sh",
+      "sha256": "9bcbef3634adad715cfe3b695064cd2d792a61b0046152114e1f64e129228d02",
+      "role": "command.sh",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/monitor.sh",
+      "sha256": "6858d73c3f862b267fc11cc50e4131c5d69e008d30a0a070752d6e00325b737a",
+      "role": "monitor.sh",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/execution-status.json",
+      "sha256": "af5792d7bdf1544c31d3ccc9c5e09794f092441ef6a26e04a644291207c727b4",
+      "role": "execution-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/monitor-status.json",
+      "sha256": "dba08350edcb7f974fbac026e493e67b44936c9a8475893a2ff8208992742baa",
+      "role": "monitor-status.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/execution-log.log",
+      "sha256": "5b3f4eb6b22bd0ce7702399735e44b38fd1ece6d762675e234a8bb37cd789681",
+      "role": "execution-log.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/monitor-log.log",
+      "sha256": "efd2c201ecebdbed46e22fc1fdeac231a496e2d8e056ab3691238c0316d3c39e",
+      "role": "monitor-log.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/remote-verification.json",
+      "sha256": "5e0143cd5d0934be41a0711baa74fd16612fa79781262792f7d38104b2f7e32f",
+      "role": "remote-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/download-verification.json",
+      "sha256": "e0680a2fd78ee01173e5cb6015ae91b9a9dc3fb3265880127d8965c40eb493be",
+      "role": "download-verification.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/readonly-numerics-rank-0.stdout",
+      "sha256": "1a36baecb6c2b583917e54d4bd958853e4245279e2f330ec62288a6cf40c8cf4",
+      "role": "readonly-numerics-rank-0.stdout",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/readonly-numerics-rank-1.stdout",
+      "sha256": "efd9d17ac63fbd62dba934792e4f5f9163be0d818ef9c3bd220cdbf06f15639c",
+      "role": "readonly-numerics-rank-1.stdout",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/readonly-numerics-rank-0.py",
+      "sha256": "75b07e613f29efcc78f785c6c24a06656e8e389b568c752f5d9207ef8a43fa4d",
+      "role": "readonly-numerics-rank-0.py",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/readonly-numerics-rank-1.py",
+      "sha256": "f10fdfdc772db25457090b368de07c3c465ea0c4338214d445c094e0a2050fba",
+      "role": "readonly-numerics-rank-1.py",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/comparison.json",
+      "sha256": "cab6a91e20999442fb8d70f0d80285f1b8e4b6a2e55ddae209ed5ec5915037b8",
+      "role": "incoming/comparison.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/check-tmp/test_original_backward_five_ca0/preflight-call-counts.json",
+      "sha256": "f82be66ed27f9f1ebbc1e765415549e40991106194bfaa18d546326e86a7876e",
+      "role": "incoming/preflight/check-tmp/test_original_backward_five_ca0/preflight-call-counts.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/compare.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "role": "incoming/preflight/execution/compare.exit-code",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/compare.log",
+      "sha256": "3388526773bc0a2593c81d63196e0056d9b61d428656b5de3bb4caec2f9fbc57",
+      "role": "incoming/preflight/execution/compare.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/events.log",
+      "sha256": "5ac50a27f77ba6172a4448ef6deb9aa3c1d6a53970e8e053a082003e6083eea5",
+      "role": "incoming/preflight/execution/events.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/owner.pid",
+      "sha256": "bdca0a92aaad47bdfdcd6977357ab1eeddc4d4278d94317a4ecf5b9268ecbf13",
+      "role": "incoming/preflight/execution/owner.pid",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/preflight.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "role": "incoming/preflight/execution/preflight.exit-code",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/preflight.log",
+      "sha256": "e2a7908164c89ab1344cfd7d96140d19bde7d4e3146d65a99838a707716da29b",
+      "role": "incoming/preflight/execution/preflight.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/prepare.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "role": "incoming/preflight/execution/prepare.exit-code",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/prepare.log",
+      "sha256": "982d7360ca49cb3283d6e9857019ca2b9481f48c42a0195d350680c5f2e32300",
+      "role": "incoming/preflight/execution/prepare.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/protocol.sha256",
+      "sha256": "6b86ea4ddf201147f0cf096d68dcb90495d80e2f24cc0ddd2b5c85cb2744f263",
+      "role": "incoming/preflight/execution/protocol.sha256",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/run.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "role": "incoming/preflight/execution/run.exit-code",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/run.log",
+      "sha256": "ff4dc9703812855e89e3e6fdcb36fe4fc2c63754fd5bdb2be2fcbafd830e4379",
+      "role": "incoming/preflight/execution/run.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/source-verification.log",
+      "sha256": "ab247c7549332e2e932b071f266d4768dee3a4c15a63a73c93aa2f1818755a3b",
+      "role": "incoming/preflight/execution/source-verification.log",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/preflight/execution/suite.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "role": "incoming/preflight/execution/suite.exit-code",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/protocol.json",
+      "sha256": "34126cd50d0c7d02fe508cfec5701cc1c4768cf7e5b0d6efa2f09a5b01025ce0",
+      "role": "incoming/protocol.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/complete.json",
+      "sha256": "b6db289c79605796eb0ee3f6d82690e92e881be465712aa14ace7fdaf79d0f45",
+      "role": "incoming/replay/complete.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/memory/rank-0.json",
+      "sha256": "b92abdca4a08739fbe7bc850fb161f8cdf794b18c3e8bfc521f67385f213a428",
+      "role": "incoming/replay/memory/rank-0.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/memory/rank-1.json",
+      "sha256": "e234d242422ce9390c5751326919667d9a9cdc4c7db9beae4e1a404d563a447c",
+      "role": "incoming/replay/memory/rank-1.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/rank-0/initialization.json",
+      "sha256": "9a20d51c985850159a72f1bb156eb5db52c0edfd7e76a2e61ee77ab869f8300c",
+      "role": "incoming/replay/rank-0/initialization.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/rank-1/initialization.json",
+      "sha256": "48d0b2c93bb081c0306c0ccfa04f8c6e0a850ecce64ac5239dc5ef8a7a13bb0b",
+      "role": "incoming/replay/rank-1/initialization.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/replay.exit.json",
+      "sha256": "5325d786bf3563cd4e87e4c829c5a2b4c836e3c246311c0b4977b3ce4a918f90",
+      "role": "incoming/replay/replay.exit.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/worker-rank-0.json",
+      "sha256": "66c2b5e229ea02d8b4cfdf43cd739802f9e8b066b58cbfec399a4c7b595aa32a",
+      "role": "incoming/replay/worker-rank-0.json",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs/workspace-20261023-v1-local/incoming/replay/worker-rank-1.json",
+      "sha256": "d8d60d5bd3c205990268dd1da0118e0425cac6ff301c43f40497843dc81da2bc",
+      "role": "incoming/replay/worker-rank-1.json",
+      "availability": "local_verified"
+    }
+  ],
+  "reproduction_note": "本次仅验收迁移后的固定B0入口。原科学合同与预算不变；新旧输出按相机/同序号试次比较，不要求独立运行位级一致。旧统计函数复算不是第二份独立统计实现。禁止据此追认旧Gate或启动新科学实验。"
+}

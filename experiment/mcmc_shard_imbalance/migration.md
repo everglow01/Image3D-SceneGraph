@@ -1,6 +1,6 @@
 # MCMC 迁移与保留边界
 
-更新日期：2026-10-22。固定 B0 历史文本分析已验收，新 GPU 代码已迁入但远端验收未运行；其他 GPU runner 尚未迁移。
+更新日期：2026-10-23。固定 B0 历史文本分析已验收，新 GPU 入口执行与数值验收通过，监控面板终态缺失单列；其他 GPU runner 尚未迁移。详见 [远端验收](branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/workspace-20261023-v1.md)。
 
 ## 代码归属与当前状态
 

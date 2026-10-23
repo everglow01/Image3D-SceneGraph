@@ -11,7 +11,7 @@
     "MCMC-B1-E003"
   ],
   "informed_by": [],
-  "migration_status": "gpu_implementation_migrated_remote_not_run",
+  "migration_status": "gpu_implementation_migrated_remote_executed",
   "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md",
   "legacy_entrypoints": [
     "scripts/run_mcmc_fixed_b0.py",
@@ -31,14 +31,16 @@
   ],
   "run_records": [
     "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/fixed-b0-results-20261022-v1.json",
-    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/fixed-b0-results-20261022-v2.json"
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/fixed-b0-results-20261022-v2.json",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/workspace-20261023-v1.json"
   ],
   "shared_run_records": [],
   "reviewed_reports": [
     "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/fixed-b0-results-20261022-v1.md",
     "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/fixed-b0-results-20261022-v2.md",
     "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/analysis-migration-20261022-v1.md",
-    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.md"
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/workspace-20261023-v1.md"
   ],
   "active_analysis": {
     "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/analyze.py",
@@ -69,9 +71,10 @@
     "profile": "mcmc_fixed_b0_five_repeats_workspace_v1",
     "unit": "image3d-fixed-b0-workspace-v1.service",
     "output_root": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/runs",
-    "remote_validation": "not_run",
+    "remote_validation": "numerical_pass_monitor_incomplete",
     "remote_test_opt_in": "IMAGE3D_AUTHORIZE_FIXED_B0_WORKSPACE_TESTS",
     "verification_report": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.md",
-    "verification_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.json"
+    "verification_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.json",
+    "remote_validation_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/records/workspace-20261023-v1.json"
   }
 }

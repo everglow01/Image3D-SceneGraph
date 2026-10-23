@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-23，固定 B0 迁移验收已完成，监控面板终态缺项保留；按用户批准方案准备 [E006 单步连通传播](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md)，在同源恢复下比较原生、同一 B1、不同实测 B1，P3 后停止，不改训练 core、不追认旧 Gate、不代替独立 A/A。新代码待 Git 同步，远端前置及真实执行未运行。
+
 - 2026-10-22，研究目录收尾：保留 experiment 的 Git 管理范围，将 Q1/Q2/Q3/B1/B2/B3 六份重复导航 README 的独有内容合入课题首页后删除，迁移清单去掉 55 条重复路径表，修正现行状态并分开迁移验收与后续科学实验准备；运行代码、测试、身份 JSON、历史载荷及个人文件不改，无远端操作或新实验。详见 [研究入口](experiment/mcmc_shard_imbalance/README.md)。
 
 - 2026-10-22，继续非破坏性迁移固定 B0 GPU runner 到 experiment/E004：新 run/tensor_analysis/冻结桥及旁置测试，profile 为 mcmc_fixed_b0_five_repeats_workspace_v1，子进程以新模块启动、输出限本实验 runs；原科学预算/资源保护不改，旧源码/协议/产物原位保留。旧来源验真经逐文件 SHA 桥接，入口/帮助不加载 Torch/NumPy/gsplat；本机 NoTorch/关联回归通过，远端前置和真实新回放 not_run，无远端访问或新实验，详见 [迁移报告](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/gpu-migration-local-20261022-v1.md)。

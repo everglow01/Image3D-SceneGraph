@@ -26,7 +26,7 @@ python3 -I experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/e
 
 不加载数组库、模型或图像。原脚本留作历史版本，见 [维护退役记录](../../../../history/README.md)。[本机测试](tests/test_fixed_b0_analysis_migration.py) 与 [迁移验收](reports/analysis-migration-20261022-v1.md) 已完成；此入口**不能处理新 GPU profile 的结果**。
 
-### 新 GPU 入口：尚未远端验收
+### 新 GPU 入口：迁移验收已完成（保留监控终态缺项）
 
 [run.py](run.py) 负责 prepare/run/worker/compare，[tensor_analysis.py](tensor_analysis.py) 负责统计。仅查看参数可在仓库根执行：
 
@@ -42,19 +42,20 @@ python -m experiment.mcmc_shard_imbalance.branches.b1_observation_reliability.ex
 | 真实环境 | i-94B8D131 的 /usr/local/3dgs_new/Image3D-SceneGraph |
 | 远端前置 opt-in | IMAGE3D_AUTHORIZE_FIXED_B0_WORKSPACE_TESTS=1；旧变量不生效 |
 | 授权 | 显式阶段授权及协议 SHA；worker 另需继承 GPU lease |
-| 状态 | 本机 NoTorch 通过；远端前置、真实回放、同源数值验收均 not_run |
+| 状态 | 2026-10-23 前置 3 项、真实 80 项重复比较、40 项新旧对齐比较通过；执行退出 0，监控面板终态缺失 |
 
 [legacy.py](legacy.py) 按 [gpu-source.json](gpu-source.json) 核验后复用旧来源验证和 snapshot/schema/RNG 能力；不是旧 main 的转发壳，但尚未完全解耦。原 scripts、测试及 core 不删，资源保护不变，新入口拒绝旧 v2 协议。
 
-- [本机 GPU 迁移报告](reports/gpu-migration-local-20261022-v1.md)
+- [远端迁移验收](reports/workspace-20261023-v1.md) / [运行记录](records/workspace-20261023-v1.json)
+- [本机 GPU 迁移报告（历史时点）](reports/gpu-migration-local-20261022-v1.md)
 - [NoTorch 测试](tests/test_fixed_b0_gpu_runner.py) / [远端前置测试](tests/test_fixed_b0_gpu_remote.py)
 
 <a id="next"></a>
-## 下一步：先验收迁移，不扩大科学范围
+## 复现顺序与下一步边界
 
 1. 明确提交范围、经 Git 提交后由用户手动同步；核对远端主机/目录、提交、新旧源码 SHA、历史来源及环境。源码没有同步或来源缺失时停止，不上传源码包绕过。
 2. 单独授权新 opt-in 微型前置；检查当时 GPU 型号/数量/空闲、lease 和资源条件。前置结果单列，不能当作真实回放。
 3. 前置通过后，按已授权范围 prepare 新目录/协议，核协议 SHA，再以唯一执行和只读监控运行五次回放及 compare；保留失败记录，不自动重试。
-4. 对同源新旧统计做数值验收，分别记录执行、数据有效性、数值结果。当前没有新 prepare 协议或 GPU 任务，不因本机测试或历史 v2 通过而晋级。
+4. 对同源新旧统计做数值验收，分别记录执行、数据有效性、数值结果。2026-10-23 已按此顺序完成一次新入口验收；监控面板终态缺失仍保留，不重跑补标志，也不因数值通过而晋级科学研究。
 
-以上是迁移验收顺序，不是执行授权。真正连通 B1→P2→P3、独立 A/A 基线和后续生命周期是 [另待冻结的科学研究](../../../../README.md#下一步与执行状态)，不得用本实验历史六点分析替代。
+以上是今后复现时的顺序，不是新增运行授权；下次启动前需处理监控终态问题。真正连通 B1→P2→P3、独立 A/A 基线和后续生命周期是 [另待冻结的科学研究](../../../../README.md#下一步与执行状态)，不得用本实验历史六点分析替代。

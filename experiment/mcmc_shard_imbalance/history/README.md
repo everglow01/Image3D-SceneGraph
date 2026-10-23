@@ -30,7 +30,7 @@
 
 ## 维护退役，不是物理删除
 
-固定 B0 v2 的两份旧本地分析不再作为维护入口，现役实现是 [E004/analyze.py](../branches/b1_observation_reliability/experiments/e004_fixed_b0/analyze.py)。旧文件仍被来源清单绑定，原位保留。C 第一批当时尚未迁移 GPU 入口，因此该批代码删除清单为空。此后 [固定 B0 代码已迁入](../branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md)，但远端验证未运行且仍依赖旧代码；产品共享资源代码也仍在使用。
+固定 B0 v2 的两份旧本地分析不再作为维护入口，现役实现是 [E004/analyze.py](../branches/b1_observation_reliability/experiments/e004_fixed_b0/analyze.py)。旧文件仍被来源清单绑定，原位保留。C 第一批当时尚未迁移 GPU 入口，因此该批代码删除清单为空。此后 [固定 B0 代码已迁入](../branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md)，其现行远端验收状态见链接，仍依赖旧代码；产品共享资源代码也仍在使用。
 
 下一批真正减少 scripts/src 文件，需要先完成相应 B 迁移闭包和验证，再确认新的 C 清单。个人文档、原锁、旧 protocol/complete/报告/张量均不在清理范围。
 

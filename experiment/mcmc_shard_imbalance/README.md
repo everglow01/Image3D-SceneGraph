@@ -1,6 +1,6 @@
 # MCMC 分片恢复不对称
 
-**当前阶段：历史证据整理与可信观测准备；唯一长期根因未证明。** 更新日期：2026-10-22。
+**当前阶段：固定 B0 迁移验收已完成，进入连通传播协议准备；唯一长期根因未证明。** 更新日期：2026-10-23。
 
 ## 主问题
 
@@ -63,13 +63,13 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 ## 下一步与执行状态
 
-**工程准入尚未完成：** 固定 B0 新入口通过本机 NoTorch 检查，远端验证未运行。先完成明确范围的 Git 提交与用户手动同步，再单独授权迁移验收；顺序见 [E004](branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md#next)。重复运行用于验收迁移，不是长期失衡的新因果证据。
+**迁移验收阶段已完成（保留监控终态缺项）：** 2026-10-23 固定 B0 前置 3 项通过，真实 80 项重复比较和 40 项新旧对齐比较均在原容差内；执行任务正常完成，唯一监控日志已见结果但面板结束标志缺失。详见 [验收报告](branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/workspace-20261023-v1.md)。本次不重跑补标志；下次启动前处理监控终态问题。迁移验收不是长期失衡的新因果证据。
 
-**科学下一步尚无新协议，也未获执行授权：**
+**科学下一步：** [E006 单步连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) 已进入实现与本机检查，远端前置和真实执行均未运行；实际源绑定 protocol 需同步后 prepare。三类对照不代替独立无观测 A/A。
 
 | 待设计项 | 要冻结的内容 |
 |---|---|
-| 连通 B1→P2→P3 传播 | 同一源状态和环境；只改变实测 B1 输入，跟踪梯度、Adam 更新、参数与距死亡阈值的变化；预先定义选点、对照、有限性及误差指标，不能拿历史 A/A 的 P2/P3 代替。 |
+| 连通 B1→P2→P3 传播 | 先核实反向图重建与 B1 接入条件；同一初始参数/Adam 状态、相机和环境下，设原生直通、同一 B1 重复、不同实测 B1 三类对照，每次独立恢复起点，仅到一次 Adam 更新。全量梯度/参数统计为主，预选六点用于解释；必要的 forward 重建计入新预算，不能拿历史 A/A 的 P2/P3 代替。 |
 | 独立 A/A 与非干预验收 | 无观测基线和带观测路径的对照、重复次数、独立基线与验收数据、指标和失败条件；不以已有五次最大差异直接放宽旧门槛。 |
 | 预算与停止条件 | 在新协议中明确回放/更新次数、窗口、磁盘/显存/时限、来源或 RNG 意外改变及非有限时的处置；数值尚未冻结，不套用旧实验授权。 |
 
@@ -91,6 +91,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 | B1 | [MCMC-B1-E003 · 完整 B0／B1 反向边界定位](branches/b1_observation_reliability/experiments/e003_backward_boundary/README.md) | 完整 B0 与图像梯度位级一致，B1 已不同；首差位于 rasterizer backward 内、反向通信之前。 |
 | B1 | [MCMC-B1-E004 · 固定 B0 五次重复与六点敏感性](branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md) | v1 前置因首次导入改变 Python RNG 而停止；v2 审计初始化后，两相机各五次，80 项比较全部在原容差内且无非有限。 |
 | B1 | [MCMC-B1-E005 · 反向源码与 ULP／累加规模只读分析](branches/b1_observation_reliability/experiments/e005_readonly_localization/README.md) | 源码和差异分布最支持浮点原子累加顺序候选；近零大 ULP 不等于大绝对误差。 |
+| B1 | [MCMC-B1-E006 · 单步 B1→P2→P3 连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) | 代码与本机轻量检查完成；native/same/varied最多10个独立单步case，P3后立即停止；远端未运行。 |
 | B2 | [MCMC-B2-E001 · 原库异尺寸单卡／双卡等价性诊断](branches/b2_camera_size_correctness/experiments/e001_native_equivalence/README.md) | 异尺寸出现差异，但首轮同尺寸对照也失败，需先排除排序混杂。 |
 | B2 | [MCMC-B2-E002 · 统一 Gaussian 顺序的尺寸对照](branches/b2_camera_size_correctness/experiments/e002_order_controls/README.md) | 排序控制通过，异尺寸问题仍在，修复目标收敛为每目标相机的 width/height。 |
 | B2 | [MCMC-B2-E003 · 目标相机尺寸隔离修复门禁](branches/b2_camera_size_correctness/experiments/e003_size_repair/README.md) | 12 个合成用例、每例 5 步通过原容差。 |

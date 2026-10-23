@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B1-E006",
+  "title": "单步 B1→P2→P3 连通传播",
+  "owner": "B1",
+  "related_questions": [
+    "Q1",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B1-E003",
+    "MCMC-B1-E004"
+  ],
+  "informed_by": [
+    "MCMC-B1-E002"
+  ],
+  "migration_status": "new_experiment_implemented_remote_not_run",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [],
+  "run_records": [],
+  "shared_run_records": [],
+  "reviewed_reports": [],
+  "implementation": {
+    "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/run.py",
+    "helpers": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/probe.py",
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/analyze.py"
+    ],
+    "local_tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/tests/test_connected_propagation.py"
+    ],
+    "remote_tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/tests/test_connected_propagation_remote.py"
+    ],
+    "remote_validation": "not_run",
+    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_CONNECTED_PROPAGATION_TESTS"
+  }
+}

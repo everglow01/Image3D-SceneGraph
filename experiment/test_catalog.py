@@ -54,8 +54,10 @@ class ResearchCatalogTests(unittest.TestCase):
                 self.assertIn(item["migration_status"], {
                     "indexed_legacy_not_moved", "analysis_migrated_execution_frozen",
                     "gpu_implementation_migrated_remote_not_run",
+                    "gpu_implementation_migrated_remote_executed",
+                    "new_experiment_implemented_remote_not_run",
                 })
-                if item["migration_status"] == "indexed_legacy_not_moved":
+                if item["migration_status"] in {"indexed_legacy_not_moved", "new_experiment_implemented_remote_not_run"}:
                     self.assertNotIn("active_analysis", item)
                 else:
                     self.assertIn("active_analysis", item)
@@ -68,9 +70,22 @@ class ResearchCatalogTests(unittest.TestCase):
                         self.assertTrue(target.is_file(), value)
                 if "gpu_runner" in item:
                     self.assertEqual(item["id"], "MCMC-B1-E004")
-                    self.assertEqual(item["migration_status"], "gpu_implementation_migrated_remote_not_run")
+                    expected = ("gpu_implementation_migrated_remote_not_run"
+                                if item["gpu_runner"]["remote_validation"] == "not_run"
+                                else "gpu_implementation_migrated_remote_executed")
+                    self.assertEqual(item["migration_status"], expected)
                     self.assertEqual(repository_path(item["gpu_runner"]["entrypoint"]), path.with_name("run.py"))
                     self.assertTrue(path.with_name("run.py").is_file())
+                elif "implementation" in item:
+                    self.assertEqual(item["id"], "MCMC-B1-E006")
+                    self.assertEqual(item["migration_status"], "new_experiment_implemented_remote_not_run")
+                    implementation = item["implementation"]
+                    self.assertEqual(repository_path(implementation["entrypoint"]), path.with_name("run.py"))
+                    self.assertEqual(implementation["remote_validation"], "not_run")
+                    self.assertEqual(item["run_records"], [])
+                    for value in [implementation["entrypoint"], *implementation["helpers"],
+                                  *implementation["local_tests"], *implementation["remote_tests"]]:
+                        self.assertTrue(repository_path(value).is_file(), value)
                 else:
                     self.assertFalse(path.with_name("run.py").exists())
 
@@ -117,7 +132,10 @@ class ResearchCatalogTests(unittest.TestCase):
                 task_ids.append(task)
             self.assertTrue(record["execution_status"])
             self.assertTrue(record["acceptance_status"])
-            self.assertEqual(record["remote_evidence"]["availability"], "remote_not_rechecked")
+            remote = record["remote_evidence"]
+            self.assertIn(remote["availability"], {"remote_not_rechecked", "remote_verified_at_record_time"})
+            if remote["availability"] == "remote_verified_at_record_time":
+                self.assertTrue(remote["verified_at_utc"])
         self.assertEqual(len(run_ids), len(set(run_ids)))
         self.assertEqual(len(task_ids), len(set(task_ids)), "同一执行任务被重复登记")
         for record in self.records.values():
@@ -217,7 +235,25 @@ class ResearchCatalogTests(unittest.TestCase):
                 self.assertTrue(repository_path(gpu[key]).is_file(), gpu[key])
             for value in gpu["helpers"] + gpu["local_tests"] + gpu["remote_tests"]:
                 self.assertTrue(repository_path(value).is_file(), value)
-            self.assertEqual(gpu["remote_validation"], "not_run")
+            self.assertIn(gpu["remote_validation"], {"not_run", "numerical_pass_monitor_incomplete"})
+            if gpu["remote_validation"] != "not_run":
+                remote_path = repository_path(gpu["remote_validation_record"])
+                self.assertIn(remote_path, self.records)
+                remote = self.records[remote_path]
+                self.assertEqual(remote["acceptance_status"], gpu["remote_validation"])
+                self.assertEqual(remote["execution_status"], "completed")
+                self.assertTrue(remote["panel_statuses"]["execution"]["value"]["finished"])
+                self.assertEqual(remote["panel_statuses"]["execution"]["value"]["exit_code"], 0)
+                self.assertFalse(remote["panel_statuses"]["monitor"]["value"]["finished"])
+                self.assertIsNone(remote["panel_statuses"]["monitor"]["value"]["exit_code"])
+                self.assertEqual(remote["validation"]["monitor_terminal_status"], "missing")
+                self.assertEqual(remote["validation"]["within_run_tensor_pairs"], 80)
+                self.assertEqual(remote["validation"]["old_helper_statistics_rechecked"], 80)
+                self.assertEqual(remote["validation"]["new_vs_old_aligned_trial_pairs"], 40)
+                for key in ("within_run_above_tolerance", "within_run_nonfinite",
+                            "new_vs_old_above_tolerance", "new_vs_old_nonfinite",
+                            "new_forward_calls", "new_optimizer_updates"):
+                    self.assertEqual(remote["validation"][key], 0)
             source_path = repository_path(gpu["source_manifest"])
             source = read(source_path)
             self.assertEqual(len(source["legacy_scripts"]), 13)
