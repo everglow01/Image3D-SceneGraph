@@ -55,9 +55,9 @@ class ResearchCatalogTests(unittest.TestCase):
                     "indexed_legacy_not_moved", "analysis_migrated_execution_frozen",
                     "gpu_implementation_migrated_remote_not_run",
                     "gpu_implementation_migrated_remote_executed",
-                    "new_experiment_implemented_remote_not_run",
+                    "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed",
                 })
-                if item["migration_status"] in {"indexed_legacy_not_moved", "new_experiment_implemented_remote_not_run"}:
+                if item["migration_status"] in {"indexed_legacy_not_moved", "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"}:
                     self.assertNotIn("active_analysis", item)
                 else:
                     self.assertIn("active_analysis", item)
@@ -78,11 +78,27 @@ class ResearchCatalogTests(unittest.TestCase):
                     self.assertTrue(path.with_name("run.py").is_file())
                 elif "implementation" in item:
                     self.assertEqual(item["id"], "MCMC-B1-E006")
-                    self.assertEqual(item["migration_status"], "new_experiment_implemented_remote_not_run")
+                    self.assertIn(item["migration_status"], {"new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"})
                     implementation = item["implementation"]
                     self.assertEqual(repository_path(implementation["entrypoint"]), path.with_name("run.py"))
-                    self.assertEqual(implementation["remote_validation"], "not_run")
-                    self.assertEqual(item["run_records"], [])
+                    if item["migration_status"] == "new_experiment_implemented_remote_not_run":
+                        self.assertEqual(implementation["remote_validation"], "not_run")
+                        self.assertEqual(item["run_records"], [])
+                    else:
+                        self.assertEqual(implementation["remote_validation"], "same_input_pass_connected_differences_observed")
+                        remote_path = repository_path(implementation["remote_validation_record"])
+                        self.assertIn(str(remote_path.relative_to(ROOT)), item["run_records"])
+                        remote = self.records[remote_path]
+                        self.assertEqual(remote["execution_status"], "completed")
+                        for panel in remote["panel_statuses"].values():
+                            self.assertTrue(panel["finished"])
+                            self.assertEqual(panel["exit_code"], 0)
+                        self.assertEqual(remote["validation"]["cases_completed"], 10)
+                        self.assertTrue(remote["validation"]["same_input_gate_passed"])
+                        same = remote["validation"]["comparison_summary"]["same"]
+                        self.assertEqual(same["P3_parameters"]["status_counts"], {"bitwise_equal": 36})
+                        self.assertEqual(same["updates"]["status_counts"], {"bitwise_equal": 36})
+                        self.assertFalse(remote["scientific_boundary"]["long_term_causality_proven"])
                     for value in [implementation["entrypoint"], *implementation["helpers"],
                                   *implementation["local_tests"], *implementation["remote_tests"]]:
                         self.assertTrue(repository_path(value).is_file(), value)

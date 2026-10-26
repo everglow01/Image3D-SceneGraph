@@ -15,7 +15,7 @@
 
 只有无现役消费者、无冻结路径要求且替代已验收的文件才可退役。检查包括动态 import、subprocess 和协议 SHA；软链或 wrapper 不能冒充原身份。研究专用、历史失败、不常用均不是删除理由。
 
-旧 outputs、Job、锁、远端服务、个人文档和用户原导航不动。根 CLAUDE.md 不强制入库。研究源码/审核文档可进入 Git，runs 等产物仍忽略；pytest 默认发现 tests 与 experiment。新远端验证和科学实验分别申请授权，步骤见 [E004](branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md#next)。
+迁移本身不改旧outputs、Job、锁、远端服务、个人文档和用户原导航。2026-10-23另获用户明确授权完成[存储精简](storage-retirement-20261023-v1.md)：634份列明旧二进制已删除，文本、线上Job和E006冻结来源保留；此后不能把旧路径登记当成原始产物仍可用。根 CLAUDE.md 不强制入库。研究源码/审核文档可进入 Git，runs 等产物仍忽略；pytest 默认发现 tests 与 experiment。新远端验证和科学实验分别申请授权，步骤见 [E004](branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md#next)。
 
 ## 产品共享模块
 

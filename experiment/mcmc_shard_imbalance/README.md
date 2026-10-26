@@ -1,6 +1,6 @@
 # MCMC 分片恢复不对称
 
-**当前阶段：固定 B0 迁移验收已完成，进入连通传播协议准备；唯一长期根因未证明。** 更新日期：2026-10-23。
+**当前阶段：单步连通传播已完成，独立非干预验收待设计；唯一长期根因未证明。** 更新日期：2026-10-23。
 
 ## 主问题
 
@@ -39,7 +39,7 @@ raw_loss 改善颜色但未治愈失衡，其他早期候选各有失败，尚�
 <a id="b1"></a>
 ### B1 · 观测可信性与浮点非确定性
 
-生命周期控制 A/A 失败引出了本支线。已定位 B0 相同而 B1 不同；固定 B0 v2 的 80 项比较在容差内，但既有下游参数差仍需解释。返回 Q1 需结构性非干预检查及独立 A/A 基线支持的指标验收；连通传播与新验收方案待设计、授权，旧 Gate1 未通过。
+生命周期控制 A/A 失败引出了本支线。已定位 B0 相同而 B1 不同；固定 B0 v2 的 80 项比较在容差内，但既有下游参数差仍需解释。返回 Q1 需结构性非干预检查及独立 A/A 基线支持的指标验收；E006已完成连通传播：固定同一B1的参数/更新量位级一致，改变实测B1产生部分超容差差异。独立非干预验收仍待设计、授权，旧Gate1未通过。
 
 <a id="b2"></a>
 ### B2 · 异尺寸分布式渲染正确性
@@ -65,13 +65,13 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 **迁移验收阶段已完成（保留监控终态缺项）：** 2026-10-23 固定 B0 前置 3 项通过，真实 80 项重复比较和 40 项新旧对齐比较均在原容差内；执行任务正常完成，唯一监控日志已见结果但面板结束标志缺失。详见 [验收报告](branches/b1_observation_reliability/experiments/e004_fixed_b0/reports/workspace-20261023-v1.md)。本次不重跑补标志；下次启动前处理监控终态问题。迁移验收不是长期失衡的新因果证据。
 
-**科学下一步：** [E006 单步连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) 已进入实现与本机检查，远端前置和真实执行均未运行；实际源绑定 protocol 需同步后 prepare。三类对照不代替独立无观测 A/A。
+**科学下一步：** [E006 单步连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) 已完成10个独立单步对照和结果核验，同输入门禁通过；改变B1会传播为部分超容差的梯度、参数与更新量差异，各case透明度阈值聚合计数相同。详见[结果报告](branches/b1_observation_reliability/experiments/e006_connected_propagation/reports/connected-20261023-v1.md)。下一科学步骤是独立无观测A/A与非干预验收，三类带探针对照不能替代它。
 
 | 待设计项 | 要冻结的内容 |
 |---|---|
-| 连通 B1→P2→P3 传播 | 先核实反向图重建与 B1 接入条件；同一初始参数/Adam 状态、相机和环境下，设原生直通、同一 B1 重复、不同实测 B1 三类对照，每次独立恢复起点，仅到一次 Adam 更新。全量梯度/参数统计为主，预选六点用于解释；必要的 forward 重建计入新预算，不能拿历史 A/A 的 P2/P3 代替。 |
+| 连通 B1→P2→P3 传播（已完成） | E006已实际重算全量P2/P3与更新量，不拼接历史输出；仅支持冻结单步传播，未证明点命运或长期质量因果。 |
 | 独立 A/A 与非干预验收 | 无观测基线和带观测路径的对照、重复次数、独立基线与验收数据、指标和失败条件；不以已有五次最大差异直接放宽旧门槛。 |
-| 预算与停止条件 | 在新协议中明确回放/更新次数、窗口、磁盘/显存/时限、来源或 RNG 意外改变及非有限时的处置；数值尚未冻结，不套用旧实验授权。 |
+| 后续独立验收的预算与停止条件 | 另定重复次数、窗口、磁盘/显存/时限和失败处置；不沿用E006预算或旧实验授权。 |
 
 通过可信观测准入后，才返回 Q1 的短窗口来源、目标、未参与点及贡献观测，再选单因素干预。旧 Gate1 不追认，旧六分支不自动恢复。
 
@@ -91,7 +91,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 | B1 | [MCMC-B1-E003 · 完整 B0／B1 反向边界定位](branches/b1_observation_reliability/experiments/e003_backward_boundary/README.md) | 完整 B0 与图像梯度位级一致，B1 已不同；首差位于 rasterizer backward 内、反向通信之前。 |
 | B1 | [MCMC-B1-E004 · 固定 B0 五次重复与六点敏感性](branches/b1_observation_reliability/experiments/e004_fixed_b0/README.md) | v1 前置因首次导入改变 Python RNG 而停止；v2 审计初始化后，两相机各五次，80 项比较全部在原容差内且无非有限。 |
 | B1 | [MCMC-B1-E005 · 反向源码与 ULP／累加规模只读分析](branches/b1_observation_reliability/experiments/e005_readonly_localization/README.md) | 源码和差异分布最支持浮点原子累加顺序候选；近零大 ULP 不等于大绝对误差。 |
-| B1 | [MCMC-B1-E006 · 单步 B1→P2→P3 连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) | 代码与本机轻量检查完成；native/same/varied最多10个独立单步case，P3后立即停止；远端未运行。 |
+| B1 | [MCMC-B1-E006 · 单步 B1→P2→P3 连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) | 10个对照完成；同输入参数/更新量位级一致，不同B1出现部分超容差传播；未证明长期根因。 |
 | B2 | [MCMC-B2-E001 · 原库异尺寸单卡／双卡等价性诊断](branches/b2_camera_size_correctness/experiments/e001_native_equivalence/README.md) | 异尺寸出现差异，但首轮同尺寸对照也失败，需先排除排序混杂。 |
 | B2 | [MCMC-B2-E002 · 统一 Gaussian 顺序的尺寸对照](branches/b2_camera_size_correctness/experiments/e002_order_controls/README.md) | 排序控制通过，异尺寸问题仍在，修复目标收敛为每目标相机的 width/height。 |
 | B2 | [MCMC-B2-E003 · 目标相机尺寸隔离修复门禁](branches/b2_camera_size_correctness/experiments/e003_size_repair/README.md) | 12 个合成用例、每例 5 步通过原容差。 |
@@ -104,6 +104,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 ## 归档入口
 
+- [远端存储精简与旧产物可用性](storage-retirement-20261023-v1.md)：已用量降至249.49GB；部分旧二进制已删除，E006全量内容与冻结来源保留。
 - [代码、测试和辅助证据迁移清单](migration.md)
 - [完整历史回顾（本地旧报告）](../../outputs/analysis/mcmc-investigation-retrospective-20261022-v1/report.md)
 - [工作区执行规则与索引检查](../README.md)

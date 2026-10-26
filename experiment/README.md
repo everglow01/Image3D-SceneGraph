@@ -13,7 +13,7 @@
 - experiment.json：唯一实验身份、依赖和代码/证据指针。JSON 路径相对仓库根，Markdown 链接相对所在文件。
 - records/：一次执行或只读分析的状态和来源 SHA；跨问题引用同一记录，不重复计数。历史记录与新迁移验收分列，不把记录条数当成新增科学实验次数。
 - reports/：审核结论；history/：不可改写的历史载荷。原 protocol 仍是预算、判据及源绑定权威。
-- runs/<run-id>/：新入口的独立产物目录，和 scratch/incoming 一样不入 Git；旧 outputs/analysis 原位保留，不擅改旧冻结入口路径。
+- runs/<run-id>/：新入口的独立产物目录，和 scratch/incoming 一样不入 Git；旧冻结入口路径不擅改；部分远端旧二进制已按用户清单精简，见[存储退役记录](mcmc_shard_imbalance/storage-retirement-20261023-v1.md)。
 
 源码、测试、索引和审核文档可进入 Git；不忽略整个 experiment/。不提交模型、数据集、大张量、日志或凭据。Git 历史不是产物备份。
 

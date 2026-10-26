@@ -14,14 +14,18 @@
   "informed_by": [
     "MCMC-B1-E002"
   ],
-  "migration_status": "new_experiment_implemented_remote_not_run",
+  "migration_status": "new_experiment_remote_executed",
   "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md",
   "legacy_entrypoints": [],
   "legacy_tests": [],
   "legacy_analysis_scripts": [],
-  "run_records": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/records/connected-20261023-v1.json"
+  ],
   "shared_run_records": [],
-  "reviewed_reports": [],
+  "reviewed_reports": [
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/reports/connected-20261023-v1.md"
+  ],
   "implementation": {
     "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/run.py",
     "helpers": [
@@ -34,7 +38,8 @@
     "remote_tests": [
       "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/tests/test_connected_propagation_remote.py"
     ],
-    "remote_validation": "not_run",
-    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_CONNECTED_PROPAGATION_TESTS"
+    "remote_validation": "same_input_pass_connected_differences_observed",
+    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_CONNECTED_PROPAGATION_TESTS",
+    "remote_validation_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/records/connected-20261023-v1.json"
   }
 }

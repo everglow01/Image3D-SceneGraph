@@ -600,6 +600,10 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-23，按用户逐项批准的清单完成远端空间精简：已用466.10→249.49GB；清理旧日志、634份列明旧产物（含55个旧.pt），保留真实快照并硬链接去重。旧前置故意损坏样本触发中止后，只继续未完成去重，原失败记录保留。E006/来源/公共权重3275项哈希通过，线上Job状态未变，2737份原文本保留，API健康；部分旧实验已失去原地全量复算能力，见[存储退役记录](experiment/mcmc_shard_imbalance/storage-retirement-20261023-v1.md)。
+
+- 2026-10-23，E006单步连通传播完成：10个独立对照、执行/只读监控均退出0；同B1的P3参数与更新量位级一致，不同实测B1引出部分超容差梯度/参数/更新量差异，透明度阈值聚合计数各case相同。仅补上冻结单步传播，不追认旧Gate1或证明长期根因；下一科学步骤为独立无观测A/A与非干预验收。用户要求结果归档后盘点释放磁盘至约250GB，未授权任意丢弃唯一证据。见[E006结果](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/reports/connected-20261023-v1.md)。
+
 - 2026-10-23，固定 B0 迁移验收已完成，监控面板终态缺项保留；按用户批准方案准备 [E006 单步连通传播](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md)，在同源恢复下比较原生、同一 B1、不同实测 B1，P3 后停止，不改训练 core、不追认旧 Gate、不代替独立 A/A。新代码待 Git 同步，远端前置及真实执行未运行。
 
 - 2026-10-22，研究目录收尾：保留 experiment 的 Git 管理范围，将 Q1/Q2/Q3/B1/B2/B3 六份重复导航 README 的独有内容合入课题首页后删除，迁移清单去掉 55 条重复路径表，修正现行状态并分开迁移验收与后续科学实验准备；运行代码、测试、身份 JSON、历史载荷及个人文件不改，无远端操作或新实验。详见 [研究入口](experiment/mcmc_shard_imbalance/README.md)。
