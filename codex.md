@@ -600,6 +600,10 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-26，按用户“按计划和阶段继续执行”先实现E007阶段A只读补分析：固定E006来源链、全量逐点阈值/跨越掩码、CPU float64与原dtype/CUDA分开诊断、压缩XOR位图、独立输出/锁/终态及1小时1GiB预算。训练与rasterizer调用0；阶段B仍待实现，不自动晋级。新源码尚未提交或同步，远端合成前置及实际分析未运行；不改冻结core、旧实验结果或个人文件。
+
+- 2026-10-26，按用户要求限定E006支线并尽快回归主线：登记[E007设计](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/README.md)，先补已有快照逐点阈值比较，再以3次校准/3次独立原生留出/3次观察的200步窗口做有限准入，通过即分析同批Q1轨迹。最多1800更新/6小时/新增30GiB，失败不加次数或放宽门槛；1个百分点研究尺度、0.1个百分点自然波动上限为设计假设，非实测结论。本次仅设计，未实现、未运行，不追认旧Gate，不自动恢复旧分支或长训；实现及远端运行另行授权。
+
 - 2026-10-23，按用户逐项批准的清单完成远端空间精简：已用466.10→249.49GB；清理旧日志、634份列明旧产物（含55个旧.pt），保留真实快照并硬链接去重。旧前置故意损坏样本触发中止后，只继续未完成去重，原失败记录保留。E006/来源/公共权重3275项哈希通过，线上Job状态未变，2737份原文本保留，API健康；部分旧实验已失去原地全量复算能力，见[存储退役记录](experiment/mcmc_shard_imbalance/storage-retirement-20261023-v1.md)。
 
 - 2026-10-23，E006单步连通传播完成：10个独立对照、执行/只读监控均退出0；同B1的P3参数与更新量位级一致，不同实测B1引出部分超容差梯度/参数/更新量差异，透明度阈值聚合计数各case相同。仅补上冻结单步传播，不追认旧Gate1或证明长期根因；下一科学步骤为独立无观测A/A与非干预验收。用户要求结果归档后盘点释放磁盘至约250GB，未授权任意丢弃唯一证据。见[E006结果](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e006_connected_propagation/reports/connected-20261023-v1.md)。

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-B1-E007",
+  "title": "E006收口与观察工具准入",
+  "owner": "B1",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B1-E006"
+  ],
+  "informed_by": [
+    "MCMC-B1-E001",
+    "MCMC-Q1-E002"
+  ],
+  "migration_status": "new_experiment_partially_implemented_remote_not_run",
+  "design_document": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [],
+  "run_records": [],
+  "shared_run_records": [],
+  "reviewed_reports": [],
+  "implementation": {
+    "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/run.py",
+    "helpers": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/masks.py"
+    ],
+    "local_tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/tests/test_masks.py"
+    ],
+    "remote_tests": [
+      "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/tests/test_masks_remote.py"
+    ],
+    "phase": "A_only",
+    "remote_validation": "not_run",
+    "remaining_stage_B": "design_only",
+    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_OBSERVER_MASK_TESTS"
+  }
+}

@@ -52,12 +52,15 @@ class ResearchCatalogTests(unittest.TestCase):
                 self.assertTrue(set(item["related_questions"]) <= NODES)
                 self.assertEqual(repository_path(item["design_document"]), path.with_name("README.md"))
                 self.assertIn(item["migration_status"], {
-                    "indexed_legacy_not_moved", "analysis_migrated_execution_frozen",
+                    "indexed_legacy_not_moved", "analysis_migrated_execution_frozen", "new_experiment_design_only",
                     "gpu_implementation_migrated_remote_not_run",
                     "gpu_implementation_migrated_remote_executed",
                     "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed",
+                    "new_experiment_partially_implemented_remote_not_run",
                 })
-                if item["migration_status"] in {"indexed_legacy_not_moved", "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"}:
+                if item["migration_status"] in {"indexed_legacy_not_moved", "new_experiment_design_only",
+                                                "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed",
+                                                "new_experiment_partially_implemented_remote_not_run"}:
                     self.assertNotIn("active_analysis", item)
                 else:
                     self.assertIn("active_analysis", item)
@@ -77,11 +80,17 @@ class ResearchCatalogTests(unittest.TestCase):
                     self.assertEqual(repository_path(item["gpu_runner"]["entrypoint"]), path.with_name("run.py"))
                     self.assertTrue(path.with_name("run.py").is_file())
                 elif "implementation" in item:
-                    self.assertEqual(item["id"], "MCMC-B1-E006")
-                    self.assertIn(item["migration_status"], {"new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"})
                     implementation = item["implementation"]
+                    if item["id"] == "MCMC-B1-E007":
+                        self.assertEqual(item["migration_status"], "new_experiment_partially_implemented_remote_not_run")
+                        self.assertEqual(implementation["phase"], "A_only")
+                        self.assertEqual(implementation["remaining_stage_B"], "design_only")
+                    else:
+                        self.assertEqual(item["id"], "MCMC-B1-E006")
+                        self.assertIn(item["migration_status"], {"new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"})
                     self.assertEqual(repository_path(implementation["entrypoint"]), path.with_name("run.py"))
-                    if item["migration_status"] == "new_experiment_implemented_remote_not_run":
+                    if item["migration_status"] in {"new_experiment_implemented_remote_not_run",
+                                                    "new_experiment_partially_implemented_remote_not_run"}:
                         self.assertEqual(implementation["remote_validation"], "not_run")
                         self.assertEqual(item["run_records"], [])
                     else:
@@ -104,6 +113,20 @@ class ResearchCatalogTests(unittest.TestCase):
                         self.assertTrue(repository_path(value).is_file(), value)
                 else:
                     self.assertFalse(path.with_name("run.py").exists())
+
+    def test_design_only_has_no_execution(self):
+        for path, item in self.experiments.items():
+            if item["migration_status"] != "new_experiment_design_only":
+                continue
+            with self.subTest(path=path):
+                for key in ("implementation", "gpu_runner", "active_analysis", "entrypoint"):
+                    self.assertNotIn(key, item)
+                for key in ("legacy_entrypoints", "legacy_tests", "legacy_analysis_scripts",
+                            "run_records", "shared_run_records", "reviewed_reports"):
+                    self.assertEqual(item[key], [])
+                self.assertFalse(list(path.parent.glob("*.py")))
+                for name in ("records", "reports"):
+                    self.assertFalse(path.with_name(name).exists())
 
     def test_dependencies_and_research_links(self):
         items = {e["id"]: e for e in self.experiments.values()}
