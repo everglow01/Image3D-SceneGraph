@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q1-E003",
+  "title": "最小逐点生命周期与迁移即时渲染",
+  "owner": "Q1",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-B1-E007"
+  ],
+  "informed_by": [
+    "MCMC-Q1-E002",
+    "MCMC-B2-E005"
+  ],
+  "migration_status": "new_experiment_implemented_remote_not_run",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [],
+  "run_records": [],
+  "shared_run_records": [],
+  "implementation": {
+    "entrypoint": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/run.py",
+    "helpers": [
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/observer.py",
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/analyze.py",
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/render_probe.py"
+    ],
+    "local_tests": [
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/tests/test_minimal.py"
+    ],
+    "remote_tests": [
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/tests/test_minimal_remote.py"
+    ],
+    "phase": "Q1_minimal_observed_description",
+    "remote_validation": "not_run",
+    "profile": "mcmc_minimal_survival_v1",
+    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_MINIMAL_SURVIVAL_TESTS",
+    "preflight_report_environment": "IMAGE3D_MINIMAL_SURVIVAL_PREFLIGHT_REPORT",
+    "requires_independent_preflight": true,
+    "full_numerical_noninterference_proven": false,
+    "old_gate1": "not_reclassified",
+    "E007": "calibration_blocked_not_reclassified"
+  }
+}
