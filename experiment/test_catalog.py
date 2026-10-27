@@ -57,10 +57,14 @@ class ResearchCatalogTests(unittest.TestCase):
                     "gpu_implementation_migrated_remote_executed",
                     "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed",
                     "new_experiment_partially_implemented_remote_not_run",
+                    "new_experiment_partially_implemented_remote_executed",
+                    "new_experiment_implemented_remote_partially_executed",
                 })
                 if item["migration_status"] in {"indexed_legacy_not_moved", "new_experiment_design_only",
                                                 "new_experiment_implemented_remote_not_run", "new_experiment_remote_executed",
-                                                "new_experiment_partially_implemented_remote_not_run"}:
+                                                "new_experiment_partially_implemented_remote_not_run",
+                                                "new_experiment_partially_implemented_remote_executed",
+                                                "new_experiment_implemented_remote_partially_executed"}:
                     self.assertNotIn("active_analysis", item)
                 else:
                     self.assertIn("active_analysis", item)
@@ -82,9 +86,25 @@ class ResearchCatalogTests(unittest.TestCase):
                 elif "implementation" in item:
                     implementation = item["implementation"]
                     if item["id"] == "MCMC-B1-E007":
-                        self.assertEqual(item["migration_status"], "new_experiment_partially_implemented_remote_not_run")
+                        self.assertIn(item["migration_status"], {"new_experiment_partially_implemented_remote_not_run",
+                                                                "new_experiment_partially_implemented_remote_executed",
+                                                                "new_experiment_implemented_remote_partially_executed"})
                         self.assertEqual(implementation["phase"], "A_only")
-                        self.assertEqual(implementation["remaining_stage_B"], "design_only")
+                        if item["migration_status"] == "new_experiment_implemented_remote_partially_executed":
+                            self.assertEqual(implementation["remaining_stage_B"], "implemented_remote_not_run")
+                            stage_b = implementation["stage_B"]
+                            self.assertEqual(repository_path(stage_b["entrypoint"]), path.with_name("run_b.py"))
+                            self.assertEqual(stage_b["remote_validation"], "not_run")
+                            self.assertTrue(stage_b["requires_independent_preflight"])
+                            self.assertTrue(stage_b["stage_A_execution_entry_unchanged"])
+                            self.assertNotEqual(stage_b["remote_test_opt_in"], implementation["remote_test_opt_in"])
+                            for value in [stage_b["entrypoint"], *stage_b["helpers"],
+                                          *stage_b["local_tests"], *stage_b["remote_tests"]]:
+                                self.assertTrue(repository_path(value).is_file(), value)
+                            self.assertTrue(all(self.records[repository_path(v)]["kind"] == "phase_A_offline_pointwise_masks"
+                                                for v in item["run_records"]))
+                        else:
+                            self.assertEqual(implementation["remaining_stage_B"], "design_only")
                     else:
                         self.assertEqual(item["id"], "MCMC-B1-E006")
                         self.assertIn(item["migration_status"], {"new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"})
@@ -93,6 +113,25 @@ class ResearchCatalogTests(unittest.TestCase):
                                                     "new_experiment_partially_implemented_remote_not_run"}:
                         self.assertEqual(implementation["remote_validation"], "not_run")
                         self.assertEqual(item["run_records"], [])
+                    elif item["id"] == "MCMC-B1-E007":
+                        self.assertEqual(implementation["remote_validation"], "phase_A_pass_no_pointwise_threshold_difference")
+                        remote_path = repository_path(implementation["remote_validation_record"])
+                        self.assertIn(str(remote_path.relative_to(ROOT)), item["run_records"])
+                        remote = self.records[remote_path]
+                        self.assertEqual(remote["execution_status"], "completed")
+                        self.assertEqual(remote["acceptance_status"], implementation["remote_validation"])
+                        for panel in remote["panel_statuses"].values():
+                            self.assertTrue(panel["finished"])
+                            self.assertFalse(panel["running"])
+                            self.assertEqual(panel["exit_code"], 0)
+                        self.assertEqual(remote["validation"]["phase"], "A_only")
+                        self.assertEqual(remote["validation"]["mask_files"], 360)
+                        self.assertEqual(remote["validation"]["xor_count_sum"], 0)
+                        self.assertEqual(remote["validation"]["budget"]["new_training_updates"], 0)
+                        for key in ("phase_B_started", "independent_nonintervention_passed",
+                                    "all_ten_cases_cross_group_mask_equivalence_proven",
+                                    "actual_strategy_death_masks_observed", "long_term_causality_proven"):
+                            self.assertFalse(remote["scientific_boundary"][key])
                     else:
                         self.assertEqual(implementation["remote_validation"], "same_input_pass_connected_differences_observed")
                         remote_path = repository_path(implementation["remote_validation_record"])

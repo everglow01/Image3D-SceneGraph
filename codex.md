@@ -600,6 +600,10 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-27，按用户要求实现E007阶段B：独立run_b入口，C0/C1/C2校准与U/O交错留出严格分离，200步窗口末端在Validation调用前截停；C/U不安装中间观察器，O以冻结观察器旁置保存采样映射、alive位图和累计诊断。新增独立双卡合成结构前置及提交/SHA绑定，阶段A授权不能启动B；首次超限退出2，不补样本/放宽阈值，通过后直接分析同批Q1轨迹。最多1800真实更新、6小时、30GiB产物，120秒collective超时实际作用于子进程；主存无限额。阶段B尚未远端验证、未运行/提交/同步，不追认旧Gate或长期因果。阶段A执行代码、报告和冻结core均不改。
+
+- 2026-10-26，用户手动同步63cb15e并明确授权后完成E007阶段A远端验证：前置1项通过，执行/唯一只读监控均退出0；预定same/native组内、varied对same-0及两种离线口径的360份XOR位图均为0。E006参数差异仍成立，但本单步预设比较未见逐点死亡/跨越差异，降低数值触发候选优先级，不再追加E006重复；未比较native与注入组任意跨组关系，也不证明未来命运不分化。真实分析训练/反向/策略调用0，两卡reserved峰值42MiB，运行文件约0.34MB；本地23份文本SHA通过，未下载数组。阶段B仍待实现及独立授权，旧Gate1和长期因果未通过，见[E007结果](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/masks-20261026-v1.md)。
+
 - 2026-10-26，按用户“按计划和阶段继续执行”先实现E007阶段A只读补分析：固定E006来源链、全量逐点阈值/跨越掩码、CPU float64与原dtype/CUDA分开诊断、压缩XOR位图、独立输出/锁/终态及1小时1GiB预算。训练与rasterizer调用0；阶段B仍待实现，不自动晋级。新源码尚未提交或同步，远端合成前置及实际分析未运行；不改冻结core、旧实验结果或个人文件。
 
 - 2026-10-26，按用户要求限定E006支线并尽快回归主线：登记[E007设计](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/README.md)，先补已有快照逐点阈值比较，再以3次校准/3次独立原生留出/3次观察的200步窗口做有限准入，通过即分析同批Q1轨迹。最多1800更新/6小时/新增30GiB，失败不加次数或放宽门槛；1个百分点研究尺度、0.1个百分点自然波动上限为设计假设，非实测结论。本次仅设计，未实现、未运行，不追认旧Gate，不自动恢复旧分支或长训；实现及远端运行另行授权。

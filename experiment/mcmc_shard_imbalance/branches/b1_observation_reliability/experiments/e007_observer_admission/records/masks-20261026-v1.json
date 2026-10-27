@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "run_id": "masks-20261026-v1",
+  "experiment_id": "MCMC-B1-E007",
+  "kind": "phase_A_offline_pointwise_masks",
+  "catalogued_on": "2026-10-26",
+  "execution_status": "completed",
+  "acceptance_status": "phase_A_pass_no_pointwise_threshold_difference",
+  "previous_attempt": null,
+  "source_commit": {
+    "value": "63cb15eff685a0f1acd9c6b55086e30f80274e7e",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/protocol.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "ab82dba86d0f3adc3167b703f1ff13c74ca9d1f4e98e21e891c1546df3956426",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261026-152557-d58f",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261026-152557-64bb",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/monitor-status.json",
+    "field": "id"
+  },
+  "panel_statuses": {
+    "execution": {
+      "id": "20261026-152557-d58f",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 1616
+    },
+    "monitor": {
+      "id": "20261026-152557-64bb",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 2312
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-26T07:28:21.990315+00:00",
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/acceptance-summary.json",
+      "sha256": "0860c2f63f666b90211f063d761a0faae0d8492609a3dbda6b146bfc5f07531d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/command.sh",
+      "sha256": "20f7eea114b489df8b5d79b438f6ca2bbaa9559546acbc6d71fc99f36f5b06c6",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/download-verification.json",
+      "sha256": "37a63bece1b3e00e74386f9289256a2f85c165f1b080a458bda948eee96fa191",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/execution-log.log",
+      "sha256": "cdab94113a8c1b02d4636c288fe550280b1ce014f45fa002bcf4d51e04824ef5",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/execution-status.json",
+      "sha256": "99de8eec8a15a0e884018342d54dddcc53bc89fc0044856d77444eef151b0aa9",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/analysis.command.json",
+      "sha256": "0ad090b511db4547fa029df939adca805d486ae0efafea451290ec492e9875f7",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/analysis.exit.json",
+      "sha256": "a17788f6bfbfe9d0b071d56c8b01f733ce774d2fa2e8d1a6276d0797a565678f",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/analysis.log",
+      "sha256": "85bc8bf99f33c1094856fa262498542fcc20e7e25fe9d4f99f0bae7aa8497eb3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/comparison.json",
+      "sha256": "9b4f950de71ba06a0e9b2df653b5e98cddf36e6ca1a1cf041682b5d39ebce2ae",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/execution.json",
+      "sha256": "b383d87df92f62407971f83c666305c91be7aded56035ae2009f07b276549b0f",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/memory/rank-0.json",
+      "sha256": "ce6cadb45b42617237cf4c9b96c001a86ff01bb4fd0409c07258614e8681942d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/memory/rank-0.phase.json",
+      "sha256": "4eb25e7a8eaf98e0ff35bf42a1a176f42765029c73d970945d934de1e6e9fad0",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/memory/rank-0.phase.jsonl",
+      "sha256": "849602d87d5572b2e3dfa44d589d75853e660695df877a6a089cf81dae3b7f44",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/memory/rank-1.json",
+      "sha256": "4eb5515e5f1c3c09b8e51056ce9b4fcf8c748b753c2ddf7cb8a69b5b305eea33",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/memory/rank-1.phase.json",
+      "sha256": "d47e4279e70256fbbaeddd49aa2f63ba01782ffcd2eca8c8c2ebc9d129c1a217",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/memory/rank-1.phase.jsonl",
+      "sha256": "d1ed06bd463ab77231be0178073b5ced668caef09a38798d4c03405b699b302f",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/progress.jsonl",
+      "sha256": "85bc8bf99f33c1094856fa262498542fcc20e7e25fe9d4f99f0bae7aa8497eb3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/protocol.json",
+      "sha256": "ab82dba86d0f3adc3167b703f1ff13c74ca9d1f4e98e21e891c1546df3956426",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1/started.json",
+      "sha256": "a4c2bfbad367a847a9a50f98332dcad54cce181dd101e6ab00a2bc6d3edfa7c3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/events.log",
+      "sha256": "c45372bb4da33b6796a84d1b6bea4924ffdba56629f19c0ab2763690bb2c08b1",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/preflight.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/preflight.log",
+      "sha256": "ca3f37134ab3a904294b576d2b1a8d08e8139e69b5efeea9ea9318ca18ffa11c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/prepare.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/prepare.log",
+      "sha256": "f24a253d58baf66acc17a2f4711bf79a8f0c41654881f27162c50d6054db0c10",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/protocol.sha256",
+      "sha256": "610f778964d0c5c682f0c7a3fd2b37e76f10e1513dbc08c821c9f799eb42ef78",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/run.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/run.log",
+      "sha256": "a4293b29981d2838e160d0401d6693c0fd2c748fc0d16d308c542c4266a56289",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/incoming/masks-20261026-v1-preflight/execution/suite.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/monitor-log.log",
+      "sha256": "7de5189550156fbfa93740869b3c82c81d85d111c33f8948926ae7e52ad7f068",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/monitor-status.json",
+      "sha256": "aabb8636e09975c2aeba80f566c633db07ab3e13e927540bdc6f8ca5d9474a69",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/monitor.sh",
+      "sha256": "a75f61ad2cbd567c8a0c6448c288a523f15cf30e054a7766235a88b56516ee49",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/remote-inventory.json",
+      "sha256": "572b4c92e7a64881e39c6cbf40fe7ebf1c127b8138758cb68719a30d85ada9e6",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/masks-20261026-v1-local/submission.json",
+      "sha256": "9e14d5f35a02a4347601c9478f2d59c4c97922128b7438a8902a7d5f03ca400c",
+      "availability": "local_verified"
+    }
+  ],
+  "validation": {
+    "phase": "A_only",
+    "preflight_passed": 1,
+    "preflight_pytest_seconds": 4.83,
+    "prepare_service_seconds": 3.972,
+    "analysis_service_seconds": 27.431,
+    "analysis_child_seconds": 19.388436785899103,
+    "source_protocol_sha256": "f09237d0163ea4f0818e3ae952bc08cdf51abddb09ec34c36e43333dc58b3f35",
+    "source_comparison_sha256": "e34a334677a84c61de8b840fb5bc763b583d70bb25caa2ae01c4e833442c8c3d",
+    "comparison_sha256": "9b4f950de71ba06a0e9b2df653b5e98cddf36e6ca1a1cf041682b5d39ebce2ae",
+    "fixed_cases": 10,
+    "owner_size": 1500000,
+    "within_method_bitsets": 240,
+    "cross_method_bitsets": 120,
+    "mask_files": 360,
+    "xor_count_sum": 0,
+    "counts": {
+      "0": {
+        "dead_before": 4180,
+        "dead_after": 4814,
+        "crossed_to_dead": 1085,
+        "crossed_to_alive": 451,
+        "below_cutoff_before": 0,
+        "below_cutoff_after": 0
+      },
+      "1": {
+        "dead_before": 13452,
+        "dead_after": 14900,
+        "crossed_to_dead": 2844,
+        "crossed_to_alive": 1396,
+        "below_cutoff_before": 0,
+        "below_cutoff_after": 0
+      }
+    },
+    "budget": {
+      "cuda_sigmoid_calls": 40,
+      "cpu_sigmoid_calls": 40,
+      "new_training_updates": 0,
+      "rasterizer_forwards": 0,
+      "backwards": 0,
+      "strategy_calls": 0
+    },
+    "per_rank_peak_reserved_bytes": [
+      44040192,
+      44040192
+    ],
+    "run_file_bytes": 341219,
+    "bitset_bytes": 78120,
+    "downloaded_text_files": 23,
+    "downloaded_text_bytes": 264048,
+    "source_verification_scope": "signed_P0_P3_manifests_and_opacity_only_not_all_E006_arrays",
+    "full_arrays_or_bitsets_recomputed_locally": false,
+    "remote_bitsets_verified_by_worker_and_monitor": true
+  },
+  "conclusion": {
+    "varied_death_mask_difference": false,
+    "native_death_mask_difference": false,
+    "method_death_mask_disagreement": false,
+    "scope": "offline_single_step_diagnostic_not_executed_strategy_or_long_term_causality",
+    "priority": "lower_numerical_trigger_priority_for_this_single_step"
+  },
+  "scientific_boundary": {
+    "phase_B_started": false,
+    "independent_nonintervention_passed": false,
+    "all_ten_cases_cross_group_mask_equivalence_proven": false,
+    "actual_strategy_death_masks_observed": false,
+    "long_term_causality_proven": false,
+    "old_gate1": "not_reclassified",
+    "next_step": "Implement and independently authorize phase B; reuse accepted observer runs for Q1, no extra E006 repeats."
+  }
+}
