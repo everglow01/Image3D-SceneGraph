@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "run_id": "admission-preflight-20261027-v1",
+  "experiment_id": "MCMC-B1-E007",
+  "kind": "phase_B_synthetic_structural_preflight",
+  "catalogued_on": "2026-10-27",
+  "execution_status": "completed",
+  "acceptance_status": "structural_preflight_passed",
+  "previous_attempt": null,
+  "source_commit": {
+    "value": "539dc881a794b2523f2149c5bb2b69154583cb3d",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/preflight.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": null,
+    "missing_reason": "本次仅合成结构前置，未prepare正式阶段B协议。"
+  },
+  "preflight_sha256": {
+    "value": "818f3122bc799a5b0cc98de6621fa438975f2606a0e597be94fe35652004726e",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/preflight.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261027-095704-45a2",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261027-095704-b818",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/monitor-status.json",
+    "field": "id"
+  },
+  "panel_statuses": {
+    "execution": {
+      "id": "20261027-095704-45a2",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 885
+    },
+    "monitor": {
+      "id": "20261027-095704-b818",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 1231
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-27T01:59:19.529137+00:00",
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/acceptance-summary.json",
+      "sha256": "82d0fe4397fb43c4258b199b39ff124d9b4a3b7969922d7589c4ecf7cd8b19ad",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/command.sh",
+      "sha256": "a8bd5fc1589cf476084a63d657eeaf4d702db84670049ea77ef6a748b5e05617",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/monitor.sh",
+      "sha256": "528314170349cf535b411f71ad45f5a0ac23532fe21e0a0b19d5ca8d43e2cd13",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/submission.json",
+      "sha256": "3099cbae9a5f6ead3af1935d2c18f7788e1dca97d529950a2d12cec5bd545e5f",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/execution-status.json",
+      "sha256": "9a0b7850224038ec6dda29a32382f32f5e23cccaf9f6ccf810bc3f50e4720139",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/monitor-status.json",
+      "sha256": "83534174bda5b202d307a52e9e4d263c12d78f3cbe1fe8764191391508fbe78b",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/execution-log.log",
+      "sha256": "10987deb44b6af3e34304752fc26d277c9445febebf071524a6912cd0b7afd16",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/monitor-log.log",
+      "sha256": "578e2e5a91a47ca3d63a62c102b55b89247057188b0aaff08fb3032fbbb6f490",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/remote-inventory.json",
+      "sha256": "6365568f35d9e0a0987628360947ddfa716675701434d0d2a998b496385a0379",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/download-verification.json",
+      "sha256": "676e330993f08b09c6ecbd811790493628c6450a1f05807d869709ea5a4fc96e",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/postcheck.txt",
+      "sha256": "cddda2972ac174e21ae2488a04e77658a140b956844ca6cb45af8aa16352effd",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/check-tmp/test_bounded_structural_prefli0/preflight-rank-0.json",
+      "sha256": "d2964df1b14e2bb6024a2dbcadbeabd027739ceea323c7223918bd24bf82fa9d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/check-tmp/test_bounded_structural_prefli0/preflight-rank-1.json",
+      "sha256": "1f9458668865e8cca6ead72f51b72ecc164d7ef91aed5d647d444527a6494839",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/check-tmp/test_bounded_structural_prefli0/rejected-synthetic-rejection-rank-0.json",
+      "sha256": "82880a9fc2334c22b1b75ac12532c15061c631b1d383057dfe1e1f3e88febd93",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/check-tmp/test_bounded_structural_prefli0/rejected-synthetic-rejection-rank-1.json",
+      "sha256": "39d13b6187a4564dade96aa6585015f75125e6e8d7208db2109e4aeab1237d95",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/execution/events.log",
+      "sha256": "f010178c4d23bd32c9aa29934291be77a7d5d5660779a17e6b0f924b01607d27",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/execution/owner.pid",
+      "sha256": "d1d634c8d1188e520aaf08b9d3ae82076e68f9ead20e9ae239015f2c11d3a6bf",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/execution/preflight.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/execution/preflight.log",
+      "sha256": "5c3337d815804a0325c2bc6b60e21abf9d112295863358de6978850abd3be12a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/execution/suite.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/execution/suite.pending",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-preflight-20261027-v1-local/incoming/preflight.json",
+      "sha256": "818f3122bc799a5b0cc98de6621fa438975f2606a0e597be94fe35652004726e",
+      "availability": "local_verified"
+    }
+  ],
+  "validation": {
+    "status": "structural_preflight_passed",
+    "implementation_commit": "539dc881a794b2523f2149c5bb2b69154583cb3d",
+    "preflight_sha256": "818f3122bc799a5b0cc98de6621fa438975f2606a0e597be94fe35652004726e",
+    "budget": {
+      "synthetic_updates": 8,
+      "training_camera_forwards": 16,
+      "contribution_forwards": 8,
+      "reference_contribution_forwards": 2,
+      "loss_backwards": 16,
+      "analytic_autograd_calls": 2,
+      "optimizer_group_steps": 96,
+      "coordinated_rejection_checks": 1,
+      "rng_rejection_checks": 1,
+      "real_image_decodes": 0
+    },
+    "runtime": {
+      "0": {
+        "torch": "2.3.1+cu121",
+        "cuda": "12.1",
+        "gpu": "NVIDIA L2",
+        "rank": 0
+      },
+      "1": {
+        "torch": "2.3.1+cu121",
+        "cuda": "12.1",
+        "gpu": "NVIDIA L2",
+        "rank": 1
+      }
+    },
+    "pytest_passed": 1,
+    "pytest_seconds": 11.74,
+    "systemd_runtime_seconds": 12.462,
+    "execution_dependencies_sha256_verified": 53,
+    "host_limits": {
+      "MemoryMax": "infinity",
+      "MemoryHigh": "infinity",
+      "MemorySwapMax": "infinity"
+    },
+    "formal_protocol_prepared": false,
+    "formal_cases_started": 0,
+    "observer_finite_scope_admitted": false,
+    "Q1_real_trajectory_analysis_started": false,
+    "old_gate1": "not_reclassified",
+    "long_term_causality_proven": false
+  },
+  "scientific_boundary": {
+    "formal_protocol_prepared": false,
+    "formal_cases_started": 0,
+    "observer_finite_scope_admitted": false,
+    "Q1_real_trajectory_analysis_started": false,
+    "old_gate1": "not_reclassified",
+    "long_term_causality_proven": false
+  }
+}

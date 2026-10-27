@@ -1,0 +1,3782 @@
+{
+  "kind": "posthoc_readonly_log_analysis",
+  "source_run": "admission-20261027-v1",
+  "new_training_updates": 0,
+  "network_calls": 0,
+  "model_imports": 0,
+  "camera_entries": 400,
+  "unique_cameras": 400,
+  "input_manifest_sha256": "354706329ea341b9de8129ac74b82cf7c0dab56ea4de0a2e3d9d585c0bae18ac",
+  "script_sha256": "a933c1f84fb4dfdb3f386e13fb06e19b4f0a98b0db02b52adc65aecb5090d6bc",
+  "first_recorded_difference": {
+    "reconstruction_loss": {
+      "iteration": 12003,
+      "values": {
+        "C0": 0.05114768072962761,
+        "C1": 0.05114768072962761,
+        "C2": 0.051147688180208206
+      }
+    },
+    "loss": {
+      "iteration": 12003,
+      "values": {
+        "C0": 0.05167060345411301,
+        "C1": 0.05167060345411301,
+        "C2": 0.051670610904693604
+      }
+    },
+    "l1": {
+      "iteration": 12003,
+      "values": {
+        "C0": 0.03825350571423769,
+        "C1": 0.03825350571423769,
+        "C2": 0.038253515027463436
+      }
+    },
+    "ssim": {
+      "iteration": 12004,
+      "values": {
+        "C0": 0.8483276665210724,
+        "C1": 0.8483276665210724,
+        "C2": 0.8483275771141052
+      }
+    },
+    "opacity_regularization": {
+      "iteration": 12005,
+      "values": {
+        "C0": 0.00044429258559830487,
+        "C1": 0.00044429258559830487,
+        "C2": 0.00044429257104638964
+      }
+    },
+    "scale_regularization": {
+      "iteration": 12005,
+      "values": {
+        "C0": 7.015322808001656e-05,
+        "C1": 7.015322808001656e-05,
+        "C2": 7.015322989900596e-05
+      }
+    }
+  },
+  "windows": [
+    {
+      "start": 12001,
+      "end": 12020,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 8.504372090101242e-07,
+        "median": 3.0547380447387695e-07,
+        "min": 0.0,
+        "max": 7.4533745646476746e-06,
+        "sum": 1.7008744180202484e-05
+      },
+      "case_means": {
+        "C0": 0.04429170172661543,
+        "C1": 0.04429203206673264,
+        "C2": 0.04429186452180147
+      },
+      "range_of_case_means": 3.303401172119469e-07
+    },
+    {
+      "start": 12021,
+      "end": 12040,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 1.338995061814785e-05,
+        "median": 7.525552064180374e-06,
+        "min": 1.5422701835632324e-06,
+        "max": 6.536394357681274e-05,
+        "sum": 0.000267799012362957
+      },
+      "case_means": {
+        "C0": 0.05002765259705484,
+        "C1": 0.050029166880995034,
+        "C2": 0.05002737939357758
+      },
+      "range_of_case_means": 1.7874874174567124e-06
+    },
+    {
+      "start": 12041,
+      "end": 12060,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 5.059284158051014e-05,
+        "median": 2.0927749574184418e-05,
+        "min": 3.875233232975006e-06,
+        "max": 0.0003827102482318878,
+        "sum": 0.0010118568316102028
+      },
+      "case_means": {
+        "C0": 0.04263756643049419,
+        "C1": 0.042630128329619765,
+        "C2": 0.04261817475780845
+      },
+      "range_of_case_means": 1.939167268574099e-05
+    },
+    {
+      "start": 12061,
+      "end": 12080,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 9.3515170738101e-05,
+        "median": 6.903056055307388e-05,
+        "min": 6.080605089664459e-06,
+        "max": 0.00030677951872348785,
+        "sum": 0.0018703034147620201
+      },
+      "case_means": {
+        "C0": 0.0485038822516799,
+        "C1": 0.048502323450520635,
+        "C2": 0.048498641094192864
+      },
+      "range_of_case_means": 5.24115748703341e-06
+    },
+    {
+      "start": 12081,
+      "end": 12100,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 0.0002881903667002916,
+        "median": 0.00013002660125494003,
+        "min": 2.06679105758667e-05,
+        "max": 0.001237812452018261,
+        "sum": 0.005763807334005833
+      },
+      "case_means": {
+        "C0": 0.04427983914501965,
+        "C1": 0.04436109843663871,
+        "C2": 0.04429485113359988
+      },
+      "range_of_case_means": 8.125929161906242e-05
+    },
+    {
+      "start": 12101,
+      "end": 12120,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 0.0023320076521486043,
+        "median": 0.001667727716267109,
+        "min": 0.00016927719116210938,
+        "max": 0.00946267880499363,
+        "sum": 0.04664015304297209
+      },
+      "case_means": {
+        "C0": 0.04338121567852795,
+        "C1": 0.04379239603877068,
+        "C2": 0.0435304001905024
+      },
+      "range_of_case_means": 0.0004111803602427286
+    },
+    {
+      "start": 12121,
+      "end": 12140,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 0.0030267628375440837,
+        "median": 0.002583196386694908,
+        "min": 0.00019028596580028534,
+        "max": 0.009675904177129269,
+        "sum": 0.06053525675088167
+      },
+      "case_means": {
+        "C0": 0.04982984187081456,
+        "C1": 0.050188051722943786,
+        "C2": 0.05065673626959324
+      },
+      "range_of_case_means": 0.0008268943987786784
+    },
+    {
+      "start": 12141,
+      "end": 12160,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 0.00925996107980609,
+        "median": 0.004111511632800102,
+        "min": 0.00015055108815431595,
+        "max": 0.06707223877310753,
+        "sum": 0.1851992215961218
+      },
+      "case_means": {
+        "C0": 0.04912674780935049,
+        "C1": 0.04781547002494335,
+        "C2": 0.04686258798465133
+      },
+      "range_of_case_means": 0.002264159824699158
+    },
+    {
+      "start": 12161,
+      "end": 12180,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 0.00385727034881711,
+        "median": 0.002249936107546091,
+        "min": 0.0002757590264081955,
+        "max": 0.02020404301583767,
+        "sum": 0.0771454069763422
+      },
+      "case_means": {
+        "C0": 0.04295232971198857,
+        "C1": 0.04448040542192757,
+        "C2": 0.042968583106994626
+      },
+      "range_of_case_means": 0.0015280757099390002
+    },
+    {
+      "start": 12181,
+      "end": 12200,
+      "per_step_ranges": {
+        "n": 20,
+        "mean": 0.004542498104274273,
+        "median": 0.0028870385140180588,
+        "min": 0.0008232835680246353,
+        "max": 0.01483373437076807,
+        "sum": 0.09084996208548546
+      },
+      "case_means": {
+        "C0": 0.045060322945937516,
+        "C1": 0.04350128355436027,
+        "C2": 0.044768744893372056
+      },
+      "range_of_case_means": 0.001559039391577248
+    }
+  ],
+  "paired_windows": {
+    "C0-C1": {
+      "pre": {
+        "signed": {
+          "n": 100,
+          "mean": -1.4821402728557587e-05,
+          "median": 0.0,
+          "min": -0.001237812452018261,
+          "max": 0.000961783342063427,
+          "sum": -0.0014821402728557587
+        },
+        "absolute": {
+          "n": 100,
+          "mean": 6.170185282826424e-05,
+          "median": 1.1275522410869598e-05,
+          "min": 0.0,
+          "max": 0.001237812452018261,
+          "sum": 0.006170185282826424
+        },
+        "left_lower_steps": 49,
+        "right_lower_steps": 48,
+        "weighted_l1_difference": -6.98665902018547e-06,
+        "weighted_ssim_loss_difference": -7.834851741790772e-06,
+        "regularizer_difference": 1.0064975867862813e-07,
+        "component_rounding_residual": 1.0803341865368789e-10
+      },
+      "post": {
+        "signed": {
+          "n": 100,
+          "mean": 0.00011457025073468685,
+          "median": -3.324029967188835e-05,
+          "min": -0.024641593918204308,
+          "max": 0.05737527832388878,
+          "sum": 0.011457025073468685
+        },
+        "absolute": {
+          "n": 100,
+          "mean": 0.0032351643685251475,
+          "median": 0.0013244901783764362,
+          "min": 3.284495323896408e-05,
+          "max": 0.05737527832388878,
+          "sum": 0.32351643685251474
+        },
+        "left_lower_steps": 51,
+        "right_lower_steps": 49,
+        "weighted_l1_difference": -1.527203619480133e-05,
+        "weighted_ssim_loss_difference": 0.0001298421621322632,
+        "regularizer_difference": -1.9390630041016264e-06,
+        "component_rounding_residual": 1.247972249629123e-10
+      },
+      "last20": {
+        "signed": {
+          "n": 20,
+          "mean": 0.0015590393915772438,
+          "median": 0.0005282936617732048,
+          "min": -0.0032810810953378677,
+          "max": 0.01483373437076807,
+          "sum": 0.031180787831544876
+        },
+        "absolute": {
+          "n": 20,
+          "mean": 0.002692391537129879,
+          "median": 0.001375693827867508,
+          "min": 0.00015406310558319092,
+          "max": 0.01483373437076807,
+          "sum": 0.05384783074259758
+        },
+        "left_lower_steps": 7,
+        "right_lower_steps": 13,
+        "weighted_l1_difference": 0.0009816110134124756,
+        "weighted_ssim_loss_difference": 0.0005774280428886414,
+        "regularizer_difference": -2.93252342089545e-06,
+        "component_rounding_residual": 3.3527612684856184e-10
+      },
+      "first_recorded_difference": 12004
+    },
+    "C0-C2": {
+      "pre": {
+        "signed": {
+          "n": 100,
+          "mean": 1.9462499767541885e-06,
+          "median": -4.0978193283081055e-08,
+          "min": -0.000962541438639164,
+          "max": 0.0011879336088895798,
+          "sum": 0.00019462499767541885
+        },
+        "absolute": {
+          "n": 100,
+          "mean": 7.460166700184345e-05,
+          "median": 1.7712824046611786e-05,
+          "min": 0.0,
+          "max": 0.0011879336088895798,
+          "sum": 0.007460166700184345
+        },
+        "left_lower_steps": 53,
+        "right_lower_steps": 45,
+        "weighted_l1_difference": 3.1337812542915347e-06,
+        "weighted_ssim_loss_difference": -1.1876225471496582e-06,
+        "regularizer_difference": 9.640210919314996e-08,
+        "component_rounding_residual": 9.126961231206448e-11
+      },
+      "post": {
+        "signed": {
+          "n": 100,
+          "mean": 0.00031268111430108545,
+          "median": -9.223585948348045e-05,
+          "min": -0.027588296681642532,
+          "max": 0.06707223877310753,
+          "sum": 0.03126811143010855
+        },
+        "absolute": {
+          "n": 100,
+          "mean": 0.003205486601218581,
+          "median": 0.0014128340408205986,
+          "min": 7.7737495303154e-06,
+          "max": 0.06707223877310753,
+          "sum": 0.3205486601218581
+        },
+        "left_lower_steps": 52,
+        "right_lower_steps": 48,
+        "weighted_l1_difference": 0.00011744236946105958,
+        "weighted_ssim_loss_difference": 0.00019523876905441285,
+        "regularizer_difference": 2.495966873539146e-07,
+        "component_rounding_residual": -2.421438697881688e-11
+      },
+      "last20": {
+        "signed": {
+          "n": 20,
+          "mean": 0.0002915780525654554,
+          "median": -0.00027049286291003227,
+          "min": -0.011178992688655853,
+          "max": 0.011973319575190544,
+          "sum": 0.005831561051309109
+        },
+        "absolute": {
+          "n": 20,
+          "mean": 0.0034035200718790294,
+          "median": 0.0013275658711791039,
+          "min": 5.9042125940322876e-05,
+          "max": 0.011973319575190544,
+          "sum": 0.06807040143758059
+        },
+        "left_lower_steps": 12,
+        "right_lower_steps": 8,
+        "weighted_l1_difference": 0.000258035883307457,
+        "weighted_ssim_loss_difference": 3.354191780090332e-05,
+        "regularizer_difference": 1.4270135579863562e-07,
+        "component_rounding_residual": 2.514570950957638e-10
+      },
+      "first_recorded_difference": 12003
+    },
+    "C1-C2": {
+      "pre": {
+        "signed": {
+          "n": 100,
+          "mean": 1.6767652705311776e-05,
+          "median": 6.94766640663147e-07,
+          "min": -0.00030677951872348785,
+          "max": 0.00046010687947273254,
+          "sum": 0.0016767652705311775
+        },
+        "absolute": {
+          "n": 100,
+          "mean": 4.2311986908316614e-05,
+          "median": 1.0588206350803375e-05,
+          "min": 0.0,
+          "max": 0.00046010687947273254,
+          "sum": 0.004231198690831661
+        },
+        "left_lower_steps": 41,
+        "right_lower_steps": 57,
+        "weighted_l1_difference": 1.0120440274477005e-05,
+        "weighted_ssim_loss_difference": 6.647229194641114e-06,
+        "regularizer_difference": -4.247649485478178e-09,
+        "component_rounding_residual": -1.6763806342258685e-11
+      },
+      "post": {
+        "signed": {
+          "n": 100,
+          "mean": 0.00019811086356639863,
+          "median": 0.0001625344157218933,
+          "min": -0.01397060975432396,
+          "max": 0.01931634731590748,
+          "sum": 0.019811086356639862
+        },
+        "absolute": {
+          "n": 100,
+          "mean": 0.0027667490392923356,
+          "median": 0.001615608111023903,
+          "min": 2.4819746613502502e-06,
+          "max": 0.01931634731590748,
+          "sum": 0.27667490392923355
+        },
+        "left_lower_steps": 45,
+        "right_lower_steps": 55,
+        "weighted_l1_difference": 0.0001327144056558609,
+        "weighted_ssim_loss_difference": 6.539660692214966e-05,
+        "regularizer_difference": 2.188659691455541e-06,
+        "component_rounding_residual": -1.4901161192817664e-10
+      },
+      "last20": {
+        "signed": {
+          "n": 20,
+          "mean": -0.0012674613390117884,
+          "median": -0.0003214138559997082,
+          "min": -0.011410383507609367,
+          "max": 0.005673373118042946,
+          "sum": -0.025349226780235767
+        },
+        "absolute": {
+          "n": 20,
+          "mean": 0.0029890845995396375,
+          "median": 0.0018876316025853157,
+          "min": 5.27258962392807e-05,
+          "max": 0.011410383507609367,
+          "sum": 0.05978169199079275
+        },
+        "left_lower_steps": 10,
+        "right_lower_steps": 10,
+        "weighted_l1_difference": -0.0007235751301050186,
+        "weighted_ssim_loss_difference": -0.0005438861250877381,
+        "regularizer_difference": 3.0752247766940854e-06,
+        "component_rounding_residual": -8.38190316850354e-11
+      },
+      "first_recorded_difference": 12003
+    }
+  },
+  "health": {
+    "C0": {
+      "0": [
+        {
+          "iteration": 12100,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 87813,
+          "dead_fraction": 0.058542,
+          "below_cutoff": 61986,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 400953504,
+            "status": "available",
+            "tile_intersection_count": 16706396
+          }
+        },
+        {
+          "iteration": 12100,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 3867,
+          "dead_fraction": 0.002578,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        },
+        {
+          "iteration": 12200,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 96027,
+          "dead_fraction": 0.064018,
+          "below_cutoff": 71672,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 353994384,
+            "status": "available",
+            "tile_intersection_count": 14749766
+          }
+        },
+        {
+          "iteration": 12200,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 3974,
+          "dead_fraction": 0.0026493333333333334,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        }
+      ],
+      "1": [
+        {
+          "iteration": 12100,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 168812,
+          "dead_fraction": 0.11254133333333333,
+          "below_cutoff": 131571,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 354261000,
+            "status": "available",
+            "tile_intersection_count": 14760875
+          }
+        },
+        {
+          "iteration": 12100,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 12361,
+          "dead_fraction": 0.008240666666666667,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        },
+        {
+          "iteration": 12200,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 182186,
+          "dead_fraction": 0.12145733333333333,
+          "below_cutoff": 148255,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 333263136,
+            "status": "available",
+            "tile_intersection_count": 13885964
+          }
+        },
+        {
+          "iteration": 12200,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 13170,
+          "dead_fraction": 0.00878,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        }
+      ]
+    },
+    "C1": {
+      "0": [
+        {
+          "iteration": 12100,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 87885,
+          "dead_fraction": 0.05859,
+          "below_cutoff": 62038,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 400694688,
+            "status": "available",
+            "tile_intersection_count": 16695612
+          }
+        },
+        {
+          "iteration": 12100,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 3688,
+          "dead_fraction": 0.0024586666666666667,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        },
+        {
+          "iteration": 12200,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 95823,
+          "dead_fraction": 0.063882,
+          "below_cutoff": 71643,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 361089504,
+            "status": "available",
+            "tile_intersection_count": 15045396
+          }
+        },
+        {
+          "iteration": 12200,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 3970,
+          "dead_fraction": 0.0026466666666666665,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        }
+      ],
+      "1": [
+        {
+          "iteration": 12100,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 168945,
+          "dead_fraction": 0.11263,
+          "below_cutoff": 131636,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 354208320,
+            "status": "available",
+            "tile_intersection_count": 14758680
+          }
+        },
+        {
+          "iteration": 12100,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 12322,
+          "dead_fraction": 0.008214666666666667,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        },
+        {
+          "iteration": 12200,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 181309,
+          "dead_fraction": 0.12087266666666667,
+          "below_cutoff": 147682,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 343862544,
+            "status": "available",
+            "tile_intersection_count": 14327606
+          }
+        },
+        {
+          "iteration": 12200,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 13022,
+          "dead_fraction": 0.008681333333333333,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        }
+      ]
+    },
+    "C2": {
+      "0": [
+        {
+          "iteration": 12100,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 87856,
+          "dead_fraction": 0.05857066666666667,
+          "below_cutoff": 62037,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 399606288,
+            "status": "available",
+            "tile_intersection_count": 16650262
+          }
+        },
+        {
+          "iteration": 12100,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 3789,
+          "dead_fraction": 0.002526,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        },
+        {
+          "iteration": 12200,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 96477,
+          "dead_fraction": 0.064318,
+          "below_cutoff": 72318,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 352327944,
+            "status": "available",
+            "tile_intersection_count": 14680331
+          }
+        },
+        {
+          "iteration": 12200,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 3934,
+          "dead_fraction": 0.002622666666666667,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        }
+      ],
+      "1": [
+        {
+          "iteration": 12100,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 168871,
+          "dead_fraction": 0.11258066666666666,
+          "below_cutoff": 131612,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 354346968,
+            "status": "available",
+            "tile_intersection_count": 14764457
+          }
+        },
+        {
+          "iteration": 12100,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 12419,
+          "dead_fraction": 0.008279333333333333,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        },
+        {
+          "iteration": 12200,
+          "phase": "before_strategy_after_optimizer",
+          "dead_count": 182162,
+          "dead_fraction": 0.12144133333333333,
+          "below_cutoff": 148060,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": {
+            "excludes": "sort_workspace_projection_and_other_render_buffers",
+            "scope": "rendered_camera_after_all_to_all",
+            "sorted_index_arrays_bytes": 338463528,
+            "status": "available",
+            "tile_intersection_count": 14102647
+          }
+        },
+        {
+          "iteration": 12200,
+          "phase": "after_strategy_before_validation",
+          "dead_count": 13006,
+          "dead_fraction": 0.008670666666666667,
+          "below_cutoff": 0,
+          "scale_zero_count": 0,
+          "scale_subnormal_count": 0,
+          "render_intersections_camera_not_owner": null
+        }
+      ]
+    }
+  },
+  "halves": {
+    "pre": {
+      "n": 100,
+      "mean": 8.930775336921215e-05,
+      "median": 2.154707908630371e-05,
+      "min": 0.0,
+      "max": 0.001237812452018261,
+      "sum": 0.008930775336921215
+    },
+    "post": {
+      "n": 100,
+      "mean": 0.004603700004518032,
+      "median": 0.002327295020222664,
+      "min": 0.00015055108815431595,
+      "max": 0.06707223877310753,
+      "sum": 0.4603700004518032
+    },
+    "post_above_pre_max_count": 80,
+    "post_without_largest_five": {
+      "n": 95,
+      "mean": 0.003277424634679368,
+      "median": 0.00228782556951046,
+      "min": 0.00015055108815431595,
+      "max": 0.014048619195818901,
+      "sum": 0.31135534029453993
+    },
+    "post_largest_one_share": 0.14569202751544064,
+    "post_largest_five_share": 0.3236845580967951
+  },
+  "boundary_steps": [
+    {
+      "iteration": 12095,
+      "camera_batch": [
+        "234",
+        "970"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.042286111041903496,
+        "C1": 0.04231078177690506,
+        "C2": 0.042350249364972115
+      },
+      "range": 6.413832306861877e-05
+    },
+    {
+      "iteration": 12096,
+      "camera_batch": [
+        "161",
+        "3123"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05674995481967926,
+        "C1": 0.05578817147761583,
+        "C2": 0.05556202121078968
+      },
+      "range": 0.0011879336088895798
+    },
+    {
+      "iteration": 12097,
+      "camera_batch": [
+        "1552",
+        "1506"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0289697190746665,
+        "C1": 0.02889720257371664,
+        "C2": 0.02869267202913761
+      },
+      "range": 0.0002770470455288887
+    },
+    {
+      "iteration": 12098,
+      "camera_batch": [
+        "3226",
+        "169"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.062132827937603,
+        "C1": 0.062213536351919174,
+        "C2": 0.06225408799946308
+      },
+      "range": 0.00012126006186008453
+    },
+    {
+      "iteration": 12099,
+      "camera_batch": [
+        "3280",
+        "22"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.059105461463332176,
+        "C1": 0.05908942222595215,
+        "C2": 0.05920589156448841
+      },
+      "range": 0.00011646933853626251
+    },
+    {
+      "iteration": 12100,
+      "camera_batch": [
+        "2035",
+        "1475"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03773440420627594,
+        "C1": 0.03764607012271881,
+        "C2": 0.03759135119616985
+      },
+      "range": 0.00014305301010608673
+    },
+    {
+      "iteration": 12101,
+      "camera_batch": [
+        "1341",
+        "1984"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07182407006621361,
+        "C1": 0.07195646688342094,
+        "C2": 0.07199334725737572
+      },
+      "range": 0.00016927719116210938
+    },
+    {
+      "iteration": 12102,
+      "camera_batch": [
+        "2612",
+        "2942"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.022271467372775078,
+        "C1": 0.020763369277119637,
+        "C2": 0.020587846636772156
+      },
+      "range": 0.001683620736002922
+    },
+    {
+      "iteration": 12103,
+      "camera_batch": [
+        "641",
+        "3589"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05022692680358887,
+        "C1": 0.05026056244969368,
+        "C2": 0.05187876150012016
+      },
+      "range": 0.0016518346965312958
+    },
+    {
+      "iteration": 12104,
+      "camera_batch": [
+        "1408",
+        "1951"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07763736322522163,
+        "C1": 0.08001004531979561,
+        "C2": 0.07828933000564575
+      },
+      "range": 0.0023726820945739746
+    },
+    {
+      "iteration": 12105,
+      "camera_batch": [
+        "2777",
+        "1659"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03452080301940441,
+        "C1": 0.035112667828798294,
+        "C2": 0.03483633417636156
+      },
+      "range": 0.0005918648093938828
+    },
+    {
+      "iteration": 12106,
+      "camera_batch": [
+        "806",
+        "2499"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.022657420486211777,
+        "C1": 0.02645878866314888,
+        "C2": 0.024759182706475258
+      },
+      "range": 0.0038013681769371033
+    },
+    {
+      "iteration": 12107,
+      "camera_batch": [
+        "1057",
+        "995"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0582052581012249,
+        "C1": 0.058328285813331604,
+        "C2": 0.05999701842665672
+      },
+      "range": 0.0017917603254318237
+    },
+    {
+      "iteration": 12108,
+      "camera_batch": [
+        "1294",
+        "1085"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03455134201794863,
+        "C1": 0.04376340564340353,
+        "C2": 0.0343007268384099
+      },
+      "range": 0.00946267880499363
+    },
+    {
+      "iteration": 12109,
+      "camera_batch": [
+        "1512",
+        "814"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03748382814228535,
+        "C1": 0.037346385419368744,
+        "C2": 0.03705240413546562
+      },
+      "range": 0.00043142400681972504
+    },
+    {
+      "iteration": 12110,
+      "camera_batch": [
+        "2485",
+        "3464"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05568690411746502,
+        "C1": 0.0573907233774662,
+        "C2": 0.05535817705094814
+      },
+      "range": 0.0020325463265180588
+    }
+  ],
+  "largest_steps_exploratory": [
+    {
+      "iteration": 12144,
+      "camera_batch": [
+        "2218",
+        "3406"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.10473565757274628,
+        "C1": 0.0473603792488575,
+        "C2": 0.03766341879963875
+      },
+      "range": 0.06707223877310753
+    },
+    {
+      "iteration": 12147,
+      "camera_batch": [
+        "175",
+        "549"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.09481385350227356,
+        "C1": 0.11945544742047787,
+        "C2": 0.12240215018391609
+      },
+      "range": 0.027588296681642532
+    },
+    {
+      "iteration": 12167,
+      "camera_batch": [
+        "2831",
+        "2032"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06163442321121693,
+        "C1": 0.0818384662270546,
+        "C2": 0.06965633109211922
+      },
+      "range": 0.02020404301583767
+    },
+    {
+      "iteration": 12151,
+      "camera_batch": [
+        "3710",
+        "2277"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0428325179964304,
+        "C1": 0.060425031930208206,
+        "C2": 0.04110868461430073
+      },
+      "range": 0.01931634731590748
+    },
+    {
+      "iteration": 12185,
+      "camera_batch": [
+        "274",
+        "2055"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.041886743158102036,
+        "C1": 0.027053008787333965,
+        "C2": 0.02991342358291149
+      },
+      "range": 0.01483373437076807
+    },
+    {
+      "iteration": 12168,
+      "camera_batch": [
+        "2668",
+        "1787"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04349341616034508,
+        "C1": 0.05495467968285084,
+        "C2": 0.04090606048703194
+      },
+      "range": 0.014048619195818901
+    },
+    {
+      "iteration": 12156,
+      "camera_batch": [
+        "2030",
+        "2023"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.040504368022084236,
+        "C1": 0.0377429723739624,
+        "C2": 0.05171358212828636
+      },
+      "range": 0.01397060975432396
+    },
+    {
+      "iteration": 12193,
+      "camera_batch": [
+        "2039",
+        "2940"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.02836287021636963,
+        "C1": 0.028131479397416115,
+        "C2": 0.03954186290502548
+      },
+      "range": 0.011410383507609367
+    },
+    {
+      "iteration": 12197,
+      "camera_batch": [
+        "2129",
+        "2675"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05462498962879181,
+        "C1": 0.047232404351234436,
+        "C2": 0.04356694594025612
+      },
+      "range": 0.01105804368853569
+    },
+    {
+      "iteration": 12141,
+      "camera_batch": [
+        "2879",
+        "3366"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07481486350297928,
+        "C1": 0.0650457926094532,
+        "C2": 0.07146798260509968
+      },
+      "range": 0.009769070893526077
+    }
+  ],
+  "per_step": [
+    {
+      "iteration": 12001,
+      "camera_batch": [
+        "3062",
+        "1863"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04069463536143303,
+        "C1": 0.04069463536143303,
+        "C2": 0.04069463536143303
+      },
+      "range": 0.0
+    },
+    {
+      "iteration": 12002,
+      "camera_batch": [
+        "1821",
+        "2077"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.030234488658607006,
+        "C1": 0.030234488658607006,
+        "C2": 0.030234488658607006
+      },
+      "range": 0.0
+    },
+    {
+      "iteration": 12003,
+      "camera_batch": [
+        "2292",
+        "1508"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05114768072962761,
+        "C1": 0.05114768072962761,
+        "C2": 0.051147688180208206
+      },
+      "range": 7.450580596923828e-09
+    },
+    {
+      "iteration": 12004,
+      "camera_batch": [
+        "2582",
+        "1892"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05033790227025747,
+        "C1": 0.05033789947628975,
+        "C2": 0.050337919034063816
+      },
+      "range": 1.955777406692505e-08
+    },
+    {
+      "iteration": 12005,
+      "camera_batch": [
+        "1308",
+        "1850"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.036408135667443275,
+        "C1": 0.036408133804798126,
+        "C2": 0.036408163607120514
+      },
+      "range": 2.9802322387695312e-08
+    },
+    {
+      "iteration": 12006,
+      "camera_batch": [
+        "1762",
+        "2173"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05772651359438896,
+        "C1": 0.05772651173174381,
+        "C2": 0.057726508006453514
+      },
+      "range": 5.587935447692871e-09
+    },
+    {
+      "iteration": 12007,
+      "camera_batch": [
+        "2521",
+        "515"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.047175513580441475,
+        "C1": 0.04717583209276199,
+        "C2": 0.04717513546347618
+      },
+      "range": 6.966292858123779e-07
+    },
+    {
+      "iteration": 12008,
+      "camera_batch": [
+        "564",
+        "3194"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0484977625310421,
+        "C1": 0.04849773459136486,
+        "C2": 0.04849782772362232
+      },
+      "range": 9.313225746154785e-08
+    },
+    {
+      "iteration": 12009,
+      "camera_batch": [
+        "3650",
+        "2758"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04677391890436411,
+        "C1": 0.046773736365139484,
+        "C2": 0.046774277463555336
+      },
+      "range": 5.41098415851593e-07
+    },
+    {
+      "iteration": 12010,
+      "camera_batch": [
+        "2948",
+        "121"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03479732945561409,
+        "C1": 0.03479727543890476,
+        "C2": 0.0347973071038723
+      },
+      "range": 5.4016709327697754e-08
+    },
+    {
+      "iteration": 12011,
+      "camera_batch": [
+        "10",
+        "2988"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03609968442469835,
+        "C1": 0.036099789664149284,
+        "C2": 0.036099592223763466
+      },
+      "range": 1.9744038581848145e-07
+    },
+    {
+      "iteration": 12012,
+      "camera_batch": [
+        "3607",
+        "3480"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07059388607740402,
+        "C1": 0.0705936886370182,
+        "C2": 0.0705941878259182
+      },
+      "range": 4.991888999938965e-07
+    },
+    {
+      "iteration": 12013,
+      "camera_batch": [
+        "3678",
+        "576"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04271144140511751,
+        "C1": 0.04271186329424381,
+        "C2": 0.042711423709988594
+      },
+      "range": 4.3958425521850586e-07
+    },
+    {
+      "iteration": 12014,
+      "camera_batch": [
+        "1730",
+        "927"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04058466851711273,
+        "C1": 0.040584638714790344,
+        "C2": 0.04058472253382206
+      },
+      "range": 8.381903171539307e-08
+    },
+    {
+      "iteration": 12015,
+      "camera_batch": [
+        "3660",
+        "1154"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.042420171201229095,
+        "C1": 0.042419757694005966,
+        "C2": 0.042420025914907455
+      },
+      "range": 4.1350722312927246e-07
+    },
+    {
+      "iteration": 12016,
+      "camera_batch": [
+        "2589",
+        "541"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.026553873904049397,
+        "C1": 0.026554579846560955,
+        "C2": 0.02655445598065853
+      },
+      "range": 7.059425115585327e-07
+    },
+    {
+      "iteration": 12017,
+      "camera_batch": [
+        "1972",
+        "2752"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.02631627954542637,
+        "C1": 0.026323732919991016,
+        "C2": 0.026320092380046844
+      },
+      "range": 7.4533745646476746e-06
+    },
+    {
+      "iteration": 12018,
+      "camera_batch": [
+        "757",
+        "1169"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05043709743767977,
+        "C1": 0.05043533071875572,
+        "C2": 0.05043489206582308
+      },
+      "range": 2.205371856689453e-06
+    },
+    {
+      "iteration": 12019,
+      "camera_batch": [
+        "1221",
+        "2980"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0313178850337863,
+        "C1": 0.03131818398833275,
+        "C2": 0.031320114620029926
+      },
+      "range": 2.2295862436294556e-06
+    },
+    {
+      "iteration": 12020,
+      "camera_batch": [
+        "3625",
+        "1766"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07500516623258591,
+        "C1": 0.07500514760613441,
+        "C2": 0.07500383257865906
+      },
+      "range": 1.3336539268493652e-06
+    },
+    {
+      "iteration": 12021,
+      "camera_batch": [
+        "1170",
+        "3214"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03338187653571367,
+        "C1": 0.03338077291846275,
+        "C2": 0.03337477706372738
+      },
+      "range": 7.099471986293793e-06
+    },
+    {
+      "iteration": 12022,
+      "camera_batch": [
+        "519",
+        "440"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07296045497059822,
+        "C1": 0.07296216674149036,
+        "C2": 0.07296140119433403
+      },
+      "range": 1.7117708921432495e-06
+    },
+    {
+      "iteration": 12023,
+      "camera_batch": [
+        "2198",
+        "357"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06145631521940231,
+        "C1": 0.06144518405199051,
+        "C2": 0.061444301158189774
+      },
+      "range": 1.2014061212539673e-05
+    },
+    {
+      "iteration": 12024,
+      "camera_batch": [
+        "2388",
+        "1318"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.08380407094955444,
+        "C1": 0.08379791304469109,
+        "C2": 0.08380011469125748
+      },
+      "range": 6.157904863357544e-06
+    },
+    {
+      "iteration": 12025,
+      "camera_batch": [
+        "2470",
+        "2825"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0526338629424572,
+        "C1": 0.05263178423047066,
+        "C2": 0.05263105407357216
+      },
+      "range": 2.808868885040283e-06
+    },
+    {
+      "iteration": 12026,
+      "camera_batch": [
+        "2590",
+        "2708"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03375719301402569,
+        "C1": 0.033738043159246445,
+        "C2": 0.033714473247528076
+      },
+      "range": 4.2719766497612e-05
+    },
+    {
+      "iteration": 12027,
+      "camera_batch": [
+        "700",
+        "1679"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05009912885725498,
+        "C1": 0.050083111971616745,
+        "C2": 0.050081584602594376
+      },
+      "range": 1.7544254660606384e-05
+    },
+    {
+      "iteration": 12028,
+      "camera_batch": [
+        "3374",
+        "2824"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0714244581758976,
+        "C1": 0.07142291590571404,
+        "C2": 0.0714234709739685
+      },
+      "range": 1.5422701835632324e-06
+    },
+    {
+      "iteration": 12029,
+      "camera_batch": [
+        "1406",
+        "1474"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05179477855563164,
+        "C1": 0.05179257690906525,
+        "C2": 0.05179232731461525
+      },
+      "range": 2.4512410163879395e-06
+    },
+    {
+      "iteration": 12030,
+      "camera_batch": [
+        "1658",
+        "2003"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.047876378521323204,
+        "C1": 0.04786842688918114,
+        "C2": 0.047875504940748215
+      },
+      "range": 7.951632142066956e-06
+    },
+    {
+      "iteration": 12031,
+      "camera_batch": [
+        "2814",
+        "1940"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0678785927593708,
+        "C1": 0.06788110360503197,
+        "C2": 0.06788041070103645
+      },
+      "range": 2.51084566116333e-06
+    },
+    {
+      "iteration": 12032,
+      "camera_batch": [
+        "2558",
+        "2522"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.047969039529561996,
+        "C1": 0.047975167632102966,
+        "C2": 0.047972023487091064
+      },
+      "range": 6.128102540969849e-06
+    },
+    {
+      "iteration": 12033,
+      "camera_batch": [
+        "3321",
+        "2373"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03897704556584358,
+        "C1": 0.03896914795041084,
+        "C2": 0.0389673225581646
+      },
+      "range": 9.723007678985596e-06
+    },
+    {
+      "iteration": 12034,
+      "camera_batch": [
+        "2895",
+        "2278"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03173722326755524,
+        "C1": 0.031738217920064926,
+        "C2": 0.031744180247187614
+      },
+      "range": 6.9569796323776245e-06
+    },
+    {
+      "iteration": 12035,
+      "camera_batch": [
+        "763",
+        "2"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04027646221220493,
+        "C1": 0.04027650132775307,
+        "C2": 0.04026397690176964
+      },
+      "range": 1.2524425983428955e-05
+    },
+    {
+      "iteration": 12036,
+      "camera_batch": [
+        "2638",
+        "634"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.049699047580361366,
+        "C1": 0.04976441152393818,
+        "C2": 0.049753302708268166
+      },
+      "range": 6.536394357681274e-05
+    },
+    {
+      "iteration": 12037,
+      "camera_batch": [
+        "1559",
+        "707"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04234521463513374,
+        "C1": 0.04234269820153713,
+        "C2": 0.042339885607361794
+      },
+      "range": 5.329027771949768e-06
+    },
+    {
+      "iteration": 12038,
+      "camera_batch": [
+        "1906",
+        "3329"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0341202262789011,
+        "C1": 0.034142836928367615,
+        "C2": 0.03413114324212074
+      },
+      "range": 2.2610649466514587e-05
+    },
+    {
+      "iteration": 12039,
+      "camera_batch": [
+        "1722",
+        "1637"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.048130618408322334,
+        "C1": 0.048134107142686844,
+        "C2": 0.048147065564990044
+      },
+      "range": 1.644715666770935e-05
+    },
+    {
+      "iteration": 12040,
+      "camera_batch": [
+        "1729",
+        "3114"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04023106396198273,
+        "C1": 0.040236249566078186,
+        "C2": 0.04024926759302616
+      },
+      "range": 1.8203631043434143e-05
+    },
+    {
+      "iteration": 12041,
+      "camera_batch": [
+        "395",
+        "1554"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0297035351395607,
+        "C1": 0.029783395119011402,
+        "C2": 0.02980324998497963
+      },
+      "range": 9.971484541893005e-05
+    },
+    {
+      "iteration": 12042,
+      "camera_batch": [
+        "76",
+        "827"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03782759606838226,
+        "C1": 0.037850022315979004,
+        "C2": 0.037842961959540844
+      },
+      "range": 2.2426247596740723e-05
+    },
+    {
+      "iteration": 12043,
+      "camera_batch": [
+        "1304",
+        "2886"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04443017207086086,
+        "C1": 0.04443616792559624,
+        "C2": 0.044438427314162254
+      },
+      "range": 8.255243301391602e-06
+    },
+    {
+      "iteration": 12044,
+      "camera_batch": [
+        "1245",
+        "2254"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.13273960724473,
+        "C1": 0.13275893405079842,
+        "C2": 0.1328047402203083
+      },
+      "range": 6.51329755783081e-05
+    },
+    {
+      "iteration": 12045,
+      "camera_batch": [
+        "3325",
+        "1186"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.029166659340262413,
+        "C1": 0.02916711661964655,
+        "C2": 0.029163241386413574
+      },
+      "range": 3.875233232975006e-06
+    },
+    {
+      "iteration": 12046,
+      "camera_batch": [
+        "77",
+        "84"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04392809234559536,
+        "C1": 0.04393199644982815,
+        "C2": 0.04393474571406841
+      },
+      "range": 6.6533684730529785e-06
+    },
+    {
+      "iteration": 12047,
+      "camera_batch": [
+        "826",
+        "2128"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04163634777069092,
+        "C1": 0.04163786582648754,
+        "C2": 0.04164360091090202
+      },
+      "range": 7.253140211105347e-06
+    },
+    {
+      "iteration": 12048,
+      "camera_batch": [
+        "69",
+        "2059"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.033898500725626945,
+        "C1": 0.03387381508946419,
+        "C2": 0.03384905494749546
+      },
+      "range": 4.9445778131484985e-05
+    },
+    {
+      "iteration": 12049,
+      "camera_batch": [
+        "800",
+        "2007"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03151168208569288,
+        "C1": 0.03148733451962471,
+        "C2": 0.031488778069615364
+      },
+      "range": 2.4347566068172455e-05
+    },
+    {
+      "iteration": 12050,
+      "camera_batch": [
+        "485",
+        "136"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03302493132650852,
+        "C1": 0.03302706219255924,
+        "C2": 0.03300812840461731
+      },
+      "range": 1.8933787941932678e-05
+    },
+    {
+      "iteration": 12051,
+      "camera_batch": [
+        "3255",
+        "542"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03645101934671402,
+        "C1": 0.03644713759422302,
+        "C2": 0.03644774481654167
+      },
+      "range": 3.8817524909973145e-06
+    },
+    {
+      "iteration": 12052,
+      "camera_batch": [
+        "2586",
+        "923"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04143054597079754,
+        "C1": 0.04121272824704647,
+        "C2": 0.04104783572256565
+      },
+      "range": 0.0003827102482318878
+    },
+    {
+      "iteration": 12053,
+      "camera_batch": [
+        "978",
+        "987"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.039345502853393555,
+        "C1": 0.03934148699045181,
+        "C2": 0.03934228792786598
+      },
+      "range": 4.015862941741943e-06
+    },
+    {
+      "iteration": 12054,
+      "camera_batch": [
+        "3112",
+        "2038"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.036662351340055466,
+        "C1": 0.036681780591607094,
+        "C2": 0.0366806834936142
+      },
+      "range": 1.9429251551628113e-05
+    },
+    {
+      "iteration": 12055,
+      "camera_batch": [
+        "1832",
+        "1171"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04706474021077156,
+        "C1": 0.047056701965630054,
+        "C2": 0.04705117270350456
+      },
+      "range": 1.3567507266998291e-05
+    },
+    {
+      "iteration": 12056,
+      "camera_batch": [
+        "96",
+        "1532"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.029408276081085205,
+        "C1": 0.029329199343919754,
+        "C2": 0.029280994087457657
+      },
+      "range": 0.00012728199362754822
+    },
+    {
+      "iteration": 12057,
+      "camera_batch": [
+        "1175",
+        "815"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.034759748727083206,
+        "C1": 0.03479057550430298,
+        "C2": 0.03478429839015007
+      },
+      "range": 3.082677721977234e-05
+    },
+    {
+      "iteration": 12058,
+      "camera_batch": [
+        "1812",
+        "2427"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04403489828109741,
+        "C1": 0.04405268840491772,
+        "C2": 0.04404085874557495
+      },
+      "range": 1.779012382030487e-05
+    },
+    {
+      "iteration": 12059,
+      "camera_batch": [
+        "2013",
+        "2333"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.02879650518298149,
+        "C1": 0.028823690488934517,
+        "C2": 0.02875759918242693
+      },
+      "range": 6.609130650758743e-05
+    },
+    {
+      "iteration": 12060,
+      "camera_batch": [
+        "1071",
+        "260"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05693061649799347,
+        "C1": 0.05691286735236645,
+        "C2": 0.05695309117436409
+      },
+      "range": 4.022382199764252e-05
+    },
+    {
+      "iteration": 12061,
+      "camera_batch": [
+        "1671",
+        "3513"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.029424571432173252,
+        "C1": 0.02942962944507599,
+        "C2": 0.029430652037262917
+      },
+      "range": 6.080605089664459e-06
+    },
+    {
+      "iteration": 12062,
+      "camera_batch": [
+        "3643",
+        "2749"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.049234114587306976,
+        "C1": 0.04928671196103096,
+        "C2": 0.049303699284791946
+      },
+      "range": 6.958469748497009e-05
+    },
+    {
+      "iteration": 12063,
+      "camera_batch": [
+        "1157",
+        "1335"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.052655261009931564,
+        "C1": 0.052648186683654785,
+        "C2": 0.052445098757743835
+      },
+      "range": 0.00021016225218772888
+    },
+    {
+      "iteration": 12064,
+      "camera_batch": [
+        "1515",
+        "2304"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.061724647879600525,
+        "C1": 0.061830369755625725,
+        "C2": 0.06178927980363369
+      },
+      "range": 0.00010572187602519989
+    },
+    {
+      "iteration": 12065,
+      "camera_batch": [
+        "3081",
+        "62"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.048382969573140144,
+        "C1": 0.04839438945055008,
+        "C2": 0.048422738909721375
+      },
+      "range": 3.9769336581230164e-05
+    },
+    {
+      "iteration": 12066,
+      "camera_batch": [
+        "1986",
+        "3461"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0643562525510788,
+        "C1": 0.06434138305485249,
+        "C2": 0.06431426666676998
+      },
+      "range": 4.1985884308815e-05
+    },
+    {
+      "iteration": 12067,
+      "camera_batch": [
+        "2395",
+        "2882"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03142479620873928,
+        "C1": 0.031433701515197754,
+        "C2": 0.0314426776021719
+      },
+      "range": 1.7881393432617188e-05
+    },
+    {
+      "iteration": 12068,
+      "camera_batch": [
+        "1738",
+        "1880"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03603625297546387,
+        "C1": 0.03603137284517288,
+        "C2": 0.03598882257938385
+      },
+      "range": 4.743039608001709e-05
+    },
+    {
+      "iteration": 12069,
+      "camera_batch": [
+        "300",
+        "426"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0431505162268877,
+        "C1": 0.04319617711007595,
+        "C2": 0.04318148083984852
+      },
+      "range": 4.566088318824768e-05
+    },
+    {
+      "iteration": 12070,
+      "camera_batch": [
+        "3636",
+        "2713"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.058120761066675186,
+        "C1": 0.05807921849191189,
+        "C2": 0.05818108096718788
+      },
+      "range": 0.00010186247527599335
+    },
+    {
+      "iteration": 12071,
+      "camera_batch": [
+        "3672",
+        "607"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04080521874129772,
+        "C1": 0.040786199271678925,
+        "C2": 0.040902381762862206
+      },
+      "range": 0.00011618249118328094
+    },
+    {
+      "iteration": 12072,
+      "camera_batch": [
+        "344",
+        "1021"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.056886907666921616,
+        "C1": 0.0570114329457283,
+        "C2": 0.056924447417259216
+      },
+      "range": 0.0001245252788066864
+    },
+    {
+      "iteration": 12073,
+      "camera_batch": [
+        "2344",
+        "1549"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.031060200184583664,
+        "C1": 0.030984316021203995,
+        "C2": 0.03129109553992748
+      },
+      "range": 0.00030677951872348785
+    },
+    {
+      "iteration": 12074,
+      "camera_batch": [
+        "680",
+        "264"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.048872596584260464,
+        "C1": 0.04881748743355274,
+        "C2": 0.04868440888822079
+      },
+      "range": 0.00018818769603967667
+    },
+    {
+      "iteration": 12075,
+      "camera_batch": [
+        "3265",
+        "2951"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.040755671449005604,
+        "C1": 0.04078967310488224,
+        "C2": 0.040787357836961746
+      },
+      "range": 3.4001655876636505e-05
+    },
+    {
+      "iteration": 12076,
+      "camera_batch": [
+        "162",
+        "2769"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.045048339292407036,
+        "C1": 0.04497533664107323,
+        "C2": 0.04488673526793718
+      },
+      "range": 0.00016160402446985245
+    },
+    {
+      "iteration": 12077,
+      "camera_batch": [
+        "1082",
+        "1420"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.057157425209879875,
+        "C1": 0.05719146504998207,
+        "C2": 0.057166244834661484
+      },
+      "range": 3.403984010219574e-05
+    },
+    {
+      "iteration": 12078,
+      "camera_batch": [
+        "1413",
+        "1981"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.08131303265690804,
+        "C1": 0.08128086104989052,
+        "C2": 0.08124455623328686
+      },
+      "range": 6.847642362117767e-05
+    },
+    {
+      "iteration": 12079,
+      "camera_batch": [
+        "570",
+        "2810"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06599149480462074,
+        "C1": 0.06590309739112854,
+        "C2": 0.06597115099430084
+      },
+      "range": 8.839741349220276e-05
+    },
+    {
+      "iteration": 12080,
+      "camera_batch": [
+        "3144",
+        "807"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.027676614932715893,
+        "C1": 0.027635459788143635,
+        "C2": 0.027614645659923553
+      },
+      "range": 6.196927279233932e-05
+    },
+    {
+      "iteration": 12081,
+      "camera_batch": [
+        "2094",
+        "3223"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03561318479478359,
+        "C1": 0.03566182218492031,
+        "C2": 0.035665866918861866
+      },
+      "range": 5.268212407827377e-05
+    },
+    {
+      "iteration": 12082,
+      "camera_batch": [
+        "2869",
+        "3717"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06810844503343105,
+        "C1": 0.06805368140339851,
+        "C2": 0.06795656681060791
+      },
+      "range": 0.000151878222823143
+    },
+    {
+      "iteration": 12083,
+      "camera_batch": [
+        "2085",
+        "3087"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03429029509425163,
+        "C1": 0.034263839945197105,
+        "C2": 0.03431454114615917
+      },
+      "range": 5.070120096206665e-05
+    },
+    {
+      "iteration": 12084,
+      "camera_batch": [
+        "3079",
+        "1197"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03335731849074364,
+        "C1": 0.03336411714553833,
+        "C2": 0.0332427192479372
+      },
+      "range": 0.00012139789760112762
+    },
+    {
+      "iteration": 12085,
+      "camera_batch": [
+        "943",
+        "775"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06010042317211628,
+        "C1": 0.06023907847702503,
+        "C2": 0.06013348698616028
+      },
+      "range": 0.00013865530490875244
+    },
+    {
+      "iteration": 12086,
+      "camera_batch": [
+        "3221",
+        "3422"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03556416556239128,
+        "C1": 0.035574765875935555,
+        "C2": 0.03558483347296715
+      },
+      "range": 2.06679105758667e-05
+    },
+    {
+      "iteration": 12087,
+      "camera_batch": [
+        "158",
+        "1714"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04299128707498312,
+        "C1": 0.043072886765003204,
+        "C2": 0.04292500950396061
+      },
+      "range": 0.0001478772610425949
+    },
+    {
+      "iteration": 12088,
+      "camera_batch": [
+        "652",
+        "509"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0250104246661067,
+        "C1": 0.024799457751214504,
+        "C2": 0.024707695469260216
+      },
+      "range": 0.00030272919684648514
+    },
+    {
+      "iteration": 12089,
+      "camera_batch": [
+        "3447",
+        "1249"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06053783558309078,
+        "C1": 0.06057029403746128,
+        "C2": 0.06054847687482834
+      },
+      "range": 3.245845437049866e-05
+    },
+    {
+      "iteration": 12090,
+      "camera_batch": [
+        "2503",
+        "777"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.031959518790245056,
+        "C1": 0.03204130567610264,
+        "C2": 0.032059259712696075
+      },
+      "range": 9.974092245101929e-05
+    },
+    {
+      "iteration": 12091,
+      "camera_batch": [
+        "2347",
+        "1266"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04133392684161663,
+        "C1": 0.04257173929363489,
+        "C2": 0.04211163241416216
+      },
+      "range": 0.001237812452018261
+    },
+    {
+      "iteration": 12092,
+      "camera_batch": [
+        "1664",
+        "983"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03615904599428177,
+        "C1": 0.036247365176677704,
+        "C2": 0.036235108971595764
+      },
+      "range": 8.831918239593506e-05
+    },
+    {
+      "iteration": 12093,
+      "camera_batch": [
+        "658",
+        "410"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04328772611916065,
+        "C1": 0.04449613485485315,
+        "C2": 0.044250267557799816
+      },
+      "range": 0.001208408735692501
+    },
+    {
+      "iteration": 12094,
+      "camera_batch": [
+        "2753",
+        "3617"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.050304707139730453,
+        "C1": 0.05032029561698437,
+        "C2": 0.05050528421998024
+      },
+      "range": 0.00020057708024978638
+    },
+    {
+      "iteration": 12095,
+      "camera_batch": [
+        "234",
+        "970"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.042286111041903496,
+        "C1": 0.04231078177690506,
+        "C2": 0.042350249364972115
+      },
+      "range": 6.413832306861877e-05
+    },
+    {
+      "iteration": 12096,
+      "camera_batch": [
+        "161",
+        "3123"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05674995481967926,
+        "C1": 0.05578817147761583,
+        "C2": 0.05556202121078968
+      },
+      "range": 0.0011879336088895798
+    },
+    {
+      "iteration": 12097,
+      "camera_batch": [
+        "1552",
+        "1506"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0289697190746665,
+        "C1": 0.02889720257371664,
+        "C2": 0.02869267202913761
+      },
+      "range": 0.0002770470455288887
+    },
+    {
+      "iteration": 12098,
+      "camera_batch": [
+        "3226",
+        "169"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.062132827937603,
+        "C1": 0.062213536351919174,
+        "C2": 0.06225408799946308
+      },
+      "range": 0.00012126006186008453
+    },
+    {
+      "iteration": 12099,
+      "camera_batch": [
+        "3280",
+        "22"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.059105461463332176,
+        "C1": 0.05908942222595215,
+        "C2": 0.05920589156448841
+      },
+      "range": 0.00011646933853626251
+    },
+    {
+      "iteration": 12100,
+      "camera_batch": [
+        "2035",
+        "1475"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03773440420627594,
+        "C1": 0.03764607012271881,
+        "C2": 0.03759135119616985
+      },
+      "range": 0.00014305301010608673
+    },
+    {
+      "iteration": 12101,
+      "camera_batch": [
+        "1341",
+        "1984"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07182407006621361,
+        "C1": 0.07195646688342094,
+        "C2": 0.07199334725737572
+      },
+      "range": 0.00016927719116210938
+    },
+    {
+      "iteration": 12102,
+      "camera_batch": [
+        "2612",
+        "2942"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.022271467372775078,
+        "C1": 0.020763369277119637,
+        "C2": 0.020587846636772156
+      },
+      "range": 0.001683620736002922
+    },
+    {
+      "iteration": 12103,
+      "camera_batch": [
+        "641",
+        "3589"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05022692680358887,
+        "C1": 0.05026056244969368,
+        "C2": 0.05187876150012016
+      },
+      "range": 0.0016518346965312958
+    },
+    {
+      "iteration": 12104,
+      "camera_batch": [
+        "1408",
+        "1951"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07763736322522163,
+        "C1": 0.08001004531979561,
+        "C2": 0.07828933000564575
+      },
+      "range": 0.0023726820945739746
+    },
+    {
+      "iteration": 12105,
+      "camera_batch": [
+        "2777",
+        "1659"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03452080301940441,
+        "C1": 0.035112667828798294,
+        "C2": 0.03483633417636156
+      },
+      "range": 0.0005918648093938828
+    },
+    {
+      "iteration": 12106,
+      "camera_batch": [
+        "806",
+        "2499"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.022657420486211777,
+        "C1": 0.02645878866314888,
+        "C2": 0.024759182706475258
+      },
+      "range": 0.0038013681769371033
+    },
+    {
+      "iteration": 12107,
+      "camera_batch": [
+        "1057",
+        "995"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0582052581012249,
+        "C1": 0.058328285813331604,
+        "C2": 0.05999701842665672
+      },
+      "range": 0.0017917603254318237
+    },
+    {
+      "iteration": 12108,
+      "camera_batch": [
+        "1294",
+        "1085"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03455134201794863,
+        "C1": 0.04376340564340353,
+        "C2": 0.0343007268384099
+      },
+      "range": 0.00946267880499363
+    },
+    {
+      "iteration": 12109,
+      "camera_batch": [
+        "1512",
+        "814"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03748382814228535,
+        "C1": 0.037346385419368744,
+        "C2": 0.03705240413546562
+      },
+      "range": 0.00043142400681972504
+    },
+    {
+      "iteration": 12110,
+      "camera_batch": [
+        "2485",
+        "3464"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05568690411746502,
+        "C1": 0.0573907233774662,
+        "C2": 0.05535817705094814
+      },
+      "range": 0.0020325463265180588
+    },
+    {
+      "iteration": 12111,
+      "camera_batch": [
+        "3602",
+        "2546"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05052729323506355,
+        "C1": 0.04701286181807518,
+        "C2": 0.04753141477704048
+      },
+      "range": 0.003514431416988373
+    },
+    {
+      "iteration": 12112,
+      "camera_batch": [
+        "402",
+        "3493"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.045747505500912666,
+        "C1": 0.04600225482136011,
+        "C2": 0.04591267090290785
+      },
+      "range": 0.0002547493204474449
+    },
+    {
+      "iteration": 12113,
+      "camera_batch": [
+        "1461",
+        "117"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.032421328127384186,
+        "C1": 0.03183766454458237,
+        "C2": 0.03222891502082348
+      },
+      "range": 0.0005836635828018188
+    },
+    {
+      "iteration": 12114,
+      "camera_batch": [
+        "3266",
+        "2757"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03039027377963066,
+        "C1": 0.031252602115273476,
+        "C2": 0.03047145903110504
+      },
+      "range": 0.0008623283356428146
+    },
+    {
+      "iteration": 12115,
+      "camera_batch": [
+        "1562",
+        "2745"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.030267175287008286,
+        "C1": 0.028433366678655148,
+        "C2": 0.02979086898267269
+      },
+      "range": 0.001833808608353138
+    },
+    {
+      "iteration": 12116,
+      "camera_batch": [
+        "1676",
+        "3633"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05674436688423157,
+        "C1": 0.05160362180322409,
+        "C2": 0.06045445054769516
+      },
+      "range": 0.008850828744471073
+    },
+    {
+      "iteration": 12117,
+      "camera_batch": [
+        "3215",
+        "1360"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.060773346573114395,
+        "C1": 0.06304403766989708,
+        "C2": 0.05887801572680473
+      },
+      "range": 0.004166021943092346
+    },
+    {
+      "iteration": 12118,
+      "camera_batch": [
+        "816",
+        "1672"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.028185256756842136,
+        "C1": 0.02787663135677576,
+        "C2": 0.02817748300731182
+      },
+      "range": 0.00030862540006637573
+    },
+    {
+      "iteration": 12119,
+      "camera_batch": [
+        "2876",
+        "2209"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.033125173300504684,
+        "C1": 0.03339873626828194,
+        "C2": 0.03261812590062618
+      },
+      "range": 0.0007806103676557541
+    },
+    {
+      "iteration": 12120,
+      "camera_batch": [
+        "429",
+        "3152"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03437721077352762,
+        "C1": 0.033995443023741245,
+        "C2": 0.03549147117882967
+      },
+      "range": 0.0014960281550884247
+    },
+    {
+      "iteration": 12121,
+      "camera_batch": [
+        "3519",
+        "975"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04022856056690216,
+        "C1": 0.04203629307448864,
+        "C2": 0.04179901070892811
+      },
+      "range": 0.0018077325075864792
+    },
+    {
+      "iteration": 12122,
+      "camera_batch": [
+        "2566",
+        "960"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04743633419275284,
+        "C1": 0.0463526863604784,
+        "C2": 0.049151111394166946
+      },
+      "range": 0.0027984250336885452
+    },
+    {
+      "iteration": 12123,
+      "camera_batch": [
+        "2430",
+        "2210"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03751994110643864,
+        "C1": 0.03770774509757757,
+        "C2": 0.03771022707223892
+      },
+      "range": 0.00019028596580028534
+    },
+    {
+      "iteration": 12124,
+      "camera_batch": [
+        "588",
+        "853"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06576891243457794,
+        "C1": 0.060923021286726,
+        "C2": 0.06443595886230469
+      },
+      "range": 0.004845891147851944
+    },
+    {
+      "iteration": 12125,
+      "camera_batch": [
+        "1062",
+        "2955"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06958884000778198,
+        "C1": 0.07015488669276237,
+        "C2": 0.07148110494017601
+      },
+      "range": 0.0018922649323940277
+    },
+    {
+      "iteration": 12126,
+      "camera_batch": [
+        "3030",
+        "2650"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07513635605573654,
+        "C1": 0.07524939626455307,
+        "C2": 0.08303392678499222
+      },
+      "range": 0.007897570729255676
+    },
+    {
+      "iteration": 12127,
+      "camera_batch": [
+        "2190",
+        "1014"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.034935115836560726,
+        "C1": 0.03592899441719055,
+        "C2": 0.03578120656311512
+      },
+      "range": 0.0009938785806298256
+    },
+    {
+      "iteration": 12128,
+      "camera_batch": [
+        "2294",
+        "95"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05678954906761646,
+        "C1": 0.05509948916733265,
+        "C2": 0.05170362535864115
+      },
+      "range": 0.005085923708975315
+    },
+    {
+      "iteration": 12129,
+      "camera_batch": [
+        "1414",
+        "917"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06238041631877422,
+        "C1": 0.06385364197194576,
+        "C2": 0.06330863386392593
+      },
+      "range": 0.0014732256531715393
+    },
+    {
+      "iteration": 12130,
+      "camera_batch": [
+        "208",
+        "2031"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.050818633288145065,
+        "C1": 0.054003410041332245,
+        "C2": 0.051914023235440254
+      },
+      "range": 0.0031847767531871796
+    },
+    {
+      "iteration": 12131,
+      "camera_batch": [
+        "2489",
+        "1735"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04668320342898369,
+        "C1": 0.045830678194761276,
+        "C2": 0.042137546464800835
+      },
+      "range": 0.004545656964182854
+    },
+    {
+      "iteration": 12132,
+      "camera_batch": [
+        "75",
+        "2047"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03968130052089691,
+        "C1": 0.040524840354919434,
+        "C2": 0.04332573339343071
+      },
+      "range": 0.0036444328725337982
+    },
+    {
+      "iteration": 12133,
+      "camera_batch": [
+        "2916",
+        "2544"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.041871678084135056,
+        "C1": 0.044589415192604065,
+        "C2": 0.042526278644800186
+      },
+      "range": 0.0027177371084690094
+    },
+    {
+      "iteration": 12134,
+      "camera_batch": [
+        "2016",
+        "2982"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.02953267376869917,
+        "C1": 0.0365550983697176,
+        "C2": 0.03920857794582844
+      },
+      "range": 0.009675904177129269
+    },
+    {
+      "iteration": 12135,
+      "camera_batch": [
+        "2729",
+        "2725"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05278927832841873,
+        "C1": 0.05181378871202469,
+        "C2": 0.05243100970983505
+      },
+      "range": 0.000975489616394043
+    },
+    {
+      "iteration": 12136,
+      "camera_batch": [
+        "1181",
+        "1528"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03704654797911644,
+        "C1": 0.03617693670094013,
+        "C2": 0.035930607467889786
+      },
+      "range": 0.001115940511226654
+    },
+    {
+      "iteration": 12137,
+      "camera_batch": [
+        "216",
+        "143"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06367043778300285,
+        "C1": 0.06329791247844696,
+        "C2": 0.06356430426239967
+      },
+      "range": 0.00037252530455589294
+    },
+    {
+      "iteration": 12138,
+      "camera_batch": [
+        "2536",
+        "2345"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03153158072382212,
+        "C1": 0.03284451179206371,
+        "C2": 0.03356984909623861
+      },
+      "range": 0.0020382683724164963
+    },
+    {
+      "iteration": 12139,
+      "camera_batch": [
+        "157",
+        "3330"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05227082874625921,
+        "C1": 0.04944015759974718,
+        "C2": 0.0511925145983696
+      },
+      "range": 0.0028306711465120316
+    },
+    {
+      "iteration": 12140,
+      "camera_batch": [
+        "3452",
+        "3007"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06091664917767048,
+        "C1": 0.061378130689263344,
+        "C2": 0.05892947502434254
+      },
+      "range": 0.002448655664920807
+    },
+    {
+      "iteration": 12141,
+      "camera_batch": [
+        "2879",
+        "3366"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.07481486350297928,
+        "C1": 0.0650457926094532,
+        "C2": 0.07146798260509968
+      },
+      "range": 0.009769070893526077
+    },
+    {
+      "iteration": 12142,
+      "camera_batch": [
+        "2984",
+        "400"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03318512998521328,
+        "C1": 0.03368163388222456,
+        "C2": 0.029946417547762394
+      },
+      "range": 0.003735216334462166
+    },
+    {
+      "iteration": 12143,
+      "camera_batch": [
+        "1172",
+        "3242"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.033307721838355064,
+        "C1": 0.03413827158510685,
+        "C2": 0.03305943310260773
+      },
+      "range": 0.0010788384824991226
+    },
+    {
+      "iteration": 12144,
+      "camera_batch": [
+        "2218",
+        "3406"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.10473565757274628,
+        "C1": 0.0473603792488575,
+        "C2": 0.03766341879963875
+      },
+      "range": 0.06707223877310753
+    },
+    {
+      "iteration": 12145,
+      "camera_batch": [
+        "2491",
+        "2259"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.042856521904468536,
+        "C1": 0.043341029435396194,
+        "C2": 0.035295749083161354
+      },
+      "range": 0.00804528035223484
+    },
+    {
+      "iteration": 12146,
+      "camera_batch": [
+        "2501",
+        "1865"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04152972623705864,
+        "C1": 0.04362533055245876,
+        "C2": 0.042847707867622375
+      },
+      "range": 0.0020956043154001236
+    },
+    {
+      "iteration": 12147,
+      "camera_batch": [
+        "175",
+        "549"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.09481385350227356,
+        "C1": 0.11945544742047787,
+        "C2": 0.12240215018391609
+      },
+      "range": 0.027588296681642532
+    },
+    {
+      "iteration": 12148,
+      "camera_batch": [
+        "2498",
+        "1886"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.038508047349750996,
+        "C1": 0.04163070023059845,
+        "C2": 0.03944784961640835
+      },
+      "range": 0.003122652880847454
+    },
+    {
+      "iteration": 12149,
+      "camera_batch": [
+        "625",
+        "3377"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.051623228937387466,
+        "C1": 0.054212719202041626,
+        "C2": 0.04921859595924616
+      },
+      "range": 0.004994123242795467
+    },
+    {
+      "iteration": 12150,
+      "camera_batch": [
+        "1452",
+        "1457"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04174160398542881,
+        "C1": 0.04133426025509834,
+        "C2": 0.04038417339324951
+      },
+      "range": 0.0013574305921792984
+    },
+    {
+      "iteration": 12151,
+      "camera_batch": [
+        "3710",
+        "2277"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0428325179964304,
+        "C1": 0.060425031930208206,
+        "C2": 0.04110868461430073
+      },
+      "range": 0.01931634731590748
+    },
+    {
+      "iteration": 12152,
+      "camera_batch": [
+        "2407",
+        "2376"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04011157900094986,
+        "C1": 0.039518313482403755,
+        "C2": 0.03788159415125847
+      },
+      "range": 0.002229984849691391
+    },
+    {
+      "iteration": 12153,
+      "camera_batch": [
+        "1796",
+        "445"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04133293591439724,
+        "C1": 0.04030435625463724,
+        "C2": 0.042160212993621826
+      },
+      "range": 0.0018558567389845848
+    },
+    {
+      "iteration": 12154,
+      "camera_batch": [
+        "3243",
+        "2918"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03219498693943024,
+        "C1": 0.03289155662059784,
+        "C2": 0.03188716433942318
+      },
+      "range": 0.0010043922811746597
+    },
+    {
+      "iteration": 12155,
+      "camera_batch": [
+        "1519",
+        "3668"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05459857638925314,
+        "C1": 0.05549460090696812,
+        "C2": 0.05996255297213793
+      },
+      "range": 0.0053639765828847885
+    },
+    {
+      "iteration": 12156,
+      "camera_batch": [
+        "2030",
+        "2023"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.040504368022084236,
+        "C1": 0.0377429723739624,
+        "C2": 0.05171358212828636
+      },
+      "range": 0.01397060975432396
+    },
+    {
+      "iteration": 12157,
+      "camera_batch": [
+        "130",
+        "1602"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05987767316401005,
+        "C1": 0.05420455522835255,
+        "C2": 0.059449076652526855
+      },
+      "range": 0.005673117935657501
+    },
+    {
+      "iteration": 12158,
+      "camera_batch": [
+        "3288",
+        "113"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03511713445186615,
+        "C1": 0.033414945006370544,
+        "C2": 0.03062932752072811
+      },
+      "range": 0.004487806931138039
+    },
+    {
+      "iteration": 12159,
+      "camera_batch": [
+        "1510",
+        "2261"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.036283424124121666,
+        "C1": 0.03618211671710014,
+        "C2": 0.03613287303596735
+      },
+      "range": 0.00015055108815431595
+    },
+    {
+      "iteration": 12160,
+      "camera_batch": [
+        "1811",
+        "1338"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04256540536880493,
+        "C1": 0.04230538755655289,
+        "C2": 0.04459321312606335
+      },
+      "range": 0.00228782556951046
+    },
+    {
+      "iteration": 12161,
+      "camera_batch": [
+        "859",
+        "662"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05242373235523701,
+        "C1": 0.045970844104886055,
+        "C2": 0.04677637107670307
+      },
+      "range": 0.006452888250350952
+    },
+    {
+      "iteration": 12162,
+      "camera_batch": [
+        "1153",
+        "979"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03690669499337673,
+        "C1": 0.03598814457654953,
+        "C2": 0.037504155188798904
+      },
+      "range": 0.0015160106122493744
+    },
+    {
+      "iteration": 12163,
+      "camera_batch": [
+        "781",
+        "2627"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03571891691535711,
+        "C1": 0.03758541215211153,
+        "C2": 0.036005727015435696
+      },
+      "range": 0.0018664952367544174
+    },
+    {
+      "iteration": 12164,
+      "camera_batch": [
+        "1177",
+        "396"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03591487556695938,
+        "C1": 0.03930971771478653,
+        "C2": 0.03707931935787201
+      },
+      "range": 0.0033948421478271484
+    },
+    {
+      "iteration": 12165,
+      "camera_batch": [
+        "1322",
+        "3282"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04024538304656744,
+        "C1": 0.038527085445821285,
+        "C2": 0.037823209539055824
+      },
+      "range": 0.0024221735075116158
+    },
+    {
+      "iteration": 12166,
+      "camera_batch": [
+        "109",
+        "1117"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04744495637714863,
+        "C1": 0.04816504754126072,
+        "C2": 0.04885348491370678
+      },
+      "range": 0.0014085285365581512
+    },
+    {
+      "iteration": 12167,
+      "camera_batch": [
+        "2831",
+        "2032"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06163442321121693,
+        "C1": 0.0818384662270546,
+        "C2": 0.06965633109211922
+      },
+      "range": 0.02020404301583767
+    },
+    {
+      "iteration": 12168,
+      "camera_batch": [
+        "2668",
+        "1787"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04349341616034508,
+        "C1": 0.05495467968285084,
+        "C2": 0.04090606048703194
+      },
+      "range": 0.014048619195818901
+    },
+    {
+      "iteration": 12169,
+      "camera_batch": [
+        "3086",
+        "2042"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.038420988246798515,
+        "C1": 0.038251154124736786,
+        "C2": 0.03714180365204811
+      },
+      "range": 0.0012791845947504044
+    },
+    {
+      "iteration": 12170,
+      "camera_batch": [
+        "1029",
+        "1425"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.053446538746356964,
+        "C1": 0.05325960926711559,
+        "C2": 0.054872626438736916
+      },
+      "range": 0.0016130171716213226
+    },
+    {
+      "iteration": 12171,
+      "camera_batch": [
+        "1848",
+        "3127"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04487107042223215,
+        "C1": 0.04255954548716545,
+        "C2": 0.044227284379303455
+      },
+      "range": 0.0023115249350667
+    },
+    {
+      "iteration": 12172,
+      "camera_batch": [
+        "2796",
+        "1321"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.042366789653897285,
+        "C1": 0.04492957890033722,
+        "C2": 0.0445282906293869
+      },
+      "range": 0.0025627892464399338
+    },
+    {
+      "iteration": 12173,
+      "camera_batch": [
+        "2377",
+        "2188"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03530806489288807,
+        "C1": 0.03311971761286259,
+        "C2": 0.03370063193142414
+      },
+      "range": 0.002188347280025482
+    },
+    {
+      "iteration": 12174,
+      "camera_batch": [
+        "808",
+        "3609"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.055701617151498795,
+        "C1": 0.05215630680322647,
+        "C2": 0.05179178714752197
+      },
+      "range": 0.003909830003976822
+    },
+    {
+      "iteration": 12175,
+      "camera_batch": [
+        "1087",
+        "346"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04021116904914379,
+        "C1": 0.04589438810944557,
+        "C2": 0.042581865563988686
+      },
+      "range": 0.005683219060301781
+    },
+    {
+      "iteration": 12176,
+      "camera_batch": [
+        "1149",
+        "1482"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.043260544538497925,
+        "C1": 0.04393665865063667,
+        "C2": 0.04495478980243206
+      },
+      "range": 0.0016942452639341354
+    },
+    {
+      "iteration": 12177,
+      "camera_batch": [
+        "3320",
+        "1854"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03399444930255413,
+        "C1": 0.034027294255793095,
+        "C2": 0.034329209476709366
+      },
+      "range": 0.0003347601741552353
+    },
+    {
+      "iteration": 12178,
+      "camera_batch": [
+        "2183",
+        "744"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.043315453454852104,
+        "C1": 0.043189240619540215,
+        "C2": 0.04303969442844391
+      },
+      "range": 0.0002757590264081955
+    },
+    {
+      "iteration": 12179,
+      "camera_batch": [
+        "1646",
+        "3163"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03877835161983967,
+        "C1": 0.03802439570426941,
+        "C2": 0.03713088482618332
+      },
+      "range": 0.0016474667936563492
+    },
+    {
+      "iteration": 12180,
+      "camera_batch": [
+        "2701",
+        "2548"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03558915853500366,
+        "C1": 0.03792082145810127,
+        "C2": 0.0364681351929903
+      },
+      "range": 0.0023316629230976105
+    },
+    {
+      "iteration": 12181,
+      "camera_batch": [
+        "1669",
+        "204"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05264739319682121,
+        "C1": 0.05533527210354805,
+        "C2": 0.0530850924551487
+      },
+      "range": 0.002687878906726837
+    },
+    {
+      "iteration": 12182,
+      "camera_batch": [
+        "2932",
+        "1840"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.038190947845578194,
+        "C1": 0.04147202894091606,
+        "C2": 0.041236355900764465
+      },
+      "range": 0.0032810810953378677
+    },
+    {
+      "iteration": 12183,
+      "camera_batch": [
+        "681",
+        "1958"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05083819665014744,
+        "C1": 0.04643089510500431,
+        "C2": 0.05199190229177475
+      },
+      "range": 0.005561007186770439
+    },
+    {
+      "iteration": 12184,
+      "camera_batch": [
+        "909",
+        "2070"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03351615369319916,
+        "C1": 0.028456493280828,
+        "C2": 0.029152046889066696
+      },
+      "range": 0.005059660412371159
+    },
+    {
+      "iteration": 12185,
+      "camera_batch": [
+        "274",
+        "2055"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.041886743158102036,
+        "C1": 0.027053008787333965,
+        "C2": 0.02991342358291149
+      },
+      "range": 0.01483373437076807
+    },
+    {
+      "iteration": 12186,
+      "camera_batch": [
+        "758",
+        "52"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05368485860526562,
+        "C1": 0.05321445316076279,
+        "C2": 0.052446866407990456
+      },
+      "range": 0.0012379921972751617
+    },
+    {
+      "iteration": 12187,
+      "camera_batch": [
+        "3469",
+        "3256"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04222479276359081,
+        "C1": 0.03850196860730648,
+        "C2": 0.0430722925812006
+      },
+      "range": 0.004570323973894119
+    },
+    {
+      "iteration": 12188,
+      "camera_batch": [
+        "797",
+        "2712"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04302201047539711,
+        "C1": 0.04243582859635353,
+        "C2": 0.044245520606637
+      },
+      "range": 0.0018096920102834702
+    },
+    {
+      "iteration": 12189,
+      "camera_batch": [
+        "3491",
+        "477"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.038871921598911285,
+        "C1": 0.039025984704494476,
+        "C2": 0.0376423466950655
+      },
+      "range": 0.001383638009428978
+    },
+    {
+      "iteration": 12190,
+      "camera_batch": [
+        "938",
+        "1111"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.055486783385276794,
+        "C1": 0.053392279893159866,
+        "C2": 0.052465895190835
+      },
+      "range": 0.0030208881944417953
+    },
+    {
+      "iteration": 12191,
+      "camera_batch": [
+        "548",
+        "1593"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.04896269366145134,
+        "C1": 0.051392294466495514,
+        "C2": 0.04571892134845257
+      },
+      "range": 0.005673373118042946
+    },
+    {
+      "iteration": 12192,
+      "camera_batch": [
+        "942",
+        "281"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.040555691346526146,
+        "C1": 0.03978513367474079,
+        "C2": 0.03973240777850151
+      },
+      "range": 0.0008232835680246353
+    },
+    {
+      "iteration": 12193,
+      "camera_batch": [
+        "2039",
+        "2940"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.02836287021636963,
+        "C1": 0.028131479397416115,
+        "C2": 0.03954186290502548
+      },
+      "range": 0.011410383507609367
+    },
+    {
+      "iteration": 12194,
+      "camera_batch": [
+        "890",
+        "2245"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.06618561781942844,
+        "C1": 0.06498255580663681,
+        "C2": 0.07450336404144764
+      },
+      "range": 0.00952080823481083
+    },
+    {
+      "iteration": 12195,
+      "camera_batch": [
+        "2929",
+        "1331"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03969338349997997,
+        "C1": 0.0383573342114687,
+        "C2": 0.04111052304506302
+      },
+      "range": 0.002753188833594322
+    },
+    {
+      "iteration": 12196,
+      "camera_batch": [
+        "2219",
+        "1686"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.02815238106995821,
+        "C1": 0.029160584323108196,
+        "C2": 0.02825566753745079
+      },
+      "range": 0.0010082032531499863
+    },
+    {
+      "iteration": 12197,
+      "camera_batch": [
+        "2129",
+        "2675"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.05462498962879181,
+        "C1": 0.047232404351234436,
+        "C2": 0.04356694594025612
+      },
+      "range": 0.01105804368853569
+    },
+    {
+      "iteration": 12198,
+      "camera_batch": [
+        "2189",
+        "7"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.03410300426185131,
+        "C1": 0.03551834262907505,
+        "C2": 0.034162046387791634
+      },
+      "range": 0.0014153383672237396
+    },
+    {
+      "iteration": 12199,
+      "camera_batch": [
+        "1116",
+        "1097"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.0650247149169445,
+        "C1": 0.06538207083940506,
+        "C2": 0.06734764203429222
+      },
+      "range": 0.0023229271173477173
+    },
+    {
+      "iteration": 12200,
+      "camera_batch": [
+        "1137",
+        "1630"
+      ],
+      "reconstruction_loss": {
+        "C0": 0.045171311125159264,
+        "C1": 0.04476525820791721,
+        "C2": 0.04618377424776554
+      },
+      "range": 0.0014185160398483276
+    }
+  ],
+  "limits": [
+    "仅三条序列，步骤和配对不是独立重复样本，不计算显著性或因果效应。",
+    "同一步相机匹配；跨步相机不同，400个图像ID无重复，无法分离时间与视角效应。",
+    "loss先于本步Adam和策略计算；12100/12200行的loss不含本步迁移效果。",
+    "组间范围和分项分析均为事后描述，不替代或放宽冻结准入门槛。",
+    "无逐点身份、采样映射及逐相机loss，不能归因到owner来源池或个体恢复。"
+  ]
+}

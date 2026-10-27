@@ -91,18 +91,61 @@ class ResearchCatalogTests(unittest.TestCase):
                                                                 "new_experiment_implemented_remote_partially_executed"})
                         self.assertEqual(implementation["phase"], "A_only")
                         if item["migration_status"] == "new_experiment_implemented_remote_partially_executed":
-                            self.assertEqual(implementation["remaining_stage_B"], "implemented_remote_not_run")
                             stage_b = implementation["stage_B"]
                             self.assertEqual(repository_path(stage_b["entrypoint"]), path.with_name("run_b.py"))
-                            self.assertEqual(stage_b["remote_validation"], "not_run")
+                            if stage_b["remote_validation"] == "not_run":
+                                self.assertEqual(implementation["remaining_stage_B"], "implemented_remote_not_run")
+                            else:
+                                self.assertEqual(stage_b["remote_validation"], "structural_preflight_passed")
+                                self.assertIn(stage_b["formal_run"], {"not_run", "calibration_blocked"})
+                                expected = ("formal_calibration_blocked" if stage_b["formal_run"] == "calibration_blocked"
+                                            else "structural_preflight_passed_formal_not_run")
+                                self.assertEqual(implementation["remaining_stage_B"], expected)
+                                record_path = repository_path(stage_b["remote_validation_record"])
+                                self.assertIn(stage_b["remote_validation_record"], item["run_records"])
+                                preflight = self.records[record_path]
+                                self.assertEqual(preflight["kind"], "phase_B_synthetic_structural_preflight")
+                                self.assertEqual(preflight["execution_status"], "completed")
+                                self.assertEqual(preflight["acceptance_status"], "structural_preflight_passed")
+                                self.assertIsNone(preflight["protocol_sha256"]["value"])
+                                self.assertEqual(set(preflight["panel_statuses"]), {"execution", "monitor"})
+                                for panel in preflight["panel_statuses"].values():
+                                    self.assertTrue(panel["finished"])
+                                    self.assertFalse(panel["running"])
+                                    self.assertEqual(panel["exit_code"], 0)
+                                validation = preflight["validation"]
+                                self.assertEqual(validation["pytest_passed"], 1)
+                                self.assertEqual(validation["budget"], {
+                                    "synthetic_updates": 8, "training_camera_forwards": 16,
+                                    "contribution_forwards": 8, "reference_contribution_forwards": 2,
+                                    "loss_backwards": 16, "analytic_autograd_calls": 2,
+                                    "optimizer_group_steps": 96, "coordinated_rejection_checks": 1,
+                                    "rng_rejection_checks": 1, "real_image_decodes": 0})
+                                self.assertEqual(set(validation["runtime"]), {"0", "1"})
+                                for key in ("formal_protocol_prepared", "formal_cases_started",
+                                            "observer_finite_scope_admitted", "Q1_real_trajectory_analysis_started",
+                                            "long_term_causality_proven"):
+                                    self.assertFalse(preflight["scientific_boundary"][key])
+                                self.assertEqual(preflight["scientific_boundary"]["old_gate1"], "not_reclassified")
+                                digest = preflight["preflight_sha256"]
+                                source = repository_path(digest["source"])
+                                self.assertRegex(digest["value"], SHA256)
+                                if source.is_file():
+                                    self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), digest["value"])
+                                    self.assertEqual(read(source)["budget"], validation["budget"])
+                                    self.assertEqual(read(source)["implementation_commit"], preflight["source_commit"]["value"])
                             self.assertTrue(stage_b["requires_independent_preflight"])
                             self.assertTrue(stage_b["stage_A_execution_entry_unchanged"])
                             self.assertNotEqual(stage_b["remote_test_opt_in"], implementation["remote_test_opt_in"])
                             for value in [stage_b["entrypoint"], *stage_b["helpers"],
                                           *stage_b["local_tests"], *stage_b["remote_tests"]]:
                                 self.assertTrue(repository_path(value).is_file(), value)
-                            self.assertTrue(all(self.records[repository_path(v)]["kind"] == "phase_A_offline_pointwise_masks"
-                                                for v in item["run_records"]))
+                            kinds = {"phase_A_offline_pointwise_masks"}
+                            if stage_b["remote_validation"] == "structural_preflight_passed":
+                                kinds.add("phase_B_synthetic_structural_preflight")
+                            if stage_b.get("formal_run") == "calibration_blocked":
+                                kinds.add("phase_B_formal_observer_admission")
+                            self.assertEqual({self.records[repository_path(v)]["kind"] for v in item["run_records"]}, kinds)
                         else:
                             self.assertEqual(implementation["remaining_stage_B"], "design_only")
                     else:
@@ -152,6 +195,43 @@ class ResearchCatalogTests(unittest.TestCase):
                         self.assertTrue(repository_path(value).is_file(), value)
                 else:
                     self.assertFalse(path.with_name("run.py").exists())
+
+    def test_e007_formal_calibration_blocked(self):
+        item = next(e for e in self.experiments.values() if e["id"] == "MCMC-B1-E007")
+        stage = item["implementation"]["stage_B"]
+        self.assertEqual(stage["formal_run"], "calibration_blocked")
+        self.assertIn(stage["formal_run_record"], item["run_records"])
+        record = self.records[repository_path(stage["formal_run_record"])]
+        self.assertEqual(record["execution_status"], "admission_blocked")
+        self.assertEqual(record["acceptance_status"], "baseline_unstable_or_insufficient")
+        self.assertEqual(record["preflight_run"], "admission-preflight-20261027-v1")
+        self.assertEqual(set(record["panel_statuses"]), {"execution", "monitor"})
+        for panel in record["panel_statuses"].values():
+            self.assertTrue(panel["finished"])
+            self.assertFalse(panel["running"])
+            self.assertEqual(panel["exit_code"], 2)
+        validation = record["validation"]
+        self.assertEqual(validation["completed_cases"], ["C0", "C1", "C2"])
+        self.assertEqual(validation["continuous_steps"], {"C0": 200, "C1": 200, "C2": 200})
+        self.assertEqual(validation["exceeded"], ["loss/12100", "loss/12200"])
+        self.assertEqual(validation["ratio_metrics_within_ceiling"], 12)
+        self.assertLessEqual(validation["maximum_ratio_half_width"], .001)
+        self.assertTrue(validation["calibration_recomputed_equal"])
+        self.assertTrue(validation["no_retries_or_threshold_changes"])
+        for row in validation["loss_details"].values():
+            self.assertEqual(row["half_width"], max(row["values"].values()) - min(row["values"].values()))
+            self.assertEqual(row["ceiling"], 2e-6 + 1e-3 * abs(row["centre"]))
+            self.assertGreater(row["half_width"], row["ceiling"])
+        for key, expected in {"global_updates": 600, "training_camera_forwards": 1200,
+                              "loss_backwards": 1200, "optimizer_group_steps": 7200,
+                              "global_relocation_events": 6, "per_owner_relocation_calls": 12,
+                              "contribution_forwards": 0}.items():
+            self.assertEqual(validation[key], expected)
+        for key, value in record["scientific_boundary"].items():
+            if key == "old_gate1":
+                self.assertEqual(value, "not_reclassified")
+            else:
+                self.assertIs(value, False)
 
     def test_design_only_has_no_execution(self):
         for path, item in self.experiments.items():

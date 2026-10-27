@@ -1,0 +1,576 @@
+{
+  "schema_version": 1,
+  "run_id": "admission-20261027-v1",
+  "experiment_id": "MCMC-B1-E007",
+  "kind": "phase_B_formal_observer_admission",
+  "catalogued_on": "2026-10-27",
+  "execution_status": "admission_blocked",
+  "acceptance_status": "baseline_unstable_or_insufficient",
+  "previous_attempt": null,
+  "source_commit": {
+    "value": "539dc881a794b2523f2149c5bb2b69154583cb3d",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/protocol.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "0da2bb2f8476811392f64b89061cf5598ca64878f2eecc28a840a2d9b8ec8bf2",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261027-100700-0e45",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261027-100700-1acf",
+    "source": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/monitor-status.json",
+    "field": "id"
+  },
+  "panel_statuses": {
+    "execution": {
+      "id": "20261027-100700-0e45",
+      "running": false,
+      "finished": true,
+      "exit_code": 2,
+      "log_size": 1572
+    },
+    "monitor": {
+      "id": "20261027-100700-1acf",
+      "running": false,
+      "finished": true,
+      "exit_code": 2,
+      "log_size": 3739
+    }
+  },
+  "preflight_run": "admission-preflight-20261027-v1",
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-27T02:19:30.125180+00:00",
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/acceptance-summary.json",
+      "sha256": "7f29e954b0b0716e78050de0fb28cdb721e18525e6d2a4872c51ecb33a98b068",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/command.sh",
+      "sha256": "e156eeb58054b2946b648c345c2343d27e2bf859b00edb855f55dd743fee9442",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/monitor.sh",
+      "sha256": "5a1c4e449114553d8048d0b3aa323124eb03ddea516c6242e075e6e31befbcf1",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/submission.json",
+      "sha256": "2ed082155292f738b062aba7c9f2483f3727d3cab6cdd4a98f8ff13d02bdc34e",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/execution-status.json",
+      "sha256": "b0a0a57de6d9f0c70a589c18ba57514034f89af95140c6babf77cd1792d7fb6c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/monitor-status.json",
+      "sha256": "b48e2c1acf6927f6576909aa4eabc0433b3d1630f6a3a7dc1e4740be71110b41",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/execution-log.log",
+      "sha256": "3f7a1b5ab1d53357366b722719559bb3bb8d65a92dd1970ba436b369e011a9e8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/monitor-log.log",
+      "sha256": "b644ad877ea79b929034d0517bf38f9ee4df2385bbbff7f31e5fd426e41197b8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/remote-verification.json",
+      "sha256": "f58724f89399ca7711b6331f7981197d1691981e848ec3f3ba79945655e943a9",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/remote-inventory.json",
+      "sha256": "354706329ea341b9de8129ac74b82cf7c0dab56ea4de0a2e3d9d585c0bae18ac",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/download-verification.json",
+      "sha256": "9af9f6b8cd82e7dad18606492c4865c54ad29e78f545d8fabf9e3d36e19c24b6",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/postcheck.txt",
+      "sha256": "aade671e9b8779583870451173cfd7c0446b9dc4563a7b881400ba0e61dc352a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/startup-status.json",
+      "sha256": "9f991854edb47cfc2c5a53ba3b8d1f1952e3b777476c635b2a70735e0148f0b0",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/startup-verification.json",
+      "sha256": "398034105d624a18e44fc73cf0d78ba95dd177b5fa6a49a6dd471e8bc589909a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/case.command.json",
+      "sha256": "3f81f12f74b73043ca529f9d6d66cecc719ae3e3baab5a50ad8ddb7c0248aed2",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/case.exit.json",
+      "sha256": "e4819cdb78af5b9adbf4df7e7eb6d5d02e81112f9ff5133bfdfdd7accfedcd11",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/case.log",
+      "sha256": "3e1d1448c303602e2a3f64b796ab432dd9b71e6e1e98796bb26324e4168fefca",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/complete.json",
+      "sha256": "b0ebb4d503be39e302df922f34a569d831acb26b2c209c7bf344ee06460d8b61",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/endpoint-rank-0/manifest.json",
+      "sha256": "5c75779ea4a814928c0d3120d3d591ba804337d82dc0c76c2cab0538c6bdd43d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/endpoint-rank-1/manifest.json",
+      "sha256": "2b371dd1524eff376651a2c6eb045888a51e532c34df39b685305f651676fbdf",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/memory/rank-0.json",
+      "sha256": "46d0833b919c7374f73110031a1980a7413f21b859696b08a78ae650eca5f05a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/memory/rank-0.phase.json",
+      "sha256": "3e07e83aa220d532e8a82a2dae916955b1a42526d5861d3a56a6e1f25a3ea7d3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/memory/rank-0.phase.jsonl",
+      "sha256": "b85711e8491ae263524da9aa997cdb8b472d4fb95d4537deb1246f976f0936cd",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/memory/rank-1.json",
+      "sha256": "14296d0c8c65c2d20eb5e3bb5b75094a4aa9aaca930e0101aa09d86c29527c2c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/memory/rank-1.phase.json",
+      "sha256": "a15fa5c07057fc9c8e330bcd41086b3dfe28ac0ccbee06c991339b317de369b4",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/memory/rank-1.phase.jsonl",
+      "sha256": "34b155e435ed5bd7a7262a6ba7cf71e7c003b6d2d4a7ceb1e3066bf6e790c0b3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/native-tail-rank-0.json",
+      "sha256": "e39403fc33c9e1acf55ee9edf5f026115db86601a642204f865e34f1f742191d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/native-tail-rank-1.json",
+      "sha256": "ffdfdb6734f9de8c4dbc110868ef6ecefc79462aee4dc74c4fa1f2be33e05d8a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/worker-rank-0.json",
+      "sha256": "d0363d596d9fdf9566d177c38c71623faea680f1ee30d0f50acd252f342b11e2",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C0/worker-rank-1.json",
+      "sha256": "a98e38e14a4b2f7dc8ac4e558e466e83888097d4094ade646682dd6632fd0f09",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/case.command.json",
+      "sha256": "3c58ff612bd2d3ae6da1cb75d51804148d1d24f689cf3929836ec15537974ea3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/case.exit.json",
+      "sha256": "164bc9ca36c48c40080d734e430ae3e5d3d26f44489bdaa020520cb2ea88bc44",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/case.log",
+      "sha256": "76e84aa79a4fc89936f3cc8d24af5fc8199397475110a88adc6d39c2e4e57a01",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/complete.json",
+      "sha256": "bbf853c5866e408df35c73fa61f35eac78694fd6936368b5b4dcd17b9a809edc",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/endpoint-rank-0/manifest.json",
+      "sha256": "119b27668d20c4f8abefbb966cda40a5b37f8815f8a3c0cff08ebaa24c395482",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/endpoint-rank-1/manifest.json",
+      "sha256": "6201fe2274bcef2482adf400574a423b28dab095825932730a45ba1213c0fb75",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/memory/rank-0.json",
+      "sha256": "6f32038d9e195f133e5a8dbb110344a8cf3c5c211f9c733c47ac13d0bbfe79d9",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/memory/rank-0.phase.json",
+      "sha256": "2fcca7bc25840e76dda936826b231804bdc52be70ac729b4b0d4ba7ced8b7221",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/memory/rank-0.phase.jsonl",
+      "sha256": "36d13b6cc942fc85b238a49010aedc953c9e1b1050fae011720a64061f56712a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/memory/rank-1.json",
+      "sha256": "fd9de5329fca7617e3e17975e78d10d0f552e23d84d39eed3e29902ac5fc137a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/memory/rank-1.phase.json",
+      "sha256": "ea4187de39501db267879420c6acd1b100726c3826f0e3aa3e8d3d6afb16bf58",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/memory/rank-1.phase.jsonl",
+      "sha256": "8b7460455c7b4a973962b04ca33de4a2885d0125c3c2b4ee7172033841a163ad",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/native-tail-rank-0.json",
+      "sha256": "99f3711f097af33b75a672242110a11bffc2a63827a68ab00622d9bdedd54062",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/native-tail-rank-1.json",
+      "sha256": "e5fe547be3e715ca8097d3973098ee5b972d3457fd8b2181294a28285633583a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/worker-rank-0.json",
+      "sha256": "ca35bf6bf97b3cdcc194e66b6098ba8c628d25c70f97889efcb71b9e755ab3bb",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C1/worker-rank-1.json",
+      "sha256": "c99ecaf1b422516ddd4eeb9a761da6217728e6a680025cd07086ab37f2573037",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/case.command.json",
+      "sha256": "160240406b2998d2a0f849239293610f9620f48fa475689efcf423fa6e6dce8c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/case.exit.json",
+      "sha256": "07bc26347db8ed843fdfe783eb0f8c219d5a0ff6e3dd53fe1a212d6809c9f50d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/case.log",
+      "sha256": "76e84aa79a4fc89936f3cc8d24af5fc8199397475110a88adc6d39c2e4e57a01",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/complete.json",
+      "sha256": "201a596a1494a5f6abaac2fef789ddd3914aa34abb8b03df6f71c983394afbf8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/endpoint-rank-0/manifest.json",
+      "sha256": "41c026dddc5428c514e1a19ac01d90b0fbcdf767e27749967873944877b684c2",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/endpoint-rank-1/manifest.json",
+      "sha256": "3b871543a5edc52d03991f7f3eb9ca78d82ea386b04617334e730703c5f92a3f",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/memory/rank-0.json",
+      "sha256": "7abb5a7f63530e41a3a067ac7faf862af47397e04ceb6928c05f8b92d5e34388",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/memory/rank-0.phase.json",
+      "sha256": "b7d94ade74e6d56d9248201e32833bbf8e1b294827d1bd7e7c912fd91a0564a4",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/memory/rank-0.phase.jsonl",
+      "sha256": "b07af08a1fcbb11548e2718557d6d8737df387a4e61bb05378ea0691ba965688",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/memory/rank-1.json",
+      "sha256": "63aba6f209d5e65a7b9334f6c5c44327c47243779074eabf10438e461f7fa5f0",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/memory/rank-1.phase.json",
+      "sha256": "c305b7d5a51ffb3ca444ac7d82c25d329d241d364bdecb541f6a4a1bb6298a5f",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/memory/rank-1.phase.jsonl",
+      "sha256": "19091c4b9a273528c0ae73c3c8829d6def4b8438411983c50414cbced6245772",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/native-tail-rank-0.json",
+      "sha256": "f6f1a46122d3e9a0c1646d15b67632ce471da714b680d31c26a4a676cb52fa24",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/native-tail-rank-1.json",
+      "sha256": "adfb846710f8b2058efd1aa3368c49348518ec57c92ab77e2d2975ff756a6139",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/worker-rank-0.json",
+      "sha256": "24a37ec1b25fb573e528e7a1a70c5be65f9bac4bd1dc38935f86ed0850200132",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/C2/worker-rank-1.json",
+      "sha256": "855ebc5a22198c9806f1dad55165fafe01671dd75e2ea0e5c29be065e1e0c461",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/calibration.json",
+      "sha256": "7356ad9f70300f8a5f5e4070452e260a745a7f4f7a96abfec64a8cc4cf11c606",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/execution.json",
+      "sha256": "1affb377c946945d5229692495ee62e01320875f4e2794e89973c8f2bceefb86",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/protocol.json",
+      "sha256": "0da2bb2f8476811392f64b89061cf5598ca64878f2eecc28a840a2d9b8ec8bf2",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/started.json",
+      "sha256": "d2c5ab3eef6057753e86d4415e12d17ad8ddcb1115f9b6afdbcad42e541e9e5c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C0/artifacts/mcmc-rank-0.jsonl",
+      "sha256": "35fdb52af8d51ac1fa26280f7d15164502da47b26229c3d7fe5912bb845a9d05",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C0/artifacts/mcmc-rank-1.jsonl",
+      "sha256": "442389703643eab3a583a494ded585e89e89f24c0484b8009553c936716f99e7",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C0/artifacts/progress.jsonl",
+      "sha256": "6878096035510f2124bd915332c4891ff6c988b8ec27912c88256f625631d2d7",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C0/attempt.json",
+      "sha256": "4a5dd0cdd9942cd544c98e88aa5fceeb929955f4814be316e8b724148f292f5e",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C1/artifacts/mcmc-rank-0.jsonl",
+      "sha256": "32572d951ac23388add81f743f9d962882f09136e74c2bcb4e316fd4440eeb0c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C1/artifacts/mcmc-rank-1.jsonl",
+      "sha256": "0bfb46ab05529011b094ca6113209954813e74baf6885a6f6848e6658d987665",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C1/artifacts/progress.jsonl",
+      "sha256": "0fc17c583284b398894b9332a21d3b6f736a5b7727350fce82374b9373b071bf",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C1/attempt.json",
+      "sha256": "ed51257d7397f8ba26a0d034b7ab3b302963255ff35b61b28e6ff4664167185c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C2/artifacts/mcmc-rank-0.jsonl",
+      "sha256": "6e4c1020e8104f0f5319fbc92436b3f7cfb907aa144447ae0472aad268d511f4",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C2/artifacts/mcmc-rank-1.jsonl",
+      "sha256": "bff72727d727418bc2fb6eafe90dd34d9b54fd247cf63de646fb7d9dbf0c8134",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C2/artifacts/progress.jsonl",
+      "sha256": "7a6cc5e413a58c72cf42098a9316280a9d8e28d4c97846a480cb08382b1c9cb8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1/training/attempts/C2/attempt.json",
+      "sha256": "f0428177ad0ed200934984415dc28a01e0b437963f26793607b490cf9a315b7b",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/events.log",
+      "sha256": "f9604ca19d8dd5007f0ec2b7b06480cd5a032bc62841cffd6f6dce29cee0dadf",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/owner.pid",
+      "sha256": "b568f94fd3a563ceb9ab50ce572e134aab595abe2ca9ce3475e83492042361fa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/prepare.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/prepare.log",
+      "sha256": "924f81e014fa1006c1e6d5667a5bdc1f1e8d14955746fb4dd8fd1c4087c5e904",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/protocol.sha256",
+      "sha256": "a93606369a64de5972c4c4fda23e95593901746295c508498aa1f89cb93c71a8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/run.exit-code",
+      "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/run.log",
+      "sha256": "e4b4f26bf922958a81c993ee6c2d8362a400a15c427138a647ed2290277f1464",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/suite.exit-code",
+      "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/runs/admission-20261027-v1-local/incoming/admission-20261027-v1-control/suite.pending",
+      "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+      "availability": "local_verified"
+    }
+  ],
+  "validation": {
+    "status": "verified_calibration_blocked",
+    "downloaded_text_files": 73,
+    "downloaded_bytes": 1979158,
+    "downloaded_arrays": false,
+    "execution_dependencies_checked": 53,
+    "completed_cases": [
+      "C0",
+      "C1",
+      "C2"
+    ],
+    "continuous_steps": {
+      "C0": 200,
+      "C1": 200,
+      "C2": 200
+    },
+    "calibration_recomputed_equal": true,
+    "exceeded": [
+      "loss/12100",
+      "loss/12200"
+    ],
+    "loss_details": {
+      "loss/12100": {
+        "values": {
+          "C0": 0.04427983914501965,
+          "C1": 0.04436109843663871,
+          "C2": 0.04429485113359988
+        },
+        "centre": 0.04429485113359988,
+        "half_width": 8.125929161906242e-05,
+        "floor": 1.0858970226719976e-05,
+        "ceiling": 4.629485113359988e-05,
+        "ceiling_multiple": 1.7552554901745012
+      },
+      "loss/12200": {
+        "values": {
+          "C0": 0.045060322945937516,
+          "C1": 0.04350128355436027,
+          "C2": 0.044768744893372056
+        },
+        "centre": 0.044768744893372056,
+        "half_width": 0.001559039391577248,
+        "floor": 1.0953748978674411e-05,
+        "ceiling": 4.676874489337206e-05,
+        "ceiling_multiple": 33.33507014421058
+      }
+    },
+    "ratio_metrics_within_ceiling": 12,
+    "maximum_ratio_half_width": 0.0005846666666666639,
+    "global_updates": 600,
+    "training_camera_forwards": 1200,
+    "loss_backwards": 1200,
+    "optimizer_group_steps": 7200,
+    "global_relocation_events": 6,
+    "per_owner_relocation_calls": 12,
+    "contribution_forwards": 0,
+    "budget_basis": "frozen_native_path_and_contiguous_logs_not_intermediate_counting_hooks",
+    "per_rank_peak_reserved_bytes": [
+      4481613824,
+      4706009088
+    ],
+    "formal_U_O_started": false,
+    "Q1_analysis_started": false,
+    "local_model_execution": false,
+    "local_check_note": "初次本地检查误要求两rank完整日志相同；mcmc_dead_local按owner应不同。已改为按冻结入口核验两rank提取的指标和相机序列一致，未修改实验代码或结果。",
+    "acceptance_status": "baseline_unstable_or_insufficient",
+    "execution_status": "admission_blocked",
+    "formal_elapsed_seconds": 586.8562698364258,
+    "protocol_sha256": "0da2bb2f8476811392f64b89061cf5598ca64878f2eecc28a840a2d9b8ec8bf2",
+    "implementation_commit": "539dc881a794b2523f2149c5bb2b69154583cb3d",
+    "output_file_bytes": 4256949209,
+    "old_gate1": "not_reclassified",
+    "observer_finite_scope_admitted": false,
+    "long_term_causality_proven": false,
+    "no_retries_or_threshold_changes": true
+  },
+  "scientific_boundary": {
+    "calibration_passed": false,
+    "U_O_started": false,
+    "observer_finite_scope_admitted": false,
+    "observer_interference_proven": false,
+    "Q1_analysis_started": false,
+    "cross_run_slot_identity_assumed": false,
+    "long_term_causality_proven": false,
+    "old_gate1": "not_reclassified",
+    "retry_started": false
+  }
+}

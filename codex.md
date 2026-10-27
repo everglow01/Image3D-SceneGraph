@@ -600,6 +600,12 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-27，按用户“只分析现有三组日志、先别跑新实验”，纯标准库只读拆解E007 C0/C1/C2：73份文本及源码时序哈希复核；loss记录首差12003、早于12100迁移。迁移后100步有80步的逐步组间范围超过迁移前最大值；去掉最大五步后中位数仍约0.00229，不是单峰主导。末20步C0−C1重建差约0.001559，L1/SSIM约63%/37%，正则直接账面差约−2.93e-6且不属于该门禁指标；不排除正则对轨迹的间接影响。三对均分化、优劣随相机变化，owner1较高死亡率在三组保留，但无逐点身份不能称目标复死。12100/12200行loss均先于本步迁移计算；400个相机ID无重复，无法分离时间与视角效应，不证明迁移放大因果。保留校准阻塞；没有联网、GPU调用、新实验或阈值调整，见[只读分析](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-log-analysis-20261027-v1.md)。
+
+- 2026-10-27，用户明确授权正式阶段B C/U/O对照，539dc88与独立结构前置绑定不变；协议0da2bb2f…，执行20261027-100700-0e45及唯一监控20261027-100700-1acf均正常终止exit2。C0/C1/C2各200步成功，两个20步平均reconstruction_loss范围分别8.12593e-5/1.55904e-3，为冻结上限1.76/33.34倍，calibration_blocked、baseline_unstable_or_insufficient；12项owner比例指标未超校准上限，最大0.05847个百分点<0.1个百分点。U/O未启动，不能归咎于观察器，不生成Q1或成功准入报告；不补跑、不放宽门槛。实际600更新、1200训练forward/backward、7200 Adam组step，正式586.856秒，主存无限额、两rank reserved峰值约4.17/4.38GiB，输出约3.96GiB；73份文本SHA及本地标准库校准复算通过，无张量下载或本机模型验证。按协议收口，后续优先已有日志只读归因，新增实验另行设计授权；见[E007正式结果](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-20261027-v1.md)。
+
+- 2026-10-27，用户手动同步539dc88并明确授权后完成E007阶段B独立合成结构前置：两张L2、每owner8点、C/O各4步，1 passed in 11.74s，执行/唯一只读监控均退出0；状态不变、独立贡献参考、解析梯度、采样/反向/Adam预算、轨迹重算、评价前截停及双rank预期拒绝均通过。合计8次全局合成更新、真实图像解码0，主存三项无限额；本地仅下载11份文本10670字节并核SHA及53份执行依赖。前置报告818f3122…绑定539dc88；未prepare、未启动正式9×200步，不能等同有限范围观察准入或真实Q1结论，不追认旧Gate1。后续正式实验另行授权，若更换提交须重新取得匹配前置。见[E007前置结果](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-preflight-20261027-v1.md)。
+
 - 2026-10-27，按用户要求实现E007阶段B：独立run_b入口，C0/C1/C2校准与U/O交错留出严格分离，200步窗口末端在Validation调用前截停；C/U不安装中间观察器，O以冻结观察器旁置保存采样映射、alive位图和累计诊断。新增独立双卡合成结构前置及提交/SHA绑定，阶段A授权不能启动B；首次超限退出2，不补样本/放宽阈值，通过后直接分析同批Q1轨迹。最多1800真实更新、6小时、30GiB产物，120秒collective超时实际作用于子进程；主存无限额。阶段B尚未远端验证、未运行/提交/同步，不追认旧Gate或长期因果。阶段A执行代码、报告和冻结core均不改。
 
 - 2026-10-26，用户手动同步63cb15e并明确授权后完成E007阶段A远端验证：前置1项通过，执行/唯一只读监控均退出0；预定same/native组内、varied对same-0及两种离线口径的360份XOR位图均为0。E006参数差异仍成立，但本单步预设比较未见逐点死亡/跨越差异，降低数值触发候选优先级，不再追加E006重复；未比较native与注入组任意跨组关系，也不证明未来命运不分化。真实分析训练/反向/策略调用0，两卡reserved峰值42MiB，运行文件约0.34MB；本地23份文本SHA通过，未下载数组。阶段B仍待实现及独立授权，旧Gate1和长期因果未通过，见[E007结果](experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/masks-20261026-v1.md)。

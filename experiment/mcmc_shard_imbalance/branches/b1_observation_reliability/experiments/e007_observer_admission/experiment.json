@@ -21,11 +21,16 @@
   "legacy_tests": [],
   "legacy_analysis_scripts": [],
   "run_records": [
-    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/masks-20261026-v1.json"
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/masks-20261026-v1.json",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/admission-preflight-20261027-v1.json",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/admission-20261027-v1.json"
   ],
   "shared_run_records": [],
   "reviewed_reports": [
-    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/masks-20261026-v1.md"
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/masks-20261026-v1.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-preflight-20261027-v1.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-20261027-v1.md",
+    "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-log-analysis-20261027-v1.md"
   ],
   "implementation": {
     "entrypoint": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/run.py",
@@ -40,7 +45,7 @@
     ],
     "phase": "A_only",
     "remote_validation": "phase_A_pass_no_pointwise_threshold_difference",
-    "remaining_stage_B": "implemented_remote_not_run",
+    "remaining_stage_B": "formal_calibration_blocked",
     "remote_test_opt_in": "IMAGE3D_AUTHORIZE_OBSERVER_MASK_TESTS",
     "remote_validation_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/masks-20261026-v1.json",
     "stage_B": {
@@ -57,11 +62,14 @@
         "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/tests/test_admission_remote.py"
       ],
       "profile": "mcmc_observer_admission_v1",
-      "remote_validation": "not_run",
+      "remote_validation": "structural_preflight_passed",
       "remote_test_opt_in": "IMAGE3D_AUTHORIZE_OBSERVER_ADMISSION_TESTS",
       "preflight_report_environment": "IMAGE3D_OBSERVER_ADMISSION_PREFLIGHT_REPORT",
       "requires_independent_preflight": true,
-      "stage_A_execution_entry_unchanged": true
+      "stage_A_execution_entry_unchanged": true,
+      "remote_validation_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/admission-preflight-20261027-v1.json",
+      "formal_run": "calibration_blocked",
+      "formal_run_record": "experiment/mcmc_shard_imbalance/branches/b1_observation_reliability/experiments/e007_observer_admission/records/admission-20261027-v1.json"
     }
   }
 }
