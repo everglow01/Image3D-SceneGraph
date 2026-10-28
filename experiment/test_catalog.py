@@ -149,7 +149,7 @@ class ResearchCatalogTests(unittest.TestCase):
                         else:
                             self.assertEqual(implementation["remaining_stage_B"], "design_only")
                     elif item["id"] == "MCMC-Q1-E003":
-                        self.assertEqual(item["migration_status"], "new_experiment_implemented_remote_not_run")
+                        self.assertEqual(item["migration_status"], "new_experiment_remote_executed")
                         self.assertEqual(implementation["phase"], "Q1_minimal_observed_description")
                         self.assertEqual(implementation["profile"], "mcmc_minimal_survival_v1")
                         self.assertTrue(implementation["requires_independent_preflight"])
@@ -165,6 +165,48 @@ class ResearchCatalogTests(unittest.TestCase):
                                                     "new_experiment_partially_implemented_remote_not_run"}:
                         self.assertEqual(implementation["remote_validation"], "not_run")
                         self.assertEqual(item["run_records"], [])
+                    elif item["id"] == "MCMC-Q1-E003":
+                        self.assertEqual(implementation["remote_validation"], "training_descriptions_verified_render_failed")
+                        self.assertEqual(implementation["preflight_status"], "passed")
+                        self.assertEqual(implementation["suite_status"], "failed_at_isolated_render")
+                        remote_path = repository_path(implementation["remote_validation_record"])
+                        self.assertIn(str(remote_path.relative_to(ROOT)), item["run_records"])
+                        remote = self.records[remote_path]
+                        self.assertEqual(remote["execution_status"], "failed_at_isolated_render")
+                        self.assertEqual(remote["acceptance_status"], implementation["remote_validation"])
+                        self.assertEqual(set(remote["panel_statuses"]), {"execution", "monitor"})
+                        for panel in remote["panel_statuses"].values():
+                            self.assertTrue(panel["finished"])
+                            self.assertFalse(panel["running"])
+                            self.assertEqual(panel["exit_code"], 1)
+                        validation = remote["validation"]
+                        self.assertTrue(validation["preflight_passed"])
+                        self.assertEqual(validation["training_complete"], ["T0", "T1"])
+                        self.assertEqual(validation["global_training_updates"], 400)
+                        self.assertEqual(validation["render_T0"], "failed_RNG_guard")
+                        self.assertEqual(validation["render_T1"], "not_started")
+                        self.assertIsNone(validation["isolated_render_forward_count"])
+                        self.assertFalse(validation["suite_passed"])
+                        self.assertFalse(validation["original_comparison_exists"])
+                        self.assertFalse(validation["precise_RNG_source_identified"])
+                        self.assertTrue(remote["scientific_boundary"]["training_descriptions_usable_with_stated_limits"])
+                        for key in ("whole_suite_passed", "immediate_render_effect_available",
+                                    "full_numerical_noninterference_proven", "long_term_causality_proven",
+                                    "excess_source_reuse_causality_proven", "retry_started"):
+                            self.assertFalse(remote["scientific_boundary"][key])
+                        analysis = repository_path(remote["readonly_analysis"]["path"])
+                        self.assertEqual(hashlib.sha256(analysis.read_bytes()).hexdigest(), remote["readonly_analysis"]["sha256"])
+                        result = read(analysis)
+                        self.assertTrue(result["cpu_only_postrun_reanalysis"])
+                        self.assertEqual(result["new_GPU_calls"], 0)
+                        self.assertEqual(set(result["training"]), {"T0", "T1"})
+                        for trajectory in result["training"].values():
+                            for owner in trajectory["owners"].values():
+                                self.assertEqual(sum(g["count"] for g in owner["groups"].values()), 1500000)
+                                for g in owner["groups"].values():
+                                    self.assertEqual(g["alive_after_relocation"] + g["not_alive_after_relocation"], g["count"])
+                                    self.assertEqual(g["redeath_fraction_of_initially_alive"],
+                                                     g["initially_alive_ever_died"] / g["alive_after_relocation"])
                     elif item["id"] == "MCMC-B1-E007":
                         self.assertEqual(implementation["remote_validation"], "phase_A_pass_no_pointwise_threshold_difference")
                         remote_path = repository_path(implementation["remote_validation_record"])

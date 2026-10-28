@@ -1,6 +1,6 @@
 # 最小逐点生命周期
 
-2026-10-27 · **MCMC-Q1-E003** · **本地实现；独立远端前置和真实运行尚未执行。**
+2026-10-28 · **MCMC-Q1-E003** · **结构前置通过、两条训练完成；T0隔离渲染RNG守卫失败，整套未通过。**
 
 ## 1. 为什么另立协议
 
@@ -62,7 +62,7 @@ prepare从冻结Train IDs按`SHA256(UTF-8 image_id), image_id`排序选择8张�
 
 不保存不必要的整批图像，不追加训练，不从历史12k伪造此次12100迁移前状态。前状态是同一次事件“不施加本次迁移”的即时参照，不能说明长期跳过迁移的质量。
 
-## 6. 独立新版结构前置（代码已写，未执行）
+## 6. 独立新版结构前置（2026-10-27已通过）
 
 仅指定主机/仓库、显式`IMAGE3D_AUTHORIZE_MINIMAL_SURVIVAL_TESTS=1`及新的`IMAGE3D_MINIMAL_SURVIVAL_PREFLIGHT_REPORT`路径允许运行。报告和pytest `--basetemp`必须在本实验runs内的独立新目录。
 
@@ -113,6 +113,11 @@ prepare从冻结Train IDs按`SHA256(UTF-8 image_id), image_id`排序选择8张�
 - `--run --authorize-execution --protocol-sha256 <明确SHA> --output-root <同目录>`，独立`image3d-minimal-survival-v1.service`内。
 - `--monitor --protocol-sha256 <同SHA> --output-root <同目录>`只读；worker/render-worker只允许内部固定case及继承GPU租约。
 
-本轮没有运行上述命令。后续按用户要求限定提交、由用户手动Git同步；明确远端授权后先跑独立结构前置，再准备并核验正式协议，再启动唯一执行与只读监控。不自动push/pull或沿用E007的运行授权。
+用户手动同步3d5a7df并授权后，上述前置、prepare及正式两轨迹已执行；T0隔离渲染因RNG守卫失败停止，T1渲染未启动。详见[部分结果与核验](reports/survival-20261027-v1.md)。不得重试原once、重训补渲染或将失败报告改写为通过；后续修复/只读补渲染需另行授权。
 
-本机只做标准库/mock/AST/目录检查，不加载模型或用本机GPU验证。所有实现与远端运行结果分开登记；当前没有run records。
+本机只做标准库/mock/AST/目录检查，不加载模型或用本机GPU验证。原完整套件失败与事后CPU重算的训练描述分开登记；完整数值非干预和长期因果仍未证明。
+
+
+## 9. 后续只读核查（2026-10-28）
+
+[精确复用次数与RNG源码核查](reports/source-reuse-readonly-20261028-v1.md)已完成，无新训练或渲染。高k来源迁移前opacity也更高，原始风险不能作为复制次数的因果效应；粗基线分层后没有统一单调关系，未取得逐点投影覆盖。RNG发现csrc与backend预加载边界遗漏、前置进程已热而正式进程全新的覆盖缺口；rich导入链为强候选，但本次各RNG实际变化尚无动态证据。原失败状态不改，修复/补渲染仍待授权。

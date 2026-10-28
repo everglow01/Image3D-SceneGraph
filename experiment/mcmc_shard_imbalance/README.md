@@ -1,6 +1,6 @@
 # MCMC 分片恢复不对称
 
-**当前阶段：E006已完成，E007阶段A已完成且预定配对逐点阈值一致，阶段B结构前置通过、正式C组校准因loss波动超限而停止，U/O未运行；Q1最小生命周期新协议已实现、未远端验证，唯一长期根因未证明。** 更新日期：2026-10-27。
+**当前阶段：E006已完成，E007阶段A已完成且预定配对逐点阈值一致，阶段B结构前置通过、正式C组校准因loss波动超限而停止，U/O未运行；Q1最小生命周期两轨迹已取得，隔离渲染RNG守卫失败；唯一长期根因未证明。** 更新日期：2026-10-28。
 
 ## 主问题
 
@@ -22,7 +22,7 @@
 <a id="q1"></a>
 ### Q1 · 搬迁后为什么恢复不同？
 
-区分目标、来源、未参与点；slot 不是持续不变的 Gaussian 身份。总量时序已排除 relocation 是两条 12k 轨迹最初死亡源，但完整 observer 尚未运行，不能回答谁再次死亡。经用户批准，下一步先以[Q1-E003最小生命周期](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md)取得有边界的T/S/U命运描述：结构验收后固定两次200步，附带隔离即时渲染，不宣称完整数值非干预。实际逐点图像贡献、梯度/Adam归因暂不采集；屏幕半径非零不能独立证明恢复。
+区分目标、来源、未参与点；slot 不是持续不变的 Gaussian 身份。总量时序已排除 relocation 是两条12k轨迹最初死亡源。Q1-E003现已取得两条有边界的逐点描述：初始存活来源S的100步死亡风险约60.6%/66.2%—66.5%（owner0/1），高于T和U，S占末态死亡约一半；原因仍未证实。经用户批准，下一步先以[Q1-E003最小生命周期](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md)取得有边界的T/S/U命运描述：结构验收后固定两次200步，附带隔离即时渲染，不宣称完整数值非干预。实际逐点图像贡献、梯度/Adam归因暂不采集；屏幕半径非零不能独立证明恢复。
 
 <a id="q2"></a>
 ### Q2 · 为什么差异在分片内持续积累？
@@ -67,7 +67,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 **科学下一步：** [E006 单步连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) 已完成10个独立单步对照和结果核验，同输入门禁通过；改变B1会传播为部分超容差的梯度、参数与更新量差异，各case透明度阈值聚合计数相同。详见[结果报告](branches/b1_observation_reliability/experiments/e006_connected_propagation/reports/connected-20261023-v1.md)。下一步按[E007设计](branches/b1_observation_reliability/experiments/e007_observer_admission/README.md)：先只读补齐E006逐点阈值比较，再做独立无中间观测A/A与非干预验收；通过后直接用同批观察数据分析Q1，不重复训练。三类E006带探针对照不能替代该验收。阶段A已远端完成，预定配对及CPU/CUDA口径共360份差异位图的XOR均为0，见[E007阶段A结果](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/masks-20261026-v1.md)。降低该单步数值触发候选优先级，不追加E006重复；阶段B入口及条件Q1分析已实现；用户同步539dc88后，[独立结构前置](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-preflight-20261027-v1.md)已通过。随后授权的[正式对照](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-20261027-v1.md)完成C0/C1/C2后因loss校准超限停止；12项比例指标未超校准上限，U/O与Q1分析未启动。按协议收口，不补跑、不放宽阈值。 随后仅分析既有三组日志：loss首差在12003，迁移前已分化，迁移后观测差距广泛增大；owner总体不对称方向仍一致，但不能据此证明迁移因果或目标复死，见[只读分析](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-log-analysis-20261027-v1.md)。
 
-**当前下一步：** [MCMC-Q1-E003](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md)已按批准方案实现，远端未运行。新前置绑定新提交；固定T0/T1共400更新，先完成两条轨迹再做64次隔离相机forward，正式上限60分钟。描述性结果不等于旧Gate/E007通过，未自动提交或启动。
+**当前结果：** [MCMC-Q1-E003部分结果](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md)：新版结构前置通过，T0/T1共400步完成；T0隔离渲染触发RNG不变守卫，整套退出1，未做T1渲染。已有轨迹经只读CPU独立验真可作有边界的T/S/U描述：来源S承担约一半末态死亡，但复用次数分层后风险不一致单调，不能定性为过度复用根因。下一步应先定位独立渲染路径问题，若补渲染可用现有快照，不重训；新增动作需授权。
 
 | 研究项 | 状态与约束 |
 |---|---|
@@ -85,7 +85,7 @@ E007原方案只有通过有限准入才解释其O组数据；该路径本轮已
 |---|---|---|
 | Q1 | [MCMC-Q1-E001 · 死亡起点与搬迁后恢复的时序审计](questions/q1_post_relocation_survival/experiments/e001_asymmetry_onset/README.md) | 两条 12k 轨迹中死亡先于首次 relocation；固定点数阶段搬迁即时缩小分片死亡数差，但后续训练又增加死亡。 |
 | Q1 | [MCMC-Q1-E002 · 12k 后逐点生命周期观测与门禁](questions/q1_post_relocation_survival/experiments/e002_lifecycle_trace/README.md) | 原库 control_a/control_b 各完成 200 步，但第一步参数/Adam 已不同；Gate1 失败，完整 observer 与 repair 分支未运行。 |
-| Q1 | [MCMC-Q1-E003 · 最小逐点生命周期与迁移即时渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md) | 本地实现、远端未运行；最小状态记录＋两条200步轨迹＋隔离即时渲染，非完整非干预或因果认证。 |
+| Q1 | [MCMC-Q1-E003 · 最小逐点生命周期与迁移即时渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md) | 结构前置通过、两轨迹完成；S组失活突出。隔离渲染RNG守卫失败，整套未通过；只读重算描述不等于完整非干预或因果认证。 |
 | Q2 | [MCMC-Q2-E001 · 原始 apartment 退化与分片状态核验](questions/q2_rank_accumulation/experiments/e001_initial_audit/README.md) | 原始 MCMC 30k 的 rank1 低透明度占比约 96.164%，rank0 约 17.4182%；参数有限、两 rank Adam step 一致。 |
 | Q3 | [MCMC-Q3-E001 · 初始候选机制与参考实现审查](questions/q3_causal_mechanism/experiments/e001_candidate_research/README.md) | 形成四个单因素候选；目标旧矩保留也是参考实现行为，不能直接定性为本项目独有 bug。 |
 | Q3 | [MCMC-Q3-E002 · 五臂真实场景稳定性对照](questions/q3_causal_mechanism/experiments/e002_stability_suite/README.md) | 五臂均实际执行，baseline/raw_loss 完成，floor、目标矩清零、位置日程三臂失败；raw_loss 改善颜色但未消除分片低透明度失衡。 |
