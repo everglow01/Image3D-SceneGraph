@@ -157,6 +157,15 @@ class ResearchCatalogTests(unittest.TestCase):
                         self.assertEqual(implementation["old_gate1"], "not_reclassified")
                         self.assertEqual(implementation["E007"], "calibration_blocked_not_reclassified")
                         self.assertEqual(implementation["remote_test_opt_in"], "IMAGE3D_AUTHORIZE_MINIMAL_SURVIVAL_TESTS")
+                        self.assertEqual(implementation["remote_validation_implementation_commit"], "3d5a7df2822bd5dfda617ceb890c3d48f39bb004")
+                        recovery = implementation["render_recovery"]
+                        self.assertEqual(recovery["remote_validation"], "not_run")
+                        self.assertEqual(recovery["new_training_updates"], 0)
+                        self.assertTrue(recovery["requires_fresh_process_preflight"])
+                        self.assertEqual(recovery["original_suite_status"], "failed_at_isolated_render_not_reclassified")
+                        self.assertNotEqual(recovery["remote_test_opt_in"], implementation["remote_test_opt_in"])
+                        for value in [recovery["entrypoint"], *recovery["helpers"], *recovery["local_tests"], *recovery["remote_tests"]]:
+                            self.assertTrue(repository_path(value).is_file(), value)
                     else:
                         self.assertEqual(item["id"], "MCMC-B1-E006")
                         self.assertIn(item["migration_status"], {"new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"})

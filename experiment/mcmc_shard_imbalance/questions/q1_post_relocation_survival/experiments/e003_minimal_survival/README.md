@@ -121,3 +121,32 @@ prepare从冻结Train IDs按`SHA256(UTF-8 image_id), image_id`排序选择8张�
 ## 9. 后续只读核查（2026-10-28）
 
 [精确复用次数与RNG源码核查](reports/source-reuse-readonly-20261028-v1.md)已完成，无新训练或渲染。高k来源迁移前opacity也更高，原始风险不能作为复制次数的因果效应；粗基线分层后没有统一单调关系，未取得逐点投影覆盖。RNG发现csrc与backend预加载边界遗漏、前置进程已热而正式进程全新的覆盖缺口；rich导入链为强候选，但本次各RNG实际变化尚无动态证据。原失败状态不改，修复/补渲染仍待授权。
+
+
+## 10. 隔离渲染初始化修复（2026-10-28，本地实现，未远端验证）
+
+用户批准修复并明确不重跑训练。`render_probe.py`现在在测量守卫之前复用既有固定B0 `initialize_backend()`：先核预编译csrc身份，再显式导入`gsplat.cuda._backend`并核其`_C`为同一扩展。初始化前后Python、NumPy、Torch CPU、CUDA RNG摘要单独保存，允许如实记录初始化消耗；没有forward/backward热身，不恢复RNG，不删除原守卫。原`prime_package`与训练路径不改变；`run.py`只在已有render分支传入新的审计输出目录。
+
+每次只读相机forward分别记录load、render、loss、export四阶段的RNG摘要；发生消耗时保留失败阶段、变化的组件及原异常，不吞错。图像加载在独立阶段完成，render阶段将已加载视图交给原冻结渲染函数，不增加相机forward次数。审计目录不得落在来源快照目录内。
+
+### 零训练冷进程前置
+
+新增`tests/test_cold_render_remote.py`，独立变量`IMAGE3D_AUTHORIZE_COLD_RENDER_TESTS=1`及新路径`IMAGE3D_COLD_RENDER_PREFLIGHT_REPORT`，仍须新runs目录和新basetemp。使用`image3d-survival-cold-render-v1.service`、15分钟上限、主存三项无限额。
+
+两rank通过spawn启动新进程，在任何gsplat forward之前确认backend未加载；8点SH3的两份手工合成状态（不是训练或迁移），两张64×64合成PNG经真实加载路径进入probe。每rank4次相机forward，全局8次；训练更新、反向、optimizer、strategy调用均0，真实数据集图像解码0。禁止调用训练/Adam/backward，核模型未改写、同状态重复性、初始化0热身、全部分阶段RNG摘要和主动消耗Python RNG的拒绝负例。此检查不再依赖“同进程此前已经训练过”的暖状态。
+
+只有独立前置成功才写绑定新提交/执行依赖/双rank证据的报告。旧Q1或E007前置都不能替代。本地没有运行这个GPU测试，也没有取得修复通过的动态证据。
+
+### 独立只读补渲染入口
+
+模块为`experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e003_minimal_survival.render_recovery`，没有训练路径。
+
+- 来源固定为原`survival-20261027-v1`，协议`7390dacff982e1add40cb3dd99b6b1c4943eb771aa0edf86ceee120b27286c97`、原提交3d5a7df及两条训练complete SHA。
+- 原协议中的59份旧代码按原Git对象校验，不拿已修复工作区冒充旧执行版本；原库包、replay dataset、选中Train图像及全部完成文件绑定同时验真。失败终态必须仍是失败。
+- prepare将旧来源身份与新修复代码/新冷进程前置绑定成新协议；输出必须为新的`render-recovery-*`目录，不能写入原T0/T1或旧失败渲染目录，不复制父checkpoint、不重新计算训练轨迹。
+- 固定顺序只补T0、T1，各用原8相机、前后两状态各重复两遍，合计64相机forward；新训练/反向/optimizer/strategy调用均0。
+- 正式上限30分钟、每卡reserved≤18GiB、输出≤1GiB、磁盘准入≥5GiB且保留4GiB空闲；主存三项无限额、collective超时120秒。独立`image3d-survival-render-recovery-v1.service`，once/flock/租约，首次失败停止，不自动重试。
+- 命令：`--prepare --authorize-prepare --preflight-report <新冷进程报告> --output-root <新目录>`；执行用`--run --authorize-render-only --protocol-sha256 <新SHA>`及同目录。唯一只读监控仍用`--monitor`，不占GPU；监控可等待至65分钟但正式执行最多30分钟，不因此延长计算预算。
+- 同状态A/A数值超原容差仍只标记相应即时解释不可用；任何RNG/结构/来源错误立即失败。成功也只写`render_only_complete`，原整套失败和长期因果/完整非干预未证明状态不变。
+
+修复只在本地实现和轻量检查；没有自动提交/同步，没有重训、补渲染或恢复旧任务。后续需用户手动Git同步并明确授权独立冷进程前置与只读补渲染。

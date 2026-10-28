@@ -210,7 +210,7 @@ def synthetic_worker(local_rank, rank, world_size, args):
             return value
         active_before = active()
         with patch.object(render_probe, 'model_from_snapshot', capture_model):
-            rendered = render_probe.probe(root / 'T', rank, views, ['0', '1'], cfg, sh_degree=0)
+            rendered = render_probe.probe(root / 'T', rank, views, ['0', '1'], cfg, audit_root=root / 'render-audit', sh_degree=0)
         assert active() == active_before
         assert all(digest_state(dict(m.params.items())) == digest and all(p.grad is None for p in m.params.values()) for m, digest in loaded_models)
         assert rendered['camera_forwards'] == 4 and rendered['interpretation_usable']

@@ -191,7 +191,7 @@ def worker(local_rank, rank, world_size, args):
                 # Reject any real pixel decode except the protocol-selected Train set.
                 endpoint.train_ids = set(p['camera_contract']['image_ids'])
                 measured = render_probe.probe(args.output_root / args.case, rank, views,
-                                              p['camera_contract']['image_ids'], config['effective_config'])
+                                              p['camera_contract']['image_ids'], config['effective_config'], audit_root=stage)
                 endpoint.consensus('render-finish', lambda: write_new(stage / f'worker-rank-{rank}.json',
                     {**measured, 'case': args.case, 'loaded_train_ids': sorted(endpoint.loaded),
                      'protocol_sha256': args.protocol_sha256}))
