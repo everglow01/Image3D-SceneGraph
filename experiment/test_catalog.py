@@ -229,6 +229,36 @@ class ResearchCatalogTests(unittest.TestCase):
                                                     "new_experiment_partially_implemented_remote_not_run"}:
                         self.assertEqual(implementation["remote_validation"], "not_run")
                         self.assertEqual(item["run_records"], [])
+                    elif item["id"] == "MCMC-Q1-E004":
+                        self.assertEqual(implementation["remote_validation"], "preflight_failed_empty_source_digest")
+                        self.assertEqual(implementation["preflight_status"], "failed")
+                        self.assertFalse(implementation["prefix_executed"])
+                        self.assertFalse(implementation["arms_executed"])
+                        record_path = implementation["remote_validation_record"]
+                        self.assertIn(record_path, item["run_records"])
+                        remote = self.records[repository_path(record_path)]
+                        self.assertEqual(remote["execution_status"], "preflight_failed")
+                        self.assertEqual(remote["acceptance_status"], "empty_source_digest_stride_failure")
+                        self.assertEqual(remote["source_commit"]["value"], implementation["remote_validation_implementation_commit"])
+                        self.assertIsNone(remote["protocol_sha256"]["value"])
+                        for panel in remote["panel_statuses"].values():
+                            self.assertTrue(panel["finished"])
+                            self.assertFalse(panel["running"])
+                            self.assertEqual(panel["exit_code"], 1)
+                        validation = remote["validation"]
+                        self.assertFalse(validation["preflight_passed"])
+                        self.assertEqual(validation["synthetic_completed_global_updates"], 4)
+                        self.assertEqual(validation["synthetic_camera_forwards"], 8)
+                        self.assertEqual(validation["synthetic_loss_backwards"], 8)
+                        self.assertEqual(validation["synthetic_optimizer_group_steps"], 48)
+                        self.assertEqual(validation["real_prefix_updates"], 0)
+                        self.assertEqual(validation["failure_rank"], 1)
+                        self.assertEqual(validation["synthetic_rank1_source_count"], 0)
+                        for key in ("real_arms_started", "formal_protocol_exists", "formal_gate0_exists", "preflight_report_exists"):
+                            self.assertFalse(validation[key])
+                        for key in ("real_moment_signal_available", "real_common_prefix_available", "adam_causality_proven",
+                                    "long_term_root_cause_proven", "preflight_reclassified_as_pass", "automatic_retry_started"):
+                            self.assertFalse(remote["scientific_boundary"][key])
                     elif item["id"] == "MCMC-Q1-E003":
                         self.assertEqual(implementation["remote_validation"], "training_descriptions_verified_render_failed")
                         self.assertEqual(implementation["preflight_status"], "passed")

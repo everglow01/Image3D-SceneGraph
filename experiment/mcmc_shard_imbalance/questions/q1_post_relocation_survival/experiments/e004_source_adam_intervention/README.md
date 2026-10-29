@@ -1,6 +1,6 @@
 # 来源Adam状态短窗干预
 
-2026-10-28 · **MCMC-Q1-E004 / Q1-B** · **本地实现，远端前置、公共前缀及两臂均未执行。**
+2026-10-29 · **MCMC-Q1-E004 / Q1-B** · **远端合成前置失败；真实公共前缀、Gate 0及两臂未启动。**
 
 ## 1. 问题与证据边界
 
@@ -84,7 +84,7 @@
 - `tests/test_intervention_remote.py`仅指定主机且 `IMAGE3D_AUTHORIZE_SOURCE_ADAM_TESTS=1` 才收集；报告路径变量为 `IMAGE3D_SOURCE_ADAM_PREFLIGHT_REPORT`，报告和pytest basetemp必须为本实验新runs目录。
 - 前置验证原生checkpoint写入/恢复、两矩白名单、step与T/U保留、首步代数、映射/家族分布/删失、原调用预算、观察不变、RNG负例、零目标owner及双rank拒绝；测试代码存在不代表已经通过。
 
-## 7. 后续执行顺序（本轮不执行）
+## 7. 执行流程与后续授权边界
 
 1. 本地实现/轻量验证完成 → 用户授权提交 → 用户手动Git同步。
 2. 明确授权新合成前置与100步公共前缀后，核目标主机/提交/GPU/磁盘，使用独立unit执行。前置unit为 `image3d-source-adam-preflight-v1.service`，prefix为 `image3d-source-adam-prefix-v1.service`，arms为 `image3d-source-adam-arms-v1.service`，三者主存限制均无限额。
@@ -96,4 +96,11 @@
    - `--arms --authorize-arms --arms-protocol-sha256 <新arms协议SHA> --protocol-sha256 <prefix SHA> --output-root <同目录>`，只能在arms unit内运行。
 5. 各阶段唯一只读监控用 `--monitor --monitor-phase prefix|arms --protocol-sha256 <prefix SHA> --output-root <同目录>`，不会停止或重启执行。
 
-两阶段之间保持同一实现提交与执行依赖；若实现需要修复，应另立尝试与前置，不能覆盖已有once或把旧Gate 0绑定到变化后的代码。本轮未提交、未同步、未运行任何新GPU/公共前缀/A/B。
+两阶段之间保持同一实现提交与执行依赖；若实现需要修复，应另立尝试与前置，不能覆盖已有once或把旧Gate 0绑定到变化后的代码。用户已提交并同步e98c828，2026-10-29按授权执行前置，但在合成A初始化失败，真实公共前缀未启动；下面记录此次终态，不自动按上面的流程重试。
+
+
+## 8. 2026-10-29前置失败
+
+[失败报告](reports/adam-intervention-20261029-v1-preflight.md)：执行与唯一监控均exit1，pytest 1 failed/73.05秒。8点合成prefix已完成4全局更新，但合成A在零来源rank1上对空moment张量求摘要时触发`stride(-1)=0`的Float→Byte view错误；rank0收到共同拒绝。完整前置未通过，不能用局部合成Gate 0放行真实数据。
+
+没有preflight通过报告、正式协议或正式输出目录；真实100步公共前缀与A/B更新均0。原失败保留，未修代码或补跑。建议在本实验局部处理空来源摘要、保留冻结helper及零来源用例，再经提交/手动同步与新尝试授权进行验证。

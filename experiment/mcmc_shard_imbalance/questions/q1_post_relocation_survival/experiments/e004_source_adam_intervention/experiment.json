@@ -15,14 +15,18 @@
     "MCMC-B1-E006",
     "MCMC-B1-E007"
   ],
-  "migration_status": "new_experiment_implemented_remote_not_run",
+  "migration_status": "new_experiment_implemented_remote_partially_executed",
   "design_document": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md",
   "legacy_entrypoints": [],
   "legacy_tests": [],
   "legacy_analysis_scripts": [],
-  "run_records": [],
+  "run_records": [
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json"
+  ],
   "shared_run_records": [],
-  "reviewed_reports": [],
+  "reviewed_reports": [
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/adam-intervention-20261029-v1-preflight.md"
+  ],
   "implementation": {
     "entrypoint": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/run.py",
     "helpers": [
@@ -37,7 +41,7 @@
     ],
     "profile": "source_adam_intervention_v1",
     "phase": "Q1_B_source_moment_intervention",
-    "remote_validation": "not_run",
+    "remote_validation": "preflight_failed_empty_source_digest",
     "remote_test_opt_in": "IMAGE3D_AUTHORIZE_SOURCE_ADAM_TESTS",
     "preflight_report_environment": "IMAGE3D_SOURCE_ADAM_PREFLIGHT_REPORT",
     "requires_independent_preflight": true,
@@ -51,6 +55,10 @@
     "long_term_root_cause_proven": false,
     "full_numerical_noninterference_proven": false,
     "old_gate1": "not_reclassified",
-    "E007": "calibration_blocked_not_reclassified"
+    "E007": "calibration_blocked_not_reclassified",
+    "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json",
+    "remote_validation_implementation_commit": "e98c8285db797ebcb148eeb27ce8f8b667916fd7",
+    "preflight_status": "failed",
+    "failure_phase": "synthetic_A_arm_initialization"
   }
 }

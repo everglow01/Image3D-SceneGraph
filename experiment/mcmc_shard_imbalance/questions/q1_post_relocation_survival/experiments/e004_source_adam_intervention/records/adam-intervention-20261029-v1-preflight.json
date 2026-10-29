@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "run_id": "adam-intervention-20261029-v1-preflight",
+  "experiment_id": "MCMC-Q1-E004",
+  "kind": "source_adam_synthetic_preflight",
+  "catalogued_on": "2026-10-29",
+  "execution_status": "preflight_failed",
+  "acceptance_status": "empty_source_digest_stride_failure",
+  "previous_attempt": null,
+  "source_commit": {
+    "value": "e98c8285db797ebcb148eeb27ce8f8b667916fd7",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/readonly-check.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": null,
+    "source": null,
+    "field": null,
+    "missing_reason": "Synthetic preflight failed before prepare; no formal protocol exists."
+  },
+  "execution_task": {
+    "value": "20261029-092127-67af",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261029-092127-4541",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/monitor-status.json",
+    "field": "id"
+  },
+  "panel_statuses": {
+    "execution": {
+      "id": "20261029-092127-67af",
+      "running": false,
+      "finished": true,
+      "exit_code": 1,
+      "log_size": 6432
+    },
+    "monitor": {
+      "id": "20261029-092127-4541",
+      "running": false,
+      "finished": true,
+      "exit_code": 1,
+      "log_size": 6837
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-29T01:25:54Z",
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-preflight"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/execution-status.json",
+      "sha256": "1b351a05ea58c696a27835203a046349ce5f859d7087027fbe1ab50c6ac6e7c4",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/monitor-status.json",
+      "sha256": "6da51f67e37c514add881d3e0a599ed4aa8dd1018ae4c05ea8f08ce95116ed16",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/execution-log.log",
+      "sha256": "ee20e2b900e27d6a04f7d25199c12d1c465430fe1bf0990f8c2564f9cbd09f46",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/monitor-log.log",
+      "sha256": "056d42eb6efe91a9a90f3b8ec567a88995500d14112dbfe259239f61f7f449d6",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/readonly-check.json",
+      "sha256": "e5ac6622f7a4dfce6af7a569953c2517bdfc3172b77cdd0d30f8e69914877557",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/readonly-check.json.gz.b64",
+      "sha256": "c711661613495538abd641c415fae207ad87993f20abcacc2f78519045980e28",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/postcheck.txt",
+      "sha256": "2c330f7940772d65f15d1056bebbc1403c3a2879f72e5d6e5bb73041bbbcb5e3",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/command.sh",
+      "sha256": "416d63c6ead942b2cfe8a299658a66e97de93518a8d110e620bf7d0891a0be8b",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/monitor.sh",
+      "sha256": "92a0d1b0af70f02ffebe6d7a0405b2d8cee27927f246f168615aa55cd2bdaf51",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-control/events.log",
+      "sha256": "a2e9e7acd9d0f321f8b9026b2c5c95101e46186316e2541406a8ed8baadad951",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-control/preflight.exit-code",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-control/preflight.log",
+      "sha256": "db73c878b4672f966a5bb783de2714df3e8dd168aefff1c1a0633d7a87465e37",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-control/suite.exit-code",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/A/intervention-rank-0.json",
+      "sha256": "d66a803a9041f6c7497afcf8865a8759116c9c8387a1004336ec5687e1da8160",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/A/rejected-arm-initialization-rank-0.json",
+      "sha256": "8c754323e4be9c33882a9096873c7bd481915e66cb5eba6f164e7286f4d7f57b",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/A/rejected-arm-initialization-rank-1.json",
+      "sha256": "16e48b2351dfff8a5041fb09c11ea1267ac6d24886bc0e8675cbeaf182ca61ae",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/initialization-rank-0.json",
+      "sha256": "601363db6f17239d342ecede9a5b4953f7328e0f669ce72ae7a3d190160b22cb",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/initialization-rank-1.json",
+      "sha256": "5ad0ae6f46b0913a1cc950910dfcbd0009daa221f84413fdf0941639d84910bc",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/cohort-rank-0/manifest.json",
+      "sha256": "c3adf214c2260f5c1f7d12b56e6178a6e5975cc587859e9a946d6ee32428baaf",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/cohort-rank-1/manifest.json",
+      "sha256": "e8a117355757161bbf133d0d731d3b2be01a2843170882831ad3d306afa91a6c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/gate0-rank-0.json",
+      "sha256": "b8aeedf896623d43340ca661e17c4a14d153c01ae973869b208c371bc6dc1c8c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/gate0-rank-1.json",
+      "sha256": "b8dce5f2fc77e6dfa099e789a2b06a190b25beb43c95c52e2fd9862349b4478a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/native-tail-rank-0.json",
+      "sha256": "655c3c30909f27440340147d3ccad8141569a1fe149ab78e5d9502f156850c7d",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/native-tail-rank-1.json",
+      "sha256": "ffc337b1221d344a6278a335a1a885e374cd8bf7088693c7350f5f1b67ce7376",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/noise-4-rank-0/manifest.json",
+      "sha256": "7e0c417a797f1a7fc2c90d674d19c21afba8efbe0fe12529eb1a6fb3cc9f4e0b",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/noise-4-rank-1/manifest.json",
+      "sha256": "0b5c71b068fcdbc8b603bf51ddf553ee2e2683f5d1d03f1ec9ac658791a29e01",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/post-relocation-rank-0/manifest.json",
+      "sha256": "28de47a0c7d3b2d2a28858e75a5ea79db5fa620546522717115357d4e3a3c432",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/post-relocation-rank-1/manifest.json",
+      "sha256": "bd7c235d00a20c6342f41c7bef418d0c34fa54522db5f82fc7f52ac833653566",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/pre-relocation-rank-0/manifest.json",
+      "sha256": "0989ce06382924bd9d41cd0da1433e3bb12fca708764c3929e5257e80afc8eef",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/pre-relocation-rank-1/manifest.json",
+      "sha256": "89d3a56c7fbb6d8c6a1db7518eff6ba00675ce0a076990f8d3439375061c9573",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/prefix-state-rank-0.json",
+      "sha256": "92ee6eff0f7d5c50c04547ff353023f559c920e7b2629f5f4e8fa7ee89f608b5",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/prefix-state-rank-1.json",
+      "sha256": "b819ed88ca097e5df42b900b17173c11ae81aabdc3e354422b9401f990a246b7",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/worker-rank-0.json",
+      "sha256": "3964ee9b73d1e6259bed432305715a9384c512fb42558d354e74ea0f30468834",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/prefix/worker-rank-1.json",
+      "sha256": "79882a73ccccfc74a9179592b1100d4bd8a0e7c8d1dadc117296c879ce446a1e",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/A/attempt.json",
+      "sha256": "e492b6302d28649e1e9f13f54671ac5b99c598f40124ae3cdcbf028ba5b585fb",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/prefix/attempt.json",
+      "sha256": "95c41651ee3a320e7920608b23f2421cc61b62f2fb59904f05fb1f7090a6014c",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/prefix/checkpoints/iteration_000000004/checkpoint.json",
+      "sha256": "443a1e24444326d32eb01c0bdc26a647d29e9586bd7e87a8f996d4efdab864f0",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/prefix/checkpoints/iteration_000000004/metrics.json",
+      "sha256": "603d33565d5f9a24ba1290adf2a441485bfcfa8bb5fe29d4e6648f9fbc8153fc",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/seed/attempt.json",
+      "sha256": "1236e07ba906c2bdc217e006340cd02dba55c22214a49b1d91b61e1cc74b6289",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/seed/checkpoints/iteration_000000000/checkpoint.json",
+      "sha256": "63493d9c1d98559651ab707517ae0fab3031b99365d2dfdce9c17354c3cc6628",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-20261029-v1-local/incoming/adam-intervention-20261029-v1-preflight/check-tmp/test_native_prefix_and_source_0/training/attempts/seed/checkpoints/iteration_000000000/metrics.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "availability": "local_verified"
+    }
+  ],
+  "validation": {
+    "preflight_passed": false,
+    "pytest_failed": 1,
+    "pytest_seconds": 73.05,
+    "service_seconds": 73.673,
+    "synthetic_completed_global_updates": 4,
+    "synthetic_camera_forwards": 8,
+    "synthetic_loss_backwards": 8,
+    "synthetic_optimizer_group_steps": 48,
+    "synthetic_A": "failed_before_first_new_batch",
+    "synthetic_B": "not_started",
+    "real_prefix_updates": 0,
+    "real_arms_started": false,
+    "formal_protocol_exists": false,
+    "formal_gate0_exists": false,
+    "preflight_report_exists": false,
+    "failure_phase": "synthetic_A_arm_initialization",
+    "failure_rank": 1,
+    "failure_text": "self.stride(-1) must be 1 to view Float as Byte (different element sizes), but got 0",
+    "synthetic_rank1_source_count": 0,
+    "downloaded_text_files": 32,
+    "downloaded_text_bytes": 717819,
+    "execution_dependencies_sha_verified": 64
+  },
+  "partial_synthetic_evidence": {
+    "prefix_workers": {
+      "0": {
+        "status": "measured",
+        "case": "prefix",
+        "rank": 0,
+        "calls": {
+          "restore": 1,
+          "batch": 4,
+          "render": 4,
+          "backward": 4,
+          "raster_forward": 4,
+          "raster_backward": 4,
+          "optimizer": 24,
+          "strategy": 4,
+          "relocate": 1,
+          "sample": 1,
+          "add": 1,
+          "noise": 4,
+          "terminal": 1,
+          "checkpoint": 1
+        },
+        "new_updates": 4
+      },
+      "1": {
+        "status": "measured",
+        "case": "prefix",
+        "rank": 1,
+        "calls": {
+          "restore": 1,
+          "batch": 4,
+          "render": 4,
+          "backward": 4,
+          "raster_forward": 4,
+          "raster_backward": 4,
+          "optimizer": 24,
+          "strategy": 4,
+          "relocate": 1,
+          "sample": 0,
+          "add": 1,
+          "noise": 4,
+          "terminal": 1,
+          "checkpoint": 1
+        },
+        "new_updates": 4
+      }
+    },
+    "synthetic_gate0": {
+      "0": {
+        "status": "structural_verified",
+        "rank": 0,
+        "family_count": 2,
+        "target_count": 2,
+        "maximum_k": 1,
+        "effective_intervention_available": true
+      },
+      "1": {
+        "status": "structural_verified",
+        "rank": 1,
+        "family_count": 0,
+        "target_count": 0,
+        "maximum_k": 0,
+        "effective_intervention_available": false
+      }
+    },
+    "rejections": {
+      "0": {
+        "stage": "arm-initialization",
+        "rank": 0,
+        "error": "peer rejected"
+      },
+      "1": {
+        "stage": "arm-initialization",
+        "rank": 1,
+        "error": "self.stride(-1) must be 1 to view Float as Byte (different element sizes), but got 0"
+      }
+    }
+  },
+  "scientific_boundary": {
+    "real_moment_signal_available": false,
+    "real_common_prefix_available": false,
+    "adam_causality_proven": false,
+    "long_term_root_cause_proven": false,
+    "preflight_reclassified_as_pass": false,
+    "automatic_retry_started": false,
+    "old_gate1": "not_reclassified",
+    "E007": "calibration_blocked_not_reclassified"
+  }
+}
