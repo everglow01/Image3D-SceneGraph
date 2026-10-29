@@ -69,7 +69,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 **当前结果：** [MCMC-Q1-E003部分结果](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md)：新版结构前置通过，T0/T1共400步完成；T0隔离渲染触发RNG不变守卫，整套退出1，未做T1渲染。已有轨迹经只读CPU独立验真可作有边界的T/S/U描述：来源S承担约一半末态死亡，但复用次数分层后风险不一致单调，不能定性为过度复用根因。修复backend预加载覆盖缺口后，已按独立授权完成[零训练补渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md)：冷前置通过，64次正式forward、256份RNG审计通过，同状态RGB/alpha重复位级一致；固定8视角平均loss略降但各有4张上升。原失败状态不变，不据此证明长期改善或S死亡原因。随后[家族内配对分析](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.md)核验513,600条真实T→S边的六参数起点位级一致；家族等权20步S−T死亡风险差约+35.36—36.67个百分点、100步约+35.14—36.86个百分点。初始未活、目标混合结局及删失独立处理；Adam重置仅为优先候选，尚未干预。
 
-**下一阶段（前置失败、正式未启动）：** [MCMC-Q1-E004来源Adam干预](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md)采用一个新100步公共前缀，先报告真实两矩/step/映射的Gate 0并退出；用户审阅后另行授权A/B各20步，只改变来源六组两矩。首步实际梯度/更新与固定梯度Adam代数解释分开，T/U风险与同相机loss同时检查。不重做既有门禁，不要求干预后长期SHA一致；e98c828的[远端前置](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/adam-intervention-20261029-v1-preflight.md)在零来源空张量摘要处失败，真实公共前缀与A/B未启动，未自动修复或重试。
+**下一阶段（前置失败、正式未启动）：** [MCMC-Q1-E004来源Adam干预](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md)采用一个新100步公共前缀，先报告真实两矩/step/映射的Gate 0并退出；用户审阅后另行授权A/B各20步，只改变来源六组两矩。首步实际梯度/更新与固定梯度Adam代数解释分开，T/U风险与同相机loss同时检查。不重做既有门禁，不要求干预后长期SHA一致；e98c828的[远端前置](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/adam-intervention-20261029-v1-preflight.md)在零来源空张量摘要处失败，真实公共前缀与A/B未启动。随后按授权完成空张量摘要局部修复；原失败保留，新前置与公共前缀待新代码Git同步，仍在Gate 0后停止。
 
 | 研究项 | 状态与约束 |
 |---|---|

@@ -104,3 +104,12 @@
 [失败报告](reports/adam-intervention-20261029-v1-preflight.md)：执行与唯一监控均exit1，pytest 1 failed/73.05秒。8点合成prefix已完成4全局更新，但合成A在零来源rank1上对空moment张量求摘要时触发`stride(-1)=0`的Float→Byte view错误；rank0收到共同拒绝。完整前置未通过，不能用局部合成Gate 0放行真实数据。
 
 没有preflight通过报告、正式协议或正式输出目录；真实100步公共前缀与A/B更新均0。原失败保留，未修代码或补跑。建议在本实验局部处理空来源摘要、保留冻结helper及零来源用例，再经提交/手动同步与新尝试授权进行验证。
+
+
+## 9. 空来源摘要局部修复（2026-10-29，尚未远端验证）
+
+按用户“按建议修复，然后开始实验”，`probe.py`新增局部`moment_digest`：空张量只按冻结摘要的tensor/dtype/原shape编码生成摘要，零数据字节不做Float→Byte视图；非空张量原样交给原`digest_state`。来源moment的before/expected/actual/reference/after五处摘要均使用该适配，不改共享helper、RNG守卫、参数/两矩干预或T/U保护。
+
+本机用无Torch的空张量替身复现原字节视图报错路径，并检查原shape/dtype参与摘要、非空委托不变。远端前置新增CPU/CUDA的NumPy来源空张量及显式零stride张量检查，覆盖六组参数的空来源形状；在RNG不变守卫下执行，不增加模型forward/backward/Adam调用，原rank1零来源用例完整保留。
+
+旧e98c828前置失败报告不改为通过。修复后的前置尚未执行；新尝试仍需先提交并由用户手动Git同步，使用新的目录与once，前置通过后只跑100步公共前缀，在真实Gate 0后停止。用户已授权这个执行范围，但未授权真实A/B；不得直接修改远端源码或复用旧失败目录。

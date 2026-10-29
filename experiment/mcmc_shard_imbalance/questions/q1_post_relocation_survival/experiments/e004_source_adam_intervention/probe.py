@@ -11,6 +11,13 @@ from ..e003_minimal_survival.run import snapshots, read, write_new
 from . import analyze
 
 
+def moment_digest(value):
+    # Empty tensors have no data bytes; keep the frozen tensor dtype/shape encoding.
+    if value.numel() == 0:
+        return digest_state(('tensor', str(value.dtype), list(value.shape)))
+    return digest_state(value)
+
+
 class InterventionProbe:
     consensus = Endpoint.consensus
     full_state = snapshots.FirstDivergenceProbe.full_state
@@ -81,14 +88,14 @@ class InterventionProbe:
                     if bool(current.count_nonzero()):
                         raise ValueError('source moments were not zero in common checkpoint')
                     expected = torch.from_numpy(np.array(before['adam'][name]['state'][key][ids], copy=True)).to(active[key].device)
-                    changed[name][key] = {'before': digest_state(current), 'expected_retained': digest_state(expected)}
+                    changed[name][key] = {'before': moment_digest(current), 'expected_retained': moment_digest(expected)}
                     if self.case == 'B':
                         active[key][self.ids] = expected
                     actual = active[key][self.ids]
                     reference = expected if self.case == 'B' else current
-                    if digest_state(actual) != digest_state(reference):
+                    if moment_digest(actual) != moment_digest(reference):
                         raise ValueError('source moment intervention did not match whitelist')
-                    changed[name][key]['after'] = digest_state(actual)
+                    changed[name][key]['after'] = moment_digest(actual)
             if self.protected_digest() != protected:
                 raise ValueError('intervention changed parameters, T/U, step, options, strategy, camera or RNG')
         write_new(self.root / f'intervention-rank-{self.rank}.json',

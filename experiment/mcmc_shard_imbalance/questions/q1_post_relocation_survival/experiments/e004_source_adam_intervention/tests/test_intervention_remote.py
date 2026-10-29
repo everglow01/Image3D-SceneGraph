@@ -14,7 +14,7 @@ if socket.gethostname() != 'i-94B8D131' or os.environ.get('IMAGE3D_AUTHORIZE_SOU
     pytest.skip('仅指定远端显式授权运行来源Adam独立前置', allow_module_level=True)
 
 from experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention import run, analyze  # noqa: E402
-from experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention.probe import InterventionProbe  # noqa: E402
+from experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention.probe import InterventionProbe, moment_digest  # noqa: E402
 from scripts.mcmc_lifecycle_observer import digest_state, unchanged_rng  # noqa: E402
 
 
@@ -56,6 +56,21 @@ def analysis_fixtures():
         analyze.adam_prediction(a, a, a, -a, 1, group)
 
 
+def empty_digest_fixtures(device):
+    import numpy as np
+    import torch
+    with unchanged_rng():
+        for target in (torch.device('cpu'), device):
+            for shape in ((0,), (0, 3), (0, 4), (0, 1, 3), (0, 15, 3)):
+                for value in (torch.from_numpy(np.empty(shape, dtype=np.float32)).to(target),
+                              torch.empty_strided(shape, (0,) * len(shape), dtype=torch.float32, device=target)):
+                    expected = digest_state(('tensor', str(value.dtype), list(value.shape)))
+                    assert moment_digest(value) == expected
+            nonempty = torch.arange(6, dtype=torch.float32, device=target).reshape(2, 3).t()
+            assert moment_digest(nonempty) == digest_state(nonempty)
+            assert moment_digest(nonempty + 1) != moment_digest(nonempty)
+
+
 def synthetic_worker(local_rank, rank, world_size, args):
     import random
     import numpy as np
@@ -72,6 +87,7 @@ def synthetic_worker(local_rank, rank, world_size, args):
     assert initialization['warmup_forward_calls'] == initialization['warmup_backward_calls'] == 0
     run.write_new(root / f'initialization-rank-{rank}.json', initialization)
     device = torch.device(f'cuda:{rank}')
+    empty_digest_fixtures(device)
     cfg = {'loss': {'l1_weight': .8, 'ssim_weight': .2, 'clamp_render': True,
                     'opacity_regularization': .01, 'scale_regularization': .01},
            'densification': {'start_iteration': 1, 'end_iteration': 100, 'every_iterations': 4},

@@ -38,6 +38,47 @@ class InterventionTests(unittest.TestCase):
         self.assertIn('--authorize-arms', help_result.stdout)
         self.assertNotIn('--authorize-execution', help_result.stdout)
 
+    def test_empty_moment_digest_preserves_canonical_metadata(self):
+        class EmptyTensor:
+            dtype = 'torch.float32'
+            shape = (0, 3)
+            def numel(self):
+                return 0
+            def detach(self):
+                return self
+            def reshape(self, *args):
+                return self
+            def contiguous(self):
+                return self
+            def view(self, *args):
+                raise RuntimeError('self.stride(-1) must be 1 to view Float as Byte, but got 0')
+        fake_torch = SimpleNamespace(Tensor=EmptyTensor, uint8='torch.uint8')
+        with patch.dict(sys.modules, {'torch': fake_torch}):
+            empty = EmptyTensor()
+            with self.assertRaisesRegex(RuntimeError, 'stride'):
+                probe.digest_state(empty)
+            digests = set()
+            for shape in ((0,), (0, 3), (0, 4), (0, 1, 3), (0, 15, 3)):
+                empty.shape = shape
+                expected = probe.digest_state(('tensor', str(empty.dtype), list(shape)))
+                self.assertEqual(probe.moment_digest(empty), expected)
+                digests.add(expected)
+            self.assertEqual(len(digests), 5)
+            before = probe.moment_digest(empty)
+            empty.dtype = 'torch.float64'
+            self.assertNotEqual(probe.moment_digest(empty), before)
+
+    def test_nonempty_moment_digest_delegates_without_conversion(self):
+        value = SimpleNamespace(numel=lambda: 3)
+        with patch.object(probe, 'digest_state', return_value='original-digest') as digest:
+            self.assertEqual(probe.moment_digest(value), 'original-digest')
+            digest.assert_called_once_with(value)
+        tree = ast.parse(Path(probe.__file__).read_text())
+        method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'restore_source_moments')
+        calls = [ast.unparse(n.func) for n in ast.walk(method) if isinstance(n, ast.Call)]
+        self.assertEqual(calls.count('moment_digest'), 5)
+        self.assertNotIn('digest_state', calls)
+
     def test_frozen_budget_and_scope(self):
         c = run.CONTRACT
         self.assertEqual(c['prefix_updates'] + 2 * c['arm_updates'], c['total_updates'])
