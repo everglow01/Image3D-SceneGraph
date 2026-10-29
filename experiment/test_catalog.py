@@ -207,6 +207,20 @@ class ResearchCatalogTests(unittest.TestCase):
                         self.assertNotEqual(recovery["remote_test_opt_in"], implementation["remote_test_opt_in"])
                         for value in [recovery["entrypoint"], *recovery["helpers"], *recovery["local_tests"], *recovery["remote_tests"]]:
                             self.assertTrue(repository_path(value).is_file(), value)
+                    elif item["id"] == "MCMC-Q1-E004":
+                        self.assertEqual(implementation["profile"], "source_adam_intervention_v1")
+                        self.assertTrue(implementation["requires_independent_preflight"])
+                        self.assertTrue(implementation["requires_separate_gate0_review"])
+                        self.assertEqual(implementation["prefix_updates_budget"], 100)
+                        self.assertEqual(implementation["arm_updates_budget"], 20)
+                        self.assertEqual(implementation["total_updates_budget"], 140)
+                        self.assertEqual(implementation["additional_render_forwards_budget"], 0)
+                        self.assertFalse(implementation["prefix_executed"])
+                        self.assertFalse(implementation["arms_executed"])
+                        self.assertFalse(implementation["long_term_root_cause_proven"])
+                        self.assertFalse(implementation["full_numerical_noninterference_proven"])
+                        self.assertEqual(implementation["old_gate1"], "not_reclassified")
+                        self.assertEqual(implementation["E007"], "calibration_blocked_not_reclassified")
                     else:
                         self.assertEqual(item["id"], "MCMC-B1-E006")
                         self.assertIn(item["migration_status"], {"new_experiment_implemented_remote_not_run", "new_experiment_remote_executed"})

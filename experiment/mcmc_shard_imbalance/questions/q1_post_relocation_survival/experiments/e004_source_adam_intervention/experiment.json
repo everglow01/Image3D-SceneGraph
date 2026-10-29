@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "MCMC-Q1-E004",
+  "title": "来源Adam状态短窗受控干预",
+  "owner": "Q1",
+  "related_questions": [
+    "Q1",
+    "Q2",
+    "Q3"
+  ],
+  "depends_on": [
+    "MCMC-Q1-E003"
+  ],
+  "informed_by": [
+    "MCMC-B1-E006",
+    "MCMC-B1-E007"
+  ],
+  "migration_status": "new_experiment_implemented_remote_not_run",
+  "design_document": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md",
+  "legacy_entrypoints": [],
+  "legacy_tests": [],
+  "legacy_analysis_scripts": [],
+  "run_records": [],
+  "shared_run_records": [],
+  "reviewed_reports": [],
+  "implementation": {
+    "entrypoint": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/run.py",
+    "helpers": [
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/probe.py",
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/analyze.py"
+    ],
+    "local_tests": [
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_intervention.py"
+    ],
+    "remote_tests": [
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_intervention_remote.py"
+    ],
+    "profile": "source_adam_intervention_v1",
+    "phase": "Q1_B_source_moment_intervention",
+    "remote_validation": "not_run",
+    "remote_test_opt_in": "IMAGE3D_AUTHORIZE_SOURCE_ADAM_TESTS",
+    "preflight_report_environment": "IMAGE3D_SOURCE_ADAM_PREFLIGHT_REPORT",
+    "requires_independent_preflight": true,
+    "requires_separate_gate0_review": true,
+    "prefix_updates_budget": 100,
+    "arm_updates_budget": 20,
+    "total_updates_budget": 140,
+    "additional_render_forwards_budget": 0,
+    "prefix_executed": false,
+    "arms_executed": false,
+    "long_term_root_cause_proven": false,
+    "full_numerical_noninterference_proven": false,
+    "old_gate1": "not_reclassified",
+    "E007": "calibration_blocked_not_reclassified"
+  }
+}
