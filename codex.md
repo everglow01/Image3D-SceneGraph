@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-29，Q1-E004 v2公共前缀产物可复用，原任务收尾仍为失败；因此选择零训练重新绑定而非重跑。结果与证据见[前缀与Gate 0只读结果](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/prefix-gate0-20261029-v2.md)。
+
 - 2026-10-29，用户要求“按建议修复，然后开始实验”。仅在Q1-E004增加moment_digest适配：空tensor按原tensor/dtype/shape编码求摘要，不执行零stride浮点→字节视图；非空仍委托冻结digest_state，来源moment的五处摘要调用统一接入。新增本机无Torch模拟回归及远端CPU/CUDA零stride/NumPy空张量检查，保留零来源rank、RNG守卫及T/U保护，不改共享helper或原生训练。原e98c828前置失败状态保留，修复尚未远端验证；后续新前置→100步公共前缀→Gate 0停止的执行范围已授权，但仍须新代码提交及用户手动Git同步，不现场覆盖远端源码，不启动真实A/B。
 
 - 2026-10-29，用户同步e98c828并明确授权“前置与公共前缀、Gate 0后停”。执行20261029-092127-67af/唯一监控20261029-092127-4541均exit1：合成前置1 failed/73.05秒，在A初始化的零来源rank1上，空来源moment进入冻结digest_state的Float→Byte视图触发stride(-1)=0错误；rank0共同拒绝。合成prefix完成4全局更新/8 forward-backward/48 Adam组step，不代表完整前置通过；合成A未进入首个新batch，B未启动。没有新preflight通过报告、prepare或正式协议/目录，真实公共前缀与真实两臂更新均0。只读下载32份文本717819字节并核SHA/64依赖，01:25:54 UTC两卡无计算进程、服务active。失败产物保留，未修执行代码、未重试、未提交；后续建议仅Q1-E004局部处理空张量摘要并保留零来源用例，不改冻结helper或删除守卫。见[前置失败](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/adam-intervention-20261029-v1-preflight.md)。
