@@ -21,7 +21,8 @@
   "legacy_tests": [],
   "legacy_analysis_scripts": [],
   "run_records": [
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/records/survival-20261027-v1.json"
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/records/survival-20261027-v1.json",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/records/render-recovery-20261028-v1.json"
   ],
   "shared_run_records": [],
   "implementation": {
@@ -62,16 +63,21 @@
         "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/tests/test_cold_render_remote.py"
       ],
       "profile": "minimal_survival_render_recovery_v1",
-      "remote_validation": "not_run",
+      "remote_validation": "cold_preflight_and_immediate_render_verified",
       "new_training_updates": 0,
       "remote_test_opt_in": "IMAGE3D_AUTHORIZE_COLD_RENDER_TESTS",
       "preflight_report_environment": "IMAGE3D_COLD_RENDER_PREFLIGHT_REPORT",
       "requires_fresh_process_preflight": true,
-      "original_suite_status": "failed_at_isolated_render_not_reclassified"
+      "original_suite_status": "failed_at_isolated_render_not_reclassified",
+      "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/records/render-recovery-20261028-v1.json",
+      "remote_validation_implementation_commit": "f5b248bba71137a012dd5a971fbd07c985414c15",
+      "preflight_status": "passed",
+      "suite_status": "render_only_complete"
     }
   },
   "reviewed_reports": [
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md",
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/source-reuse-readonly-20261028-v1.md"
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/source-reuse-readonly-20261028-v1.md",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md"
   ]
 }

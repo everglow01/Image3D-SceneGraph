@@ -159,7 +159,48 @@ class ResearchCatalogTests(unittest.TestCase):
                         self.assertEqual(implementation["remote_test_opt_in"], "IMAGE3D_AUTHORIZE_MINIMAL_SURVIVAL_TESTS")
                         self.assertEqual(implementation["remote_validation_implementation_commit"], "3d5a7df2822bd5dfda617ceb890c3d48f39bb004")
                         recovery = implementation["render_recovery"]
-                        self.assertEqual(recovery["remote_validation"], "not_run")
+                        self.assertEqual(recovery["remote_validation"], "cold_preflight_and_immediate_render_verified")
+                        self.assertEqual(recovery["suite_status"], "render_only_complete")
+                        self.assertEqual(recovery["preflight_status"], "passed")
+                        self.assertEqual(recovery["remote_validation_implementation_commit"], "f5b248bba71137a012dd5a971fbd07c985414c15")
+                        self.assertIn(recovery["remote_validation_record"], item["run_records"])
+                        recovered = self.records[repository_path(recovery["remote_validation_record"])]
+                        self.assertEqual(recovered["execution_status"], "render_only_complete")
+                        self.assertEqual(recovered["previous_attempt"], "survival-20261027-v1")
+                        self.assertEqual(recovered["source_commit"]["value"], recovery["remote_validation_implementation_commit"])
+                        for panel in recovered["panel_statuses"].values():
+                            self.assertTrue(panel["finished"])
+                            self.assertFalse(panel["running"])
+                            self.assertEqual(panel["exit_code"], 0)
+                        validated = recovered["validation"]
+                        self.assertTrue(validated["preflight_passed"])
+                        self.assertEqual(validated["preflight_camera_forwards"], 8)
+                        self.assertEqual(validated["render_camera_forwards"], 64)
+                        self.assertEqual(validated["render_rng_audits"], 256)
+                        self.assertEqual(validated["same_state_repeat_pairs"], 32)
+                        self.assertTrue(validated["all_repeat_rgb_alpha_bitwise_equal"])
+                        self.assertTrue(validated["all_measurement_rng_unchanged"])
+                        self.assertTrue(validated["original_training_sha_verified"])
+                        self.assertTrue(validated["original_suite_failed_status_preserved"])
+                        for key in ("new_training_updates", "loss_backwards", "optimizer_steps", "strategy_calls"):
+                            self.assertEqual(validated[key], 0)
+                        analysis = repository_path(recovered["analysis"]["path"])
+                        self.assertEqual(hashlib.sha256(analysis.read_bytes()).hexdigest(), recovered["analysis"]["sha256"])
+                        result = read(analysis)
+                        self.assertEqual(result["summary"], recovered["summary"])
+                        self.assertEqual(result["verification"]["original_terminal"]["status"], "failed")
+                        self.assertEqual(result["verification"]["original_terminal"]["exit_code"], 1)
+                        for workers in result["comparison"]["results"].values():
+                            for worker in workers.values():
+                                self.assertTrue(worker["interpretation_usable"])
+                                self.assertEqual(worker["initialization"]["changed_rng_components"], ["python"])
+                                for check in worker["repeat_checks"].values():
+                                    self.assertTrue(check["usable"])
+                                    self.assertTrue(all(row["status"] == "bitwise_equal" for row in check["pixels"].values()))
+                        for key in ("full_numerical_noninterference_proven", "long_term_causality_proven",
+                                    "excess_source_reuse_causality_proven", "training_restarted",
+                                    "unique_rich_call_dynamically_traced", "new_mechanism_intervention_started"):
+                            self.assertFalse(recovered["scientific_boundary"][key])
                         self.assertEqual(recovery["new_training_updates"], 0)
                         self.assertTrue(recovery["requires_fresh_process_preflight"])
                         self.assertEqual(recovery["original_suite_status"], "failed_at_isolated_render_not_reclassified")

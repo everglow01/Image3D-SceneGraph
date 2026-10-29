@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "run_id": "render-recovery-20261028-v1",
+  "experiment_id": "MCMC-Q1-E003",
+  "kind": "zero_training_render_recovery",
+  "catalogued_on": "2026-10-28",
+  "execution_status": "render_only_complete",
+  "acceptance_status": "cold_preflight_and_immediate_render_verified",
+  "previous_attempt": "survival-20261027-v1",
+  "source_commit": {
+    "value": "f5b248bba71137a012dd5a971fbd07c985414c15",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/incoming/render-recovery-20261028-v1/protocol.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "c8f6c69b1acf6bc60e72b35748497b60ddccaea17531d338cedcaaba025ac511",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/incoming/render-recovery-20261028-v1/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261028-105012-00ea",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261028-105101-c2c9",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/monitor-status.json",
+    "field": "id"
+  },
+  "panel_statuses": {
+    "execution": {
+      "id": "20261028-105012-00ea",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 2329
+    },
+    "monitor": {
+      "id": "20261028-105101-c2c9",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 3175
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-28T02:54:44.259024+00:00",
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/verification.json",
+      "sha256": "215b9b4f276ef4e5450422c5fc6dcc633fcf3d52f53397a3c443e7a2dc3b0908",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/execution-status.json",
+      "sha256": "abc2f0f2d830103144b27c0a7c7b7d8706850f1f54162b8494af7e1c8290bbf6",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/monitor-status.json",
+      "sha256": "5a7aba90e80d5d3f14e1e0e9993faaa53f8db073c91f6039a69b98b89e4cfad5",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/execution-log.log",
+      "sha256": "c830f29fd7c56de23a6b0ac768cd4ea8e7292012bad52c91daef5078443c9902",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/monitor-log.log",
+      "sha256": "a00e094823f655703f29296a96c4f4efc2e42be6a09987ee885ab890fd8bb847",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/postcheck.txt",
+      "sha256": "945e3df41994cb68ab5725ae7123f3065e5660f18a4b781e0e33628377dbdb18",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/command.sh",
+      "sha256": "17bdb8349bc2c61b86668cb5d0af46abacf18f69d0b32cef20152d3e5f5898a2",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/monitor.sh",
+      "sha256": "b07d6cfab998c5b439d179acf9566fed36212b8c04a8e8dddd84cb5b7ab50a42",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/incoming/render-recovery-20261028-v1/protocol.json",
+      "sha256": "c8f6c69b1acf6bc60e72b35748497b60ddccaea17531d338cedcaaba025ac511",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/incoming/render-recovery-20261028-v1/comparison.json",
+      "sha256": "d93f9a3ffc381ce651605ed67ff0d5a8c52fb14b6d0669f3177cbf5f6497cfdb",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/incoming/render-recovery-20261028-v1/execution.json",
+      "sha256": "aa2b8687b887d352e968e7fd469de1f7f0867227536183629a1bda0b687b613a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/runs/render-recovery-20261028-v1-local/incoming/render-recovery-20261028-v1-preflight/preflight.json",
+      "sha256": "b2e83563e7664f23cbdea7270f92ae255db870184cd226348f319110b4b5d23a",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.json",
+      "sha256": "75a0b2ed809a91c9ab9a9e5cc847ca48d1dc4b054f12b9d68d4eecc05e432154",
+      "availability": "local_verified"
+    }
+  ],
+  "validation": {
+    "preflight_passed": true,
+    "preflight_pytest_seconds": 14.21,
+    "preflight_camera_forwards": 8,
+    "preflight_sha256": "b2e83563e7664f23cbdea7270f92ae255db870184cd226348f319110b4b5d23a",
+    "render_complete": [
+      "T0",
+      "T1"
+    ],
+    "render_camera_forwards": 64,
+    "new_training_updates": 0,
+    "loss_backwards": 0,
+    "optimizer_steps": 0,
+    "strategy_calls": 0,
+    "render_rng_audits": 256,
+    "all_measurement_rng_unchanged": true,
+    "initialization_changed_components": [
+      "python"
+    ],
+    "initialization_warmup_forwards": 0,
+    "initialization_warmup_backwards": 0,
+    "same_state_repeat_pairs": 32,
+    "all_repeat_rgb_alpha_bitwise_equal": true,
+    "original_training_sha_verified": true,
+    "original_suite_failed_status_preserved": true,
+    "comparison_sha256": "d93f9a3ffc381ce651605ed67ff0d5a8c52fb14b6d0669f3177cbf5f6497cfdb",
+    "render_service_seconds": 85.547,
+    "output_bytes": 591569,
+    "downloaded_text_files": 340,
+    "downloaded_text_bytes": 682942
+  },
+  "scientific_boundary": {
+    "immediate_render_effect_available": true,
+    "original_suite_status": "failed_at_isolated_render_not_reclassified",
+    "old_gate1": "not_reclassified",
+    "E007": "calibration_blocked_not_reclassified",
+    "full_numerical_noninterference_proven": false,
+    "long_term_causality_proven": false,
+    "excess_source_reuse_causality_proven": false,
+    "unique_rich_call_dynamically_traced": false,
+    "training_restarted": false,
+    "new_mechanism_intervention_started": false
+  },
+  "analysis": {
+    "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.json",
+    "sha256": "75a0b2ed809a91c9ab9a9e5cc847ca48d1dc4b054f12b9d68d4eecc05e432154"
+  },
+  "summary": {
+    "T0": {
+      "aggregation": "equal_weight_per_selected_view_first_repetition",
+      "mean_loss_before": 0.06531661981716752,
+      "mean_loss_after": 0.06467686081305146,
+      "mean_loss_change": -0.0006397590041160583,
+      "relative_mean_loss_change": -0.009794735335460623,
+      "loss_decreased_ids": [
+        "1039",
+        "1064",
+        "2650",
+        "3525"
+      ],
+      "loss_increased_ids": [
+        "1467",
+        "2984",
+        "3633",
+        "886"
+      ],
+      "same_state_repeat_pairs": 16,
+      "all_repeat_rgb_alpha_bitwise_equal": true,
+      "mean_l1_change": -0.0005897360388189554,
+      "mean_ssim_change": 0.0008398443460464478,
+      "pixels": {
+        "rgb": {
+          "view_mean_absolute_error": 0.004877150987815886,
+          "view_mean_absolute_error_range": [
+            0.001227708771563482,
+            0.007778707320439966
+          ],
+          "maximum_absolute_error": 0.19501590728759766,
+          "view_mismatch_ratio_range": [
+            0.9700230575257922,
+            0.9940225672251644
+          ]
+        },
+        "alpha": {
+          "view_mean_absolute_error": 8.659656112018357e-05,
+          "view_mean_absolute_error_range": [
+            1.340667269248474e-05,
+            0.00027527844331429733
+          ],
+          "maximum_absolute_error": 0.022349119186401367,
+          "view_mismatch_ratio_range": [
+            0.005331698741672835,
+            0.17449620527543924
+          ]
+        }
+      },
+      "per_view_loss_change": {
+        "1039": -0.0029406845569610596,
+        "886": 0.0010469034314155579,
+        "1467": 0.0004891976714134216,
+        "3525": -0.0026456378400325775,
+        "3633": 0.0012251436710357666,
+        "2650": -0.0015456676483154297,
+        "2984": 0.0003345869481563568,
+        "1064": -0.001081913709640503
+      },
+      "execution": {
+        "returncode": 0,
+        "elapsed_seconds": 41.97983235633001,
+        "resource_failure": null,
+        "phase": "execution",
+        "host": null,
+        "resources": {
+          "per_rank_peak_reserved_bytes": [
+            3206545408,
+            2629828608
+          ]
+        }
+      }
+    },
+    "T1": {
+      "aggregation": "equal_weight_per_selected_view_first_repetition",
+      "mean_loss_before": 0.06551134632900357,
+      "mean_loss_after": 0.06495537050068378,
+      "mean_loss_change": -0.000555975828319788,
+      "relative_mean_loss_change": -0.008486710462759076,
+      "loss_decreased_ids": [
+        "1039",
+        "1064",
+        "2650",
+        "3525"
+      ],
+      "loss_increased_ids": [
+        "1467",
+        "2984",
+        "3633",
+        "886"
+      ],
+      "same_state_repeat_pairs": 16,
+      "all_repeat_rgb_alpha_bitwise_equal": true,
+      "mean_l1_change": -0.0005414958577603102,
+      "mean_ssim_change": 0.0006138905882835388,
+      "pixels": {
+        "rgb": {
+          "view_mean_absolute_error": 0.005046387714859285,
+          "view_mean_absolute_error_range": [
+            0.0011753185551787453,
+            0.006952990012895853
+          ],
+          "maximum_absolute_error": 0.21561288833618164,
+          "view_mismatch_ratio_range": [
+            0.9684000111305576,
+            0.9941217576883101
+          ]
+        },
+        "alpha": {
+          "view_mean_absolute_error": 7.911741506615413e-05,
+          "view_mean_absolute_error_range": [
+            1.3664400208979944e-05,
+            0.0002541517365248642
+          ],
+          "maximum_absolute_error": 0.01900959014892578,
+          "view_mismatch_ratio_range": [
+            0.0035535020355292376,
+            0.17001159578605418
+          ]
+        }
+      },
+      "per_view_loss_change": {
+        "1039": -0.0030735433101654053,
+        "886": 0.0016555562615394592,
+        "1467": 0.0004398822784423828,
+        "3525": -0.0024284496903419495,
+        "3633": 0.0010059922933578491,
+        "2650": -0.0023984573781490326,
+        "2984": 0.0006703510880470276,
+        "1064": -0.00031913816928863525
+      },
+      "execution": {
+        "returncode": 0,
+        "elapsed_seconds": 32.891498818062246,
+        "resource_failure": null,
+        "phase": "execution",
+        "host": null,
+        "resources": {
+          "per_rank_peak_reserved_bytes": [
+            2629828608,
+            2629828608
+          ]
+        }
+      }
+    }
+  }
+}
