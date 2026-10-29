@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-28，按用户补充约束执行Q1-A，只读原T0/T1，不增加训练/渲染。先固定20/100步主结果，核relocation后、noise前513,600条真实T→S配对的六参数30,302,400个元素全部位级一致，initial alpha/存活掩码也一致。排除初始未活、每家族内T平均再家族等权后，四组20步S−T首次死亡风险差+35.36—36.67个百分点，100步+35.14—36.86个百分点；k=1仍同方向。目标0…k死亡分布、混合结局、逐目标先后和双方右删失分开，“最早目标”只作有多重性偏差的补充。冻结ops源码仅证明来源非step状态清零、目标未在该函数清零；本次没有Adam/梯度实测，不能因相关性认定清零致死。原数据分析前后SHA未变、0远端写入；未进入Q1-D或新公共前缀，未提交/推送。见[家族配对报告](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.md)。
+
 - 2026-10-28，用户同步f5b248b后明确授权“先跑冷进程前置，通过后补渲染，不重训”。独立render-recovery-20261028-v1执行20261028-105012-00ea/唯一监控20261028-105101-c2c9均exit0：冷前置1 passed/14.21秒、8次合成forward，正式仅读原T0/T1快照完成64次forward，0训练/反向/optimizer/strategy。初始化仅Python RNG变化，256份正式分阶段审计均不变，32个同状态配对RGB/alpha全部位级一致。固定8相机T0/T1平均loss分别下降约0.979%/0.849%，两条均4降4升；即时图像变化成立，不证明长期质量或来源S死亡机制。旧训练绑定及原failed终态重验未变，新协议c8f6c69…独立登记；未重训、未恢复E007、未追加干预、未提交/推送。见[补渲染结果](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md)。
 
 - 2026-10-28，按用户“按方案修复、先别重跑训练”，仅修Q1独立渲染初始化：复用已有initialize_backend，在测量守卫前显式加载并核验csrc/backend，记录四类RNG初始化前后摘要，不恢复RNG或热身；load/render/loss/export分阶段记录并继续拒绝任何测量期RNG消耗。新增全新spawn进程、SH3、合成PNG加载的零训练前置（全局8 forward），避免先训练后渲染掩盖懒加载。新增独立render_recovery入口，绑定原3d5a7df Git对象、7390dac…协议和T0/T1完成SHA，仅读原快照、输出新目录，固定64 forward、0训练/反向/optimizer/strategy；30分钟/每卡18GiB/输出1GiB/主存无限额。原训练路径与observer未改，旧任务失败不追认；本轮仅本地代码及轻量检查，未提交/同步/远端验证或补渲染，见[修复说明](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md#10-隔离渲染初始化修复2026-10-28本地实现未远端验证)。

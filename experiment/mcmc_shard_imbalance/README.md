@@ -1,6 +1,6 @@
 # MCMC 分片恢复不对称
 
-**当前阶段：E006已完成，E007阶段A已完成且预定配对逐点阈值一致，阶段B结构前置通过、正式C组校准因loss波动超限而停止，U/O未运行；Q1最小生命周期两轨迹已取得，独立冷进程前置与零训练补渲染通过，原隔离渲染失败记录保留；唯一长期根因未证明。** 更新日期：2026-10-28。
+**当前阶段：E006已完成，E007阶段A已完成且预定配对逐点阈值一致，阶段B结构前置通过、正式C组校准因loss波动超限而停止，U/O未运行；Q1两轨迹、独立零训练补渲染及家族内配对只读分析完成；同参数起点的S/T命运不对称已确认，Adam因果与唯一长期根因未证明，原隔离渲染失败记录保留。** 更新日期：2026-10-28。
 
 ## 主问题
 
@@ -67,7 +67,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 **科学下一步：** [E006 单步连通传播](branches/b1_observation_reliability/experiments/e006_connected_propagation/README.md) 已完成10个独立单步对照和结果核验，同输入门禁通过；改变B1会传播为部分超容差的梯度、参数与更新量差异，各case透明度阈值聚合计数相同。详见[结果报告](branches/b1_observation_reliability/experiments/e006_connected_propagation/reports/connected-20261023-v1.md)。下一步按[E007设计](branches/b1_observation_reliability/experiments/e007_observer_admission/README.md)：先只读补齐E006逐点阈值比较，再做独立无中间观测A/A与非干预验收；通过后直接用同批观察数据分析Q1，不重复训练。三类E006带探针对照不能替代该验收。阶段A已远端完成，预定配对及CPU/CUDA口径共360份差异位图的XOR均为0，见[E007阶段A结果](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/masks-20261026-v1.md)。降低该单步数值触发候选优先级，不追加E006重复；阶段B入口及条件Q1分析已实现；用户同步539dc88后，[独立结构前置](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-preflight-20261027-v1.md)已通过。随后授权的[正式对照](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-20261027-v1.md)完成C0/C1/C2后因loss校准超限停止；12项比例指标未超校准上限，U/O与Q1分析未启动。按协议收口，不补跑、不放宽阈值。 随后仅分析既有三组日志：loss首差在12003，迁移前已分化，迁移后观测差距广泛增大；owner总体不对称方向仍一致，但不能据此证明迁移因果或目标复死，见[只读分析](branches/b1_observation_reliability/experiments/e007_observer_admission/reports/admission-log-analysis-20261027-v1.md)。
 
-**当前结果：** [MCMC-Q1-E003部分结果](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md)：新版结构前置通过，T0/T1共400步完成；T0隔离渲染触发RNG不变守卫，整套退出1，未做T1渲染。已有轨迹经只读CPU独立验真可作有边界的T/S/U描述：来源S承担约一半末态死亡，但复用次数分层后风险不一致单调，不能定性为过度复用根因。修复backend预加载覆盖缺口后，已按独立授权完成[零训练补渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md)：冷前置通过，64次正式forward、256份RNG审计通过，同状态RGB/alpha重复位级一致；固定8视角平均loss略降但各有4张上升。原失败状态不变，不据此证明长期改善或S死亡原因。
+**当前结果：** [MCMC-Q1-E003部分结果](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md)：新版结构前置通过，T0/T1共400步完成；T0隔离渲染触发RNG不变守卫，整套退出1，未做T1渲染。已有轨迹经只读CPU独立验真可作有边界的T/S/U描述：来源S承担约一半末态死亡，但复用次数分层后风险不一致单调，不能定性为过度复用根因。修复backend预加载覆盖缺口后，已按独立授权完成[零训练补渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md)：冷前置通过，64次正式forward、256份RNG审计通过，同状态RGB/alpha重复位级一致；固定8视角平均loss略降但各有4张上升。原失败状态不变，不据此证明长期改善或S死亡原因。随后[家族内配对分析](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.md)核验513,600条真实T→S边的六参数起点位级一致；家族等权20步S−T死亡风险差约+35.36—36.67个百分点、100步约+35.14—36.86个百分点。初始未活、目标混合结局及删失独立处理；Adam重置仅为优先候选，尚未干预。
 
 | 研究项 | 状态与约束 |
 |---|---|
@@ -85,7 +85,7 @@ E007原方案只有通过有限准入才解释其O组数据；该路径本轮已
 |---|---|---|
 | Q1 | [MCMC-Q1-E001 · 死亡起点与搬迁后恢复的时序审计](questions/q1_post_relocation_survival/experiments/e001_asymmetry_onset/README.md) | 两条 12k 轨迹中死亡先于首次 relocation；固定点数阶段搬迁即时缩小分片死亡数差，但后续训练又增加死亡。 |
 | Q1 | [MCMC-Q1-E002 · 12k 后逐点生命周期观测与门禁](questions/q1_post_relocation_survival/experiments/e002_lifecycle_trace/README.md) | 原库 control_a/control_b 各完成 200 步，但第一步参数/Adam 已不同；Gate1 失败，完整 observer 与 repair 分支未运行。 |
-| Q1 | [MCMC-Q1-E003 · 最小逐点生命周期与迁移即时渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md) | 结构前置与两轨迹完成；S组失活突出。独立零训练补渲染通过、固定视角即时变化可重复；原套件失败保留，长期机制未证明。 |
+| Q1 | [MCMC-Q1-E003 · 最小逐点生命周期与迁移即时渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/README.md) | 结构前置与两轨迹完成；独立补渲染通过。家族配对确认同参数起点的S/T死亡风险不对称；原套件失败保留，Adam与长期机制未证明。 |
 | Q2 | [MCMC-Q2-E001 · 原始 apartment 退化与分片状态核验](questions/q2_rank_accumulation/experiments/e001_initial_audit/README.md) | 原始 MCMC 30k 的 rank1 低透明度占比约 96.164%，rank0 约 17.4182%；参数有限、两 rank Adam step 一致。 |
 | Q3 | [MCMC-Q3-E001 · 初始候选机制与参考实现审查](questions/q3_causal_mechanism/experiments/e001_candidate_research/README.md) | 形成四个单因素候选；目标旧矩保留也是参考实现行为，不能直接定性为本项目独有 bug。 |
 | Q3 | [MCMC-Q3-E002 · 五臂真实场景稳定性对照](questions/q3_causal_mechanism/experiments/e002_stability_suite/README.md) | 五臂均实际执行，baseline/raw_loss 完成，floor、目标矩清零、位置日程三臂失败；raw_loss 改善颜色但未消除分片低透明度失衡。 |

@@ -369,6 +369,42 @@ class ResearchCatalogTests(unittest.TestCase):
         for key in items:
             visit(key, set())
 
+    def test_q1_family_pair_readonly(self):
+        item = next(e for e in self.experiments.values() if e["id"] == "MCMC-Q1-E003")
+        analysis = item["readonly_family_pair_analysis"]
+        self.assertEqual(analysis["status"], "equal_start_family_asymmetry_observed_not_causal")
+        self.assertEqual(analysis["primary_horizons"], [20, 100])
+        self.assertFalse(analysis["adam_causality_proven"])
+        data = repository_path(analysis["data"])
+        self.assertEqual(hashlib.sha256(data.read_bytes()).hexdigest(), analysis["data_sha256"])
+        result = read(data)["result"]
+        self.assertTrue(result["query_selfcheck_passed"])
+        self.assertTrue(result["all_four_parameter_equality_gates_passed"])
+        self.assertEqual(len(result["results"]), 4)
+        for key in ("new_GPU_calls", "new_training_updates", "new_render_forwards", "new_remote_files"):
+            self.assertEqual(result[key], 0)
+        self.assertFalse(result["adam_causality_proven"])
+        for gate in result["equality_gates"]:
+            self.assertEqual(gate["phase"], "after_relocation_before_noise")
+            self.assertEqual(set(gate["parameter_checks"]), {"means", "scales", "quats", "opacities", "sh0", "shN"})
+            self.assertTrue(all(x["bitwise_unequal_elements"] == x["unequal_pairs"] == 0 for x in gate["parameter_checks"].values()))
+            self.assertEqual(gate["initial_mask_pair_disagreements"], 0)
+        for row in result["results"]:
+            self.assertEqual(row["initial_not_alive"]["source_fraction"], row["initial_not_alive"]["target_family_equal_fraction"])
+            histogram = row["first_death_histogram"]
+            self.assertEqual(sum(x["source_count"] for x in histogram), row["source_families"])
+            self.assertEqual(sum(x["target_member_count"] for x in histogram), row["target_members"])
+            for h in (20, 100):
+                risk = row["horizons"][str(h)]
+                self.assertEqual(sum(x["source_count"] for x in histogram[1:h + 1]), risk["source_deaths"])
+                self.assertEqual(sum(x["target_member_count"] for x in histogram[1:h + 1]), risk["target_member_deaths"])
+                self.assertEqual(sum(risk["family_outcomes"].values()), risk["at_risk_families"])
+                self.assertAlmostEqual(risk["source_risk"] - risk["target_family_equal_risk"], risk["family_equal_risk_difference"])
+                self.assertGreater(risk["family_equal_risk_difference"], 0)
+            timing = row["individual_target_timing_family_equal"]["categories"]
+            self.assertAlmostEqual(sum(x["family_equal_fraction"] for x in timing.values()), 1)
+            self.assertAlmostEqual(timing["source_only_observed"]["family_equal_fraction"] - timing["target_only_observed"]["family_equal_fraction"], row["horizons"]["100"]["family_equal_risk_difference"])
+
     def test_single_owner_and_shared_runs(self):
         owners = {}
         run_ids = []

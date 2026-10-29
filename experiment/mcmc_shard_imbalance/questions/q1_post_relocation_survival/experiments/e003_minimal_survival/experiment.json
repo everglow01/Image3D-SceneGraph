@@ -78,6 +78,21 @@
   "reviewed_reports": [
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md",
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/source-reuse-readonly-20261028-v1.md",
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md"
-  ]
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.md"
+  ],
+  "readonly_family_pair_analysis": {
+    "status": "equal_start_family_asymmetry_observed_not_causal",
+    "report": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.md",
+    "data": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.json",
+    "data_sha256": "c10b13314ac01a70f7890876855cbbfc79a0e18596158d961fa9288d1f28d7e0",
+    "primary_horizons": [
+      20,
+      100
+    ],
+    "new_training_updates": 0,
+    "new_render_forwards": 0,
+    "new_remote_files": 0,
+    "adam_causality_proven": false
+  }
 }
