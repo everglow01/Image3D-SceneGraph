@@ -1,6 +1,6 @@
 # 来源Adam状态短窗干预
 
-2026-10-29 · **MCMC-Q1-E004 / Q1-B** · **远端合成前置失败；真实公共前缀、Gate 0及两臂未启动。**
+2026-10-29 · **MCMC-Q1-E004 / Q1-B** · **v2前置通过，真实100步与完整checkpoint已验真；资源收尾失败，Gate 0仅只读重建，真实A/B未启动。**
 
 ## 1. 问题与证据边界
 
@@ -80,7 +80,7 @@
 
 - `probe.py`复用typed snapshot、原生resume与optimizer hook模式、共同边界consensus和位图编码，不安装旧完整观察器，不修改生产trainer或gsplat。
 - `analyze.py`远端CPU按绑定快照重验Gate 0、首步Adam代数、家族风险及原生loss；本机fresh import不加载Torch/NumPy/gsplat。
-- `run.py`分别提供prefix与arms授权，绑定新提交、64份执行依赖、父checkpoint与独立前置。旧Q1或E007前置不能替代。
+- `run.py`分别提供prefix与arms授权，绑定新提交、67份执行依赖、父checkpoint与独立前置（历史v2执行绑定64份）。旧Q1或E007前置不能替代。
 - `tests/test_intervention_remote.py`仅指定主机且 `IMAGE3D_AUTHORIZE_SOURCE_ADAM_TESTS=1` 才收集；报告路径变量为 `IMAGE3D_SOURCE_ADAM_PREFLIGHT_REPORT`，报告和pytest basetemp必须为本实验新runs目录。
 - 前置验证原生checkpoint写入/恢复、两矩白名单、step与T/U保留、首步代数、映射/家族分布/删失、原调用预算、观察不变、RNG负例、零目标owner及双rank拒绝；测试代码存在不代表已经通过。
 
@@ -113,3 +113,54 @@
 本机用无Torch的空张量替身复现原字节视图报错路径，并检查原shape/dtype参与摘要、非空委托不变。远端前置新增CPU/CUDA的NumPy来源空张量及显式零stride张量检查，覆盖六组参数的空来源形状；在RNG不变守卫下执行，不增加模型forward/backward/Adam调用，原rank1零来源用例完整保留。
 
 旧e98c828前置失败报告不改为通过。修复后的前置尚未执行；新尝试仍需先提交并由用户手动Git同步，使用新的目录与once，前置通过后只跑100步公共前缀，在真实Gate 0后停止。用户已授权这个执行范围，但未授权真实A/B；不得直接修改远端源码或复用旧失败目录。
+
+
+## 10. v2公共前缀完成、收尾失败（2026-10-29）
+
+[完整报告](reports/prefix-gate0-20261029-v2.md)：a269eb1新版合成前置1 passed/65.48秒，随后真实公共前缀100步完成，保存原生12100 checkpoint。执行包装器在finally调用缺失的Monitor.record时失败；原case.exit、complete和顶层gate0未落盘，执行与监控仍exit1，不能补造历史成功。
+
+已只读验证两rank计数、全部快照SHA、100步六组学习率及checkpoint组件，并仅在CPU解码后核完整状态摘要与保存时一致。实际S数量owner0/1为80,384/142,316，T为87,900/168,827；opacity两矩在S清零前与T保留后均100%非零，S清零后均零，六组step均12100且不变，S/T六参数在noise前位级一致。来源一阶矩正负约53%/47%，尚不能宣称统一方向或有益效果。
+
+另发现原verify_worker错误读取顶层position_lr，以及Gate 0 JSON betas列表/元组精确比较问题。独立核查按冻结日程与实际嵌套诊断字段核lr，只做JSON表示归一化，不改数值或原数据。真实A/B未准备或启动，未重跑公共前缀。
+
+后续优先修编排/验真接口并设计零训练重新绑定，复用已验真checkpoint；不覆盖旧失败目录或补写原退出码。当前尚未实施这些修复/恢复，也未获真实A/B执行授权。
+
+
+## 11. 三接口修复与零训练重新绑定（2026-10-29，仅本地实现）
+
+本次不重跑100步，也不补写旧任务缺失的case.exit/complete/gate0。v1/v2失败记录及只读报告保持原样；本节描述新实现，不代表远端恢复已经执行。
+
+### 三项修复
+
+- Monitor补齐原共享runner要求的record接口。测试实际启动仅退出的标准库子进程，覆盖成功、非零退出和资源拒绝，确认exit/失败记录及资源摘要正常落盘；不再只mock run_stage。
+- 学习率按冻结Train相机几何计算scene_scale，逐步核原指数日程和六组lr；诊断行再核mcmc_health_by_rank中两owner的position_lr。普通行不假设存在顶层position_lr，但不跳过lr验证；缺owner、重复owner、错SH/lr及缺终点诊断均拒绝。
+- Gate 0使用排序键、禁止NaN的精确JSON表示比较，tuple/list仅按JSON数组表示归一化，不删字段、不舍入、不加容差。typed数组与来源状态的位级检查不变。
+
+### 独立恢复入口
+
+`prefix_recovery.py`只提供prepare/recover/monitor及`--authorize-recovery`，没有训练入口。新目录必须为本实验RUNS直属`adam-intervention-recovery-*`。
+
+来源固定为a269eb1的`adam-intervention-20261029-v2`及原协议SHA，12100 checkpoint hash固定为`ed3257af8a07625b8abeacfe6df4016d24c9db9e8a4cca95336fa11888f326f9`。旧64份代码按旧Git对象验真，允许的接口/分析文件之外，训练核心与probe必须仍匹配旧SHA；核心数值分析函数也核AST不变。旧GPU前置只作为旧提交的历史证据，不能冒充当前接口已通过GPU前置。
+
+新CPU前置记录提交与依赖SHA；是否失效按实际恢复代码、运行依赖及该CPU测试/runner fixture的变化判断，无关提交和其他实验测试变化不要求重跑。恢复协议仍核完整执行文件集合。前置覆盖真实runner收尾、小型原生checkpoint谱系复制/CPU摘要、实际100步日志与原生日程函数对齐及JSON表示。该前置不实例化模型或优化器，不调用训练、forward/backward、optimizer.step，不初始化CUDA或恢复活跃RNG。
+
+恢复时重新验真原100步worker、快照、两owner Gate 0、原失败终态与checkpoint组件，CPU解码两rank完整状态并与保存时摘要精确匹配。在新目录复制12000与12100两个完整checkpoint及原attempt描述，保留字节级谱系、核SHA并设只读；约4GiB同机复制，不下载权重，不复制数据集或整套相位快照。旧相位快照仅经绑定路径只读引用，未来A/B产物只能写新目录。
+
+恢复入口校验实现、前置和来源一次；复制后核源文件未变及目标完整性，不在收尾重复实现/前置校验。完成时写新的gate0.json与recovery-complete.json，明确`original_suite_status=failed`、`original_child_exit_code=null`、新训练/渲染/反向/optimizer/strategy均0。新恢复成功不追认旧任务成功，不创建假的prefix/complete.json或case.exit.json。
+
+### 后续A/B边界
+
+正常prefix仍须原native_complete证明；恢复来源须独立recovered_payload证明，不能混用。未来arms协议绑定证明类型、路径和SHA，并仍要求用户审阅新Gate 0 SHA和两臂独立授权。对恢复根，即使传prefix授权也直接拒绝重新训练。本次恢复任务不会准备或启动A/B。
+
+### CPU预算与后续操作
+
+独立unit为`image3d-source-adam-recovery-v1.service`，30分钟上限，主存三项无限额，输出8GiB、准入12GiB、保留4GiB。只持恢复自身锁/once，不占GPU租约；CPU与磁盘复制仍有资源成本。失败不自动重试或删除部分证据。唯一只读监控不停止服务。
+
+先提交并由用户手动Git同步，然后：
+
+1. 使用新目录运行CPU前置，unit为`image3d-source-adam-recovery-cpu-preflight-v1.service`、15分钟、主存无限额。设置`CUDA_VISIBLE_DEVICES=`、`IMAGE3D_AUTHORIZE_PREFIX_RECOVERY_CPU_TESTS=1`与`IMAGE3D_PREFIX_RECOVERY_CPU_PREFLIGHT_REPORT=<新报告>`；pytest basetemp必须在本实验RUNS内新目录。
+2. 模块`experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention.prefix_recovery`执行`--prepare --authorize-recovery --preflight-report <新CPU报告> --output-root <新恢复目录>`。
+3. 同模块在恢复unit内执行`--recover --authorize-recovery --protocol-sha256 <新恢复协议SHA> --output-root <同目录>`，强制隐藏CUDA，完成后停止供审阅。
+4. 唯一只读监控用`--monitor --protocol-sha256 <同SHA> --output-root <同目录>`。
+
+当前三接口修复、本机回归与恢复实现已完成，远端CPU前置和重新绑定均未执行，真实A/B仍未授权。

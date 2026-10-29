@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-29，Q1-E004修复三接口并采用独立零训练恢复，复用已完成公共前缀，不重训、不改写原失败；A/B仍须另授权。按新版§15，CPU前置按相关代码而非提交号失效，收尾不重复实现/前置校验，目录测试只核索引、不写死运行结论。实现与执行步骤见[E004 §11](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md#11-三接口修复与零训练重新绑定2026-10-29仅本地实现)。
+
 - 2026-10-29，Q1-E004 v2公共前缀产物可复用，原任务收尾仍为失败；因此选择零训练重新绑定而非重跑。结果与证据见[前缀与Gate 0只读结果](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/prefix-gate0-20261029-v2.md)。
 
 - 2026-10-29，用户要求“按建议修复，然后开始实验”。仅在Q1-E004增加moment_digest适配：空tensor按原tensor/dtype/shape编码求摘要，不执行零stride浮点→字节视图；非空仍委托冻结digest_state，来源moment的五处摘要调用统一接入。新增本机无Torch模拟回归及远端CPU/CUDA零stride/NumPy空张量检查，保留零来源rank、RNG守卫及T/U保护，不改共享helper或原生训练。原e98c828前置失败状态保留，修复尚未远端验证；后续新前置→100步公共前缀→Gate 0停止的执行范围已授权，但仍须新代码提交及用户手动Git同步，不现场覆盖远端源码，不启动真实A/B。

@@ -21,11 +21,13 @@
   "legacy_tests": [],
   "legacy_analysis_scripts": [],
   "run_records": [
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json"
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v2-prefix.json"
   ],
   "shared_run_records": [],
   "reviewed_reports": [
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/adam-intervention-20261029-v1-preflight.md"
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/adam-intervention-20261029-v1-preflight.md",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/prefix-gate0-20261029-v2.md"
   ],
   "implementation": {
     "entrypoint": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/run.py",
@@ -41,7 +43,7 @@
     ],
     "profile": "source_adam_intervention_v1",
     "phase": "Q1_B_source_moment_intervention",
-    "remote_validation": "preflight_failed_empty_source_digest",
+    "remote_validation": "prefix_payload_verified_gate0_reconstructed_wrapper_failed",
     "remote_test_opt_in": "IMAGE3D_AUTHORIZE_SOURCE_ADAM_TESTS",
     "preflight_report_environment": "IMAGE3D_SOURCE_ADAM_PREFLIGHT_REPORT",
     "requires_independent_preflight": true,
@@ -50,18 +52,18 @@
     "arm_updates_budget": 20,
     "total_updates_budget": 140,
     "additional_render_forwards_budget": 0,
-    "prefix_executed": false,
+    "prefix_executed": true,
     "arms_executed": false,
     "long_term_root_cause_proven": false,
     "full_numerical_noninterference_proven": false,
     "old_gate1": "not_reclassified",
     "E007": "calibration_blocked_not_reclassified",
-    "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json",
-    "remote_validation_implementation_commit": "e98c8285db797ebcb148eeb27ce8f8b667916fd7",
-    "preflight_status": "failed",
-    "failure_phase": "synthetic_A_arm_initialization",
+    "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v2-prefix.json",
+    "remote_validation_implementation_commit": "a269eb1df1153756f20ae531c60982f239053fb6",
+    "preflight_status": "passed",
+    "failure_phase": "runner_resource_finalization",
     "empty_source_digest_repair": {
-      "status": "implemented_remote_not_run",
+      "status": "remote_preflight_passed",
       "scope": "local_empty_tensor_moment_digest_only",
       "modified_execution_files": [
         "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/probe.py",
@@ -71,9 +73,37 @@
       "frozen_shared_helper_unchanged": true,
       "zero_source_rank_fixture_retained": true,
       "historical_failure_reclassified": false,
-      "remote_retry_executed": false,
+      "remote_retry_executed": true,
       "execution_scope_authorized": "new_preflight_then_prefix_stop_at_gate0",
-      "awaiting_manual_git_sync": true
+      "awaiting_manual_git_sync": false,
+      "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v2-prefix.json"
+    },
+    "previous_preflight_failure_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json",
+    "prefix_checkpoint_cpu_digest_verified": true,
+    "original_suite_reclassified_as_pass": false,
+    "gate0_status": "readonly_reconstructed_formal_completion_missing",
+    "postrun_interface_repair_status": "implemented_local_checks_remote_not_run",
+    "prefix_recovery": {
+      "entrypoint": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/prefix_recovery.py",
+      "local_tests": [
+        "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_prefix_recovery.py"
+      ],
+      "remote_tests": [
+        "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_prefix_recovery_remote.py"
+      ],
+      "profile": "source_adam_prefix_recovery_v1",
+      "remote_validation": "not_run",
+      "remote_test_opt_in": "IMAGE3D_AUTHORIZE_PREFIX_RECOVERY_CPU_TESTS",
+      "preflight_report_environment": "IMAGE3D_PREFIX_RECOVERY_CPU_PREFLIGHT_REPORT",
+      "source_implementation_commit": "a269eb1df1153756f20ae531c60982f239053fb6",
+      "source_protocol_sha256": "0332814e20f2dd4fcbbe0234e201a9fc22633ac52d169472b4a74fd0a64e793c",
+      "source_checkpoint_hash": "ed3257af8a07625b8abeacfe6df4016d24c9db9e8a4cca95336fa11888f326f9",
+      "new_training_updates": 0,
+      "new_render_forwards": 0,
+      "original_execution_reclassified": false,
+      "original_exit_record_fabricated": false,
+      "requires_new_gate0_review": true,
+      "arms_authorized": false
     }
   }
 }

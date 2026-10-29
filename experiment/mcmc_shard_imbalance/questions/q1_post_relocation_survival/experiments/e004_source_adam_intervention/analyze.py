@@ -11,6 +11,59 @@ MOMENTS = ('exp_avg', 'exp_avg_sq')
 HORIZONS = (1, 5, 10, 20)
 
 
+def learning_rates(config, scene_scale, iteration):
+    settings = config['learning_rate']
+    position = settings['position']
+    fraction = min(max(iteration / max(int(config['iterations']), 1), 0.), 1.)
+    value = math.exp(math.log(float(position['initial'])) * (1. - fraction) + math.log(float(position['final'])) * fraction)
+    delay = float(position['delay_multiplier']) + (1. - float(position['delay_multiplier'])) * math.sin(.5 * math.pi * fraction)
+    return {'means': scene_scale * (value * delay), 'scales': float(settings['scaling']),
+            'quats': float(settings['rotation']), 'opacities': float(settings['opacity']),
+            'sh0': float(settings['feature']), 'shN': float(settings['feature']) / 20.}
+
+
+def scene_scale(dataset):
+    import numpy as np
+    train = set(map(str, dataset['splits']['train']))
+    transform = np.asarray(dataset['normalization']['normalized_from_world'], dtype=np.float64)
+    centers = [transform[:3, :3] @ np.asarray(image['world_from_camera'], dtype=np.float64)[:3, 3] + transform[:3, 3]
+               for image in dataset['images'] if str(image['image_id']) in train]
+    if not centers:
+        raise ValueError('no Train camera centers')
+    values = np.stack(centers)
+    radius = float(np.linalg.norm(values - values.mean(axis=0), axis=1).max()) * 1.1
+    if not math.isfinite(radius) or radius <= 0:
+        raise ValueError('invalid frozen scene extent')
+    return radius
+
+
+def verify_schedule(rows, schedule, noise_schedule, rank, config, scale, train_ids):
+    if not rows or len(rows) != len(schedule) or len(rows) != len(noise_schedule):
+        raise ValueError('incomplete native schedule')
+    diagnostic_steps = []
+    for row, entry, noise in zip(rows, schedule, noise_schedule):
+        iteration = row['iteration']
+        expected_sh = min(int(config['sh_schedule']['max_degree']), int(config['sh_schedule']['initial_degree'])
+                          + iteration // int(config['sh_schedule']['increase_every_iterations']))
+        rates = learning_rates(config, scale, iteration)
+        if (entry['iteration'] != iteration or noise['iteration'] != iteration
+                or entry['image_id'] != str(row['batch_view_ids'][rank])
+                or entry['sh_degree'] != row['sh_degree'] or entry['sh_degree'] != expected_sh
+                or entry['learning_rates'] != rates or not set(map(str, row['batch_view_ids'])) <= train_ids):
+            raise ValueError('native schedule and frozen formula disagree')
+        if 'mcmc_health_by_rank' in row:
+            health = row['mcmc_health_by_rank']
+            if len(health) != 2 or {h['rank'] for h in health} != {0, 1}:
+                raise ValueError('diagnostic owners missing or duplicated')
+            for owner in health:
+                if owner.get('position_lr') != rates['means']:
+                    raise ValueError('diagnostic position learning rate differs')
+            diagnostic_steps.append(iteration)
+    if rows[-1]['iteration'] not in diagnostic_steps:
+        raise ValueError('terminal native diagnostic missing')
+    return {'checked_steps': len(rows), 'diagnostic_steps': diagnostic_steps}
+
+
 def optimizer_options(group):
     if (len(group.get('betas', ())) != 2 or any(not 0 <= b < 1 for b in group['betas'])
             or not math.isfinite(group['lr']) or group['lr'] <= 0
@@ -242,24 +295,25 @@ def trajectory(prefix, stage, rank, event, end, count):
                 for t in (event, *range(event + 1, end + 1), end + 1)} for i, name in enumerate(('T', 'S', 'U'))}}
 
 
-def compare(root, event=12100, end=12120, count=1500000):
+def compare(root, event=12100, end=12120, count=1500000, *, prefix=None):
     import numpy as np
+    prefix = root / 'prefix' if prefix is None else prefix
     arms, mechanism = {}, {}
     for case in ('A', 'B'):
         stage = root / case
-        arms[case] = {str(rank): {'survival': trajectory(root / 'prefix', stage, rank, event, end, count),
+        arms[case] = {str(rank): {'survival': trajectory(prefix, stage, rank, event, end, count),
                                   'first_step': first_step(stage, rank)} for rank in (0, 1)}
     for rank in (0, 1):
         workers = [read(root / case / f'worker-rank-{rank}.json') for case in ('A', 'B')]
         if workers[0]['schedule'] != workers[1]['schedule'] or workers[0]['restored_digest'] != workers[1]['restored_digest']:
             raise ValueError('arms did not share restored state and camera/LR schedule')
-        cohort = state(root / 'prefix' / f'cohort-rank-{rank}')
+        cohort = state(prefix / f'cohort-rank-{rank}')
         ids = np.unique(cohort['sources'])
         initial = state(root / 'A' / f'opacity-before-1-rank-{rank}')
         other = state(root / 'B' / f'opacity-before-1-rank-{rank}')
         if not exact(initial['logits'], other['logits']) or not exact(initial['step'], other['step']) or not exact(initial['options'], other['options']):
             raise ValueError('first opacity update did not start from shared parameters/step/options')
-        original = state(root / 'prefix' / f'pre-relocation-rank-{rank}')['adam']['opacities']['state']
+        original = state(prefix / f'pre-relocation-rank-{rank}')['adam']['opacities']['state']
         saved = [original[key][ids] for key in MOMENTS]
         x, g = initial['logits'][ids], initial['gradient'][ids]
         zero = np.zeros_like(x)

@@ -27,7 +27,8 @@ PREFIX_UNIT = 'image3d-source-adam-prefix-v1.service'
 ARMS_UNIT = 'image3d-source-adam-arms-v1.service'
 PREFLIGHT_UNIT = 'image3d-source-adam-preflight-v1.service'
 FILES = tuple(REL + '/' + n for n in ('run.py', 'probe.py', 'analyze.py', 'tests/test_intervention.py', 'tests/test_intervention_remote.py'))
-DEPENDENCIES = tuple(dict.fromkeys((*base.DEPENDENCIES, *FILES)))
+RECOVERY_FILES = tuple(REL + '/' + n for n in ('prefix_recovery.py', 'tests/test_prefix_recovery.py', 'tests/test_prefix_recovery_remote.py'))
+DEPENDENCIES = tuple(dict.fromkeys((*base.DEPENDENCIES, *FILES, *RECOVERY_FILES)))
 CONTRACT = {'profile': PROFILE, 'start': 12000, 'event': 12100, 'end': 12120, 'owner_size': 1500000,
     'nominal_iterations': 30000, 'parent_checkpoint_sha256': base.connected.PARENT_SHA, 'core': base.legacy.CORE,
     'arms': ['A', 'B'], 'intervention': 'restore_only_source_exp_avg_and_exp_avg_sq_all_six_groups',
@@ -81,11 +82,15 @@ def preflight_required(rank):
 
 
 def verify_preflight(path):
+    return preflight_evidence(path, execution_commit(), {n: sha256(PROJECT / n) for n in DEPENDENCIES}, base.expected_runtime())
+
+
+def preflight_evidence(path, commit, code_hashes, runtime):
     path = snapshots.safe_file(RUNS, Path(path).absolute().relative_to(RUNS))
     p = read(path)
-    if (p['status'] != 'passed' or p['profile'] != PROFILE or p['implementation_commit'] != execution_commit()
-            or p['code_sha256'] != {n: sha256(PROJECT / n) for n in DEPENDENCIES}
-            or p['runtime'] != base.expected_runtime() or p['counts'] != PREFLIGHT_COUNTS or set(p['workers']) != {'0', '1'}):
+    if (p['status'] != 'passed' or p['profile'] != PROFILE or p['implementation_commit'] != commit
+            or p['code_sha256'] != code_hashes
+            or p['runtime'] != runtime or p['counts'] != PREFLIGHT_COUNTS or set(p['workers']) != {'0', '1'}):
         raise ValueError('new intervention preflight required, old gates cannot substitute')
     for rank, row in p['workers'].items():
         file = snapshots.safe_file(RUNS, Path(row['path']).relative_to(RUNS))
@@ -148,9 +153,33 @@ def protocol_at(root, digest):
 
 
 def verify_inputs(p):
+    if 'prefix_recovery' in p:
+        from . import prefix_recovery
+        return prefix_recovery.verify_inputs(p)
     if (execution_commit() != p['implementation_commit'] or base.previous.source_identity() != p['source_identity']
             or verify_preflight(p['preflight']['path']) != p['preflight']):
         raise ValueError('intervention source or preflight changed')
+
+
+def canonical_report(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def prefix_stage(root, p):
+    if 'prefix_recovery' in p:
+        from . import prefix_recovery
+        prefix_recovery.contract(p)
+        return prefix_recovery.SOURCE / 'prefix'
+    return root / 'prefix'
+
+
+def prefix_proof(root, p):
+    if 'prefix_recovery' in p:
+        from . import prefix_recovery
+        prefix_recovery.verify_binding(root, p)
+        return {'kind': 'recovered_payload', 'path': 'recovery-complete.json', 'sha256': sha256(root / 'recovery-complete.json')}
+    verify_complete(root, 'prefix')
+    return {'kind': 'native_complete', 'path': 'prefix/complete.json', 'sha256': sha256(root / 'prefix/complete.json')}
 
 
 def checkpoint(root, p):
@@ -181,13 +210,8 @@ def verify_worker(root, case, rank, p):
     train_ids = set(map(str, dataset['splits']['train']))
     if not w['loaded_train_ids'] or not set(w['loaded_train_ids']) <= train_ids:
         raise ValueError('worker decoded non-Train image')
-    for index, (row, schedule, noise) in enumerate(zip(rows, w['schedule'], w['noise_schedule']), start + 1):
-        if (schedule['iteration'] != index or noise['iteration'] != index
-                or schedule['image_id'] != str(row['batch_view_ids'][rank]) or schedule['sh_degree'] != row['sh_degree']
-                or schedule['learning_rates']['means'] != row['position_lr']
-                or set(schedule['learning_rates']) != set(snapshots.PARAMETERS)
-                or not set(map(str, row['batch_view_ids'])) <= train_ids):
-            raise ValueError('native schedule and probe disagree')
+    analyze.verify_schedule(rows, w['schedule'], w['noise_schedule'], rank,
+                            p['source_identity']['config']['effective_config'], analyze.scene_scale(dataset), train_ids)
     initialization = read(stage / f'initialization-rank-{rank}.json')
     if (initialization['warmup_forward_calls'] or initialization['warmup_backward_calls']
             or initialization['rng_restored'] or not initialization['initialization_outside_measurement']):
@@ -198,7 +222,7 @@ def verify_worker(root, case, rank, p):
             raise ValueError('snapshot manifest binding changed')
         snapshots.load_snapshot(folder)
     if case != 'prefix':
-        native_digest = read(root / 'prefix' / f'prefix-state-rank-{rank}.json')['full_state_sha256']
+        native_digest = read(prefix_stage(root, p) / f'prefix-state-rank-{rank}.json')['full_state_sha256']
         intervention = read(stage / f'intervention-rank-{rank}.json')
         if (w['restored_digest'] != native_digest or not intervention['only_source_moments_changed']
                 or intervention['protected_before'] != intervention['protected_after']
@@ -208,7 +232,7 @@ def verify_worker(root, case, rank, p):
             for item in row.values():
                 if item['after'] != item['expected_retained' if case == 'B' else 'before']:
                     raise ValueError('wrong source moments')
-        analyze.trajectory(root / 'prefix', stage, rank, CONTRACT['event'], CONTRACT['end'], CONTRACT['owner_size'])
+        analyze.trajectory(prefix_stage(root, p), stage, rank, CONTRACT['event'], CONTRACT['end'], CONTRACT['owner_size'])
         analyze.first_step(stage, rank)
     return w
 
@@ -245,11 +269,11 @@ def verify_complete(root, case):
 
 
 def verified_gate0(root, p):
-    verify_complete(root, 'prefix')
+    prefix_proof(root, p)
     gate = read(root / 'gate0.json')
-    owners = {str(r): analyze.gate0(root / 'prefix', r) for r in (0, 1)}
+    owners = {str(r): analyze.gate0(prefix_stage(root, p), r) for r in (0, 1)}
     meta = checkpoint(root, p)
-    if (gate['status'] != 'structural_verified_review_required' or gate['owners'] != owners
+    if (gate['status'] != 'structural_verified_review_required' or canonical_report(gate['owners']) != canonical_report(owners)
             or gate['source_protocol_sha256'] != sha256(root / 'protocol.json')
             or gate['checkpoint_hash'] != meta['checkpoint_hash'] or gate['arms_started']
             or gate['moment_magnitude_automatically_admitted']
@@ -266,7 +290,7 @@ def prepare_arms(root, p, digest, reviewed):
     if not gate['effective_intervention_available']:
         raise ValueError('Gate 0 lacks an effective validated intervention')
     write_new(root / 'arms-protocol.json', {'profile': PROFILE, 'prefix_protocol_sha256': sha256(root / 'protocol.json'),
-        'gate0_sha256': digest, 'prefix_complete_sha256': sha256(root / 'prefix/complete.json'),
+        'gate0_sha256': digest, 'prefix_proof': prefix_proof(root, p),
         'checkpoint_hash': gate['checkpoint_hash'], 'review_acknowledged': True, 'arms': ['A', 'B'],
         'implementation_commit': p['implementation_commit'], 'code_sha256': p['code_sha256']})
 
@@ -278,7 +302,7 @@ def verify_arms(root, p, digest):
     if (a['profile'] != PROFILE or a['arms'] != ['A', 'B'] or not a['review_acknowledged']
             or a['prefix_protocol_sha256'] != sha256(root / 'protocol.json')
             or a['gate0_sha256'] != sha256(root / 'gate0.json')
-            or a['prefix_complete_sha256'] != sha256(root / 'prefix/complete.json')
+            or a['prefix_proof'] != prefix_proof(root, p)
             or a['implementation_commit'] != p['implementation_commit'] or a['code_sha256'] != p['code_sha256']):
         raise ValueError('arms review/source bindings changed')
     gate = verified_gate0(root, p)
@@ -296,6 +320,8 @@ def worker(local_rank, rank, world_size, args):
         raise ValueError('two local ranks required')
     p = protocol_at(args.output_root, args.protocol_sha256)
     verify_inputs(p)
+    if args.case == 'prefix' and 'prefix_recovery' in p:
+        raise ValueError('recovered prefix cannot be trained again')
     if args.case != 'prefix':
         verify_arms(args.output_root, p, args.arms_protocol_sha256)
         if args.case == 'B':
@@ -315,7 +341,7 @@ def worker(local_rank, rank, world_size, args):
     bundle = source['replay_record']
     initialization = load_frozen_initialization(replay / bundle['initialization_path'], replay / bundle['initialization_diagnostics_path'], expected_sha256=bundle['initialization_sha256'])
     probe = InterventionProbe(stage, rank, args.case, dataset['splits']['train'], lambda n: reserve(args.output_root, n),
-        prefix=args.output_root / 'prefix', training=args.output_root / 'training', provenance=provenance)
+        prefix=prefix_stage(args.output_root, p), training=args.output_root / 'training', provenance=provenance)
     failure = stage / f'failure-rank-{rank}'
     failure.mkdir(exist_ok=False)
     with memory_telemetry(stage / 'memory', rank, rank), failure_record(failure, PROFILE, args.case):
@@ -337,6 +363,9 @@ class Monitor:
     def __init__(self, root, stage, deadline):
         self.root, self.stage, self.deadline = root, stage, deadline
         self.peaks = [0, 0]
+
+    def record(self):
+        return {'per_rank_peak_reserved_bytes': list(self.peaks)}
 
     def __call__(self, elapsed, *, final=False):
         if time.monotonic() >= self.deadline:
@@ -361,6 +390,8 @@ class Monitor:
 def run_phase(args, p, phase):
     from image3d_scenegraph.gpu_lease import FileLease, require_idle_gpu
     root = args.output_root
+    if phase == 'prefix' and 'prefix_recovery' in p:
+        raise ValueError('recovered prefix cannot be trained again')
     base.legacy.unlimited_host_cgroup(PREFIX_UNIT if phase == 'prefix' else ARMS_UNIT)
     with (root / f'{phase}.once').open('x'):
         pass
@@ -412,7 +443,7 @@ def run_phase(args, p, phase):
                     'source_protocol_sha256': args.protocol_sha256, 'moment_magnitude_automatically_admitted': False}
                 report_name = 'gate0.json'
             else:
-                report, report_name = analyze.compare(root), 'comparison.json'
+                report, report_name = analyze.compare(root, prefix=prefix_stage(root, p)), 'comparison.json'
                 for rank in (0, 1):
                     if read(root / 'A' / f'worker-rank-{rank}.json')['noise_schedule'] != read(root / 'B' / f'worker-rank-{rank}.json')['noise_schedule']:
                         raise ValueError('arm native RNG/noise draw schedule differs')
