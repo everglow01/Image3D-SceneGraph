@@ -148,12 +148,12 @@ def protocol_at(root, digest):
     if not digest or sha256(snapshots.safe_file(root, 'protocol.json')) != digest:
         raise ValueError('explicit prefix protocol SHA required')
     p = read(root / 'protocol.json')
-    expected = CONTRACT
     if 'moment_split' in p:
         from . import moment_split
-        expected = moment_split.CONTRACT
         moment_split.contract(p)
-    if (any(p.get(k) != v for k, v in expected.items()) or set(p['code_sha256']) != set(DEPENDENCIES)
+    elif any(p.get(k) != v for k, v in CONTRACT.items()):
+        raise ValueError('intervention contract changed')
+    if (set(p['code_sha256']) != set(DEPENDENCIES)
             or any(sha256(snapshots.safe_file(PROJECT, n)) != h for n, h in p['code_sha256'].items())):
         raise ValueError('intervention contract or execution code changed')
     return p
@@ -449,7 +449,7 @@ def run_phase(args, p, phase):
             elif phase == 'arms':
                 verify_arms(root, p, args.arms_protocol_sha256)
             completed = {}
-            cases = ('prefix',) if phase == 'prefix' else SPLIT_CASES if phase == 'split' else ('A', 'B')
+            cases = ('prefix',) if phase == 'prefix' else tuple(p['arms']) if phase == 'split' else ('A', 'B')
             for case in cases:
                 require_idle_gpu()
                 subprocess.run(['nvidia-smi', '-L'], check=True)
@@ -531,6 +531,7 @@ def main():
         modes.add_argument('--' + name, action='store_true')
     for name in ('prepare', 'prefix', 'prepare-arms', 'arms', 'prepare-split', 'split'):
         parser.add_argument('--authorize-' + name, action='store_true')
+    parser.add_argument('--opacity-only', action='store_true', help='仅用于prepare-split：新协议固定只运行O')
     parser.add_argument('--acknowledge-gate0-review', action='store_true')
     parser.add_argument('--preflight-report', type=Path)
     parser.add_argument('--protocol-sha256')
@@ -542,6 +543,8 @@ def main():
     args = parser.parse_args()
     if socket.gethostname() != 'i-94B8D131' or str(PROJECT) != '/usr/local/3dgs_new/Image3D-SceneGraph':
         raise SystemExit('仅指定远端可以执行此独立实验')
+    if args.opacity_only and not args.prepare_split:
+        parser.error('--opacity-only只能与--prepare-split一起使用')
     if args.case is not None and not args.worker:
         parser.error('不允许跳过固定执行次序')
     phase = ('split' if args.split or args.case in SPLIT_CASES else
@@ -561,7 +564,7 @@ def main():
     root = args.output_root = output_root(args.output_root, args.prepare or args.prepare_split)
     if args.prepare_split:
         from . import moment_split
-        moment_split.prepare(root)
+        moment_split.prepare(root, opacity_only=args.opacity_only)
         return
     if args.prepare:
         if args.preflight_report is None:

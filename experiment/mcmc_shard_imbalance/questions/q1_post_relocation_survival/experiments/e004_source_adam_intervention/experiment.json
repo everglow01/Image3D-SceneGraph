@@ -127,6 +127,16 @@
       "cpu_test_executed": true,
       "real_arms_executed": true,
       "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-moment-split-20261030-v1.json"
+    },
+    "opacity_only": {
+      "profile": "source_adam_opacity_only_v1",
+      "status": "implemented_local_checks_remote_not_run",
+      "prepare_option": "--opacity-only",
+      "new_arms": [
+        "O"
+      ],
+      "new_global_updates_budget": 20,
+      "real_arms_executed": false
     }
   }
 }

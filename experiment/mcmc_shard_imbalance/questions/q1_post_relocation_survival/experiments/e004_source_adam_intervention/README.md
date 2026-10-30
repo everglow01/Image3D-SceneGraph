@@ -207,3 +207,22 @@ worker只保留协议身份、继承的GPU lease、原生加载和本rank实际�
 3. 唯一只读监控使用`--monitor --monitor-phase split --protocol-sha256 <同SHA> --output-root <同目录>`。
 
 旧prefix/arms模式不能接收split协议。本轮已执行CPU检查及V/M，因M首步失败停止，O未运行；执行状态与有效部分结果以顶部链接的本轮主记录为准。未重跑公共前缀或旧A/B。
+
+
+## 13. 单独O续跑
+
+**状态：本地实现，尚未执行。** 原三臂任务的V结果和M失败记录保持不变；O从同一12100公共checkpoint重新开始，不接续M失败状态，不重跑V/M、A/B或公共前缀。
+
+复用`run.py`的split执行/监控入口和原O干预逻辑。准备时加`--opacity-only`，生成固定`source_adam_opacity_only_v1`协议，`arms=['O']`；该选项不能用于执行或监控，也不提供任意选臂列表。新目录必须为`adam-intervention-opacity-only-*`，旧失败目录不可改写。
+
+**预算：** O执行12101—12120，共20全局更新、40相机forward、40 backward、240 Adam参数组step；额外渲染与新relocation为0。沿用§12的资源限制、独立目录、GPU lease、once和失败即停。原三臂协议仍固定V→M→O，不能用新选项跳过旧协议中的失败。
+
+完成Git提交、手动同步及运行授权后，使用同一模块入口：
+
+1. `--prepare-split --opacity-only --authorize-prepare-split --output-root <新O目录>`。
+2. 在原`image3d-source-adam-moment-split-v1.service`内执行`--split --authorize-split --protocol-sha256 <新O协议SHA> --output-root <同目录>`。
+3. 唯一只读监控使用`--monitor --monitor-phase split --protocol-sha256 <同SHA> --output-root <同目录>`。
+
+现有远端CPU检查已覆盖O的矩选择与真实Adam首步并通过，本次未改变`probe.py`或数值实现，不重跑该检查、旧GPU前置或历史训练。当前只验证新增的协议选择、准备/执行次序和汇总行为。
+
+O结果自动与已有A/B比较S/T/U和家族风险、首步两矩代数及配对loss；主要loss窗口仍为12102—12120。汇总只读取O和已有A/B，不依赖V/M文件。V继续引用上一轮主记录作结果对照，M保留失败状态，不伪造五臂完整结果；完整relocation周期仍未实现或启动。

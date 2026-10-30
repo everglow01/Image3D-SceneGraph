@@ -1,4 +1,4 @@
-"""Three fixed short-window interventions, reusing the completed A/B reference."""
+"""Fixed three-arm or opacity-only interventions, reusing the completed A/B reference."""
 from __future__ import annotations
 
 import math
@@ -17,10 +17,14 @@ CONTRACT = {**run.CONTRACT, 'profile': PROFILE, 'arms': list(SPLIT_CASES),
     'intervention': 'source_v_only_m_only_opacity_both', 'prefix_updates': 0,
     'total_updates': 60, 'camera_forwards': 120, 'loss_backwards': 120,
     'optimizer_group_steps': 720, 'global_relocations': 0, 'requires_separate_gate0_review': False}
+OPACITY_CONTRACT = {**CONTRACT, 'profile': 'source_adam_opacity_only_v1', 'arms': ['O'],
+    'intervention': 'source_opacity_both_only', 'total_updates': 20, 'camera_forwards': 40,
+    'loss_backwards': 40, 'optimizer_group_steps': 240}
 
 
 def contract(p):
-    if any(p.get(k) != v for k, v in CONTRACT.items()) or 'prefix_recovery' in p:
+    expected = OPACITY_CONTRACT if p.get('profile') == OPACITY_CONTRACT['profile'] else CONTRACT
+    if any(p.get(k) != v for k, v in expected.items()) or 'prefix_recovery' in p:
         raise ValueError('invalid moment split contract')
     s = p.get('moment_split', {})
     if (s.get('reference_root') != str(REFERENCE) or s.get('reference_protocol_sha256') != REFERENCE_PROTOCOL_SHA
@@ -108,9 +112,11 @@ def reference_inputs():
     return {'protocol': p, 'comparison': comparison, 'workers': workers, 'binding': binding}
 
 
-def prepare(root):
-    if not root.name.startswith('adam-intervention-moment-split-'):
-        raise ValueError('new adam-intervention-moment-split-* root required')
+def prepare(root, *, opacity_only=False):
+    expected = OPACITY_CONTRACT if opacity_only else CONTRACT
+    prefix = 'adam-intervention-opacity-only-' if opacity_only else 'adam-intervention-moment-split-'
+    if not root.name.startswith(prefix):
+        raise ValueError('new ' + prefix + '* root required')
     commit = run.execution_commit()
     reference = reference_inputs()
     copies = reference['binding']['checkpoint_files']
@@ -119,7 +125,7 @@ def prepare(root):
         raise ValueError('moment split disk admission')
     root.mkdir(exist_ok=False)
     prefix_recovery.copy_lineage(root, copies)
-    run.write_new(root / 'protocol.json', {**CONTRACT, 'implementation_commit': commit,
+    run.write_new(root / 'protocol.json', {**expected, 'implementation_commit': commit,
         'code_sha256': {n: run.sha256(run.PROJECT / n) for n in run.DEPENDENCIES},
         'source_identity': reference['protocol']['source_identity'], 'moment_split': reference['binding'],
         'status': 'moment_split_prepared_not_executed'})
@@ -147,16 +153,17 @@ def verify_schedule(workers, reference):
 
 def compare(root, completed, reference):
     """Reuse per-arm analysis and the frozen A/B report; no second trajectory pass."""
+    cases = tuple(completed)
     old = reference['comparison']
     arms = {**old['arms'], **{case: {rank: w['analysis'] for rank, w in workers.items()}
                               for case, workers in completed.items()}}
     losses = {**old['native_loss_before_each_update'],
-              **{case: run.read(root / case / 'native-tail-rank-0.json') for case in SPLIT_CASES}}
+              **{case: run.read(root / case / 'native-tail-rank-0.json') for case in cases}}
     effects, loss_changes = {}, {}
     fields = ('loss', 'reconstruction_loss', 'l1', 'ssim', 'opacity_regularization', 'scale_regularization')
     def difference(a, b):
         return a - b if a is not None and b is not None else None
-    for case in SPLIT_CASES:
+    for case in cases:
         effects[case] = {}
         for h in ('1', '5', '10', '20'):
             effects[case][h] = {}
@@ -186,11 +193,11 @@ def compare(root, completed, reference):
                 paired.append({'iteration': iteration, 'difference': {k: a[k] - b[k] for k in fields}})
             loss_changes[case][ref] = {'per_step': paired,
                 'mean_12102_through_12120': {k: sum(row['difference'][k] for row in paired[1:]) / 19 for k in fields}}
-    mechanism = first_step_mechanism(root)
+    mechanism = first_step_mechanism(root, cases)
     for rank, rows in mechanism.items():
         for case, row in rows.items():
             row['interpretation_usable'] = all(arms[c][rank]['first_step']['interpretation_usable'] for c in ('A', case))
-    return {'status': 'moment_split_short_window_measured', 'new_global_updates': 60,
+    return {'status': 'moment_split_short_window_measured', 'new_global_updates': len(cases) * CONTRACT['arm_updates'],
         'reference_root': str(REFERENCE), 'reference_comparison_sha256': REFERENCE_COMPARISON_SHA,
         'reference_implementation_commit': reference['protocol']['implementation_commit'],
         'arms': arms, 'effects': effects, 'mechanism': mechanism,
@@ -200,7 +207,7 @@ def compare(root, completed, reference):
         'statistical_significance_proven': False}
 
 
-def first_step_mechanism(root):
+def first_step_mechanism(root, cases):
     import numpy as np
     output = {}
     for rank in (0, 1):
@@ -213,7 +220,7 @@ def first_step_mechanism(root):
         step, options = float(baseline['step']), baseline['options']
         native = run.analyze.adam_prediction(x, g, zero, zero, step, options)['logits']
         output[str(rank)] = {}
-        for case in SPLIT_CASES:
+        for case in cases:
             current = run.analyze.state(root / case / f'opacity-before-1-rank-{rank}')
             if (not run.analyze.exact(current['logits'], baseline['logits'])
                     or not run.analyze.exact(current['step'], baseline['step'])

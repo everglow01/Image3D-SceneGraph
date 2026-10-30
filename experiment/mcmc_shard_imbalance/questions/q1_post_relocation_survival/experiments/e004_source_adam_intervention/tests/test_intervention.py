@@ -38,6 +38,7 @@ class InterventionTests(unittest.TestCase):
         self.assertIn('--authorize-arms', help_result.stdout)
         self.assertIn('--prepare-split', help_result.stdout)
         self.assertIn('--authorize-split', help_result.stdout)
+        self.assertIn('--opacity-only', help_result.stdout)
         self.assertNotIn('--authorize-execution', help_result.stdout)
 
     def test_empty_moment_digest_preserves_canonical_metadata(self):
@@ -267,7 +268,7 @@ class InterventionTests(unittest.TestCase):
             self.put(self.folder / 'memory/rank-1.json', {'peak_reserved_bytes': 19 * 1024**3, 'finished': True})
             self.assertEqual(monitor(0), 'gpu_reserved_limit')
 
-    def run_fixture(self, phase, fail_case=None):
+    def run_fixture(self, phase, fail_case=None, split_cases=probe.SPLIT_CASES):
         root = self.folder / 'adam-intervention-fixture'
         root.mkdir()
         self.put(root / 'protocol.json', {'scope': phase})
@@ -277,7 +278,7 @@ class InterventionTests(unittest.TestCase):
         args = SimpleNamespace(output_root=root, protocol_sha256=run.sha256(root / 'protocol.json'), arms_protocol_sha256='a' * 64)
         p = {'source_identity': {'native': {'parent_training': str(self.folder / 'parent')}}}
         if phase == 'split':
-            p['moment_split'] = {}
+            p.update(moment_split={}, arms=list(split_cases))
         order = []
         def stage(folder, label, command, **kwargs):
             case = command[command.index('--case') + 1]
@@ -414,6 +415,92 @@ class InterventionTests(unittest.TestCase):
         self.assertEqual(order, ['V', 'M'])
         self.assertFalse((root / 'O').exists())
 
+    def test_opacity_only_runs_once_without_V_M_or_reference_reruns(self):
+        root, args, p, order = self.run_fixture('split', split_cases=('O',))
+        with patch.object(moment_split, 'verify_checkpoint_copies') as copies, \
+                patch.object(moment_split, 'verify_schedule') as schedule, \
+                patch.object(moment_split, 'compare', return_value={'new_global_updates': 20}) as compare:
+            run.run_phase(args, p, 'split')
+            self.assertEqual(order, ['O'])
+            self.assertTrue((root / 'O').is_dir())
+            self.assertFalse(any((root / case).exists() for case in ('A', 'B', 'V', 'M')))
+            run.verify_inputs.assert_called_once_with(p)
+            copies.assert_called_once_with(root, p)
+            schedule.assert_called_once()
+            self.assertEqual(tuple(compare.call_args.args[1]), ('O',))
+            run.verify_arms.assert_not_called()
+            run.verify_complete.assert_not_called()
+            self.assertEqual(run.read(root / 'split-execution.json')['exit_code'], 0)
+            with self.assertRaises(FileExistsError):
+                run.run_phase(args, p, 'split')
+            self.assertEqual(order, ['O'])
+
+    def test_opacity_only_failure_stops_without_retry(self):
+        root, args, p, order = self.run_fixture('split', fail_case='O', split_cases=('O',))
+        with patch.object(moment_split, 'verify_checkpoint_copies'), patch.object(moment_split, 'compare') as compare:
+            with self.assertRaisesRegex(RuntimeError, 'injected'):
+                run.run_phase(args, p, 'split')
+            compare.assert_not_called()
+        self.assertEqual(order, ['O'])
+        self.assertFalse(any((root / case).exists() for case in ('V', 'M')))
+        self.assertEqual(run.read(root / 'split-execution.json')['exit_code'], 1)
+
+    def test_opacity_only_prepare_protocol_and_budget(self):
+        root = self.folder / 'adam-intervention-opacity-only-fixture'
+        dependency = self.put(self.folder / 'dependency.json', {'code': 'fixture'})
+        binding = {'reference_root': str(moment_split.REFERENCE),
+            'reference_protocol_sha256': moment_split.REFERENCE_PROTOCOL_SHA,
+            'reference_comparison_sha256': moment_split.REFERENCE_COMPARISON_SHA,
+            'checkpoint_hash': moment_split.prefix_recovery.CHECKPOINT_HASH, 'checkpoint_files': {}}
+        reference = {'protocol': {'source_identity': {'fixture': True}}, 'binding': binding}
+        with patch.object(run, 'PROJECT', self.folder), patch.object(run, 'DEPENDENCIES', (dependency.name,)), \
+                patch.object(run, 'execution_commit', return_value='committed'), \
+                patch.object(moment_split, 'reference_inputs', return_value=reference) as inputs, \
+                patch.object(moment_split.prefix_recovery, 'copy_lineage') as copies, \
+                patch.object(moment_split.shutil, 'disk_usage', return_value=SimpleNamespace(free=100 * 1024**3)):
+            moment_split.prepare(root, opacity_only=True)
+            inputs.assert_called_once()
+            copies.assert_called_once_with(root, {})
+            p = run.protocol_at(root, run.sha256(root / 'protocol.json'))
+            self.assertEqual(p['profile'], 'source_adam_opacity_only_v1')
+            self.assertEqual(p['arms'], ['O'])
+            self.assertEqual((p['total_updates'], p['camera_forwards'], p['loss_backwards'], p['optimizer_group_steps']),
+                             (20, 40, 40, 240))
+            self.assertEqual((p['prefix_updates'], p['extra_render_forwards'], p['global_relocations']), (0, 0, 0))
+            self.assertEqual(p['source_identity'], reference['protocol']['source_identity'])
+            with self.assertRaises(FileExistsError):
+                moment_split.prepare(root, opacity_only=True)
+            self.assertEqual(run.read(root / 'protocol.json'), p)
+            for key, value in (('profile', moment_split.PROFILE), ('arms', ['V', 'M', 'O']),
+                               ('arms', ['V']), ('total_updates', 60), ('camera_forwards', 120),
+                               ('loss_backwards', 120), ('optimizer_group_steps', 720)):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    moment_split.contract({**p, key: value})
+            inputs.reset_mock()
+            with self.assertRaises(ValueError):
+                moment_split.prepare(self.folder / 'adam-intervention-moment-split-old', opacity_only=True)
+            inputs.assert_not_called()
+
+    def test_opacity_only_cli_cannot_override_existing_execution(self):
+        with patch.object(run, 'PROJECT', Path('/usr/local/3dgs_new/Image3D-SceneGraph')), \
+                patch.object(run.socket, 'gethostname', return_value='i-94B8D131'), \
+                patch.object(run, 'output_root', return_value=self.folder), \
+                patch.object(moment_split, 'prepare') as prepare, patch.object(run, 'protocol_at') as protocol:
+            argv = ['run', '--prepare-split', '--authorize-prepare-split', '--opacity-only', '--output-root', str(self.folder)]
+            with patch.object(sys, 'argv', argv):
+                run.main()
+            prepare.assert_called_once_with(self.folder, opacity_only=True)
+            prepare.reset_mock()
+            for mode in ('--split', '--worker', '--monitor'):
+                with patch.object(sys, 'argv', ['run', mode, '--opacity-only', '--output-root', str(self.folder)]):
+                    with self.assertRaises(SystemExit):
+                        run.main()
+            with patch.object(sys, 'argv', [arg for arg in argv if arg != '--authorize-prepare-split']):
+                with self.assertRaises(SystemExit):
+                    run.main()
+            prepare.assert_not_called()
+            protocol.assert_not_called()
+
     def test_split_contract_requires_pinned_reference_and_new_root(self):
         binding = {'reference_root': str(moment_split.REFERENCE),
             'reference_protocol_sha256': moment_split.REFERENCE_PROTOCOL_SHA,
@@ -490,20 +577,28 @@ class InterventionTests(unittest.TestCase):
         rows = [{'iteration': i, 'batch_view_ids': ['a', 'b'], **dict.fromkeys(fields, 1.)} for i in range(12101, 12121)]
         reference = {'protocol': {'implementation_commit': 'old'}, 'comparison': {
             'arms': {'A': arm(.5), 'B': arm(.1)}, 'native_loss_before_each_update': {'A': rows, 'B': rows}}}
-        completed = {case: {rank: {'analysis': data} for rank, data in arm(.2).items()} for case in probe.SPLIT_CASES}
-        for case in probe.SPLIT_CASES:
-            new_rows = copy.deepcopy(rows)
-            new_rows[0]['loss'] = 100.
-            for row in new_rows[1:]:
-                row['loss'] = .8
-            self.put(self.folder / case / 'native-tail-rank-0.json', new_rows)
-        with patch.object(moment_split, 'first_step_mechanism', return_value={}):
-            result = moment_split.compare(self.folder, completed, reference)
-        self.assertEqual(set(result['arms']), {'A', 'B', 'V', 'M', 'O'})
-        self.assertIs(result['arms']['A'], reference['comparison']['arms']['A'])
-        self.assertAlmostEqual(result['paired_loss_changes']['V']['A']['mean_12102_through_12120']['loss'], -.2)
-        self.assertEqual(result['paired_loss_changes']['V']['A']['per_step'][0]['difference']['loss'], 99.)
-        self.assertFalse(result['reference_arms_reexecuted'])
+        for cases in (('O',), probe.SPLIT_CASES):
+            with self.subTest(cases=cases):
+                completed = {case: {rank: {'analysis': data} for rank, data in arm(.2).items()} for case in cases}
+                for case in cases:
+                    new_rows = copy.deepcopy(rows)
+                    new_rows[0]['loss'] = 100.
+                    for row in new_rows[1:]:
+                        row['loss'] = .8
+                    self.put(self.folder / case / 'native-tail-rank-0.json', new_rows)
+                with patch.object(moment_split, 'first_step_mechanism', return_value={}) as mechanism:
+                    result = moment_split.compare(self.folder, completed, reference)
+                mechanism.assert_called_once_with(self.folder, cases)
+                self.assertEqual(set(result['arms']), {'A', 'B', *cases})
+                self.assertEqual(set(result['effects']), set(cases))
+                self.assertEqual(result['new_global_updates'], len(cases) * 20)
+                self.assertIs(result['arms']['A'], reference['comparison']['arms']['A'])
+                self.assertIs(result['arms']['B'], reference['comparison']['arms']['B'])
+                self.assertAlmostEqual(result['paired_loss_changes']['O']['A']['mean_12102_through_12120']['loss'], -.2)
+                self.assertEqual(result['paired_loss_changes']['O']['A']['per_step'][0]['difference']['loss'], 99.)
+                self.assertFalse(result['reference_arms_reexecuted'])
+                if cases == ('O',):
+                    self.assertFalse(any((self.folder / case).exists() for case in ('V', 'M')))
 
     def test_host_and_authorization_checked_before_actions(self):
         with patch.object(sys, 'argv', ['run', '--prefix', '--output-root', str(self.folder)]), patch.object(run.socket, 'gethostname', return_value='not-authorized-host'):
