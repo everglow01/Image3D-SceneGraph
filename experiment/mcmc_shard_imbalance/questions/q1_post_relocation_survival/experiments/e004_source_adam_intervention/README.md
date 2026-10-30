@@ -2,7 +2,7 @@
 
 2026-10-29 · **MCMC-Q1-E004 / Q1-B** · **零训练恢复及A/B各20步已完成；来源Adam状态的短窗作用已测得，监控面板终态缺失。**
 
-本轮结果与证据见[单份主记录](records/adam-intervention-recovery-20261029-v1.json)。下文保留设计与历史阶段记录。
+A/B结果与证据见[主记录](records/adam-intervention-recovery-20261029-v1.json)。2026-10-30两矩拆分：CPU检查通过，V完成20步，M首步数值失稳，O按失败即停未启动；部分结果及失败证据见[本轮主记录](records/adam-intervention-moment-split-20261030-v1.json)。下文保留设计与历史阶段记录。
 
 ## 1. 问题与证据边界
 
@@ -176,7 +176,7 @@ worker只保留协议身份、继承的GPU lease、原生加载和本rank实际�
 本节实现现已通过远端CPU前置和零训练恢复；用户随后明确授权的A/B各20步也已完成，见顶部主记录。此恢复入口自身仍不启动A/B。
 
 
-## 12. 两矩拆分短窗（2026-10-30，本地实现，未执行）
+## 12. 两矩拆分短窗（2026-10-30）
 
 目标是判断首步两矩作用能否转化为持续20步存活，不修改生产默认，也不延长至100步或30k。
 
@@ -206,4 +206,4 @@ worker只保留协议身份、继承的GPU lease、原生加载和本rank实际�
 2. 在`image3d-source-adam-moment-split-v1.service`内执行`--split --authorize-split --protocol-sha256 <新协议SHA> --output-root <同目录>`，并沿用主存无限额、30分钟上限的unit设置。
 3. 唯一只读监控使用`--monitor --monitor-phase split --protocol-sha256 <同SHA> --output-root <同目录>`。
 
-旧prefix/arms模式不能接收split协议。当前仅实现上述能力，CPU数值测试与真实三臂均未执行；不为这次实现重新运行有效的历史实验。
+旧prefix/arms模式不能接收split协议。本轮已执行CPU检查及V/M，因M首步失败停止，O未运行；执行状态与有效部分结果以顶部链接的本轮主记录为准。未重跑公共前缀或旧A/B。

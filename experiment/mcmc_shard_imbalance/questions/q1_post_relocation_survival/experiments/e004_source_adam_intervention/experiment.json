@@ -23,7 +23,8 @@
   "run_records": [
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json",
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v2-prefix.json",
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json"
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-moment-split-20261030-v1.json"
   ],
   "shared_run_records": [],
   "reviewed_reports": [
@@ -109,7 +110,7 @@
     },
     "moment_split": {
       "profile": "source_adam_moment_split_v1",
-      "status": "implemented_local_checks_remote_not_run",
+      "status": "V_completed_M_failed_O_not_started",
       "entrypoint": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/run.py",
       "helper": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/moment_split.py",
       "new_arms": [
@@ -123,8 +124,9 @@
       "additional_render_forwards_budget": 0,
       "cpu_test": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_moment_split_remote.py",
       "cpu_test_opt_in": "IMAGE3D_AUTHORIZE_MOMENT_SPLIT_CPU_TESTS",
-      "cpu_test_executed": false,
-      "real_arms_executed": false
+      "cpu_test_executed": true,
+      "real_arms_executed": true,
+      "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-moment-split-20261030-v1.json"
     }
   }
 }

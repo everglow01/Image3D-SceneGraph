@@ -1,0 +1,1390 @@
+{
+  "schema_version": 1,
+  "run_id": "adam-intervention-moment-split-20261030-v1",
+  "experiment_id": "MCMC-Q1-E004",
+  "kind": "source_adam_moment_split_short_window",
+  "catalogued_on": "2026-10-30",
+  "execution_status": "failed",
+  "acceptance_status": "V_measured_M_failed_at_first_iteration_O_not_started",
+  "source_commit": "2f29dd4fe05b77499c174752990b7482cbf844fc",
+  "protocol_sha256": "368dc52dc47f730bf292326248a67cbbc960dfa6b47e3a6e2a30934c7af51aca",
+  "reference_run": "adam-intervention-recovery-20261029-v1",
+  "reference_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json",
+  "reference_comparison_sha256": "ec51dc044fc5a5fc7226e3346a5d736692dec65041d001d9fbd75aaeacde55ac",
+  "execution_task": "20261030-105733-9f5c",
+  "monitor_task": "20261030-105733-f46c",
+  "panel_statuses": {
+    "execution": {
+      "id": "20261030-105733-9f5c",
+      "running": false,
+      "finished": false,
+      "exit_code": null,
+      "log_size": 3119
+    },
+    "monitor": {
+      "id": "20261030-105733-f46c",
+      "running": false,
+      "finished": false,
+      "exit_code": null,
+      "log_size": 4545
+    }
+  },
+  "terminal": {
+    "status": "failed",
+    "exit_code": 1,
+    "phase": "split",
+    "protocol_sha256": "368dc52dc47f730bf292326248a67cbbc960dfa6b47e3a6e2a30934c7af51aca",
+    "error": "RuntimeError: case failed: 1; retained /usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1/M",
+    "ended_unix": 1793329230.287614
+  },
+  "suite_exit_code": 1,
+  "terminal_interpretation": "执行与监控均缺面板结束标志；独立split-execution、suite.exit-code及M原生错误明确记录失败，不补造面板退出码。",
+  "remote_evidence": {
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1",
+    "postrun_observed_at_utc": "2026-10-30T03:01:06Z",
+    "gpu_compute_processes": [],
+    "gpu_used_mib": [
+      3,
+      3
+    ],
+    "image3d_cloud": "active"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/partial-analysis.py",
+      "sha256": "2d3c07328a58d04e1e1f0cdfdd868f8b26393ce899299010b086aafc3a64d768"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/partial-analysis.json",
+      "sha256": "9677067d31064e524893edaeb8202135c201d171e69e72e374e203a39e73da96"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/execution-status.json",
+      "sha256": "9eb287eb0403feea6d893da4b11c6ed5da428998eadcc0fa81d71fb19732e876"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/monitor-status.json",
+      "sha256": "da895145e350649ae290030b80f8776bdd520451c376fd2a15e9f87edf00839e"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/execution-log.log",
+      "sha256": "3112877e230b9f4fd9c555c08dbb4fcd88ddf1c7c6c8ab1a9c36fbc445f81011"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/monitor-log.log",
+      "sha256": "0bfafb7746c837b06089da79cc7f5f6817dedf2a3b5a0ae4b196958fdb220039"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/incoming/protocol.json",
+      "sha256": "368dc52dc47f730bf292326248a67cbbc960dfa6b47e3a6e2a30934c7af51aca"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/incoming/split-execution.json",
+      "sha256": "45a6d7ad9034dccf64e26972fd92c74420f71bfdd7af5d1e145ec04d7cdbe95f"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/incoming/V/complete.json",
+      "sha256": "fc13f5b021306702c4a7bb51139d9f242195e6ca1403ce5c4f87311580e4a25b"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/incoming/M/case.log",
+      "sha256": "ba5cd4ba3d0154af278acf5a864c51fea75857be3e20c42252a0ca7fa900b9d9"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/incoming/control/cpu-preflight.log",
+      "sha256": "bd6cf8e71124e7bae67cc182f0b355c80d92a6a771e4a829bfdd8271a7b2d55a"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-moment-split-20261030-v1-local/incoming/control/suite.exit-code",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    }
+  ],
+  "downloaded_text_files": 31,
+  "downloaded_text_bytes": 768173,
+  "cpu_check": {
+    "status": "passed",
+    "test_count": 1,
+    "pytest_seconds": 6.4,
+    "service_seconds": 8.353,
+    "synthetic_optimizer_group_steps": 60,
+    "forward": 0,
+    "backward": 0,
+    "real_training": 0,
+    "cases": [
+      "A",
+      "B",
+      "V",
+      "M",
+      "O"
+    ],
+    "empty_and_nonempty_source": true
+  },
+  "budget_actual": {
+    "planned_new_global_updates": 60,
+    "V": {
+      "completed_global_updates": 20,
+      "camera_forwards": 40,
+      "loss_backwards": 40,
+      "optimizer_group_steps": 240
+    },
+    "M": {
+      "completed_validated_iterations": 0,
+      "failed_iteration": 12101,
+      "reached_global_optimizer_updates": 1,
+      "camera_forwards": 2,
+      "loss_backwards": 2,
+      "optimizer_group_steps": 12,
+      "count_evidence": "两rank首步六组更新摘要和原生12101 parameter_validation失败；没有完整worker终态计数，按原生调用顺序确定。"
+    },
+    "O": {
+      "started": false,
+      "global_updates": 0
+    },
+    "total_camera_forwards": 42,
+    "total_loss_backwards": 42,
+    "total_optimizer_group_steps": 252,
+    "new_prefix_updates": 0,
+    "reference_A_B_reexecuted": false,
+    "extra_render_forwards": 0
+  },
+  "timing": {
+    "prepare_service_seconds": 23.907,
+    "split_service_seconds": 144.613,
+    "V_subprocess_seconds": 72.68467609863728,
+    "M_subprocess_seconds": 48.968074234668165,
+    "started_utc": "2026-10-30T02:57:33Z",
+    "split_ended_utc": "2026-10-30T03:00:30.287614+00:00"
+  },
+  "partial_analysis": {
+    "kind": "posthoc_readonly_not_new_training",
+    "seconds": 9.219425198156387,
+    "torch_imported": false,
+    "reference_schedule_and_restored_digest_matched": true,
+    "V": {
+      "0": {
+        "horizons": {
+          "1": {
+            "groups": {
+              "T": {
+                "count": 87900,
+                "initial_not_alive": 1866,
+                "at_risk": 86034,
+                "first_deaths": 66,
+                "risk": 0.000767138573122254,
+                "currently_dead": 1723,
+                "family_equal_risk": 0.0008190529541075717,
+                "at_risk_families": 78546
+              },
+              "S": {
+                "count": 80384,
+                "initial_not_alive": 1838,
+                "at_risk": 78546,
+                "first_deaths": 0,
+                "risk": 0.0,
+                "currently_dead": 1675
+              },
+              "U": {
+                "count": 1331716,
+                "initial_not_alive": 0,
+                "at_risk": 1331716,
+                "first_deaths": 420,
+                "risk": 0.0003153825590441205,
+                "currently_dead": 420
+              }
+            },
+            "target_family_outcomes": {
+              "none": 78480,
+              "all": 63,
+              "mixed": 3
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 0,
+              "source_died/all": 0,
+              "source_died/mixed": 0,
+              "source_no_death/none": 78480,
+              "source_no_death/all": 63,
+              "source_no_death/mixed": 3
+            }
+          },
+          "5": {
+            "groups": {
+              "T": {
+                "count": 87900,
+                "initial_not_alive": 1866,
+                "at_risk": 86034,
+                "first_deaths": 671,
+                "risk": 0.007799242160076249,
+                "currently_dead": 2181,
+                "family_equal_risk": 0.008311477775231498,
+                "at_risk_families": 78546
+              },
+              "S": {
+                "count": 80384,
+                "initial_not_alive": 1838,
+                "at_risk": 78546,
+                "first_deaths": 3,
+                "risk": 3.819417920708884e-05,
+                "currently_dead": 1460
+              },
+              "U": {
+                "count": 1331716,
+                "initial_not_alive": 0,
+                "at_risk": 1331716,
+                "first_deaths": 1968,
+                "risk": 0.0014777925623781648,
+                "currently_dead": 1935
+              }
+            },
+            "target_family_outcomes": {
+              "none": 77877,
+              "all": 637,
+              "mixed": 32
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 0,
+              "source_died/all": 3,
+              "source_died/mixed": 0,
+              "source_no_death/none": 77877,
+              "source_no_death/all": 634,
+              "source_no_death/mixed": 32
+            }
+          },
+          "10": {
+            "groups": {
+              "T": {
+                "count": 87900,
+                "initial_not_alive": 1866,
+                "at_risk": 86034,
+                "first_deaths": 3128,
+                "risk": 0.03635771904130925,
+                "currently_dead": 4544,
+                "family_equal_risk": 0.03841591763637444,
+                "at_risk_families": 78546
+              },
+              "S": {
+                "count": 80384,
+                "initial_not_alive": 1838,
+                "at_risk": 78546,
+                "first_deaths": 11,
+                "risk": 0.00014004532375932574,
+                "currently_dead": 1345
+              },
+              "U": {
+                "count": 1331716,
+                "initial_not_alive": 0,
+                "at_risk": 1331716,
+                "first_deaths": 3870,
+                "risk": 0.0029060250083351104,
+                "currently_dead": 3735
+              }
+            },
+            "target_family_outcomes": {
+              "none": 75438,
+              "all": 2930,
+              "mixed": 178
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 0,
+              "source_died/all": 11,
+              "source_died/mixed": 0,
+              "source_no_death/none": 75438,
+              "source_no_death/all": 2919,
+              "source_no_death/mixed": 178
+            }
+          },
+          "20": {
+            "groups": {
+              "T": {
+                "count": 87900,
+                "initial_not_alive": 1866,
+                "at_risk": 86034,
+                "first_deaths": 10016,
+                "risk": 0.11641909012715904,
+                "currently_dead": 11322,
+                "family_equal_risk": 0.119260051434828,
+                "at_risk_families": 78546
+              },
+              "S": {
+                "count": 80384,
+                "initial_not_alive": 1838,
+                "at_risk": 78546,
+                "first_deaths": 43,
+                "risk": 0.0005474499019682734,
+                "currently_dead": 1252
+              },
+              "U": {
+                "count": 1331716,
+                "initial_not_alive": 0,
+                "at_risk": 1331716,
+                "first_deaths": 7521,
+                "risk": 0.005647600539454358,
+                "currently_dead": 7100
+              }
+            },
+            "target_family_outcomes": {
+              "none": 68732,
+              "all": 8940,
+              "mixed": 874
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 7,
+              "source_died/all": 36,
+              "source_died/mixed": 0,
+              "source_no_death/none": 68725,
+              "source_no_death/all": 8904,
+              "source_no_death/mixed": 874
+            }
+          }
+        },
+        "risk_difference_percentage_points": {
+          "A": {
+            "S": -46.79296208591144,
+            "T": 0.5486203128995517,
+            "U": -0.005706922496988894
+          },
+          "B": {
+            "S": -0.12476765207649022,
+            "T": 0.04765557802729192,
+            "U": -0.00030036434194684325
+          }
+        },
+        "first_step_algebra": {
+          "logits": {
+            "elements": 1500000,
+            "num_strict_unequal": 5671,
+            "num_bitwise_unequal": 5671,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              16
+            ],
+            "max_abs_error": 4.76837158203125e-07,
+            "max_rel_error": 1.645817944242092e-05,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.0037806666666666666,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 6.131552315006653e-10,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg": {
+            "elements": 1500000,
+            "num_strict_unequal": 148220,
+            "num_bitwise_unequal": 148220,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              51
+            ],
+            "max_abs_error": 7.275957614183426e-12,
+            "max_rel_error": 0.005771528331759439,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.09881333333333334,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 4.704959847485118e-17,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg_sq": {
+            "elements": 1500000,
+            "num_strict_unequal": 370675,
+            "num_bitwise_unequal": 370675,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              0
+            ],
+            "max_abs_error": 3.552713678800501e-15,
+            "max_rel_error": 1.820058463917978e-07,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.24711666666666668,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 1.5198207603749364e-20,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "actual_update": {
+            "elements": 1500000,
+            "num_strict_unequal": 5540,
+            "num_bitwise_unequal": 5540,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              16
+            ],
+            "max_abs_error": 4.76837158203125e-07,
+            "max_rel_error": 0.002881844380403458,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.003693333333333333,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 6.132184935268015e-10,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          }
+        },
+        "first_step_interpretation_usable": true,
+        "S_first_opacity_update": {
+          "count": 80384,
+          "nonzero": 80176,
+          "positive": 6107,
+          "negative": 74069,
+          "quantiles": [
+            -0.15792012214660645,
+            -0.00030132532119750974,
+            -4.696846008300781e-05,
+            -1.9073486328125e-06,
+            0.15798580646514893
+          ],
+          "absolute_quantiles": [
+            5.888938903808594e-05,
+            0.0007441997528076158,
+            0.15798580646514893
+          ],
+          "mean": -0.0001948841086219606
+        },
+        "calls": {
+          "restore": 1,
+          "batch": 20,
+          "render": 20,
+          "backward": 20,
+          "raster_forward": 20,
+          "raster_backward": 20,
+          "optimizer": 120,
+          "strategy": 20,
+          "relocate": 0,
+          "sample": 0,
+          "add": 0,
+          "noise": 20,
+          "terminal": 1,
+          "checkpoint": 0
+        }
+      },
+      "1": {
+        "horizons": {
+          "1": {
+            "groups": {
+              "T": {
+                "count": 168827,
+                "initial_not_alive": 6387,
+                "at_risk": 162440,
+                "first_deaths": 207,
+                "risk": 0.0012743166707707462,
+                "currently_dead": 5967,
+                "family_equal_risk": 0.0014619668229036572,
+                "at_risk_families": 136118
+              },
+              "S": {
+                "count": 142316,
+                "initial_not_alive": 6198,
+                "at_risk": 136118,
+                "first_deaths": 0,
+                "risk": 0.0,
+                "currently_dead": 5664
+              },
+              "U": {
+                "count": 1188857,
+                "initial_not_alive": 0,
+                "at_risk": 1188857,
+                "first_deaths": 593,
+                "risk": 0.0004987984257147831,
+                "currently_dead": 593
+              }
+            },
+            "target_family_outcomes": {
+              "none": 135913,
+              "all": 193,
+              "mixed": 12
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 0,
+              "source_died/all": 0,
+              "source_died/mixed": 0,
+              "source_no_death/none": 135913,
+              "source_no_death/all": 193,
+              "source_no_death/mixed": 12
+            }
+          },
+          "5": {
+            "groups": {
+              "T": {
+                "count": 168827,
+                "initial_not_alive": 6387,
+                "at_risk": 162440,
+                "first_deaths": 2696,
+                "risk": 0.016596897315932037,
+                "currently_dead": 7921,
+                "family_equal_risk": 0.018926593103042944,
+                "at_risk_families": 136118
+              },
+              "S": {
+                "count": 142316,
+                "initial_not_alive": 6198,
+                "at_risk": 136118,
+                "first_deaths": 9,
+                "risk": 6.611910254338148e-05,
+                "currently_dead": 4912
+              },
+              "U": {
+                "count": 1188857,
+                "initial_not_alive": 0,
+                "at_risk": 1188857,
+                "first_deaths": 2765,
+                "risk": 0.002325763317202994,
+                "currently_dead": 2727
+              }
+            },
+            "target_family_outcomes": {
+              "none": 133453,
+              "all": 2490,
+              "mixed": 175
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 3,
+              "source_died/all": 6,
+              "source_died/mixed": 0,
+              "source_no_death/none": 133450,
+              "source_no_death/all": 2484,
+              "source_no_death/mixed": 175
+            }
+          },
+          "10": {
+            "groups": {
+              "T": {
+                "count": 168827,
+                "initial_not_alive": 6387,
+                "at_risk": 162440,
+                "first_deaths": 11052,
+                "risk": 0.06803742920462941,
+                "currently_dead": 15979,
+                "family_equal_risk": 0.07447172936086967,
+                "at_risk_families": 136118
+              },
+              "S": {
+                "count": 142316,
+                "initial_not_alive": 6198,
+                "at_risk": 136118,
+                "first_deaths": 42,
+                "risk": 0.00030855581186911357,
+                "currently_dead": 4588
+              },
+              "U": {
+                "count": 1188857,
+                "initial_not_alive": 0,
+                "at_risk": 1188857,
+                "first_deaths": 5291,
+                "risk": 0.004450493204817736,
+                "currently_dead": 5090
+              }
+            },
+            "target_family_outcomes": {
+              "none": 125294,
+              "all": 9501,
+              "mixed": 1323
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 3,
+              "source_died/all": 39,
+              "source_died/mixed": 0,
+              "source_no_death/none": 125291,
+              "source_no_death/all": 9462,
+              "source_no_death/mixed": 1323
+            }
+          },
+          "20": {
+            "groups": {
+              "T": {
+                "count": 168827,
+                "initial_not_alive": 6387,
+                "at_risk": 162440,
+                "first_deaths": 27617,
+                "risk": 0.17001354346220143,
+                "currently_dead": 32244,
+                "family_equal_risk": 0.17713300574641466,
+                "at_risk_families": 136118
+              },
+              "S": {
+                "count": 142316,
+                "initial_not_alive": 6198,
+                "at_risk": 136118,
+                "first_deaths": 153,
+                "risk": 0.0011240247432374852,
+                "currently_dead": 4302
+              },
+              "U": {
+                "count": 1188857,
+                "initial_not_alive": 0,
+                "at_risk": 1188857,
+                "first_deaths": 10449,
+                "risk": 0.00878911425007381,
+                "currently_dead": 9885
+              }
+            },
+            "target_family_outcomes": {
+              "none": 109804,
+              "all": 22075,
+              "mixed": 4239
+            },
+            "joint_family_outcomes": {
+              "source_died/none": 14,
+              "source_died/all": 139,
+              "source_died/mixed": 0,
+              "source_no_death/none": 109790,
+              "source_no_death/all": 21936,
+              "source_no_death/mixed": 4239
+            }
+          }
+        },
+        "risk_difference_percentage_points": {
+          "A": {
+            "S": -53.41541897471311,
+            "T": 0.7128786013297223,
+            "U": -0.004542177907014902
+          },
+          "B": {
+            "S": -0.25933381330904065,
+            "T": 0.0,
+            "U": -8.411440568546757e-05
+          }
+        },
+        "first_step_algebra": {
+          "logits": {
+            "elements": 1500000,
+            "num_strict_unequal": 5571,
+            "num_bitwise_unequal": 5571,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              15
+            ],
+            "max_abs_error": 4.76837158203125e-07,
+            "max_rel_error": 0.00011842952243805549,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.003714,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 7.740577348158694e-10,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg": {
+            "elements": 1500000,
+            "num_strict_unequal": 170037,
+            "num_bitwise_unequal": 170037,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              5
+            ],
+            "max_abs_error": 1.8189894035458565e-12,
+            "max_rel_error": 0.003175227864597013,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.113358,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 3.3177442851385994e-17,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg_sq": {
+            "elements": 1500000,
+            "num_strict_unequal": 375471,
+            "num_bitwise_unequal": 375471,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              1
+            ],
+            "max_abs_error": 1.7763568394002505e-15,
+            "max_rel_error": 1.8273396137168517e-07,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.250314,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 1.309399624843356e-20,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "actual_update": {
+            "elements": 1500000,
+            "num_strict_unequal": 5537,
+            "num_bitwise_unequal": 5537,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              15
+            ],
+            "max_abs_error": 4.76837158203125e-07,
+            "max_rel_error": 0.002680965147453083,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.0036913333333333334,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 7.74065808703502e-10,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          }
+        },
+        "first_step_interpretation_usable": true,
+        "S_first_opacity_update": {
+          "count": 142316,
+          "nonzero": 141763,
+          "positive": 11981,
+          "negative": 129782,
+          "quantiles": [
+            -0.15807700157165527,
+            -0.0003294944763183594,
+            -4.7206878662109375e-05,
+            -9.5367431640625e-07,
+            0.15019607543945312
+          ],
+          "absolute_quantiles": [
+            6.151199340820312e-05,
+            0.0008417367935180664,
+            0.15807700157165527
+          ],
+          "mean": -0.00018959070858351243
+        },
+        "calls": {
+          "restore": 1,
+          "batch": 20,
+          "render": 20,
+          "backward": 20,
+          "raster_forward": 20,
+          "raster_backward": 20,
+          "optimizer": 120,
+          "strategy": 20,
+          "relocate": 0,
+          "sample": 0,
+          "add": 0,
+          "noise": 20,
+          "terminal": 1,
+          "checkpoint": 0
+        }
+      }
+    },
+    "V_paired_loss": {
+      "A": {
+        "baseline_12101_difference": {
+          "loss": 0.0,
+          "reconstruction_loss": 0.0,
+          "l1": 0.0,
+          "ssim": 0.0,
+          "opacity_regularization": 0.0,
+          "scale_regularization": 0.0
+        },
+        "mean_12102_through_12120": {
+          "loss": {
+            "V": 0.04201131613042794,
+            "reference": 0.0424065868321218,
+            "difference": -0.0003952707016938611
+          },
+          "reconstruction_loss": {
+            "V": 0.04147408564427966,
+            "reference": 0.04189050967167867,
+            "difference": -0.0004164240273990129
+          },
+          "l1": {
+            "V": 0.028864901782454627,
+            "reference": 0.029135132061415596,
+            "difference": -0.0002702302789609683
+          },
+          "ssim": {
+            "V": 0.9080891828787955,
+            "reference": 0.9070879848379838,
+            "difference": 0.001001198040811639
+          },
+          "opacity_regularization": {
+            "V": 0.0004673357455574564,
+            "reference": 0.00044678153215883007,
+            "difference": 2.055421339862637e-05
+          },
+          "scale_regularization": {
+            "V": 6.989447071023996e-05,
+            "reference": 6.929569606558959e-05,
+            "difference": 5.987746446503718e-07
+          }
+        }
+      },
+      "B": {
+        "baseline_12101_difference": {
+          "loss": 0.0,
+          "reconstruction_loss": 0.0,
+          "l1": 0.0,
+          "ssim": 0.0,
+          "opacity_regularization": 0.0,
+          "scale_regularization": 0.0
+        },
+        "mean_12102_through_12120": {
+          "loss": {
+            "V": 0.04201131613042794,
+            "reference": 0.04213755548392471,
+            "difference": -0.0001262393534967774
+          },
+          "reconstruction_loss": {
+            "V": 0.04147408564427966,
+            "reference": 0.04159985335641786,
+            "difference": -0.00012576771213820107
+          },
+          "l1": {
+            "V": 0.028864901782454627,
+            "reference": 0.028954962145929273,
+            "difference": -9.006036347464512e-05
+          },
+          "ssim": {
+            "V": 0.9080891828787955,
+            "reference": 0.9078205855269181,
+            "difference": 0.0002685973518773129
+          },
+          "opacity_regularization": {
+            "V": 0.0004673357455574564,
+            "reference": 0.000467807220717843,
+            "difference": -4.714751603866094e-07
+          },
+          "scale_regularization": {
+            "V": 6.989447071023996e-05,
+            "reference": 6.989444668043258e-05,
+            "difference": 2.4029807383684737e-11
+          }
+        }
+      }
+    },
+    "M": {
+      "0": {
+        "failure": {
+          "event": "failure",
+          "exception_type": "GaussianModelError",
+          "iteration": 12101,
+          "phase": "parameter_validation",
+          "rank": 0,
+          "reason": "means contains non-finite values",
+          "traceback": "Traceback (most recent call last):\n  File \"/usr/local/3dgs_new/Image3D-SceneGraph/src/image3d_scenegraph/gaussian/trainer.py\", line 461, in train_gaussians\n    model.validate(max_count=local_cap)\n  File \"/usr/local/3dgs_new/Image3D-SceneGraph/src/image3d_scenegraph/gaussian/model.py\", line 154, in validate\n    raise GaussianModelError(f\"{name} contains non-finite values\")\nimage3d_scenegraph.gaussian.model.GaussianModelError: means contains non-finite values\n"
+        },
+        "first_step_algebra": {
+          "logits": {
+            "elements": 1500000,
+            "num_strict_unequal": 40683,
+            "num_bitwise_unequal": 40683,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              1
+            ],
+            "max_abs_error": 0.015625,
+            "max_rel_error": 0.0006999367594827362,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.027122,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 2.5479322510849065e-07,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg": {
+            "elements": 1500000,
+            "num_strict_unequal": 136689,
+            "num_bitwise_unequal": 136689,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              51
+            ],
+            "max_abs_error": 7.275957614183426e-12,
+            "max_rel_error": 0.005771528331759439,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.091126,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 5.743831895330109e-17,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg_sq": {
+            "elements": 1500000,
+            "num_strict_unequal": 396143,
+            "num_bitwise_unequal": 396143,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              0
+            ],
+            "max_abs_error": 3.552713678800501e-15,
+            "max_rel_error": 1.8832787166811508e-07,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.26409533333333335,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 1.3978083472016044e-20,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "actual_update": {
+            "elements": 1500000,
+            "num_strict_unequal": 35986,
+            "num_bitwise_unequal": 35986,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              1
+            ],
+            "max_abs_error": 0.015625,
+            "max_rel_error": 0.002881844380403458,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.023990666666666667,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 2.546785286006828e-07,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          }
+        },
+        "first_step_interpretation_usable": true,
+        "post_Adam_pre_strategy_first_death": {
+          "T": {
+            "at_risk": 86034,
+            "first_deaths": 66,
+            "currently_dead": 1723
+          },
+          "S": {
+            "at_risk": 78546,
+            "first_deaths": 31379,
+            "currently_dead": 32493
+          },
+          "U": {
+            "at_risk": 1331716,
+            "first_deaths": 420,
+            "currently_dead": 420
+          }
+        },
+        "noise_snapshot_nonfinite_points": {
+          "T": {
+            "count": 87900,
+            "before": 0,
+            "after": 0
+          },
+          "S": {
+            "count": 80384,
+            "before": 0,
+            "after": 28157
+          }
+        },
+        "S_first_update_by_parameter": {
+          "means": {
+            "count": 80384,
+            "quantiles": [
+              0.0,
+              0.0013088718988001347,
+              11365.943359375,
+              220035.21875,
+              1616021.5,
+              182477584.0
+            ],
+            "mean": 114858.78157259714,
+            "negative": 0,
+            "positive": 80367,
+            "zero": 17
+          },
+          "scales": {
+            "count": 80384,
+            "quantiles": [
+              0.002723552519455552,
+              0.44445663690567017,
+              126.32756042480469,
+              2148.765380859375,
+              15825.5400390625,
+              2564108.5
+            ],
+            "mean": 1161.305809870506,
+            "negative": 0,
+            "positive": 80384,
+            "zero": 0
+          },
+          "quats": {
+            "count": 80384,
+            "quantiles": [
+              0.0,
+              0.12506088614463806,
+              4312.7314453125,
+              117940.15625,
+              1655247.25,
+              1269463552.0
+            ],
+            "mean": 193870.36672968222,
+            "negative": 0,
+            "positive": 80369,
+            "zero": 15
+          },
+          "opacities": {
+            "count": 80384,
+            "quantiles": [
+              -170143.546875,
+              -49.65934753417969,
+              -0.28984707593917847,
+              57.28874969482422,
+              509.4187316894531,
+              73698.140625
+            ],
+            "mean": -16.183935780144214,
+            "negative": 42644,
+            "positive": 37740,
+            "zero": 0
+          },
+          "sh0": {
+            "count": 80384,
+            "quantiles": [
+              0.0,
+              0.0,
+              946.9991455078125,
+              71706.0234375,
+              1506520.0,
+              176465376.0
+            ],
+            "mean": 105529.3393426458,
+            "negative": 0,
+            "positive": 66605,
+            "zero": 13779
+          },
+          "shN": {
+            "count": 80384,
+            "quantiles": [
+              0.0,
+              0.0,
+              233.20013427734375,
+              15282.390625,
+              305918.90625,
+              55177312.0
+            ],
+            "mean": 21526.997115828934,
+            "negative": 0,
+            "positive": 67131,
+            "zero": 13253
+          }
+        },
+        "update_quantile_probabilities": [
+          0,
+          0.1,
+          0.5,
+          0.9,
+          0.99,
+          1
+        ],
+        "update_statistic": "opacities为有符号logit变化；其余为每点参数向量变化的L2范数"
+      },
+      "1": {
+        "failure": {
+          "event": "failure",
+          "exception_type": "GaussianModelError",
+          "iteration": 12101,
+          "phase": "parameter_validation",
+          "rank": 1,
+          "reason": "means contains non-finite values",
+          "traceback": "Traceback (most recent call last):\n  File \"/usr/local/3dgs_new/Image3D-SceneGraph/src/image3d_scenegraph/gaussian/trainer.py\", line 461, in train_gaussians\n    model.validate(max_count=local_cap)\n  File \"/usr/local/3dgs_new/Image3D-SceneGraph/src/image3d_scenegraph/gaussian/model.py\", line 154, in validate\n    raise GaussianModelError(f\"{name} contains non-finite values\")\nimage3d_scenegraph.gaussian.model.GaussianModelError: means contains non-finite values\n"
+        },
+        "first_step_algebra": {
+          "logits": {
+            "elements": 1500000,
+            "num_strict_unequal": 66830,
+            "num_bitwise_unequal": 66830,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              0
+            ],
+            "max_abs_error": 0.0625,
+            "max_rel_error": 0.0004128273818367906,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.044553333333333334,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 6.244714804706746e-07,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg": {
+            "elements": 1500000,
+            "num_strict_unequal": 147303,
+            "num_bitwise_unequal": 147303,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              5
+            ],
+            "max_abs_error": 3.637978807091713e-12,
+            "max_rel_error": 0.003175227864597013,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.098202,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 4.214111170432604e-17,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "exp_avg_sq": {
+            "elements": 1500000,
+            "num_strict_unequal": 419767,
+            "num_bitwise_unequal": 419767,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              0
+            ],
+            "max_abs_error": 8.881784197001252e-16,
+            "max_rel_error": 1.8573328755626906e-07,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.2798446666666667,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 1.0456257757672506e-20,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          },
+          "actual_update": {
+            "elements": 1500000,
+            "num_strict_unequal": 58681,
+            "num_bitwise_unequal": 58681,
+            "num_mismatch": 0,
+            "num_nonfinite_a": 0,
+            "num_nonfinite_b": 0,
+            "num_nonfinite": 0,
+            "finite_pairs": 1500000,
+            "relative_unbounded_count": 0,
+            "first_mismatch_index": null,
+            "first_strict_unequal_index": [
+              0
+            ],
+            "max_abs_error": 0.0625,
+            "max_rel_error": 0.002680965147453083,
+            "sha_equal": false,
+            "strict_unequal_ratio": 0.039120666666666665,
+            "mismatch_ratio": 0.0,
+            "mean_abs_error": 6.229127557016909e-07,
+            "relative_unbounded": false,
+            "exact_required": false,
+            "status": "numerically_equivalent"
+          }
+        },
+        "first_step_interpretation_usable": true,
+        "post_Adam_pre_strategy_first_death": {
+          "T": {
+            "at_risk": 162440,
+            "first_deaths": 207,
+            "currently_dead": 5967
+          },
+          "S": {
+            "at_risk": 136118,
+            "first_deaths": 56287,
+            "currently_dead": 60025
+          },
+          "U": {
+            "at_risk": 1188857,
+            "first_deaths": 593,
+            "currently_dead": 593
+          }
+        },
+        "noise_snapshot_nonfinite_points": {
+          "T": {
+            "count": 168827,
+            "before": 0,
+            "after": 0
+          },
+          "S": {
+            "count": 142316,
+            "before": 0,
+            "after": 43046
+          }
+        },
+        "S_first_update_by_parameter": {
+          "means": {
+            "count": 142316,
+            "quantiles": [
+              0.0,
+              0.001255964976735413,
+              6790.7568359375,
+              146673.625,
+              1163789.0,
+              36947324.0
+            ],
+            "mean": 76849.54821365025,
+            "negative": 0,
+            "positive": 142270,
+            "zero": 46
+          },
+          "scales": {
+            "count": 142316,
+            "quantiles": [
+              0.002729270840063691,
+              0.3608247637748718,
+              74.96039581298828,
+              1402.240478515625,
+              11251.7705078125,
+              823358.5
+            ],
+            "mean": 823.7483572989984,
+            "negative": 0,
+            "positive": 142316,
+            "zero": 0
+          },
+          "quats": {
+            "count": 142316,
+            "quantiles": [
+              0.0,
+              0.12390096485614777,
+              2484.710693359375,
+              73680.375,
+              1155740.75,
+              1539102720.0
+            ],
+            "mean": 108035.08131402513,
+            "negative": 0,
+            "positive": 142278,
+            "zero": 38
+          },
+          "opacities": {
+            "count": 142316,
+            "quantiles": [
+              -804543.8125,
+              -54.4531135559082,
+              -0.2738341689109802,
+              59.69276428222656,
+              506.5374755859375,
+              250012.796875
+            ],
+            "mean": -43.860608236496674,
+            "negative": 75178,
+            "positive": 67138,
+            "zero": 0
+          },
+          "sh0": {
+            "count": 142316,
+            "quantiles": [
+              0.0,
+              0.0,
+              563.8043212890625,
+              44515.765625,
+              966854.6875,
+              487049280.0
+            ],
+            "mean": 79070.38249812517,
+            "negative": 0,
+            "positive": 119699,
+            "zero": 22617
+          },
+          "shN": {
+            "count": 142316,
+            "quantiles": [
+              0.0,
+              0.0,
+              139.45816040039062,
+              9390.203125,
+              196721.203125,
+              95299416.0
+            ],
+            "mean": 15848.687990514849,
+            "negative": 0,
+            "positive": 121186,
+            "zero": 21130
+          }
+        },
+        "update_quantile_probabilities": [
+          0,
+          0.1,
+          0.5,
+          0.9,
+          0.99,
+          1
+        ],
+        "update_statistic": "opacities为有符号logit变化；其余为每点参数向量变化的L2范数"
+      }
+    }
+  },
+  "conclusions": [
+    "V六组仅保留历史二阶矩完成20步；S风险为0.0547449902%/0.1124024743%，历史A为46.8477070761%/53.5278214490%，B为0.1795126423%/0.3717362876%。历史一阶矩不是本起点下取得S短窗保护的必要条件。",
+    "V相对A的T风险增加0.5486203129/0.7128786013个百分点；U基本不变。12102—12120配对重建loss均值相对A低0.9940772520%，相对B低0.3023272968%；12101基线各loss项相同。",
+    "M首步六组Adam均执行，但两owner在12101策略后的参数校验失败。S首步阈值死亡31379/56287；保存S/T位置快照在原生noise前均有限，noise后S有28157/43046个非有限点，T为0。M不是20步结果，不统计后续存活。",
+    "V/M两rank首步opacity代数可解释，M矩选择及非干预字段保护核对通过；现有证据显示仅保留六组历史一阶矩、二阶矩清零在当前配置下首步数值失稳，不应当成可继续长期训练的候选。"
+  ],
+  "decision": "保留V的有效20步结果与M失败证据；按失败即停未启动O，不自动重试/裁剪/改lr。下一步优先另行安排O，以区分opacity两矩与其他参数组作用；暂不推进完整周期或长期对照。",
+  "limitations": [
+    "A/B为相同公共起点的既有运行，不是本次重新执行；结论限于此20步窗口，无新增独立质量渲染。",
+    "M非有限值在保存的原生noise前后出现；没有完整的六参数noise输入快照，不将具体协方差/scale溢出运算链冒充已直接测定。",
+    "O未执行，不能比较仅opacity两矩与完整B；整套实验保持失败状态，V可用不改写M或面板终态。"
+  ]
+}
