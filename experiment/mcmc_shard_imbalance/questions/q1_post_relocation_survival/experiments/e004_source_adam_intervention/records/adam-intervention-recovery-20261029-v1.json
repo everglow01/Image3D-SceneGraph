@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "run_id": "adam-intervention-recovery-20261029-v1",
+  "experiment_id": "MCMC-Q1-E004",
+  "kind": "zero_training_prefix_recovery_and_source_adam_twenty_step_intervention",
+  "catalogued_on": "2026-10-29",
+  "execution_status": "completed",
+  "acceptance_status": "paired_short_window_measured_monitor_terminal_missing",
+  "previous_attempt": "adam-intervention-20261029-v2-prefix",
+  "source_commit": {
+    "value": "0b10b5f7cca14ca372cce3dce29f581f2e3fc051",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/protocol.json",
+    "field": "implementation_commit"
+  },
+  "protocol_sha256": {
+    "value": "15b4a15b2f585fd4d730de9c19f063fdd9fbb3599ed02dfceb4086ce89cf1f98",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/protocol.json",
+    "field": "file_sha256"
+  },
+  "execution_task": {
+    "value": "20261029-164634-5bb9",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/execution-status.json",
+    "field": "id"
+  },
+  "monitor_task": {
+    "value": "20261029-164634-de18",
+    "source": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/monitor-status.json",
+    "field": "id"
+  },
+  "panel_statuses": {
+    "execution": {
+      "id": "20261029-164634-5bb9",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 3339
+    },
+    "monitor": {
+      "id": "20261029-164634-de18",
+      "running": false,
+      "finished": false,
+      "exit_code": null,
+      "log_size": 6689
+    }
+  },
+  "remote_evidence": {
+    "availability": "remote_verified_at_record_time",
+    "verified_at_utc": "2026-10-29T09:25:18Z",
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/execution-status.json",
+      "sha256": "c61f6f3c92ec2b35f9567a4153cfbd67e4d866b72d33e6cf693def1e2dba6ac8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/monitor-status.json",
+      "sha256": "cd39cd27348990b599f819ecd15cd84646c28d00a6c305fc70f53e4e282e8d0e",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/execution-log.log",
+      "sha256": "81bf0ca26e653e85e0437de0f5a5a7f4a282d9a06458c00ec702dc34be513858",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/monitor-log.log",
+      "sha256": "58331664503efc455e7d092c1f21b2616edc4aacf84f6ef201c7e21268926029",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/cpu-preflight.json",
+      "sha256": "338e13fcee70c4f5dd6f398070d9327130407c51ed4dc2fc105083df60dbfc9e",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/protocol.json",
+      "sha256": "15b4a15b2f585fd4d730de9c19f063fdd9fbb3599ed02dfceb4086ce89cf1f98",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/recovery-execution.json",
+      "sha256": "fce6cda608633abecb183140e4d4d1baed5ec3b4e97a606beee3bd7d9686dc89",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/recovery-complete.json",
+      "sha256": "378145140cf8116e9d8bb4a45c67bb999cf1866b68715f805c2eeb26202560c4",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/arms-protocol.json",
+      "sha256": "e45a790504d12d4ddf4a5e823658fdfe55306a4fb43e27a9b0f20994d54b8325",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/arms-execution.json",
+      "sha256": "79a521ccff08e2d90426228d83509219bb25d889e5c73daa32c5bb228511a2a8",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/incoming/comparison.json",
+      "sha256": "ec51dc044fc5a5fc7226e3346a5d736692dec65041d001d9fbd75aaeacde55ac",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/first-step-decomposition.py",
+      "sha256": "5ce2eb31c99a8d646b80e7bf2b1300717470461f70ccfa892ddd00c68d1cdaed",
+      "availability": "local_verified"
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/first-step-decomposition.json",
+      "sha256": "66d57a4cedc02f2bbf97a590b59b1c844821279f7ed8f502ef7f1b9599616bc4",
+      "availability": "local_verified"
+    }
+  ],
+  "conclusion": "本公共前缀下，保留来源六组Adam两矩大幅降低20步S首次死亡风险；首步固定梯度代数证据支持Adam状态的直接更新效应。T风险小幅上升，U基本不变；长期总体改善未评估。",
+  "validation": {
+    "cpu_preflight": "1 passed in 2.06s",
+    "recovery_new_training_updates": 0,
+    "prefix_retrained": false,
+    "original_prefix_execution_reclassified": false,
+    "original_exit_record_fabricated": false,
+    "new_global_updates": 40,
+    "camera_forwards": 80,
+    "loss_backwards": 80,
+    "optimizer_group_steps": 480,
+    "extra_render_forwards": 0,
+    "validation_or_test_evaluated": false,
+    "common_restored_state_and_camera_lr_noise_schedule_match": true,
+    "source_moments_only_intervention_verified": true,
+    "first_step_algebra_all_four_owner_arm_checks_usable": true,
+    "all_first_step_algebra_out_of_tolerance_counts": 0,
+    "local_download_files": 34,
+    "local_download_bytes": 1279408,
+    "monitor_terminal_status": "missing",
+    "monitor_log_reached_suite_exit_code": 0
+  },
+  "first_death_definition": "初始alpha>0.005者在12101—12120首次alpha<=0.005；初始未活不进入分母，恢复不抹去首次死亡。",
+  "twenty_step_risk": {
+    "0": {
+      "S": {
+        "at_risk": 78546,
+        "initial_not_alive": 1838,
+        "first_deaths": {
+          "A": 36797,
+          "B": 141
+        },
+        "risk": {
+          "A": 0.4684770707610827,
+          "B": 0.0017951264227331755
+        },
+        "B_minus_A_percentage_points": -46.668194433834955
+      },
+      "T": {
+        "at_risk": 86034,
+        "initial_not_alive": 1866,
+        "first_deaths": {
+          "A": 9544,
+          "B": 9975
+        },
+        "risk": {
+          "A": 0.11093288699816352,
+          "B": 0.11594253434688612
+        },
+        "B_minus_A_percentage_points": 0.5009647348722599
+      },
+      "U": {
+        "at_risk": 1331716,
+        "initial_not_alive": 0,
+        "first_deaths": {
+          "A": 7597,
+          "B": 7525
+        },
+        "risk": {
+          "A": 0.005704669764424247,
+          "B": 0.005650604182873826
+        },
+        "B_minus_A_percentage_points": -0.005406558155042051
+      }
+    },
+    "1": {
+      "S": {
+        "at_risk": 136118,
+        "initial_not_alive": 6198,
+        "first_deaths": {
+          "A": 72861,
+          "B": 506
+        },
+        "risk": {
+          "A": 0.5352782144903686,
+          "B": 0.003717362876327892
+        },
+        "B_minus_A_percentage_points": -53.15608516140408
+      },
+      "T": {
+        "at_risk": 162440,
+        "initial_not_alive": 6387,
+        "first_deaths": {
+          "A": 26459,
+          "B": 27617
+        },
+        "risk": {
+          "A": 0.1628847574489042,
+          "B": 0.17001354346220143
+        },
+        "B_minus_A_percentage_points": 0.7128786013297223
+      },
+      "U": {
+        "at_risk": 1188857,
+        "initial_not_alive": 0,
+        "first_deaths": {
+          "A": 10503,
+          "B": 10450
+        },
+        "risk": {
+          "A": 0.008834536029143959,
+          "B": 0.008789955394130664
+        },
+        "B_minus_A_percentage_points": -0.0044580635013294345
+      }
+    }
+  },
+  "target_family_equal_risk": {
+    "A": {
+      "0": 0.11375266298305028,
+      "1": 0.1699688085757526
+    },
+    "B": {
+      "0": 0.11875397856033407,
+      "1": 0.17710900696104712
+    }
+  },
+  "source_owner1_minus_owner0_gap": {
+    "A": 0.06680114372928592,
+    "B": 0.0019222364535947164
+  },
+  "first_opacity_update": {
+    "0": {
+      "source_mean_actual_logit_update": {
+        "A": -0.13400365120233007,
+        "B": -8.672644349835711e-05
+      },
+      "source_median_absolute_actual_logit_update": {
+        "A": 0.15808892250061035,
+        "B": 0.005327939987182617
+      },
+      "fixed_A_gradient_retained_minus_zero_mean": 0.13391691870001407,
+      "fixed_A_gradient_direction_flip_count": 36457,
+      "cross_arm_total_gradient_max_abs_difference": 1.7462298274040222e-10
+    },
+    "1": {
+      "source_mean_actual_logit_update": {
+        "A": -0.13135438914864114,
+        "B": 5.0368329533572775e-05
+      },
+      "source_median_absolute_actual_logit_update": {
+        "A": 0.15807676315307617,
+        "B": 0.0058155059814453125
+      },
+      "fixed_A_gradient_retained_minus_zero_mean": 0.13140475180914873,
+      "fixed_A_gradient_direction_flip_count": 64666,
+      "cross_arm_total_gradient_max_abs_difference": 1.4551915228366852e-10
+    }
+  },
+  "mechanism_interpretation": "清零两矩但保留step=12100时，大step下首步近似为-lr*(1-beta1)/sqrt(1-beta2)*sign(g)，即约-0.15811*sign(g)；实际A来源多数向下更新。保留历史后实际更新尺度下降，固定同一A梯度也复现大的状态效应。20步干预同时改变六组两矩，不能归为opacity单组独立作用。",
+  "native_loss": {
+    "window": "12102—12120：19个同相机、当步Adam之前的loss；12101在首次更新前且两臂相等，不纳入效果均值。",
+    "means": {
+      "A": {
+        "loss": 0.0424065868321218,
+        "reconstruction_loss": 0.04189050967167867,
+        "opacity_regularization": 0.00044678153215883007,
+        "scale_regularization": 6.929569606558959e-05
+      },
+      "B": {
+        "loss": 0.04213755548392471,
+        "reconstruction_loss": 0.04159985335641786,
+        "opacity_regularization": 0.000467807220717843,
+        "scale_regularization": 6.989444668043258e-05
+      }
+    },
+    "B_minus_A_loss_mean": -0.0002690313481970852,
+    "B_minus_A_reconstruction_loss_mean": -0.00029065631526081076,
+    "lower_loss_steps": 12,
+    "higher_loss_steps": 7,
+    "post_twentieth_update_quality_evaluated": false
+  },
+  "execution_cost": {
+    "cpu_preflight_service_seconds": 2.751,
+    "prepare_seconds": 161.329,
+    "recovery_seconds": 206.136,
+    "prepare_arms_seconds": 292.798,
+    "arms_service_seconds": 1451.448,
+    "arm_child_elapsed_seconds": {
+      "A": 416.688392162323,
+      "B": 416.9616399044171
+    },
+    "per_rank_peak_reserved_bytes": {
+      "A": [
+        4357881856,
+        4492099584
+      ],
+      "B": [
+        4357881856,
+        4492099584
+      ]
+    },
+    "host_memory_limits": "unlimited",
+    "overhead": "启动链嵌套全量来源/恢复证明校验，父进程及各rank重复执行；不把上述子进程耗时称为纯训练耗时。"
+  },
+  "decision": "本轮已达40步预算并结束，不追加训练或重跑以补监控标志。已有短窗干预证据支持继续研究来源Adam重置机制；后续执行前应先消除已定位的重复校验。生产默认不变。",
+  "limits": "单一公共前缀的带记录器短窗对照；未证明统计显著性、长期质量或15k—30k分片退化的唯一根因。旧v2失败保留。只读监控缺面板终态，执行与两臂完成报告均为成功。",
+  "first_step_direction_magnitude_analysis": {
+    "evidence": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-recovery-20261029-v1-local/first-step-decomposition.json",
+    "scope": "仅已保存的12101首步opacity快照与首次死亡位图；远端CPU只读、未导入Torch，无新训练/渲染。",
+    "method": "实际A/B逐点方向与幅度交叉；固定A梯度，离线组合清零/保留一阶矩与二阶矩。只验证所读快照和位图，不重扫完整checkpoint。",
+    "conclusion": "幅度收缩是更普遍、在首步跨阈值上解释力更强的变化；约45%的S也改变更新方向。固定梯度/分子时，历史二阶矩直接增大分母并抑制步幅。实际被保留组避免首次跨阈值的点中，多数仍向下更新但步幅变小。",
+    "limits": "方向/幅度替换与单独m/v组合只是首步代数反事实，不是新增训练臂；两者作用交互，比例不可相加，也不能把首步归因比例外推到20步累计死亡。"
+  }
+}

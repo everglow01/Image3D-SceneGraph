@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-29，Q1-E004完成零训练恢复和20步来源两矩干预：研究从观察关联推进到本公共前缀的短窗受控效应，后续不再重复同参数家族不对称核查。先消除已定位的嵌套全量校验，再考虑另授权的长期验证；本轮不追加实验、不改生产默认。结果见[单份主记录](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json)。
+
 - 2026-10-29，Q1-E004修复三接口并采用独立零训练恢复，复用已完成公共前缀，不重训、不改写原失败；A/B仍须另授权。按新版§15，CPU前置按相关代码而非提交号失效，收尾不重复实现/前置校验，目录测试只核索引、不写死运行结论。实现与执行步骤见[E004 §11](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md#11-三接口修复与零训练重新绑定2026-10-29仅本地实现)。
 
 - 2026-10-29，Q1-E004 v2公共前缀产物可复用，原任务收尾仍为失败；因此选择零训练重新绑定而非重跑。结果与证据见[前缀与Gate 0只读结果](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/reports/prefix-gate0-20261029-v2.md)。
