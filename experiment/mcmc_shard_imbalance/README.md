@@ -69,7 +69,7 @@ floor、目标矩候选失败及复制计数问题引出了本支线。容量候
 
 **当前结果：** [MCMC-Q1-E003部分结果](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/survival-20261027-v1.md)：新版结构前置通过，T0/T1共400步完成；T0隔离渲染触发RNG不变守卫，整套退出1，未做T1渲染。已有轨迹经只读CPU独立验真可作有边界的T/S/U描述：来源S承担约一半末态死亡，但复用次数分层后风险不一致单调，不能定性为过度复用根因。修复backend预加载覆盖缺口后，已按独立授权完成[零训练补渲染](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/render-recovery-20261028-v1.md)：冷前置通过，64次正式forward、256份RNG审计通过，同状态RGB/alpha重复位级一致；固定8视角平均loss略降但各有4张上升。原失败状态不变，不据此证明长期改善或S死亡原因。随后[家族内配对分析](questions/q1_post_relocation_survival/experiments/e003_minimal_survival/reports/family-pair-readonly-20261028-v1.md)核验513,600条真实T→S边的六参数起点位级一致；家族等权20步S−T死亡风险差约+35.36—36.67个百分点、100步约+35.14—36.86个百分点。初始未活、目标混合结局及删失独立处理；该阶段将Adam重置列为优先候选；后续干预见下。
 
-**Q1-B已完成：** [零训练恢复与20步来源Adam干预主记录](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json)。保留来源两矩大幅降低S短窗死亡风险，T风险小幅上升、U基本不变；首步代数核对通过，重建loss均值略降。执行成功，唯一监控缺面板终态；原v2失败保留，公共前缀未重跑。后续先消除重复校验，不自动追加训练或修改生产默认。
+**Q1-B已完成：** [零训练恢复与20步来源Adam干预主记录](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json)。保留来源两矩大幅降低S短窗死亡风险，T风险小幅上升、U基本不变；首步代数核对通过，重建loss均值略降。执行成功，唯一监控缺面板终态；原v2失败保留，公共前缀未重跑。重复校验已精简；[两矩拆分短窗](questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md#12-两矩拆分短窗2026-10-30本地实现未执行)新增三条件的实现已完成，尚未执行，不修改生产默认。
 
 | 研究项 | 状态与约束 |
 |---|---|

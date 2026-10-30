@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-30，按用户要求实现E004两矩拆分短窗：同一已恢复12100起点新增V（六组仅二阶矩）、M（六组仅一阶矩）、O（仅opacity两矩）各20步，已有A/B只读复用，不重跑公共前缀。复用原执行器和局部状态保护，不恢复嵌套历史校验；本次只实现，远端CPU测试与三臂均未运行。完整周期与长期对照另行决定。
+
 - 2026-10-30，按用户要求删除E004已定位的重复校验：重验证归属独立执行入口，worker只保留实际加载/干预保护，证明读取不递归重验来源；每臂分析结果供最终比较复用，收尾不再扫描历史。禁止以“更安全”为由恢复这些重复调用，不新增验证缓存或证明流程。既有实验结果保留，本次不启动新实验。
 
 - 2026-10-29，Q1-E004完成零训练恢复和20步来源两矩干预：研究从观察关联推进到本公共前缀的短窗受控效应，后续不再重复同参数家族不对称核查。先消除已定位的嵌套全量校验，再考虑另授权的长期验证；本轮不追加实验、不改生产默认。结果见[单份主记录](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json)。

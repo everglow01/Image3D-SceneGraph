@@ -82,7 +82,7 @@
 
 - `probe.py`复用typed snapshot、原生resume与optimizer hook模式、共同边界consensus和位图编码，不安装旧完整观察器，不修改生产trainer或gsplat。
 - `analyze.py`远端CPU按绑定快照重验Gate 0、首步Adam代数、家族风险及原生loss；本机fresh import不加载Torch/NumPy/gsplat。
-- `run.py`分别提供prefix与arms授权，绑定新提交、67份执行依赖、父checkpoint与独立前置（历史v2执行绑定64份）。旧Q1或E007前置不能替代。
+- `run.py`分别提供prefix与arms授权，绑定实现来源、当前执行依赖、父checkpoint与独立前置（历史v2执行绑定64份，首次恢复/两臂执行绑定67份）。旧Q1或E007前置不能替代。
 - `tests/test_intervention_remote.py`仅指定主机且 `IMAGE3D_AUTHORIZE_SOURCE_ADAM_TESTS=1` 才收集；报告路径变量为 `IMAGE3D_SOURCE_ADAM_PREFLIGHT_REPORT`，报告和pytest basetemp必须为本实验新runs目录。
 - 前置验证原生checkpoint写入/恢复、两矩白名单、step与T/U保留、首步代数、映射/家族分布/删失、原调用预算、观察不变、RNG负例、零目标owner及双rank拒绝；测试代码存在不代表已经通过。
 
@@ -174,3 +174,36 @@ worker只保留协议身份、继承的GPU lease、原生加载和本rank实际�
 4. 唯一只读监控用`--monitor --protocol-sha256 <同SHA> --output-root <同目录>`。
 
 本节实现现已通过远端CPU前置和零训练恢复；用户随后明确授权的A/B各20步也已完成，见顶部主记录。此恢复入口自身仍不启动A/B。
+
+
+## 12. 两矩拆分短窗（2026-10-30，本地实现，未执行）
+
+目标是判断首步两矩作用能否转化为持续20步存活，不修改生产默认，也不延长至100步或30k。
+
+| 条件 | 来源S干预 | 执行安排 |
+|---|---|---|
+| A | 两矩清零 | 只读复用已完成参考 |
+| B | 六组两矩保留 | 只读复用已完成参考 |
+| V | 六组仅保留exp_avg_sq | 新增20步 |
+| M | 六组仅保留exp_avg | 新增20步 |
+| O | 仅opacity保留两矩 | 新增20步 |
+
+参考固定为`adam-intervention-recovery-20261029-v1`，新三臂均从其同一12100完整checkpoint独立恢复。T/U、S未选矩、参数、step与超参数均不变。新产物写入`adam-intervention-moment-split-*`；复用原复制函数在新目录保留原生12000/12100谱系，不向旧训练目录写入，不再生成一套恢复证明。
+
+`probe.retains_moment`明确选择字段，原A/B含义不变；`run.py`复用原worker/lease/Monitor/逐臂验收，`moment_split.py`负责固定参考与汇总。完整输入校验仍只在独立入口执行一次，worker不扫描历史。只读取本轮需要的checkpoint、pre-relocation/cohort、首步参考、日程与报告，不重跑旧A/B分析或扫描无关旧日志。新旧实现来源分别记录，不能把旧运行冒充新代码的重复实验。
+
+**正式预算：** V→M→O，每臂20步，共60全局更新、120相机forward、120 backward、720 Adam参数组step。额外渲染、公共前缀更新和新relocation均为0。三臂共享30分钟执行上限，单卡reserved≤18GiB、主存无限额；输出16GiB、准入20GiB、保留4GiB。任何一臂执行/验收失败即停，M臂不会临时裁剪更新或更改lr，也不自动跳过失败继续O。
+
+**输出：** 五条件并列各owner的S/T/U 1/5/10/20步首次死亡、T家族等权与混合结局、owner差距、首步实际更新与两矩、固定历史A梯度的代数对照，以及新臂分别相对A/B的同相机loss差。12101 loss作为更新前基线，主要均值用12102—12120；不额外渲染第20次更新后的终点。每臂分析一次，汇总直接复用。
+
+### 验证和启动方式
+
+本机只做标准库/mock/AST检查。新字段选择另有远端CPU测试`tests/test_moment_split_remote.py`，仅在指定主机、`CUDA_VISIBLE_DEVICES=`和`IMAGE3D_AUTHORIZE_MOMENT_SPLIT_CPU_TESTS=1`时启用；pytest basetemp须为本实验runs内新目录。该测试用8点合成状态覆盖A/B/V/M/O及空/非空来源，各执行一次真实CPU Adam，最多60参数组step，0 forward/backward/真实训练。它不运行Gaussian模型、不初始化CUDA、不重跑旧GPU前置；结果使用测试日志，不新增验收证书。
+
+提交并手动Git同步、明确授权后，先运行上述CPU测试，通过才准备和执行。复用原模块`experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention.run`：
+
+1. `--prepare-split --authorize-prepare-split --output-root <新目录>`：验证参考，复制续训谱系，最后写新协议；不训练。
+2. 在`image3d-source-adam-moment-split-v1.service`内执行`--split --authorize-split --protocol-sha256 <新协议SHA> --output-root <同目录>`，并沿用主存无限额、30分钟上限的unit设置。
+3. 唯一只读监控使用`--monitor --monitor-phase split --protocol-sha256 <同SHA> --output-root <同目录>`。
+
+旧prefix/arms模式不能接收split协议。当前仅实现上述能力，CPU数值测试与真实三臂均未执行；不为这次实现重新运行有效的历史实验。

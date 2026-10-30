@@ -1,4 +1,4 @@
-"""Separate authorization for a new common prefix and two source-Adam arms."""
+"""Separate authorization for a common prefix, paired arms and fixed moment-split arms."""
 from __future__ import annotations
 
 import argparse
@@ -17,7 +17,7 @@ import time
 from ..e003_minimal_survival import run as base
 from experiment.mcmc_shard_imbalance.branches.b1_observation_reliability.experiments.e004_fixed_b0.run import initialize_backend
 from . import analyze
-from .probe import InterventionProbe
+from .probe import InterventionProbe, SPLIT_CASES, retains_moment
 
 PROJECT, snapshots, read, sha256, write_new = base.PROJECT, base.snapshots, base.read, base.sha256, base.write_new
 REL = 'experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention'
@@ -25,10 +25,12 @@ MODULE, RUNS = REL.replace('/', '.') + '.run', PROJECT / REL / 'runs'
 PROFILE = 'source_adam_intervention_v1'
 PREFIX_UNIT = 'image3d-source-adam-prefix-v1.service'
 ARMS_UNIT = 'image3d-source-adam-arms-v1.service'
+SPLIT_UNIT = 'image3d-source-adam-moment-split-v1.service'
 PREFLIGHT_UNIT = 'image3d-source-adam-preflight-v1.service'
 FILES = tuple(REL + '/' + n for n in ('run.py', 'probe.py', 'analyze.py', 'tests/test_intervention.py', 'tests/test_intervention_remote.py'))
 RECOVERY_FILES = tuple(REL + '/' + n for n in ('prefix_recovery.py', 'tests/test_prefix_recovery.py', 'tests/test_prefix_recovery_remote.py'))
-DEPENDENCIES = tuple(dict.fromkeys((*base.DEPENDENCIES, *FILES, *RECOVERY_FILES)))
+SPLIT_FILES = tuple(REL + '/' + n for n in ('moment_split.py', 'tests/test_moment_split_remote.py'))
+DEPENDENCIES = tuple(dict.fromkeys((*base.DEPENDENCIES, *FILES, *RECOVERY_FILES, *SPLIT_FILES)))
 CONTRACT = {'profile': PROFILE, 'start': 12000, 'event': 12100, 'end': 12120, 'owner_size': 1500000,
     'nominal_iterations': 30000, 'parent_checkpoint_sha256': base.connected.PARENT_SHA, 'core': base.legacy.CORE,
     'arms': ['A', 'B'], 'intervention': 'restore_only_source_exp_avg_and_exp_avg_sq_all_six_groups',
@@ -146,13 +148,21 @@ def protocol_at(root, digest):
     if not digest or sha256(snapshots.safe_file(root, 'protocol.json')) != digest:
         raise ValueError('explicit prefix protocol SHA required')
     p = read(root / 'protocol.json')
-    if (any(p.get(k) != v for k, v in CONTRACT.items()) or set(p['code_sha256']) != set(DEPENDENCIES)
+    expected = CONTRACT
+    if 'moment_split' in p:
+        from . import moment_split
+        expected = moment_split.CONTRACT
+        moment_split.contract(p)
+    if (any(p.get(k) != v for k, v in expected.items()) or set(p['code_sha256']) != set(DEPENDENCIES)
             or any(sha256(snapshots.safe_file(PROJECT, n)) != h for n, h in p['code_sha256'].items())):
         raise ValueError('intervention contract or execution code changed')
     return p
 
 
 def verify_inputs(p):
+    if 'moment_split' in p:
+        from . import moment_split
+        return moment_split.verify_inputs(p)
     if 'prefix_recovery' in p:
         from . import prefix_recovery
         return prefix_recovery.verify_inputs(p)
@@ -166,6 +176,9 @@ def canonical_report(value):
 
 
 def prefix_stage(root, p):
+    if 'moment_split' in p:
+        from . import moment_split
+        return moment_split.PREFIX
     if 'prefix_recovery' in p:
         from . import prefix_recovery
         prefix_recovery.contract(p)
@@ -228,9 +241,13 @@ def verify_worker(root, case, rank, p):
                 or intervention['protected_before'] != intervention['protected_after']
                 or intervention['case'] != case or intervention['rank'] != rank):
             raise ValueError('branch origin or intervention whitelist differs')
-        for row in intervention['moments'].values():
-            for item in row.values():
-                if item['after'] != item['expected_retained' if case == 'B' else 'before']:
+        if set(intervention['moments']) != set(snapshots.PARAMETERS):
+            raise ValueError('incomplete source moment groups')
+        for name, row in intervention['moments'].items():
+            if set(row) != set(analyze.MOMENTS):
+                raise ValueError('incomplete source moment fields')
+            for key, item in row.items():
+                if item['after'] != item['expected_retained' if retains_moment(case, name, key) else 'before']:
                     raise ValueError('wrong source moments')
         w['analysis'] = {'survival': analyze.trajectory(prefix_stage(root, p), stage, rank,
                             CONTRACT['event'], CONTRACT['end'], CONTRACT['owner_size']),
@@ -327,6 +344,8 @@ def worker(local_rank, rank, world_size, args):
     p = protocol_at(args.output_root, args.protocol_sha256)
     if args.case == 'prefix' and 'prefix_recovery' in p:
         raise ValueError('recovered prefix cannot be trained again')
+    if args.case != 'prefix' and args.case not in p['arms']:
+        raise ValueError('worker case is outside the protocol')
     # Parent admission/order and the inherited lease cover shared inputs.
     # The probe still validates this rank's loaded state and moment intervention.
     stage = args.output_root / args.case
@@ -347,7 +366,7 @@ def worker(local_rank, rank, world_size, args):
         prefix=prefix_stage(args.output_root, p), training=args.output_root / 'training', provenance=provenance)
     failure = stage / f'failure-rank-{rank}'
     failure.mkdir(exist_ok=False)
-    with memory_telemetry(stage / 'memory', rank, rank), failure_record(failure, PROFILE, args.case):
+    with memory_telemetry(stage / 'memory', rank, rank), failure_record(failure, p['profile'], args.case):
         try:
             with probe.installed():
                 trainer.train_gaussians(contract=dataset, dataset_root=replay, initialization=initialization,
@@ -391,11 +410,14 @@ class Monitor:
 
 
 def run_phase(args, p, phase):
+    from . import moment_split
+    if (phase == 'split') != ('moment_split' in p):
+        raise ValueError('split protocol requires its own execution mode')
     from image3d_scenegraph.gpu_lease import FileLease, require_idle_gpu
     root = args.output_root
     if phase == 'prefix' and 'prefix_recovery' in p:
         raise ValueError('recovered prefix cannot be trained again')
-    base.legacy.unlimited_host_cgroup(PREFIX_UNIT if phase == 'prefix' else ARMS_UNIT)
+    base.legacy.unlimited_host_cgroup(SPLIT_UNIT if phase == 'split' else PREFIX_UNIT if phase == 'prefix' else ARMS_UNIT)
     with (root / f'{phase}.once').open('x'):
         pass
     terminal = {'status': 'failed', 'exit_code': 1, 'phase': phase, 'protocol_sha256': args.protocol_sha256}
@@ -409,7 +431,9 @@ def run_phase(args, p, phase):
     try:
         with FileLease(PROJECT / 'outputs/.gpu.lock') as lease:
             require_idle_gpu()
-            verify_inputs(p)
+            reference = verify_inputs(p)
+            if phase == 'split':
+                moment_split.verify_checkpoint_copies(root, p)
             if shutil.disk_usage(PROJECT).free < CONTRACT['disk_admission_bytes']:
                 raise ValueError('intervention disk admission')
             if phase == 'prefix':
@@ -422,10 +446,11 @@ def run_phase(args, p, phase):
                     f.chmod(0o555 if f.is_dir() else 0o444)
                 target.chmod(0o555)
                 base.connected.parent_metadata(p['source_identity']['native'], root / 'training')
-            else:
+            elif phase == 'arms':
                 verify_arms(root, p, args.arms_protocol_sha256)
             completed = {}
-            for case in (('prefix',) if phase == 'prefix' else ('A', 'B')):
+            cases = ('prefix',) if phase == 'prefix' else SPLIT_CASES if phase == 'split' else ('A', 'B')
+            for case in cases:
                 require_idle_gpu()
                 subprocess.run(['nvidia-smi', '-L'], check=True)
                 stage = root / case
@@ -433,11 +458,13 @@ def run_phase(args, p, phase):
                 monitor = Monitor(root, stage, deadline)
                 command = ['/usr/bin/env', '-u', 'PYTHONPATH', sys.executable, '-m', MODULE, '--worker', '--case', case,
                     '--output-root', str(root), '--protocol-sha256', args.protocol_sha256,
-                    '--authorize-prefix' if phase == 'prefix' else '--authorize-arms', '--lease-fd', str(lease.fileno())]
+                    '--authorize-' + phase, '--lease-fd', str(lease.fileno())]
                 if phase == 'arms':
                     command += ['--arms-protocol-sha256', args.arms_protocol_sha256]
                 base.legacy.run_stage(stage, 'case', command, cwd=PROJECT, monitor=monitor, pass_fds=(lease.fileno(),), host_group=None)
                 completed[case] = bind_complete(root, case, p, {'per_rank_peak_reserved_bytes': monitor.peaks})
+                if phase == 'split':
+                    moment_split.verify_schedule(completed[case], reference['workers']['A'])
             if phase == 'prefix':
                 owners = {str(r): analyze.gate0(root / 'prefix', r) for r in (0, 1)}
                 report = {'status': 'structural_verified_review_required', 'owners': owners,
@@ -445,6 +472,8 @@ def run_phase(args, p, phase):
                     'checkpoint_hash': checkpoint(root, p)['checkpoint_hash'], 'arms_started': False,
                     'source_protocol_sha256': args.protocol_sha256, 'moment_magnitude_automatically_admitted': False}
                 report_name = 'gate0.json'
+            elif phase == 'split':
+                report, report_name = moment_split.compare(root, completed, reference), 'comparison.json'
             else:
                 arms = {case: {rank: w['analysis'] for rank, w in workers.items()} for case, workers in completed.items()}
                 report, report_name = analyze.compare(root, prefix=prefix_stage(root, p), arms=arms), 'comparison.json'
@@ -498,35 +527,50 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-root', type=Path, required=True)
     modes = parser.add_mutually_exclusive_group(required=True)
-    for name in ('prepare', 'prefix', 'prepare-arms', 'arms', 'worker', 'monitor'):
+    for name in ('prepare', 'prefix', 'prepare-arms', 'arms', 'prepare-split', 'split', 'worker', 'monitor'):
         modes.add_argument('--' + name, action='store_true')
-    for name in ('prepare', 'prefix', 'prepare-arms', 'arms'):
+    for name in ('prepare', 'prefix', 'prepare-arms', 'arms', 'prepare-split', 'split'):
         parser.add_argument('--authorize-' + name, action='store_true')
     parser.add_argument('--acknowledge-gate0-review', action='store_true')
     parser.add_argument('--preflight-report', type=Path)
     parser.add_argument('--protocol-sha256')
     parser.add_argument('--gate0-sha256')
     parser.add_argument('--arms-protocol-sha256')
-    parser.add_argument('--case', choices=('prefix', 'A', 'B'))
-    parser.add_argument('--monitor-phase', choices=('prefix', 'arms'))
+    parser.add_argument('--case', choices=('prefix', 'A', 'B', *SPLIT_CASES))
+    parser.add_argument('--monitor-phase', choices=('prefix', 'arms', 'split'))
     parser.add_argument('--lease-fd', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if socket.gethostname() != 'i-94B8D131' or str(PROJECT) != '/usr/local/3dgs_new/Image3D-SceneGraph':
         raise SystemExit('仅指定远端可以执行此独立实验')
     if args.case is not None and not args.worker:
         parser.error('不允许跳过固定执行次序')
-    phase = 'prefix' if args.prefix or (args.worker and args.case == 'prefix') else 'arms'
-    authorized = (args.authorize_prepare if args.prepare else args.authorize_prepare_arms if args.prepare_arms
-                  else True if args.monitor else args.authorize_prefix if phase == 'prefix' else args.authorize_arms)
+    phase = ('split' if args.split or args.case in SPLIT_CASES else
+             'prefix' if args.prefix or (args.worker and args.case == 'prefix') else 'arms')
+    if args.monitor:
+        authorized = True
+    elif args.prepare_split:
+        authorized = args.authorize_prepare_split
+    elif args.prepare:
+        authorized = args.authorize_prepare
+    elif args.prepare_arms:
+        authorized = args.authorize_prepare_arms
+    else:
+        authorized = getattr(args, 'authorize_' + phase)
     if not authorized:
         raise SystemExit('需要该阶段独立授权')
-    root = args.output_root = output_root(args.output_root, args.prepare)
+    root = args.output_root = output_root(args.output_root, args.prepare or args.prepare_split)
+    if args.prepare_split:
+        from . import moment_split
+        moment_split.prepare(root)
+        return
     if args.prepare:
         if args.preflight_report is None:
             parser.error('需要独立新版前置报告')
         prepare(root, verify_preflight(args.preflight_report))
         return
     p = protocol_at(root, args.protocol_sha256)
+    if ('moment_split' in p) != (phase == 'split' or (args.monitor and args.monitor_phase == 'split')):
+        raise ValueError('protocol and requested mode differ')
     if args.prepare_arms:
         prepare_arms(root, p, args.gate0_sha256, args.acknowledge_gate0_review)
     elif args.monitor:
@@ -537,7 +581,7 @@ def main():
         if args.case is None or args.lease_fd is None or os.readlink(f'/proc/self/fd/{args.lease_fd}') != str(PROJECT / 'outputs/.gpu.lock'):
             raise ValueError('worker requires inherited project GPU lease')
         fcntl.flock(args.lease_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        base.legacy.unlimited_host_cgroup(PREFIX_UNIT if phase == 'prefix' else ARMS_UNIT)
+        base.legacy.unlimited_host_cgroup(SPLIT_UNIT if phase == 'split' else PREFIX_UNIT if phase == 'prefix' else ARMS_UNIT)
         base.launch(worker, args)
     else:
         run_phase(args, p, phase)

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention import run, analyze, probe
+from experiment.mcmc_shard_imbalance.questions.q1_post_relocation_survival.experiments.e004_source_adam_intervention import run, analyze, probe, moment_split
 
 
 class InterventionTests(unittest.TestCase):
@@ -29,13 +29,15 @@ class InterventionTests(unittest.TestCase):
 
     def test_fresh_import_and_help_are_lightweight(self):
         module = run.MODULE
-        code = f"import sys; import {module}; assert not {{'torch','numpy','gsplat'}} & sys.modules.keys()"
+        code = f"import sys; import {module}; import {module.rsplit('.', 1)[0]}.moment_split; assert not {{'torch','numpy','gsplat'}} & sys.modules.keys()"
         subprocess.run([sys.executable, '-B', '-c', code], cwd=run.PROJECT, check=True, capture_output=True)
         help_result = subprocess.run([sys.executable, '-B', '-m', module, '--help'], cwd=run.PROJECT,
                                      check=True, capture_output=True, text=True)
         self.assertIn('--acknowledge-gate0-review', help_result.stdout)
         self.assertIn('--authorize-prefix', help_result.stdout)
         self.assertIn('--authorize-arms', help_result.stdout)
+        self.assertIn('--prepare-split', help_result.stdout)
+        self.assertIn('--authorize-split', help_result.stdout)
         self.assertNotIn('--authorize-execution', help_result.stdout)
 
     def test_empty_moment_digest_preserves_canonical_metadata(self):
@@ -274,11 +276,13 @@ class InterventionTests(unittest.TestCase):
         self.put(parent / 'checkpoints/iteration_000012000/checkpoint.json', {'hash': 'frozen'})
         args = SimpleNamespace(output_root=root, protocol_sha256=run.sha256(root / 'protocol.json'), arms_protocol_sha256='a' * 64)
         p = {'source_identity': {'native': {'parent_training': str(self.folder / 'parent')}}}
+        if phase == 'split':
+            p['moment_split'] = {}
         order = []
         def stage(folder, label, command, **kwargs):
             case = command[command.index('--case') + 1]
             order.append(case)
-            self.assertIn('--authorize-prefix' if phase == 'prefix' else '--authorize-arms', command)
+            self.assertIn('--authorize-' + phase, command)
             if case == fail_case:
                 raise RuntimeError('injected case failure')
         class Lease:
@@ -302,7 +306,7 @@ class InterventionTests(unittest.TestCase):
         stack.enter_context(patch.object(run.analyze, 'gate0', return_value={'effective_intervention_available': True}))
         stack.enter_context(patch.object(run, 'checkpoint', return_value={'checkpoint_hash': 'c' * 64}))
         stack.enter_context(patch.object(run.analyze, 'compare', return_value={'status': 'paired_short_window_measured'}))
-        if phase == 'arms':
+        if phase in ('arms', 'split'):
             def bind(root, case, p, resources):
                 return {str(rank): {'noise_schedule': [], 'analysis': {'case': case, 'rank': rank}} for rank in (0, 1)}
             stack.enter_context(patch.object(run, 'bind_complete', side_effect=bind))
@@ -360,6 +364,146 @@ class InterventionTests(unittest.TestCase):
         initialize = next(n for n in ast.walk(probe_tree) if isinstance(n, ast.FunctionDef) and n.name == 'initialize_arm')
         live_calls = {ast.unparse(n.func) for n in ast.walk(initialize) if isinstance(n, ast.Call)}
         self.assertTrue({'self.validate_live', 'self.restore_source_moments'} <= live_calls)
+
+    def test_fixed_moment_selection_and_split_budget(self):
+        for case in ('A', 'B', 'V', 'M', 'O'):
+            selected = {(name, key) for name in run.snapshots.PARAMETERS for key in analyze.MOMENTS
+                        if probe.retains_moment(case, name, key)}
+            if case == 'A':
+                expected = set()
+            elif case == 'B':
+                expected = {(n, k) for n in run.snapshots.PARAMETERS for k in analyze.MOMENTS}
+            elif case == 'O':
+                expected = {('opacities', k) for k in analyze.MOMENTS}
+            else:
+                expected = {(n, 'exp_avg_sq' if case == 'V' else 'exp_avg') for n in run.snapshots.PARAMETERS}
+            self.assertEqual(selected, expected)
+        with self.assertRaises(ValueError):
+            probe.retains_moment('unknown', 'opacities', 'exp_avg')
+        self.assertEqual(moment_split.CONTRACT['arms'], ['V', 'M', 'O'])
+        self.assertEqual(moment_split.CONTRACT['total_updates'], 60)
+        self.assertEqual(moment_split.CONTRACT['optimizer_group_steps'], 720)
+        self.assertEqual(moment_split.CONTRACT['prefix_updates'], 0)
+        self.assertEqual(moment_split.CONTRACT['extra_render_forwards'], 0)
+
+    def test_split_order_admission_once_and_reference_reuse(self):
+        root, args, p, order = self.run_fixture('split')
+        with patch.object(moment_split, 'verify_checkpoint_copies') as copies, \
+                patch.object(moment_split, 'verify_schedule') as schedule, \
+                patch.object(moment_split, 'compare', return_value={'status': 'moment_split_short_window_measured'}) as compare:
+            run.run_phase(args, p, 'split')
+            self.assertEqual(order, ['V', 'M', 'O'])
+            self.assertFalse((root / 'A').exists())
+            self.assertFalse((root / 'B').exists())
+            copies.assert_called_once_with(root, p)
+            run.verify_inputs.assert_called_once_with(p)
+            run.verify_arms.assert_not_called()
+            run.verify_complete.assert_not_called()
+            self.assertEqual(schedule.call_count, 3)
+            compare.assert_called_once()
+            self.assertEqual(run.read(root / 'split-execution.json')['exit_code'], 0)
+
+    def test_split_failure_stops_and_cannot_run_as_old_arms(self):
+        root, args, p, order = self.run_fixture('split', fail_case='M')
+        with self.assertRaisesRegex(ValueError, 'own execution mode'):
+            run.run_phase(args, p, 'arms')
+        self.assertFalse((root / 'arms.once').exists())
+        with patch.object(moment_split, 'verify_checkpoint_copies'), patch.object(moment_split, 'verify_schedule'):
+            with self.assertRaisesRegex(RuntimeError, 'injected'):
+                run.run_phase(args, p, 'split')
+        self.assertEqual(order, ['V', 'M'])
+        self.assertFalse((root / 'O').exists())
+
+    def test_split_contract_requires_pinned_reference_and_new_root(self):
+        binding = {'reference_root': str(moment_split.REFERENCE),
+            'reference_protocol_sha256': moment_split.REFERENCE_PROTOCOL_SHA,
+            'reference_comparison_sha256': moment_split.REFERENCE_COMPARISON_SHA,
+            'checkpoint_hash': moment_split.prefix_recovery.CHECKPOINT_HASH}
+        p = {**moment_split.CONTRACT, 'moment_split': binding}
+        moment_split.contract(p)
+        for key in binding:
+            changed = copy.deepcopy(p)
+            changed['moment_split'][key] = 'different'
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                moment_split.contract(changed)
+        for key, value in (('arms', ['A', 'B']), ('total_updates', 100), ('prefix_recovery', {})):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                moment_split.contract({**p, key: value})
+        with patch.object(moment_split, 'reference_inputs') as reference:
+            with self.assertRaises(ValueError):
+                moment_split.prepare(self.folder / 'adam-intervention-recovery-old')
+            reference.assert_not_called()
+
+    def test_split_reference_reads_only_bound_inputs(self):
+        reference = self.folder / 'reference'
+        prefix = self.folder / 'original/prefix'
+        bound = {}
+        for rank in (0, 1):
+            for name in ('pre-relocation', 'cohort'):
+                file = self.put(prefix / f'{name}-rank-{rank}/manifest.json', {'fixture': name})
+                bound[str(file.relative_to(self.folder))] = run.sha256(file)
+            file = self.put(prefix / f'prefix-state-rank-{rank}.json', {'fixture': 'state'})
+            bound[str(file.relative_to(self.folder))] = run.sha256(file)
+        protocol = self.put(reference / 'protocol.json', {'prefix_recovery': {'source': {'bound_files': bound, 'copy_files': {}}},
+            'source_identity': {'native': {'bound_files': {}, 'pair': {'replay': str(self.folder / 'replay'),
+                'source_package': str(self.folder / 'package'), 'source_hashes': {}}}}})
+        protocol_sha = run.sha256(protocol)
+        comparison = self.put(reference / 'comparison.json', {'status': 'paired_short_window_measured'})
+        proof = self.put(reference / 'recovery-complete.json', {'checkpoint_hash': moment_split.prefix_recovery.CHECKPOINT_HASH,
+            'full_state_sha256': moment_split.prefix_recovery.STATE_HASHES})
+        for phase, report in (('recovery', proof), ('arms', comparison)):
+            self.put(reference / f'{phase}-execution.json', {'status': 'completed', 'exit_code': 0,
+                'protocol_sha256': protocol_sha, 'report': report.name, 'report_sha256': run.sha256(report)})
+        for case in ('A', 'B'):
+            files = {}
+            for rank in (0, 1):
+                worker = self.put(reference / case / f'worker-rank-{rank}.json', {'case': case, 'rank': rank,
+                    'protocol_sha256': protocol_sha, 'new_updates': 20, 'status': 'measured',
+                    'restored_digest': moment_split.prefix_recovery.STATE_HASHES[str(rank)], 'schedule': [1], 'noise_schedule': [2]})
+                snapshot = self.put(reference / case / f'opacity-before-1-rank-{rank}/manifest.json', {'fixture': 'opacity'})
+                files.update({str(f.relative_to(reference)): run.sha256(f) for f in (worker, snapshot)})
+            self.put(reference / case / 'complete.json', {'case': case, 'protocol_sha256': protocol_sha, 'files': files})
+        self.put(prefix.parent / 'unrelated-log.json', {'not_an_input': True})
+        with patch.object(run, 'PROJECT', self.folder), patch.object(moment_split, 'REFERENCE', reference), \
+                patch.object(moment_split, 'PREFIX', prefix), patch.object(moment_split, 'REFERENCE_PROTOCOL_SHA', protocol_sha), \
+                patch.object(moment_split, 'REFERENCE_COMPARISON_SHA', run.sha256(comparison)):
+            result = moment_split.reference_inputs()
+            self.assertNotIn('original/unrelated-log.json', result['binding']['input_sha256'])
+            self.put(prefix / 'cohort-rank-0/manifest.json', {'changed': True})
+            with self.assertRaisesRegex(ValueError, 'input changed'):
+                moment_split.reference_inputs()
+
+    def test_split_reference_schedule_mismatch_rejected(self):
+        reference = {str(r): {'restored_digest': str(r), 'schedule': [1, 2], 'noise_schedule': ['rng']} for r in (0, 1)}
+        moment_split.verify_schedule(copy.deepcopy(reference), reference)
+        for key in ('restored_digest', 'schedule', 'noise_schedule'):
+            current = copy.deepcopy(reference)
+            current['1'][key] = 'changed'
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                moment_split.verify_schedule(current, reference)
+
+    def test_split_comparison_uses_saved_reference_and_excludes_first_loss(self):
+        def arm(value):
+            groups = {g: {'risk': value, 'family_equal_risk': value} for g in ('S', 'T', 'U')}
+            return {str(r): {'survival': {'horizons': {h: {'groups': groups} for h in ('1', '5', '10', '20')}}} for r in (0, 1)}
+        fields = ('loss', 'reconstruction_loss', 'l1', 'ssim', 'opacity_regularization', 'scale_regularization')
+        rows = [{'iteration': i, 'batch_view_ids': ['a', 'b'], **dict.fromkeys(fields, 1.)} for i in range(12101, 12121)]
+        reference = {'protocol': {'implementation_commit': 'old'}, 'comparison': {
+            'arms': {'A': arm(.5), 'B': arm(.1)}, 'native_loss_before_each_update': {'A': rows, 'B': rows}}}
+        completed = {case: {rank: {'analysis': data} for rank, data in arm(.2).items()} for case in probe.SPLIT_CASES}
+        for case in probe.SPLIT_CASES:
+            new_rows = copy.deepcopy(rows)
+            new_rows[0]['loss'] = 100.
+            for row in new_rows[1:]:
+                row['loss'] = .8
+            self.put(self.folder / case / 'native-tail-rank-0.json', new_rows)
+        with patch.object(moment_split, 'first_step_mechanism', return_value={}):
+            result = moment_split.compare(self.folder, completed, reference)
+        self.assertEqual(set(result['arms']), {'A', 'B', 'V', 'M', 'O'})
+        self.assertIs(result['arms']['A'], reference['comparison']['arms']['A'])
+        self.assertAlmostEqual(result['paired_loss_changes']['V']['A']['mean_12102_through_12120']['loss'], -.2)
+        self.assertEqual(result['paired_loss_changes']['V']['A']['per_step'][0]['difference']['loss'], 99.)
+        self.assertFalse(result['reference_arms_reexecuted'])
 
     def test_host_and_authorization_checked_before_actions(self):
         with patch.object(sys, 'argv', ['run', '--prefix', '--output-root', str(self.folder)]), patch.object(run.socket, 'gethostname', return_value='not-authorized-host'):

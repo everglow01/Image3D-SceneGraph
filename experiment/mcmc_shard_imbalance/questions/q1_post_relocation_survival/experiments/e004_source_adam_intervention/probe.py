@@ -18,6 +18,16 @@ def moment_digest(value):
     return digest_state(value)
 
 
+SPLIT_CASES = ('V', 'M', 'O')
+
+
+def retains_moment(case, name, key):
+    if case not in ('A', 'B', *SPLIT_CASES) or name not in snapshots.PARAMETERS or key not in analyze.MOMENTS:
+        raise ValueError('unknown source moment intervention')
+    return (case == 'B' or (case == 'V' and key == 'exp_avg_sq')
+            or (case == 'M' and key == 'exp_avg') or (case == 'O' and name == 'opacities'))
+
+
 class InterventionProbe:
     consensus = Endpoint.consensus
     full_state = snapshots.FirstDivergenceProbe.full_state
@@ -25,7 +35,7 @@ class InterventionProbe:
 
     def __init__(self, root, rank, case, train_ids, reserve, *, prefix=None, start=12000, event=12100,
                  end=12120, count=1500000, training=None, provenance=None):
-        if case not in ('prefix', 'A', 'B') or not start < event < end:
+        if case not in ('prefix', 'A', 'B', *SPLIT_CASES) or not start < event < end:
             raise ValueError('invalid intervention window/case')
         self.root, self.rank, self.case = Path(root), rank, case
         self.prefix = Path(prefix) if prefix is not None else self.root
@@ -89,10 +99,11 @@ class InterventionProbe:
                         raise ValueError('source moments were not zero in common checkpoint')
                     expected = torch.from_numpy(np.array(before['adam'][name]['state'][key][ids], copy=True)).to(active[key].device)
                     changed[name][key] = {'before': moment_digest(current), 'expected_retained': moment_digest(expected)}
-                    if self.case == 'B':
+                    retain = retains_moment(self.case, name, key)
+                    if retain:
                         active[key][self.ids] = expected
                     actual = active[key][self.ids]
-                    reference = expected if self.case == 'B' else current
+                    reference = expected if retain else current
                     if moment_digest(actual) != moment_digest(reference):
                         raise ValueError('source moment intervention did not match whitelist')
                     changed[name][key]['after'] = moment_digest(actual)
