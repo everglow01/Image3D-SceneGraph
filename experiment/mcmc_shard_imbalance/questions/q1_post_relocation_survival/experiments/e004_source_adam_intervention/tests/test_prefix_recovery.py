@@ -57,9 +57,11 @@ class PrefixRecoveryTests(unittest.TestCase):
         return path
 
     def test_real_runner_success_failure_and_rejection(self):
-        for case in ('success', 'failure', 'rejected'):
-            with self.subTest(case=case):
-                runner_fixture(self.root / case, case)
+        # Tiny local child processes do not need the remote experiment's 4 GiB reserve.
+        with patch.object(run.shutil, 'disk_usage', return_value=SimpleNamespace(free=100 * 1024**3)):
+            for case in ('success', 'failure', 'rejected'):
+                with self.subTest(case=case):
+                    runner_fixture(self.root / case, case)
 
     def schedule_fixture(self):
         config = {'iterations': 30000, 'sh_schedule': {'initial_degree': 0, 'max_degree': 3, 'increase_every_iterations': 1000},
@@ -163,13 +165,19 @@ class PrefixRecoveryTests(unittest.TestCase):
                 'source_protocol_sha256': run.sha256(self.root / 'protocol.json'), 'checkpoint_hash': recovery.CHECKPOINT_HASH,
                 'arms_started': False, 'moment_magnitude_automatically_admitted': False, 'effective_intervention_available': True}
         file = self.put(self.root / 'gate0.json', gate)
-        with patch.object(run, 'verify_inputs'), patch.object(recovery, 'verify_binding'),                 patch.object(run, 'checkpoint', return_value={'checkpoint_hash': recovery.CHECKPOINT_HASH}),                 patch.object(run.analyze, 'gate0', side_effect=lambda folder, rank: owners[str(rank)]) as audit:
+        source['gate0_owners'] = owners
+        with patch.object(run, 'verify_inputs') as inputs, patch.object(recovery, 'verify_binding') as binding, \
+                patch.object(run, 'checkpoint', side_effect=AssertionError('duplicate checkpoint scan')), \
+                patch.object(run.analyze, 'gate0', side_effect=AssertionError('duplicate Gate 0 analysis')):
             with self.assertRaises(ValueError):
                 run.prepare_arms(self.root, p, run.sha256(file), False)
             run.prepare_arms(self.root, p, run.sha256(file), True)
+            inputs.assert_called_once_with(p)
+            binding.assert_called_once_with(self.root, p)
             arms = run.verify_arms(self.root, p, run.sha256(self.root / 'arms-protocol.json'))
             self.assertEqual(arms['prefix_proof']['kind'], 'recovered_payload')
-            self.assertTrue(all(c.args[0] == recovery.SOURCE / 'prefix' for c in audit.call_args_list))
+            self.assertEqual(binding.call_count, 2)
+            inputs.assert_called_once_with(p)
             self.assertFalse((self.root / 'prefix/complete.json').exists())
             self.assertFalse((self.root / 'A').exists())
             self.put(file, {**gate, 'effective_intervention_available': False})
@@ -197,6 +205,27 @@ class PrefixRecoveryTests(unittest.TestCase):
         target.write_text('tampered')
         with self.assertRaises(ValueError):
             recovery.verify_copies(destination, {'copy_files': copies})
+
+    def test_source_scan_hashes_payload_once_and_rejects_changes(self):
+        source = self.root / 'source'
+        protocol = self.put(source / 'protocol.json', {'original': True})
+        terminal = self.put(source / 'prefix-execution.json', {'status': 'failed'})
+        payload = self.put(source / 'model.bin', {'value': 1})
+        files = (protocol, terminal, payload)
+        hashes = {str(f.relative_to(self.root)): run.sha256(f) for f in files}
+        copies = {'model.bin': {'source': 'source/model.bin', 'sha256': hashes['source/model.bin'], 'bytes': payload.stat().st_size}}
+        binding = {'bound_files': hashes, 'copy_files': copies, 'original_failed_terminal_sha256': run.sha256(terminal)}
+        with patch.object(recovery, 'SOURCE', source), patch.object(recovery, 'PROJECT', self.root), \
+                patch.object(recovery, 'SOURCE_SHA', run.sha256(protocol)), \
+                patch.object(recovery, 'source_paths', return_value=files), \
+                patch.object(recovery, 'lineage_manifest', return_value=copies) as lineage, \
+                patch.object(recovery, 'sha256', wraps=run.sha256) as digest:
+            self.assertEqual(recovery.verify_source(binding), {'original': True})
+            lineage.assert_called_once_with(hashes)
+            self.assertEqual(sum(call.args[0] == payload for call in digest.call_args_list), 1)
+            self.put(payload, {'value': 2})
+            with self.assertRaisesRegex(ValueError, 'bound source'):
+                recovery.verify_source(binding)
 
     def test_contract_rejects_wrong_source_or_nonzero_budget(self):
         source = {'root': str(recovery.SOURCE), 'commit': recovery.SOURCE_COMMIT, 'protocol_sha256': recovery.SOURCE_SHA,
@@ -247,6 +276,7 @@ class PrefixRecoveryTests(unittest.TestCase):
             inputs.assert_called_once_with(p)
             source_check.assert_called_once_with(source)
             proof = recovery.verify_binding(destination, p)
+            inputs.assert_called_once_with(p)
             self.assertEqual(proof['status'], 'prefix_payload_rebound')
             self.assertIsNone(proof['original_child_exit_code'])
             self.assertEqual(input_file.read_bytes(), before)

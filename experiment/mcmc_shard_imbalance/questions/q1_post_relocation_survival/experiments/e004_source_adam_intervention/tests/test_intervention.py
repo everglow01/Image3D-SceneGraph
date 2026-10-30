@@ -304,8 +304,7 @@ class InterventionTests(unittest.TestCase):
         stack.enter_context(patch.object(run.analyze, 'compare', return_value={'status': 'paired_short_window_measured'}))
         if phase == 'arms':
             def bind(root, case, p, resources):
-                for rank in (0, 1):
-                    self.put(root / case / f'worker-rank-{rank}.json', {'noise_schedule': []})
+                return {str(rank): {'noise_schedule': [], 'analysis': {'case': case, 'rank': rank}} for rank in (0, 1)}
             stack.enter_context(patch.object(run, 'bind_complete', side_effect=bind))
         self.addCleanup(stack.close)
         return root, args, p, order
@@ -335,6 +334,32 @@ class InterventionTests(unittest.TestCase):
         run.run_phase(args, p, 'arms')
         self.assertEqual(order, ['A', 'B'])
         self.assertEqual(run.read(root / 'arms-execution.json')['exit_code'], 0)
+        run.verify_inputs.assert_called_once_with(p)
+        run.verify_arms.assert_called_once_with(root, p, args.arms_protocol_sha256)
+        run.verify_complete.assert_not_called()
+        self.assertEqual(run.bind_complete.call_count, 2)
+        run.analyze.compare.assert_called_once_with(root, prefix=root / 'prefix',
+            arms={case: {str(rank): {'case': case, 'rank': rank} for rank in (0, 1)} for case in ('A', 'B')})
+
+    def test_failed_arm_acceptance_stops_before_next_arm(self):
+        root, args, p, order = self.run_fixture('arms')
+        run.bind_complete.side_effect = ValueError('invalid first arm evidence')
+        with self.assertRaisesRegex(ValueError, 'invalid first arm evidence'):
+            run.run_phase(args, p, 'arms')
+        self.assertEqual(order, ['A'])
+        self.assertFalse((root / 'B').exists())
+        run.analyze.compare.assert_not_called()
+
+    def test_workers_keep_live_checks_without_shared_admission(self):
+        tree = ast.parse(Path(run.__file__).read_text())
+        worker = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'worker')
+        calls = {ast.unparse(n.func) for n in ast.walk(worker) if isinstance(n, ast.Call)}
+        self.assertFalse({'verify_inputs', 'verify_arms', 'verify_complete'} & calls)
+        self.assertTrue({'protocol_at', 'InterventionProbe', 'probe.installed', 'trainer.train_gaussians'} <= calls)
+        probe_tree = ast.parse(Path(probe.__file__).read_text())
+        initialize = next(n for n in ast.walk(probe_tree) if isinstance(n, ast.FunctionDef) and n.name == 'initialize_arm')
+        live_calls = {ast.unparse(n.func) for n in ast.walk(initialize) if isinstance(n, ast.Call)}
+        self.assertTrue({'self.validate_live', 'self.restore_source_moments'} <= live_calls)
 
     def test_host_and_authorization_checked_before_actions(self):
         with patch.object(sys, 'argv', ['run', '--prefix', '--output-root', str(self.folder)]), patch.object(run.socket, 'gethostname', return_value='not-authorized-host'):

@@ -600,6 +600,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 ## 17. Current Decision Log
 
+- 2026-10-30，按用户要求删除E004已定位的重复校验：重验证归属独立执行入口，worker只保留实际加载/干预保护，证明读取不递归重验来源；每臂分析结果供最终比较复用，收尾不再扫描历史。禁止以“更安全”为由恢复这些重复调用，不新增验证缓存或证明流程。既有实验结果保留，本次不启动新实验。
+
 - 2026-10-29，Q1-E004完成零训练恢复和20步来源两矩干预：研究从观察关联推进到本公共前缀的短窗受控效应，后续不再重复同参数家族不对称核查。先消除已定位的嵌套全量校验，再考虑另授权的长期验证；本轮不追加实验、不改生产默认。结果见[单份主记录](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json)。
 
 - 2026-10-29，Q1-E004修复三接口并采用独立零训练恢复，复用已完成公共前缀，不重训、不改写原失败；A/B仍须另授权。按新版§15，CPU前置按相关代码而非提交号失效，收尾不重复实现/前置校验，目录测试只核索引、不写死运行结论。实现与执行步骤见[E004 §11](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md#11-三接口修复与零训练重新绑定2026-10-29仅本地实现)。

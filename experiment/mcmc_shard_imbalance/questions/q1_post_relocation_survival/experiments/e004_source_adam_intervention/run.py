@@ -232,8 +232,9 @@ def verify_worker(root, case, rank, p):
             for item in row.values():
                 if item['after'] != item['expected_retained' if case == 'B' else 'before']:
                     raise ValueError('wrong source moments')
-        analyze.trajectory(prefix_stage(root, p), stage, rank, CONTRACT['event'], CONTRACT['end'], CONTRACT['owner_size'])
-        analyze.first_step(stage, rank)
+        w['analysis'] = {'survival': analyze.trajectory(prefix_stage(root, p), stage, rank,
+                            CONTRACT['event'], CONTRACT['end'], CONTRACT['owner_size']),
+                         'first_step': analyze.first_step(stage, rank)}
     return w
 
 
@@ -269,13 +270,17 @@ def verify_complete(root, case):
 
 
 def verified_gate0(root, p):
-    prefix_proof(root, p)
+    # The caller has already verified the prefix proof and its files.
     gate = read(root / 'gate0.json')
-    owners = {str(r): analyze.gate0(prefix_stage(root, p), r) for r in (0, 1)}
-    meta = checkpoint(root, p)
+    if 'prefix_recovery' in p:
+        source = p['prefix_recovery']['source']
+        owners, checkpoint_hash = source['gate0_owners'], source['checkpoint_hash']
+    else:
+        owners = {str(r): analyze.gate0(prefix_stage(root, p), r) for r in (0, 1)}
+        checkpoint_hash = checkpoint(root, p)['checkpoint_hash']
     if (gate['status'] != 'structural_verified_review_required' or canonical_report(gate['owners']) != canonical_report(owners)
             or gate['source_protocol_sha256'] != sha256(root / 'protocol.json')
-            or gate['checkpoint_hash'] != meta['checkpoint_hash'] or gate['arms_started']
+            or gate['checkpoint_hash'] != checkpoint_hash or gate['arms_started']
             or gate['moment_magnitude_automatically_admitted']
             or gate['effective_intervention_available'] != any(x['effective_intervention_available'] for x in owners.values())):
         raise ValueError('Gate 0 does not match the completed prefix evidence')
@@ -286,11 +291,12 @@ def prepare_arms(root, p, digest, reviewed):
     if not reviewed or not digest or sha256(root / 'gate0.json') != digest:
         raise ValueError('explicit reviewed Gate 0 SHA required')
     verify_inputs(p)
+    proof = prefix_proof(root, p)
     gate = verified_gate0(root, p)
     if not gate['effective_intervention_available']:
         raise ValueError('Gate 0 lacks an effective validated intervention')
     write_new(root / 'arms-protocol.json', {'profile': PROFILE, 'prefix_protocol_sha256': sha256(root / 'protocol.json'),
-        'gate0_sha256': digest, 'prefix_proof': prefix_proof(root, p),
+        'gate0_sha256': digest, 'prefix_proof': proof,
         'checkpoint_hash': gate['checkpoint_hash'], 'review_acknowledged': True, 'arms': ['A', 'B'],
         'implementation_commit': p['implementation_commit'], 'code_sha256': p['code_sha256']})
 
@@ -305,7 +311,7 @@ def verify_arms(root, p, digest):
             or a['prefix_proof'] != prefix_proof(root, p)
             or a['implementation_commit'] != p['implementation_commit'] or a['code_sha256'] != p['code_sha256']):
         raise ValueError('arms review/source bindings changed')
-    gate = verified_gate0(root, p)
+    gate = read(root / 'gate0.json')
     if gate['checkpoint_hash'] != a['checkpoint_hash'] or not gate['effective_intervention_available']:
         raise ValueError('common checkpoint or effective intervention changed')
     return a
@@ -319,13 +325,10 @@ def worker(local_rank, rank, world_size, args):
     if (world_size, local_rank) != (2, rank):
         raise ValueError('two local ranks required')
     p = protocol_at(args.output_root, args.protocol_sha256)
-    verify_inputs(p)
     if args.case == 'prefix' and 'prefix_recovery' in p:
         raise ValueError('recovered prefix cannot be trained again')
-    if args.case != 'prefix':
-        verify_arms(args.output_root, p, args.arms_protocol_sha256)
-        if args.case == 'B':
-            verify_complete(args.output_root, 'A')
+    # Parent admission/order and the inherited lease cover shared inputs.
+    # The probe still validates this rank's loaded state and moment intervention.
     stage = args.output_root / args.case
     base.prime_package(p, rank)
     write_new(stage / f'initialization-rank-{rank}.json',
@@ -421,6 +424,7 @@ def run_phase(args, p, phase):
                 base.connected.parent_metadata(p['source_identity']['native'], root / 'training')
             else:
                 verify_arms(root, p, args.arms_protocol_sha256)
+            completed = {}
             for case in (('prefix',) if phase == 'prefix' else ('A', 'B')):
                 require_idle_gpu()
                 subprocess.run(['nvidia-smi', '-L'], check=True)
@@ -433,8 +437,7 @@ def run_phase(args, p, phase):
                 if phase == 'arms':
                     command += ['--arms-protocol-sha256', args.arms_protocol_sha256]
                 base.legacy.run_stage(stage, 'case', command, cwd=PROJECT, monitor=monitor, pass_fds=(lease.fileno(),), host_group=None)
-                bind_complete(root, case, p, {'per_rank_peak_reserved_bytes': monitor.peaks})
-                verify_complete(root, case)
+                completed[case] = bind_complete(root, case, p, {'per_rank_peak_reserved_bytes': monitor.peaks})
             if phase == 'prefix':
                 owners = {str(r): analyze.gate0(root / 'prefix', r) for r in (0, 1)}
                 report = {'status': 'structural_verified_review_required', 'owners': owners,
@@ -443,13 +446,12 @@ def run_phase(args, p, phase):
                     'source_protocol_sha256': args.protocol_sha256, 'moment_magnitude_automatically_admitted': False}
                 report_name = 'gate0.json'
             else:
-                report, report_name = analyze.compare(root, prefix=prefix_stage(root, p)), 'comparison.json'
+                arms = {case: {rank: w['analysis'] for rank, w in workers.items()} for case, workers in completed.items()}
+                report, report_name = analyze.compare(root, prefix=prefix_stage(root, p), arms=arms), 'comparison.json'
                 for rank in (0, 1):
-                    if read(root / 'A' / f'worker-rank-{rank}.json')['noise_schedule'] != read(root / 'B' / f'worker-rank-{rank}.json')['noise_schedule']:
+                    if completed['A'][str(rank)]['noise_schedule'] != completed['B'][str(rank)]['noise_schedule']:
                         raise ValueError('arm native RNG/noise draw schedule differs')
                 report['arms_protocol_sha256'] = args.arms_protocol_sha256
-                verify_arms(root, p, args.arms_protocol_sha256)
-            verify_inputs(p)
             reserve(root, len(json.dumps(report).encode()) + 4096)
             write_new(root / report_name, report)
             terminal.update(status='completed', exit_code=0, report=report_name, report_sha256=sha256(root / report_name))

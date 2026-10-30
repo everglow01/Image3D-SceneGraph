@@ -295,14 +295,13 @@ def trajectory(prefix, stage, rank, event, end, count):
                 for t in (event, *range(event + 1, end + 1), end + 1)} for i, name in enumerate(('T', 'S', 'U'))}}
 
 
-def compare(root, event=12100, end=12120, count=1500000, *, prefix=None):
+def compare(root, event=12100, end=12120, count=1500000, *, prefix=None, arms=None):
     import numpy as np
     prefix = root / 'prefix' if prefix is None else prefix
-    arms, mechanism = {}, {}
-    for case in ('A', 'B'):
-        stage = root / case
-        arms[case] = {str(rank): {'survival': trajectory(prefix, stage, rank, event, end, count),
-                                  'first_step': first_step(stage, rank)} for rank in (0, 1)}
+    mechanism = {}
+    if arms is None:
+        arms = {case: {str(rank): {'survival': trajectory(prefix, root / case, rank, event, end, count),
+                                   'first_step': first_step(root / case, rank)} for rank in (0, 1)} for case in ('A', 'B')}
     for rank in (0, 1):
         workers = [read(root / case / f'worker-rank-{rank}.json') for case in ('A', 'B')]
         if workers[0]['schedule'] != workers[1]['schedule'] or workers[0]['restored_digest'] != workers[1]['restored_digest']:

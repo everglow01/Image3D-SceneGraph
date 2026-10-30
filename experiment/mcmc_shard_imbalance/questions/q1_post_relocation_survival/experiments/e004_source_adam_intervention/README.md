@@ -150,6 +150,14 @@
 
 恢复入口校验实现、前置和来源一次；复制后核源文件未变及目标完整性，不在收尾重复实现/前置校验。完成时写新的gate0.json与recovery-complete.json，明确`original_suite_status=failed`、`original_child_exit_code=null`、新训练/渲染/反向/optimizer/strategy均0。新恢复成功不追认旧任务成功，不创建假的prefix/complete.json或case.exit.json。
 
+### 校验职责（2026-10-30，本地精简）
+
+准备与执行是独立入口，各自进行一次共同输入校验。恢复证明读取不再回调全量来源验证；同一入口复用已取得的证明、来源文件摘要及恢复时重建的Gate 0，不再次扫描同一批checkpoint或重算Gate 0。
+
+worker只保留协议身份、继承的GPU lease、原生加载和本rank实际恢复状态/S两矩干预保护，不重新验证整套历史来源或A臂产物。父进程保证A验收成功后才运行B；每臂首步/轨迹分析只做一次，最终比较直接复用结果。收尾不再重验历史输入，也不在刚写完complete后立即再全量读回。
+
+必要的复制后完整性、实际干预白名单、Train边界、失败停止和资源限制不变；没有新增缓存、持久化证明或跳过校验开关。旧64文件仍按原Git对象核对历史来源，但当前测试文件不再要求保持历史版本；实际训练核心与probe约束不变。
+
 ### 后续A/B边界
 
 正常prefix仍须原native_complete证明；恢复来源须独立recovered_payload证明，不能混用。未来arms协议绑定证明类型、路径和SHA，并仍要求用户审阅新Gate 0 SHA和两臂独立授权。对恢复根，即使传prefix授权也直接拒绝重新训练。本次恢复任务不会准备或启动A/B。
