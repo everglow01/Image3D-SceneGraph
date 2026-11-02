@@ -45,6 +45,8 @@ See [codex.md](codex.md) for the working plan, milestones, and development rules
 
 ## Environment
 
+从Ubuntu本机迁移到Windows开发：[Windows + WSL2迁移手册](docs/windows-wsl2-migration.md)，包含D盘安装、工作区备份、依赖重建和远端访问。
+
 Python dependencies are managed with `uv`.
 
 ```bash

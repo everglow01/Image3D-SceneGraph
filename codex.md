@@ -567,14 +567,16 @@ Every stage retains mixed/failed outcomes, fixed-input reproducibility, runtime/
 
 ## 15. Development Rules
 
-1. Keep changes surgical.
-2. Do not add abstractions before at least two call sites need them.
-3. Every new model integration must produce a stable internal format.
-4. Every long-running algorithm step must write logs and intermediate artifacts.
-5. Frontend should read manifests and assets; it should not know model internals.
-6. Prefer measurable improvements over visual-only claims.
-7. Manage Python dependencies with `uv`; add heavy dependencies only when the related code lands.
-8. Update this file when the project direction changes.
+1. 默认交付满足当前目标的最简单充分方案，局部修改、保留用户已有工作。小歧义按常规默认处理；只有会实质改变范围、正确性、授权或成本时才询问。
+2. 新增抽象、配置、状态、哈希、快照、重试或恢复流程必须对应当前需求或具体已知故障。已有实现、测试和文档不构成继续保留机制的独立理由；简化时一并删除失去用途的配套内容，不新建“简化框架”。
+3. 新模型集成仍须产生稳定内部格式；前端只消费 manifest 和资产，不依赖模型内部实现。Python 使用 `uv`，重型依赖随实际功能引入，不提前建设生产基础设施。
+4. 长任务保留定位故障、恢复和回答当前问题所需的日志及中间产物，不要求每个阶段保存全量快照。执行失败、产物有效性和研究结论分别记录；已有产物可验真复用时，不因收尾失败默认重训，不改写原失败记录。
+5. 用能支持当前决定的最小真实检查验证行为与易回归边界，不用目录测试硬编码每次历史实验的状态或结论。必要检查通过即完成；仅新修改、实际失败或影响当前决定的明确疑点触发追加验证。纯规则/文档改动检查差异、链接或格式即可，不启动训练或全套回归。
+6. 实验先简要确定问题、基线、指标、判定条件和单次/总预算；每个新增实验说明它会改变哪个判断。范围与结论匹配，达到判定条件或预算即停止，不自动扩展场景、seed、实验臂或训练时长。优先可测量改进，但不把每个探索任务升级为生产推广验收。
+7. 结果只维护一份主记录，写清关键结果、当前决定、必要限制和证据位置；索引只链接或短摘要，不重复日志、哈希和免责声明。不默认新增 JSON 副本、状态字段或“未证明事项”清单；已有程序消费的契约和必要原始证据保留。
+8. 提交号用于来源追溯；新增或重构前置校验时，按相关实现、配置和输入的变化决定是否失效，不因无关文档提交或无关测试变化默认重跑。同一操作复用已验证结果，独立入口与实际数据变化仍作必要检查；现有绑定机制的变更须作为明确代码修改，不直接绕过。
+9. GPU/远端操作遵守已明确的范围和预算，原范围内不重复索要授权，也不自动扩大授权。安全、资源互斥、防数据丢失、Train/Validation/Test 隔离及事实准确性保留；“轻量”不等于减少支撑结论所需的证据。
+10. 仅项目方向或有效约束变化时更新本计划；日常实验结果进入所属实验记录。历史决策按任务查阅，不自动叠加为永久门禁。用户要求改变现行契约时明确修改相应条款，而不是继续增设例外、审批和恢复层。汇报先给结论，相关边界集中说明一次，不让本次目标之外的未知阻塞交付。
 
 ---
 
@@ -607,6 +609,8 @@ Stage 2 must not introduce speculative production database, object storage, rete
 - 2026-10-30，按用户要求删除E004已定位的重复校验：重验证归属独立执行入口，worker只保留实际加载/干预保护，证明读取不递归重验来源；每臂分析结果供最终比较复用，收尾不再扫描历史。禁止以“更安全”为由恢复这些重复调用，不新增验证缓存或证明流程。既有实验结果保留，本次不启动新实验。
 
 - 2026-10-29，Q1-E004完成零训练恢复和20步来源两矩干预：研究从观察关联推进到本公共前缀的短窗受控效应，后续不再重复同参数家族不对称核查。先消除已定位的嵌套全量校验，再考虑另授权的长期验证；本轮不追加实验、不改生产默认。结果见[单份主记录](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json)。
+
+- 2026-10-29，按用户要求收紧过保护与过工程化倾向：§15明确代码/设计的最小充分方案、实验与验证停止条件、单份结果归档及执行/产物/结论分离；历史决策按需读取，不自动产生新门禁。本次只改规则，不改实验实现、既有证据或授权范围。
 
 - 2026-10-29，Q1-E004修复三接口并采用独立零训练恢复，复用已完成公共前缀，不重训、不改写原失败；A/B仍须另授权。按新版§15，CPU前置按相关代码而非提交号失效，收尾不重复实现/前置校验，目录测试只核索引、不写死运行结论。实现与执行步骤见[E004 §11](experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/README.md#11-三接口修复与零训练重新绑定2026-10-29仅本地实现)。
 
@@ -664,6 +668,13 @@ Stage 2 must not introduce speculative production database, object storage, rete
 
 - 2026-10-13，按用户“先验证双卡增密统计缩放、不要影响正在跑的实验”，只读复核Project点数链并离线验证既有真实双卡小样本。Project初始化515603→尺度预剪后515314，峰值588052；四个恢复剪枝步骤全局合计净减327287（含同一步普通增密/剪枝，不能当恢复剪枝精确删除数），其他步骤合计净增294917，14900至30000固定482944，SOR仅删1494、final-fit保持481450。源码链确认loss/world_size与gsplat交换后local n_cameras=1组合使双卡增密统计保留1/2尺度；旧full_reference也除2，未测单/双卡阈值尺度不变性。下载20260930既有SH0/非零SH3各两rank约210KiB诊断梯度快照，SHA与远端一致，本地只用标准库受限解码为标量数组、未导入Torch/执行模型。按实际signed梯度复算已保存grad2d，SH0/SH3最大绝对误差7.0408769e-10/8.6948858e-10，支持local n_cameras=1及相对未缩放逐视角参考的半尺度。参考用loss导数线性关系还原，并非新跑单卡渲染；原快照阈值两种口径均5点通过，整体诊断loss乘1/8的离线边界探针才是当前4/参考5，不能冒充apartment实际少分裂数。独立真实单/双卡重渲染与场景质量影响仍未测，不应用修复、不改参数优化或MCMC冻结核心。证据outputs/analysis/project-point-count-audit-20261013-v1/assessment.json及project-densification-scale-check-20261013-v1/{verify_snapshot.py,sh0-recheck.json,sh3-recheck.json,assessment.json}。07:14Z远端ee8c98b/tracked干净，training core857b306c…、协议5bbb1d74…和所有绑定文件/五臂配置哈希均通过；基线unit active/running但仍在10k Validation，阶段约5557秒，任务内存7630913536bytes/匿名7417679872bytes，memory.high累计10170543次、max/oom/oom_kill均0。此状态不等于训练正常推进，先前完工估算失效；未停止/重启、放宽预算或提交并行GPU任务，后续须据既有资源日志诊断，不将高GPU利用率当进度。此提交仅本地新增验证记录，不同步运行中远端，不夹带原导航日志或个人草稿。
 
+- 2026-10-11，用户明确授权在i-94B8D131指定仓库将已验收候选替换Project Job 20261010_093626_5b698800线上导航，允许短暂停止/恢复后端、保留旧导航与manifest并失败回滚，MCMC不动。05:26:37Z核对无活动Job、b8b6b19、旧attempt4/3及备份路径未占用后执行。持维护flock/.once和worker lease，既有JobStore校验候选源模型/配置/划分与SHA，完整复制到attempt-005/workspace，旧navigation原子归档到attempt-005/previous-navigation、manifest字节备份为manifest-before.json，再调用既有原子发布/manifest写入/发布校验。05:27:11.020834Z成功上线，操作明确adopt_verified_candidate_without_rerendering，并非新训练或伪造一次重渲染；后端同秒恢复active，MainPID3108228。线上8081验证Project attempt5/available，净空策略center_mask_once_physical_proxy_unexpanded、31762三角/395832bytes，collision SHA ea763c71…、navigation SHA521772d1…、diagnostics SHAd4a807df…，SfM诊断与导航三角色均200且下载SHA匹配。线上真实GLB/WASD自动验收5项通过；这是控制器/物理验收，不宣称全屋人工走通。75个测试前保护文件中仅Project manifest及3个导航角色按授权变化，其他71项全部未变；旧导航三角色与旧manifest备份SHA匹配原值。MCMC仍available attempt3、GLB e40cf82b…，其全部38项保护文件不变，高斯模型未改、无重训/Test RGB、无其他服务变更。发布/验收记录在远端outputs/analysis/navigation-doorway-publish-20261011-v1/{publication.json,verification.json,walk-acceptance.log}及Job attempt-005/publication.json；本轮只更新本地记录，远端源码仍b8b6b19。页面需强制刷新后重新进入Project漫游才能读取更新的稳定URL资产。
+
+- 2026-10-11，用户要求“上线新的导航策略”。选择仅发布已验收的Project候选，MCMC覆盖失败候选不发布。05:20 UTC核对远端b8b6b19/无活动Job/服务active；既有JobStore校验确认Project候选collision SHA ea763c71…、navigation SHA521772d1…、diagnostics SHAd4a807df…与目标Job源模型/配置/划分绑定正确，当前旧导航也有效，attempt-005尚不存在。拟在维护期持worker lease，把旧navigation归档为attempt-005/previous-navigation并备份manifest，再采用既有原子发布/完整校验上线候选，失败恢复，操作记录明确adopt_verified_candidate_without_rerendering。但写入命令被权限层拒绝，要求用户明确点名Job 20261010_093626_5b698800及替换其现有线上导航，未执行或绕过。拒绝后只读确认后端仍active、Project/MCMC仍available attempt4/3且GLB原SHA356b4eef…/e40cf82b…未变；发布目录和attempt-005均未创建。需精确发布授权，不重复生成候选、不改模型、不处理MCMC失败候选。
+
+- 2026-10-11，用户手动pull后继续既定独立候选测试，05:00 UTC核实i-94B8D131已为b8b6b19、tracked干净、无活动Job；未再次fetch/pull。远端128项Python/166项前端回归与构建通过。候选生成任务20261011-130346-c526持outputs/.gpu.lock/任务flock/.once，两个旧Job原模型串行生成到outputs/analysis/navigation-doorway-test-20261011-v1，不发布到Job；只读验收20261011-130421-1b0a。结果为Project候选成功、MCMC覆盖门禁失败，整体不是全通过：Project 31762三角/395832bytes/77.551s，显式采集候选2787、接受1392、有限新增地板303格，实际GLB/WASD及合成双向穿门/不穿墙5项验收通过；MCMC候选最大中心可达分量470/2808相机=16.7379%，低于冻结20%门槛，未生成合格导航JSON/GLB，未绕过门禁或重试。只读重算候选mask与生成时PNG逐像素一致；与旧代理再次计入胶囊半径后的保守栅格估计比较，Project有效中心区域1917→6457格（约3.37倍）、11分量→1、可纳入相机710→1909；2366个短Train相邻对中同分量估计409→1472，新增1063/丢失0。MCMC对应662→1409格、相机294→470、连通相邻对192→386，但不等于发布门槛通过。另在Project新边界内1417条短直线Train路径中均匀抽64条，以真实新旧碰撞网格/完整多边形边界/连续净空下界检验，旧16条清通、新62条，新增46/丢失0；该选择依赖新边界，不是全屋无偏覆盖率，也没有语义房间标签或截图精确相机，不能声称每个具体门口已人工验收。项目实际候选WASD测试与真实路径几何检查分开记录，不把合成门口等同真实门口。75个线上原模型/导航/manifest/几何等保护文件SHA全部未变，两个线上Job仍done/available（attempt4/3）、后端200、GPU空闲。本轮无重训/Test RGB/服务重启/线上资产替换；保留b8b6b19远端版本。候选诊断、路径明细和完整性报告在上述远端目录assessment.json/project/route-clearance.json等；本地归档outputs/analysis/navigation-doorway-remote-20261011-v1。本条仅本地执行记录，尚未提交。
+
+- 2026-10-11，用户已明确点名授权将b8b6b19经Git同步i-94B8D131的/usr/local/3dgs_new/Image3D-SceneGraph，并在独立目录测试两个现有Job候选导航，保留线上资产。本轮阻塞从权限转为网络：04:53 UTC现场远端仍998dba5、tracked干净、无活动Job、两L2空闲，候选目录尚不存在。原GitHub HTTPS获取两次均Connection refused（15.3s/17.0s），一次有界重试没有改HEAD；备用GitHub官方SSH443可达但缺少可信主机密钥，严格校验拒绝，远端.ssh只有authorized_keys、没有既有Git客户端密钥，未关闭验证或植入私钥。远端无代理环境/配置，github.com解析20.205.243.166；本机独立DNS检查也报Temporary failure in name resolution。没有换源码包/文件API上传代码、没有更改DNS/防火墙/SSH配置或停止服务；远端回归及候选生成均未执行。本条只记录已获授权和网络阻塞，不需要用户再次重复授权，待Git网络恢复后才可继续既定测试。
 
 - 2026-10-11，用户要求“上传进行测试”，并强调当前漫游过严、明显可走区域被阻。本轮接续门口bug修复，通过Git同步既有i-94B8D131的/usr/local/3dgs_new/Image3D-SceneGraph，先跑远端回归，再用两个已完成Job的原模型生成独立候选导航作实际可达性/通道与WASD测试；不覆盖当前available导航、不改变模型、不重训、不使用Test RGB。04:47 UTC核对远端998dba5、tracked干净、两Job均available且无活动任务，两L2各3MiB空闲、MemAvailable约20.9GB、磁盘约207GB；两Job均有显式capture_metadata。候选在outputs/analysis/navigation-doorway-test-20261011-v1，持既有GPU文件租约串行执行，不开旁路worker/新业务端口；记录原导航/模型与候选的范围、通道接受/拒绝、实际控制器表现。测试不只看available或出生点短移，不为扩大范围直接清空障碍或放宽所有门禁。实际结果后置记录，当前尚无真实门口修复通过结论。首次包含远端同步的组合命令在执行前被权限层拒绝，要求本轮明确点名主机和绝对项目路径；已核对本地仍998dba5/未暂存，未产生远端写入或测试任务，没有更换工具/通道绕过。仅继续独立的本地提交与GitHub推送准备，GPU主机同步和实际候选测试等待精确授权。
 
