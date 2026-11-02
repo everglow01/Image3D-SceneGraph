@@ -1,5 +1,7 @@
 # 云端 Gaussian 渲染合同
 
+> **2026-10-30 临时停用TURN，8082让给同事训练使用。** 按用户明确授权，`i-94B8D131`上的`image3d-turn.service`已停止、取消开机启动并持久mask；这是可恢复停用，不是卸载。2026-10-30 11:08:52 UTC核验TCP/UDP 8082无监听，`image3d-cloud.service`仍active且PID3108228未变，未停止其他训练任务。原unit完整保存在`/etc/systemd/system/image3d-turn.service.disabled-20261030T1106Z`（SHA256 `fe1d2799899223f3ab59857e3ffe1bc3a27fb8afebd196818d7470d4cb6001b7`），程序和凭据未删除。**等待用户通知后才恢复**：先确认同事已释放8082，再解除mask、恢复原unit、reload并enable/start；不要仅unmask后直接启动，也不要自动恢复。下文TURN部署与验收描述为历史状态，停用期间不表示云端WebRTC连接可用。
+
 2026-09-26 本地编辑P4补充：产品增加实验性本地编辑入口，复用Spark、源绑定CPU文档与导出，不创建云渲染／ICE／offer。云端在途操作或活跃会话须用户先明确关闭，才允许切模型／本地；不后台抢占，不改旧云协议和部署默认。代码与静态检查完成，回归／真实浏览器／GPU未运行，未push/pull/部署。见 [本地P4](gaussian-local-editor-p4.md)。
 
 2026-09-24 本地编辑P3补充：独立前端组件接入P2授权／保存／CPU导出，不创建云渲染或媒体连接，不抢占云会话；历史版本mask读取仍需本地单文档授权，查看不写当前revision。仅代码与静态检查，新增回归未运行，无push/pull/部署或服务重启，旧云安全门禁不变。见 [本地P3](gaussian-local-editor-p3.md)。

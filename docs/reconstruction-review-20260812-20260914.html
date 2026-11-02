@@ -1,0 +1,747 @@
+<!doctype html>
+<title>三维重建研发进展</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #e7ecf1; --paper: #ffffff; --ink: #202e3d; --sub: #4d6072;
+  --muted: #647688; --line: #d2dce5; --wash: #f2f6fa; --accent: #27577d;
+  --focus: #96712d; --shade: #00000030;
+  --body: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  --number: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #101a23; --paper: #182530; --ink: #e7edf2; --sub: #bbcbd8;
+    --muted: #a0b2c2; --line: #3a4c5d; --wash: #213341; --accent: #9dc4e4;
+    --focus: #edc57e; --shade: #00000070;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101a23; --paper: #182530; --ink: #e7edf2; --sub: #bbcbd8;
+  --muted: #a0b2c2; --line: #3a4c5d; --wash: #213341; --accent: #9dc4e4;
+  --focus: #edc57e; --shade: #00000070;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); overflow: hidden; }
+button, select { font: inherit; }
+button { color: var(--ink); cursor: pointer; }
+a { color: var(--accent); text-underline-offset: .18em; }
+button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.deck { height: 100%; padding: 16px 20px 66px; }
+.slide { height: 100%; max-width: 1580px; margin-inline: auto; background: var(--paper); padding: 26px 44px 18px; display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; gap: 18px; }
+.topline { display: flex; align-items: center; justify-content: space-between; gap: 20px; color: var(--muted); font-size: 12px; letter-spacing: .025em; }
+.chapter { color: var(--accent); font-weight: 700; }
+.heading { border-top: 2px solid var(--accent); padding-top: 17px; display: grid; gap: 10px; }
+h1, h2, h3, p, figure, blockquote { margin: 0; }
+h1, h2 { font-size: clamp(28px, 2.8vw, 41px); font-weight: 700; line-height: 1.3; letter-spacing: -.025em; text-wrap: balance; }
+h3 { font-size: 20px; font-weight: 700; line-height: 1.4; }
+p, li { font-size: 18px; line-height: 1.8; }
+.subtitle { color: var(--sub); font-size: 18px; max-width: 70em; line-height: 1.6; }
+.content { min-height: 0; display: grid; gap: 20px; align-content: start; }
+.columns { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.1fr); gap: 38px; align-items: start; }
+.columns.equal { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.prose { display: grid; gap: 19px; min-width: 0; }
+.prose section { display: grid; gap: 7px; }
+.prose p { color: var(--sub); }
+strong { color: var(--ink); font-weight: 700; }
+.label { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: .04em; }
+.evidence-box { background: var(--wash); padding: 20px 22px; display: grid; gap: 14px; min-width: 0; }
+.evidence-box h3 { font-size: 18px; }
+.caption, .caption p { font-size: 14px; color: var(--muted); line-height: 1.65; }
+.result { padding: 14px 0 0; border-top: 1px solid var(--line); color: var(--sub); font-size: 17px; line-height: 1.7; }
+.result strong { color: var(--accent); }
+.table-wrap { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-size: 17px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+th, td { padding: 12px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+th { color: var(--sub); font-size: 14px; font-weight: 600; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+.emphasis td { background: var(--wash); font-weight: 600; }
+.evidence-box .emphasis td { background: var(--paper); }
+.num { font-family: var(--number); font-size: .95em; white-space: nowrap; }
+.summary-table td { padding-block: 16px; }
+.summary-table td:first-child { width: 12%; font-weight: 700; color: var(--accent); }
+.summary-table td:nth-child(2) { width: 43%; }
+.summary-table td:nth-child(3) { width: 45%; }
+.summary-table small { display: block; color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 4px; }
+.compact { font-size: 16px; }
+.compact th, .compact td { padding: 9px 12px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; counter-reset: step; }
+.steps li { counter-increment: step; position: relative; padding-left: 33px; color: var(--sub); }
+.steps li::before { content: counter(step) "."; position: absolute; left: 0; color: var(--accent); font-family: var(--number); font-size: 16px; font-weight: 700; }
+.flow { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 18px; }
+.flow-step { border-top: 3px solid var(--accent); padding-top: 13px; position: relative; display: grid; align-content: start; gap: 9px; }
+.flow-step:not(:last-child)::after { content: "→"; position: absolute; top: -18px; right: -15px; color: var(--accent); background: var(--paper); font-size: 21px; }
+.flow-step h3 { font-size: 19px; }
+.flow-step p { color: var(--sub); font-size: 16px; line-height: 1.8; }
+.flow-step .output { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 9px; }
+.note-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 26px; }
+.note-grid section { display: grid; align-content: start; gap: 10px; }
+.note-grid p { font-size: 17px; color: var(--sub); }
+.mechanism { padding: 16px 18px; background: var(--wash); color: var(--sub); font-size: 17px; line-height: 1.8; }
+.formula { font-family: var(--number); color: var(--ink); font-size: 17px; padding-block: 6px; }
+.footer { border-top: 1px solid var(--line); padding-top: 10px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 18px; align-items: center; }
+.source-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.source-note strong { font-weight: 600; }
+.source-button { border: 1px solid var(--line); background: var(--paper); padding: 8px 12px; font-size: 12px; white-space: nowrap; }
+.source-button:hover { border-color: var(--accent); color: var(--accent); }
+.controls { position: fixed; bottom: 0; left: 0; right: 0; padding: 10px 20px calc(10px + env(safe-area-inset-bottom,0px)); display: flex; gap: 10px; align-items: center; background: var(--bg); }
+.controls button, .controls select { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 2px; min-height: 35px; padding: 6px 12px; font-size: 13px; }
+.controls button:disabled { opacity: .35; cursor: default; }
+.controls select { max-width: 380px; min-width: 0; flex: 1; }
+.page-count { font: 12px var(--number); color: var(--sub); margin-left: auto; white-space: nowrap; }
+.key-hint { font-size: 11px; color: var(--muted); }
+dialog { color: var(--ink); background: var(--paper); border: 1px solid var(--line); box-shadow: 0 20px 80px var(--shade); padding: 0; width: min(920px,calc(100% - 32px)); max-height: calc(100% - 40px); }
+dialog::backdrop { background: var(--shade); }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 24px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--paper); }
+.dialog-head h2 { font-size: 21px; }
+.dialog-head button { background: var(--wash); border: 1px solid var(--line); padding: 7px 13px; }
+.dialog-body { padding: 22px 24px; display: grid; gap: 15px; }
+.dialog-body p, .dialog-body li { font-size: 15px; line-height: 1.8; }
+.dialog-body blockquote { border-left: 3px solid var(--line); padding: 12px 16px; background: var(--wash); font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+.dialog-body code { font-family: var(--number); font-size: 12px; overflow-wrap: anywhere; }
+.dialog-body pre { background: var(--wash); padding: 16px; overflow-x: auto; margin: 0; font-size: 13px; line-height: 1.7; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (min-width: 1450px) and (min-height: 920px) {
+  .slide { padding: 36px 60px 25px; gap: 25px; }
+  p, li { font-size: 20px; }
+  table { font-size: 19px; }
+  .prose { gap: 26px; }
+}
+@media (max-height: 790px) and (min-width: 1001px) {
+  .deck { padding-top: 8px; }
+  .slide { padding: 16px 32px 12px; gap: 11px; }
+  h1, h2 { font-size: 29px; }
+  .heading { padding-top: 10px; gap: 6px; }
+  h3 { font-size: 18px; }
+  p, li, .subtitle { font-size: 16px; line-height: 1.65; }
+  .prose { gap: 14px; }
+  .content { gap: 14px; }
+  table { font-size: 15px; }
+  th, td, .summary-table td { padding: 9px 10px; }
+  .compact th, .compact td { padding: 7px 9px; }
+  .evidence-box { padding: 14px 16px; gap: 10px; }
+  .result, .mechanism { font-size: 15px; line-height: 1.65; }
+  .flow-step p, .note-grid p { font-size: 15px; }
+  .caption, .caption p { font-size: 12px; }
+}
+@media (max-width: 1000px), (max-height: 620px) {
+  .slide { overflow-y: auto; grid-template-rows: auto auto auto auto; align-content: start; }
+  .columns, .columns.equal { grid-template-columns: 1fr; gap: 22px; }
+  .flow { grid-template-columns: repeat(3,minmax(0,1fr)); row-gap: 24px; }
+  .flow-step:nth-child(3)::after { display: none; }
+  .note-grid { grid-template-columns: 1fr; gap: 20px; }
+  .key-hint { display: none; }
+}
+@media (max-width: 600px) {
+  .deck { padding: 0 0 64px; }
+  .slide { padding: 20px 18px; gap: 18px; }
+  .topline { font-size: 10px; }
+  h1, h2 { font-size: 27px; }
+  .subtitle, p, li { font-size: 16px; }
+  .flow { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .flow-step:nth-child(n)::after { display: none; }
+  .footer { grid-template-columns: 1fr; gap: 10px; }
+  .source-button { justify-self: start; }
+  .controls { padding-inline: 16px; gap: 5px; }
+  .controls button { padding-inline: 10px; }
+  .controls select { width: 100px; font-size: 12px; }
+  #fullscreen { display: none; }
+  table { font-size: 14px; }
+  th, td { padding: 9px; }
+  .summary-table { min-width: 650px; }
+}
+@media print {
+  @page { size: A4 landscape; margin: 0; }
+  html, body { height: auto; overflow: visible; }
+  body { background: var(--paper); }
+  .deck { height: auto; padding: 0; }
+  .slide, .slide[hidden] { display: grid !important; height: 210mm; max-width: none; padding: 12mm 14mm; break-after: page; gap: 12px; overflow: visible; grid-template-rows: auto auto 1fr auto; }
+  .columns, .columns.equal { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .flow { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .note-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  h1, h2 { font-size: 28px; }
+  p, li, .subtitle, table { font-size: 14px; }
+  .controls, .source-button, dialog { display: none; }
+}
+</style>
+
+<main class="deck" id="deck" aria-label="三维重建研发进展：2026年8月12日至9月14日">
+
+<section class="slide" aria-labelledby="s1">
+  <header class="topline"><span class="chapter">本月工作总结</span><span>Image3D-SceneGraph　2026.08.12—09.14</span></header>
+  <div class="heading"><h1 id="s1">三维场景重建：研究内容与阶段结果</h1><p class="subtitle">本期研究以室内图像与视频为对象，针对观测覆盖不足、相机估计异常及高斯表示冗余开展分阶段实验，并完成重建、分析和展示流程的工程集成。</p></div>
+  <div class="content">
+    <div class="table-wrap"><table class="summary-table"><thead><tr><th>工作方向</th><th>主要改动</th><th>已经取得的结果</th></tr></thead><tbody>
+      <tr><td>视频与几何</td><td>自适应选帧、相机注册扩展与局部补全；拆分特征、匹配和相机求解，定位几何异常。</td><td>首轮 v2 比历史 v1 多注册 <strong>781 个视角</strong>；27 个共同验证视角 PSNR 提高 <strong>1.172 dB</strong>。<small>同一视频的整链路比较；注册数 926 → 1,707，输入帧数也有增加。</small></td></tr>
+      <tr><td>模型精简</td><td>改进训练期剪枝，先等待有效结构恢复，再清除持续低贡献的高斯；增加保守离群点过滤。</td><td>房间对照中，高斯数量 <strong>95.3 万 → 64.1 万，减少 32.8%</strong>；自由空间薄雾高斯减少 <strong>87.8%</strong>。</td></tr>
+      <tr><td>画质改善</td><td>接入 MCMC 训练策略；根据低质量视角归因，增加选模后的固定结构补拟合。</td><td>MCMC 较 Project 提高 <strong>0.270 dB</strong>；补拟合分别提高 <strong>1.624 / 1.786 dB</strong>。<small>前者为同输入验证集对照；后者为原验证图加入训练后的拟合集结果。</small></td></tr>
+      <tr><td>工程与展示</td><td>多卡分片、图像按需转换、模型存储修复；增加输入、匹配、相机轨迹及四模型查看。</td><td>CPU 图像数据占用降至原来的 <strong>1/4</strong>；约百万高斯导入文件 <strong>1.15 GB → 230 MB</strong>。</td></tr>
+    </tbody></table></div>
+    <p class="caption">PSNR：渲染图与原图的像素误差指标，越高越好；SSIM：结构相似度，越接近 1 越好。不同数据集、不同评价视角的提升分别列出，不相加。</p>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>数据依据：</strong>视频 v2 运行记录、房间剪枝 A/B、Project/MCMC 同输入对照、final-fit 报告。后续页面展开方法与实验。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><h3>汇总数字的来源</h3><p>本页为各实验结果摘要，不是同一基线上的累计提升。高斯数量减少比例为 (953,200 − 641,026) / 953,200 ≈ 32.8%。</p><p>视频与剪枝：<a href="../codex.md">codex.md §17</a>，2026-08-25、2026-08-21 条目。</p><blockquote>27 byte-identical shared Validation views improved +1.172 dB/+0.01865 SSIM after full training.</blockquote><blockquote>baseline 26.7433/0.8459 (953,200 gaussians) vs fix 26.8944/0.8440 (641,026)</blockquote><p>补拟合：<a href="../outputs/analysis/train-validation-final-fit-v1/comparison.json">comparison.json</a>；资源修复：提交 <code>2d2d2d8</code>、<code>6f092e8</code>。本地没有保留的历史 outputs 需在原实验环境查阅。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="related-products" hidden>
+  <header class="topline"><span class="chapter">相关工作 / 全球同类产品</span><span>补充调研：2026.09.15</span></header>
+  <div class="heading"><h2 id="related-products">现有三维重建产品的输入条件与交付形态</h2><p class="subtitle">选取国内建模工具、传感器融合方案、桌面训练器及移动 / Web 产品作为参照。比较工作流程与公开技术，不以宣传示例推断质量排名。</p></div>
+  <div class="content">
+    <div class="table-wrap"><table class="compact"><thead><tr><th>产品 / 团队</th><th>输入与主要工作流</th><th>公开技术与输出</th><th>可借鉴的产品能力</th></tr></thead><tbody>
+      <tr><td><strong>BSD Studio</strong><br>中国 [P1]</td><td>照片、视频；官网索引另列点云、外部空三成果导入</td><td>列有 3DGS / 2DGS / MCMC；提供建模、查看和网格导出入口</td><td>素材导入、相机与点云查看、编辑及漫游的一体化流程</td></tr>
+      <tr><td><strong>XGRIDS LCC</strong><br>中国 [P2]</td><td>以扫描设备、LiDAR 与视觉融合数据为重要输入；建模后进入场景编辑</td><td>公开 SLAM + 3DGS 路线；支持 LCC、PLY、USD、3D Tiles 等交付</td><td>扫描到模型、标注、量测、编辑和发布的衔接</td></tr>
+      <tr><td><strong>Postshot / Jawset</strong><br>德国 [P3]</td><td>照片 / 视频；可从图像估计相机，也可导入已有相机和点云</td><td>公开高斯训练配置与 Splat MCMC 等选项；输出 PLY 等场景资产</td><td>训练参数、掩码、位姿与导出流程的可见控制</td></tr>
+      <tr><td><strong>Scaniverse / Niantic Spatial</strong><br>美国 [P4]</td><td>移动端扫描；2024 年版本已支持端侧高斯处理</td><td>Gaussian splat / mesh；公开 SPZ 高斯压缩交换格式</td><td>采集反馈、移动查看与轻量分享</td></tr>
+      <tr><td><strong>Polycam</strong><br>美国 [P5]</td><td>网页上传照片集或 MP4；官网工具页列 20—200 张图像</td><td>高斯场景查看与导出；另提供网格交付能力</td><td>采集指导、网页处理与多格式输出</td></tr>
+    </tbody></table></div>
+    <div class="columns equal">
+      <section class="prose"><h3>共同发展方向</h3><p>产品竞争已覆盖采集、重建、编辑和分发，而非只比较高斯训练器。输入质量指导、已有几何导入和结果可视化是普遍能力。</p></section>
+      <section class="prose"><h3>本项目的比较位置</h3><p>当前从无标定 RGB 估计相机，再逐场景拟合。与照片 / 视频训练器较接近；带 LiDAR 或外部位姿的产品应另设输入条件进行比较。</p></section>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>资料口径：</strong>厂商页面 / 文档描述，非本项目实测。BSD 仅获官网搜索索引，原站证书异常；未标发布日期的功能按此次查阅记录，不追溯认定为本月已上线能力。</p><button class="source-button" type="button">查看产品与来源</button></footer>
+  <template class="source"><p><strong>[P1] BSD Studio：</strong><a href="https://www.bsd3dgs.com/" target="_blank" rel="noopener noreferrer">bsd3dgs.com</a>。官网搜索索引列“自动空三、3DGS/2DGS/MCMC、路径漫游、测量、PLY/OBJ/STL”。直接读取因证书过期失败，尚无第二个可访问官方来源；功能按低置信度索引摘要注明，未绕过证书检查。不要与 bsd-studio.com 的其他行业网站混淆。</p><p><strong>[P2] XGRIDS：</strong><a href="https://docs.xgrids.com/en-us/06-lixel-cybercolor/01-lcc-studio/v2.3.0/01-getting-started.html" target="_blank" rel="noopener noreferrer">LCC Studio v2.3.0 文档</a>、<a href="https://store.xgrids.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer">公司信息</a>。文档列“.lcc, .lcc2, .ply, .usd, and 3D Tiles”。</p><p><strong>[P3] Jawset：</strong><a href="https://www.jawset.com/docs/d/Postshot%2BUser%2BGuide" target="_blank" rel="noopener noreferrer">Postshot User Guide</a>、<a href="https://www.jawset.com/docs/d/Postshot%2BUser%2BGuide/Interface/Training%2BConfiguration" target="_blank" rel="noopener noreferrer">Training Configuration</a>、<a href="https://www.jawset.com/about/" target="_blank" rel="noopener noreferrer">About</a>。</p><p><strong>[P4] Scaniverse：</strong><a href="https://www.nianticspatial.com/capture/scaniverse-release-notes" target="_blank" rel="noopener noreferrer">版本记录</a>，2024-03-20 v3.0.0 明确加入 splat，并称“All processing is done on-device”；<a href="https://api-dev.scaniverse.com/news/spz-gaussian-splat-open-source-file-format" target="_blank" rel="noopener noreferrer">SPZ 格式介绍</a>。端侧说明对应该版本，并非声称所有后续功能都端侧处理。</p><p><strong>[P5] Polycam：</strong><a href="https://poly.cam/tools/gaussian-splatting" target="_blank" rel="noopener noreferrer">Gaussian Splatting 工具页</a>、<a href="https://learn.poly.cam/hc/en-us/articles/27756102599572-What-File-Types-Can-Polycam-Export" target="_blank" rel="noopener noreferrer">导出格式说明</a>。原页列“20 to 200 images”和“mp4 format”，是该网页工作流范围，不是所有模式的通用限制。</p><p>查阅日期 2026-09-15。未下载或运行上述产品，未比较收费档位、精度或速度。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="related-algorithms" hidden>
+  <header class="topline"><span class="chapter">相关工作 / 算法与系统边界</span><span>国内产品与桌面训练器</span></header>
+  <div class="heading"><h2 id="related-algorithms">相同的 3DGS 名称，可能对应不同的几何输入</h2><p class="subtitle">三维表示相同，不代表相机估计、尺度来源和训练方式相同。比较前需要确认输入中已经包含了多少几何信息。</p></div>
+  <div class="content columns equal">
+    <div class="prose">
+      <section><h3>BSD Studio：集成建模与交付工具</h3><p>官网索引将自动空三、高斯建模、位姿 / 点云查看、编辑、漫游和网格导出组织在同一流程，并列出 DJI Terra 等外部空三成果导入。其参照价值在于减少工具切换，而不能由功能名称推定内部求解方法。[P1]</p></section>
+      <section><h3>XGRIDS LCC：传感器融合提供几何约束</h3><p>LiDAR 提供距离，SLAM 提供移动轨迹，图像提供颜色与外观，随后形成可编辑、可发布的高斯场景。输入信息与仅有 RGB 的系统不同，不能把成像差异全部归到高斯算法。[P2]</p></section>
+      <p class="caption">“空三”指空中三角测量 / 摄影测量中恢复相机与稀疏结构的步骤。引入外部相机或 LiDAR，会改变本项目无标定 RGB 起点下的实验条件。</p>
+    </div>
+    <div class="prose">
+      <section><h3>Postshot：公开控制项不等于公开实现</h3><p>官方文档说明可由图像计算相机，列出 Splat3、Splat MCMC、Splat ADC 等配置及高斯数、球谐、抗锯齿设置。但未披露足以复现的完整训练代码，不能因“MCMC”同名便认为与本项目实现一致。[P3]</p></section>
+      <div class="evidence-box"><h3>本期技术比较采用的三个层次</h3><div class="table-wrap"><table class="compact"><thead><tr><th>层次</th><th>判断依据</th></tr></thead><tbody><tr><td>产品能力</td><td>官方功能、输入格式、编辑与导出流程</td></tr><tr><td>算法方法</td><td>论文、源码或可复现的参数与目标函数</td></tr><tr><td>质量与效率</td><td>相同数据、输入条件、硬件及评价协议</td></tr></tbody></table></div></div>
+      <p class="result"><strong>本项目侧重点：</strong>在 RGB 条件下显式记录相机、匹配、优化和评价过程。现阶段可对照产品流程，尚不能据此声称重建质量领先商业产品。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>公开方法范围：</strong>[P1–P3] 主要提供产品工作流与配置；未核实闭源损失函数或 MCMC 细节。经典 3DGS / MCMC 论文只作为方法背景，不代替商业实现证据。</p><button class="source-button" type="button">查看技术依据</button></footer>
+  <template class="source"><p>BSD：<a href="https://www.bsd3dgs.com/" target="_blank" rel="noopener noreferrer">官方域名 [P1]</a>，本轮仅能查阅搜索索引；XGRIDS：<a href="https://docs.xgrids.com/en-us/06-lixel-cybercolor/01-lcc-studio/v2.3.0/01-getting-started.html" target="_blank" rel="noopener noreferrer">LCC 官方文档 [P2]</a>；Postshot：<a href="https://www.jawset.com/docs/d/Postshot%2BUser%2BGuide/Interface/Training%2BConfiguration" target="_blank" rel="noopener noreferrer">训练配置 [P3]</a>。</p><blockquote>Postshot will compute the camera poses from the images</blockquote><p>方法背景：<a href="https://arxiv.org/abs/2308.04079" target="_blank" rel="noopener noreferrer">3D Gaussian Splatting for Real-Time Radiance Field Rendering</a>；<a href="https://arxiv.org/abs/2404.09591" target="_blank" rel="noopener noreferrer">3D Gaussian Splatting as Markov Chain Monte Carlo</a>。</p><p>后者提出以 MCMC / SGLD 视角理解高斯优化与状态转移；该论文存在不等于所有标注 MCMC 的软件均采用同一实现。BSD 的主体及完整功能需要在正式对外版本前进一步复核。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="world-products" hidden>
+  <header class="topline"><span class="chapter">相关工作 / 生成式世界模型</span><span>公开资料截至 2026.09.14</span></header>
+  <div class="heading"><h2 id="world-products">World Labs 与 NVIDIA：空间生成和物理 AI 的不同任务</h2><p class="subtitle">世界模型并非单一产品类型。World Labs 侧重空间内容与新视角生成；NVIDIA Cosmos 面向物理 AI 的视频生成、条件迁移和视觉推理。</p></div>
+  <div class="content columns equal">
+    <div class="prose">
+      <section><h3>World Labs：Marble → Atlas</h3><p>Marble 于 2025 年 11 月发布，将文本、单图、多图或短视频转换为可探索的三维世界。2026 年 9 月发布的 Atlas 采用多模态自回归扩散 Transformer，将图像、相机位姿与深度纳入共享空间上下文。[R1–R2]</p></section>
+      <section><h3>少视图能力及其来源</h3><p>Atlas 可从一张或多张输入图重建并扩展空间，生成新视图、视频、深度、点云和高斯表示。少量观测不足以确定全部结构，模型通过预训练先验补充遮挡或未拍摄区域。</p></section>
+      <div class="mechanism"><strong>官方原文：</strong>“Atlas imagines a plausible way to fill in the gaps.”<br>即：未见区域被合理补全，而非从输入中唯一恢复。[R1]</div>
+      <p class="caption">Atlas 发布时面向选定合作伙伴早期开放；Marble 是较早推出的产品。本页能力根据官方研究介绍整理，尚无本项目数据上的运行结果。</p>
+    </div>
+    <div class="prose">
+      <section><h3>NVIDIA Cosmos：按任务区分模型</h3><p>Cosmos 以视频世界基础模型为中心，目标包括机器人、自动驾驶等物理 AI 的训练数据生成与场景理解，不统一输出静态三维资产。[R3–R5]</p></section>
+      <div class="table-wrap"><table class="compact"><thead><tr><th>分支</th><th>条件与主要任务</th><th>主要输出</th></tr></thead><tbody>
+        <tr><td><strong>Predict</strong></td><td>依据多模态条件预测或生成世界状态</td><td>视频 / 视觉状态序列</td></tr>
+        <tr><td><strong>Transfer</strong></td><td>由深度、边缘、语义等结构化条件控制外观生成</td><td>受控视频，含仿真到真实风格迁移</td></tr>
+        <tr><td><strong>Reason</strong></td><td>理解视频中的空间、时间和物理关系</td><td>推理回答、标注与数据筛选结果</td></tr>
+      </tbody></table></div>
+      <p class="result"><strong>比较对象应对应任务：</strong>Atlas 可与少视图空间生成比较；Cosmos 应按预测、迁移和推理分别评价，不能统一当作 SfM 求解器或 3DGS 导出器。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>公开资料：</strong>[R1] World Labs Atlas（2026-09-01）；[R2] Marble（2025-11-12）；[R3–R5] NVIDIA 官方说明及 Cosmos / Transfer 技术论文。为文献比较，未在本项目数据上实测。</p><button class="source-button" type="button">查看官方资料</button></footer>
+  <template class="source"><p><strong>[R1]</strong> World Labs, <a href="https://www.worldlabs.ai/blog/atlas" target="_blank" rel="noopener noreferrer">Atlas: A World Model for Spatial Intelligence</a>，2026-09-01。</p><blockquote>Atlas is a multimodal autoregressive diffusion transformer.<br>When parts of the world are not visible in the input views, Atlas imagines a plausible way to fill in the gaps.</blockquote><p><strong>[R2]</strong> World Labs, <a href="https://www.worldlabs.ai/blog/marble-world-model" target="_blank" rel="noopener noreferrer">Marble World Model</a>，2025-11-12。支持文本、图像、视频和粗三维布局，介绍 Gaussian splat、mesh 与视频导出。</p><p><strong>[R3]</strong> NVIDIA, <a href="https://nvidianews.nvidia.com/news/nvidia-announces-major-release-of-cosmos-world-foundation-models-and-physical-ai-data-tools" target="_blank" rel="noopener noreferrer">Cosmos World Foundation Models and Physical AI Data Tools</a>，2025-03-18。分别定义 Predict、Transfer、Reason。</p><p><strong>[R4]</strong> <a href="https://arxiv.org/abs/2501.03575" target="_blank" rel="noopener noreferrer">Cosmos World Foundation Model Platform for Physical AI</a>，2025。<br><strong>[R5]</strong> <a href="https://arxiv.org/abs/2503.14492" target="_blank" rel="noopener noreferrer">Cosmos-Transfer1: Conditional World Generation with Adaptive Multimodal Control</a>，2025。</p><p>查阅时间：2026-09-15；本页仅采用报告截止日前已发布信息。arXiv API 请求返回 429，论文题名与摘要改由对应 abs 页面核实。未将未标发布日期的 NuRec 当前页面能力写入本期结果。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="world-method" hidden>
+  <header class="topline"><span class="chapter">相关工作 / 技术范式比较</span><span>观测拟合与生成先验</span></header>
+  <div class="heading"><h2 id="world-method">观测重建与生成式补全：约束来源不同</h2><p class="subtitle">少图重建能否可靠，取决于待恢复区域受到多少真实观测约束，而不仅是模型接收了几张图片。</p></div>
+  <div class="content columns equal">
+    <div class="prose">
+      <section><h3>本项目默认路线：针对场景优化</h3><p>使用跨视角对应估计相机与稀疏结构，再调整高斯参数，使已知相机的渲染尽量接近原图。新增图片通过提供视差、遮挡变化和表面观察，减小解的歧义。[R6]</p></section>
+      <div class="mechanism"><strong>概念目标：</strong><br><span class="formula">min<sub>θ</sub> Σ<sub>i</sub> L(R(θ, P<sub>i</sub>), I<sub>i</sub>) + Ω(θ)</span><br>θ 为场景参数，P 为相机，I 为拍摄图像，R 为渲染器，Ω 为所选方法的正则或约束。</div>
+      <p>当前默认流程没有用于生成完整场景的大规模预训练先验。但未观测区域仍可能出现高斯拉伸、漂浮和错误外推：拟合过程同样需要估计，不能将其解释为“不猜测所以不出错”。</p>
+    </div>
+    <div class="prose">
+      <section><h3>生成式世界模型：条件生成</h3><p>模型从大规模数据学习空间或动态规律，在少量图像、文本、相机或动作等条件下生成符合先验的内容。先验减少了对完整拍摄的依赖，也引入了与该真实场景不一致的可能性。[R1、R4]</p></section>
+      <div class="mechanism"><strong>概念目标：</strong><br><span class="formula">W ∼ p<sub>φ</sub>(W | c)</span><br>φ 为预训练模型参数，c 为输入条件，W 可表示空间内容或后续视觉状态；具体输出依模型而异。</div>
+      <p>输入未拍到物体背面时，生成模型可补出视觉合理的结构，但真实背面仍无法由该输入唯一确定。增加真实观察可减少这种歧义，而不是使两种方法互相排斥。</p>
+    </div>
+    <div class="sr-only">两式为概念性描述，不是 Atlas 或 Cosmos 的完整训练目标。</div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>核心区分：</strong>3DGS 是表示与渲染方法，不是“真实重建”的专属算法标签。Atlas 也可输出 3DGS；本页区分的是当前求解对真实观察与生成先验的依赖。两式为概念性描述。</p><button class="source-button" type="button">查看论文与出处</button></footer>
+  <template class="source"><p><strong>[R6]</strong> Kerbl et al., <a href="https://arxiv.org/abs/2308.04079" target="_blank" rel="noopener noreferrer">3D Gaussian Splatting for Real-Time Radiance Field Rendering</a>, SIGGRAPH 2023。</p><blockquote>starting from sparse points produced during camera calibration</blockquote><p>论文描述从标定得到的稀疏点出发，优化各向异性高斯与密度控制，实现新视角渲染。它定义场景表示和优化方法，不承诺未见表面的真实性。</p><p><strong>[R1]</strong> <a href="https://www.worldlabs.ai/blog/atlas" target="_blank" rel="noopener noreferrer">Atlas 官方介绍</a>明确同时涉及观测重建、未知区域补全和 Gaussian splat 输出；<strong>[R4]</strong> <a href="https://arxiv.org/abs/2501.03575" target="_blank" rel="noopener noreferrer">Cosmos 技术报告</a>描述视频预训练与后训练。</p><p>还需区分学习式几何估计与生成式世界模型：本项目实验性 VGGT 路线使用学习先验预测相机和深度，不等同于通过语义先验任意扩展场景。MCMC 的随机扰动也不等同于世界模型生成。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="world-position" hidden>
+  <header class="topline"><span class="chapter">相关工作 / 项目定位</span><span>真实场景记录与内容生成</span></header>
+  <div class="heading"><h2 id="world-position">面向已有场景的重建，与面向缺失内容的生成</h2><p class="subtitle">本项目优先研究可回溯至拍摄资料的场景表达；生成式世界模型提供少量条件下的内容扩展，两者需要不同的评价依据。</p></div>
+  <div class="content">
+    <div class="table-wrap"><table><thead><tr><th>比较维度</th><th>本项目：SfM + 逐场景 3DGS</th><th>World Labs Atlas</th><th>NVIDIA Cosmos 系列</th></tr></thead><tbody>
+      <tr><td><strong>主要任务</strong></td><td>恢复具体拍摄场景并重现观测</td><td>空间生成、少图重建与新视角扩展</td><td>物理 AI 视频预测、受控生成与理解</td></tr>
+      <tr><td><strong>输入依赖</strong></td><td>重叠图像与足够视差；覆盖需求随场景变化</td><td>单图或多模态条件 + 预训练空间先验</td><td>视频、多模态条件或结构控制；分支要求不同</td></tr>
+      <tr><td><strong>未观测区域</strong></td><td>欠约束，可能缺失或错误外推；不主动保证补全</td><td>可依据先验生成合理内容，未必等于真实结构</td><td>按条件生成或预测状态；不以静态测量为统一目标</td></tr>
+      <tr><td><strong>评价重点</strong></td><td>保留视角渲染、几何支持、轨迹与资源</td><td>生成质量、空间一致性、条件遵从及可编辑性</td><td>时空一致性、控制遵从及机器人 / 感知任务效用</td></tr>
+      <tr><td><strong>当前证据</strong></td><td>已有本项目视频与房间的受控实验</td><td>本次依据官方研究介绍，未运行同数据对照</td><td>本次依据官方分类与论文，未运行同数据对照</td></tr>
+    </tbody></table></div>
+    <div class="columns equal">
+      <section class="prose"><h3>本期研究范围</h3><p>围绕数据覆盖、相机正确性、高斯贡献与渲染一致性逐项改进。少图采集仍是长期目标，当前不以生成缺失结构替代观察证据。</p></section>
+      <section class="prose"><h3>可研究的组合方式</h3><p>未来可在重建结果上加入明确标记的生成补全或编辑层；若要评价补全是否真实，需保留隐藏区域的独立照片或几何真值，不能只比较观感。</p></section>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>文献比较：</strong>[R1–R6]，非同数据性能排名。“采图更多”是当前优化式重建的实际需求，不是 3DGS 表示的固定输入数量限制。</p><button class="source-button" type="button">查看对比依据</button></footer>
+  <template class="source"><p>World Labs：<a href="https://www.worldlabs.ai/blog/atlas" target="_blank" rel="noopener noreferrer">Atlas [R1]</a>、<a href="https://www.worldlabs.ai/blog/marble-world-model" target="_blank" rel="noopener noreferrer">Marble [R2]</a>。</p><p>NVIDIA：<a href="https://nvidianews.nvidia.com/news/nvidia-announces-major-release-of-cosmos-world-foundation-models-and-physical-ai-data-tools" target="_blank" rel="noopener noreferrer">Cosmos 产品分类 [R3]</a>、<a href="https://arxiv.org/abs/2501.03575" target="_blank" rel="noopener noreferrer">Cosmos 技术报告 [R4]</a>、<a href="https://arxiv.org/abs/2503.14492" target="_blank" rel="noopener noreferrer">Transfer1 [R5]</a>。</p><p>场景表示：<a href="https://arxiv.org/abs/2308.04079" target="_blank" rel="noopener noreferrer">原始 3DGS 论文 [R6]</a>。</p><p>表中项目定位与组合方式是本报告分析，并非已经实现的生成式能力；文献方案没有与本项目使用相同数据、硬件和真值实验，因此不制作速度或精度排名。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s2" hidden>
+  <header class="topline"><span class="chapter">系统流程</span><span>图片 / 视频输入 → 三维场景浏览</span></header>
+  <div class="heading"><h2 id="s2">方法总览：相机几何与场景外观的分阶段估计</h2><p class="subtitle">给定未标定图像，先通过跨视角对应关系恢复相机和稀疏结构，再优化高斯参数以重现观测图像。模型从新视角渲染，供场景浏览与质量分析使用。</p></div>
+  <div class="content">
+    <div class="flow" aria-label="六个处理步骤，前一步的输出作为后一步输入">
+      <section class="flow-step"><h3>数据整理</h3><p>检查文件与方向；视频抽取清晰、连续且有视角变化的画面。</p><p class="output">输出：图像、时间戳、质量记录</p></section>
+      <section class="flow-step"><h3>特征匹配</h3><p>寻找墙角、纹理等可重复辨认的位置，确认不同图片看到了哪些相同内容。</p><p class="output">输出：跨图像对应关系</p></section>
+      <section class="flow-step"><h3>恢复几何</h3><p>由对应关系估计相机位置、方向与焦距，三角化出三维点，再联合优化。</p><p class="output">输出：相机轨迹、稀疏点云</p></section>
+      <section class="flow-step"><h3>训练 3DGS</h3><p>用大量带颜色和透明度的三维椭球表示场景，让渲染图逐步接近拍摄图。</p><p class="output">输出：可从新视角渲染的模型</p></section>
+      <section class="flow-step"><h3>评价与导出</h3><p>在固定相机上比较画质，清理低贡献噪声，保存模型与评价结果。</p><p class="output">输出：模型文件、分视角指标</p></section>
+      <section class="flow-step"><h3>浏览与分析</h3><p>旋转、缩放、查看输入与相机，并切换不同算法和处理前后的结果。</p><p class="output">输出：交互式三维展示</p></section>
+    </div>
+    <div class="note-grid">
+      <section><h3>几何估计</h3><p>SfM 由多图对应恢复相机与三维点；BA 联合调整这些变量，使三维点投影回图像后的误差尽可能小。</p></section>
+      <section><h3>外观优化</h3><p>固定已恢复的相机，以渲染图和原图之间的 0.8 L1 + 0.2 结构损失优化高斯位置、尺度、透明度和颜色。</p></section>
+      <section><h3>评价设计</h3><p>几何阶段统计注册、观测支持与轨迹连续性；外观阶段在固定相机上比较 PSNR、SSIM，并记录资源消耗。</p></section>
+    </div>
+    <p class="caption">本项目未引入生成式场景补全；稀疏或遮挡区域仍可能因约束不足产生错误。当前坐标为归一化相对单位，没有独立物理尺度恢复。</p>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>实现依据：</strong>现有 Job 处理流程、SfM 路线文档、Gaussian trainer contract。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="sfm-geometry-optimization-roadmap.md">SfM 优化路线</a> §2.1 记录几何流程；<a href="gaussian-trainer-contract.md">Gaussian trainer contract</a> 记录模型、训练和导出流程。</p><p>主要入口：<code>src/image3d_scenegraph/jobs.py</code>、<code>geometry/adapters.py</code>、<code>scripts/run_colmap_sparse.py</code>、<code>gaussian/trainer.py</code>。流程中大多数基础模块此前已有，本月工作为视频扩展、策略优化和诊断改造。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s3" hidden>
+  <header class="topline"><span class="chapter">数据输入 / 视频选帧</span><span>08.17—08.28</span></header>
+  <div class="heading"><h2 id="s3">质量与运动约束下的视频关键帧选择</h2><p class="subtitle">研究问题：在有限计算预算内，如何保留足够的跨视角重叠，同时降低模糊帧和重复观察的比例？</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>问题分析</h3><p>室内视频包含快速转动、低纹理表面和相机停留。固定时间采样不能保证清晰度；单独按清晰度排序，则可能集中选择容易重建的片段，削弱困难区间的连续观察。</p></section>
+      <section><h3>方法设计</h3><p>在每秒 6 帧候选中选取约 4 帧基础观察，再依据稀疏光流估计的运动变化，每秒最多补入 1 帧。基础采样维持时间覆盖，自适应采样提高运动较大区间的观察密度。</p></section>
+      <section><h3>数据与实验设置</h3><p>统一视频方向，保存源时间戳与筛选记录，并按两秒片段划分训练和验证集合。采用同源视频比较 v1 / v2，在原图一致的共同验证相机上评价渲染结果。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>同一视频的早期版本对比</h3><div class="table-wrap"><table><thead><tr><th>项目</th><th>历史 v1</th><th>首轮 v2</th></tr></thead><tbody>
+        <tr><td>初始选中图片</td><td class="num">1,000</td><td class="num">1,824</td></tr>
+        <tr><td>成功恢复相机</td><td class="num">926</td><td class="num">1,707</td></tr>
+        <tr><td>注册率</td><td class="num">92.6%</td><td class="num">93.586%</td></tr>
+        <tr><td>共同验证视角</td><td colspan="2">27 张，原图字节一致</td></tr>
+        <tr class="emphasis"><td>共同视角画质变化</td><td colspan="2">PSNR +1.172 dB；SSIM +0.01865</td></tr>
+      </tbody></table></div><p class="caption">注册：一张图片的相机位置被成功恢复。这里比较的是完整视频处理方案，提升不能只归因于抽帧率。</p></div>
+      <p class="result"><strong>改进结果：</strong>相机恢复数量增加，困难区间得到更多观察，且共同视角的渲染质量提高。新视频入口支持 10 秒至 10 分钟、最大 2 GiB 的离线处理。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>运行记录：</strong>20260824_082806_a31d80a0；v2 初次全流程结果。采用 Lucas–Kanade 光流估计运动，弱纹理时使用图像特征变化。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a>，2026-08-24 / 08-25 条目；实现提交 <code>f844f87</code>、<code>67e9dc9</code>。</p><blockquote>The 4→5 fps initial selection was beneficial (1,824/1,707 registered, 93.586%, three gaps and 26.321 s total versus frozen ordinary-v1 1,000/926, four gaps and 30.647 s), and 27 byte-identical shared Validation views improved +1.172 dB/+0.01865 SSIM after full training.</blockquote><p>上面括号里的 1,824/1,707 分别是选中数 / 注册数。原 Job：<code>outputs/jobs/20260824_082806_a31d80a0/</code>。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s4" hidden>
+  <header class="topline"><span class="chapter">数据输入 / 注册恢复与计算成本</span><span>08.24—09.03</span></header>
+  <div class="heading"><h2 id="s4">基于稀疏骨架的注册扩展与局部恢复</h2><p class="subtitle">研究问题：增加关键帧后，如何避免完整序列反复参与高成本初始化，同时利用新增三维点恢复未注册图像？</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>耗时分析</h3><p>一次运行中，COLMAP 共耗时 6,909 秒，Mapper 占 5,596 秒，约 81%。原恢复流程反复执行全局调整，而新三角化的点尚未用于后续注册，形成计算投入与注册收益不匹配。</p></section>
+      <ol class="steps">
+        <li><strong>限制初始化规模。</strong>所有选中图像仍参与特征提取和匹配，初始 Mapper 仅使用最多 1,000 张均匀基础帧建立几何骨架。</li>
+        <li><strong>交替注册与三角化。</strong>先用已有三维点估计剩余图像的相机，再生成新点，为下一轮提供 2D–3D 对应；没有新增候选帧时仍可传播。</li>
+        <li><strong>合并全局优化。</strong>扩展与局部恢复复用数据库，接受的几何更新在末尾统一执行 BA，减少重复求解。</li>
+      </ol>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>后续完整视频任务</h3><div class="table-wrap"><table><thead><tr><th>处理阶段</th><th>实际数量</th></tr></thead><tbody>
+        <tr><td>初始选中帧</td><td class="num">1,824</td></tr><tr><td>恢复阶段补入帧</td><td class="num">107</td></tr><tr><td>最终输入</td><td class="num">1,931</td></tr><tr class="emphasis"><td>最终成功恢复相机</td><td class="num">1,742</td></tr><tr><td>后续流程</td><td>完成 Gaussian 训练及导出</td></tr>
+      </tbody></table></div></div>
+      <section><h3>方法上的变化</h3><p>不再把所有帧一次性纳入昂贵的初始化求解，而是用已有几何逐步扩展。这项改造针对的是计算结构，而不是简单降低分辨率或删掉困难图片。</p></section>
+      <p class="caption">本轮有完成记录，但未建立新实现相对旧版本的严格同配置加速比；因此只报告阶段耗时依据和实际处理结果。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>运行记录：</strong>20260828_020342_2b11a62c；相关实现 ff24566、940db99。注册数反映相机恢复，不等于表面完整度。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a>，2026-08-28、09-03 条目。</p><blockquote>Timing attributed 5,596.110 s of 6,909.314 s COLMAP time to Mapper; recovery used only 24 of the 912-frame allowance and gained seven cameras in augmentation plus one in propagation</blockquote><blockquote>1,824 initial selected frames, 107 recovery additions, 1,931 final selected frames, 1,742 registered frames (90.2%), full temporal coverage, and a completed training/export lifecycle.</blockquote><p>完整任务：<code>outputs/jobs/20260828_020342_2b11a62c/</code>；重点产物为注册时间线、初始扩展记录、恢复记录和各阶段 timing。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s5" hidden>
+  <header class="topline"><span class="chapter">几何重建 / 特征、匹配与标定</span><span>09.01—09.10</span></header>
+  <div class="heading"><h2 id="s5">SfM 算法变量分解与统一实验接口</h2><p class="subtitle">研究问题：如何将特征、匹配、标定和求解器的影响分离，避免多个环节同时变化导致结果不可解释？</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>变量混淆来源</h3><p>既有接口以“matcher”同时描述局部描述子匹配和图像配对；初始重建与补帧过程也可能使用不同默认值。因此，相同任务名称未必对应相同的有效算法组合。</p></section>
+      <section><h3>实现方法</h3><p>将六个环节定义为独立配置，并贯穿 API、独立脚本、恢复流程和前端。对实际命令、模型权重及词汇树记录版本，确保请求参数与执行行为一致。</p></section>
+      <section><h3>因子对照设计</h3><p>固定输入和相机求解方式，开展 SIFT / ALIKED × Brute-force / LightGlue 四格比较；求解器实验则复用同一数据库快照，只改变 Incremental / Global。</p></section>
+    </div>
+    <div class="evidence-box"><h3>各环节分别回答什么问题</h3><div class="table-wrap"><table class="compact"><thead><tr><th>环节</th><th>作用</th><th>已接入方案</th></tr></thead><tbody>
+      <tr><td>特征提取</td><td>哪些位置可被重复识别</td><td>SIFT / ALIKED</td></tr><tr><td>局部匹配</td><td>两张图里哪些点对应</td><td>Brute-force / LightGlue</td></tr><tr><td>图像配对</td><td>哪些图片值得比较</td><td>全配对 / 时序回环 / 检索</td></tr><tr><td>几何验证</td><td>对应关系是否空间一致</td><td>RANSAC / Guided</td></tr><tr><td>相机标定</td><td>焦距、畸变如何共享</td><td>共享模型 / 自动分组</td></tr><tr><td>相机求解</td><td>如何恢复整体轨迹</td><td>Incremental / Global</td></tr>
+    </tbody></table></div><p class="caption">“已接入”表示可以受控执行与记录；实际质量实验重点完成了特征 / 匹配和求解器对照，其他选项没有统一宣称更优。</p></div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>实现记录：</strong>SfM 优化路线 Phase 1—6；六个独立配置字段贯穿主流程、恢复流程和可视化。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="sfm-geometry-optimization-roadmap.md">docs/sfm-geometry-optimization-roadmap.md</a> §7—9。</p><p>特征 <code>20a6cb0</code>；匹配 <code>7be8ad7</code>；图像对 <code>773884b</code>；几何验证 <code>ab5ac21</code>；相机标定 <code>c6bfd90</code>；求解器 <code>4ede267</code>。</p><p>相机分组根据相机型号、焦距、图像尺寸和方向，不依赖文件名或目录。词汇树按 SIFT / ALIKED 描述子类型分别选择，不能混用。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s6" hidden>
+  <header class="topline"><span class="chapter">几何重建 / 学习型特征实验</span><span>09.02—09.08</span></header>
+  <div class="heading"><h2 id="s6">学习型特征的有效性与注册支持分析</h2><p class="subtitle">研究问题：异常轨迹主要来自实现偏差、无效特征输入，还是场景缺乏足够的几何约束？</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>实现一致性检查</h3><p>在相同输入下核对官方实现与 COLMAP 输出。LightGlue 匹配集合的 Jaccard 重合度为 98.33%—100%；ALIKED 某弱帧的 4,032 个检测点中却包含 3,205 个零分占位点，指向特征输出处理问题。</p></section>
+      <section><h3>递进实验设计</h3><p>独立构建非正分过滤版本，保持有效点的坐标和描述子不变。按 48、192、446 帧逐级扩大观察范围，再仅对 27 组边界图像补匹配，依次考察输入有效性、时间密度和局部连接的影响。</p></section>
+      <section><h3>结果解释</h3><p>过滤消除了部分无效输入，但未建立充分的三维支持。最终状态中，未注册图像对主模型的候选 2D–3D 对应最多 26 个，低于当前求解器的可见点数量要求。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>逐级实验记录</h3><div class="table-wrap"><table class="compact"><thead><tr><th>实验</th><th>观察到的结果</th></tr></thead><tbody>
+        <tr><td>48 帧 / LightGlue</td><td>过滤前后都注册 48/48；匹配时间降低 55.74%，但局部相机分布恶化。</td></tr><tr><td>192 帧 / 暴力匹配</td><td>原版 Mapper 崩溃；正分版完成，主模型 76/192。</td></tr><tr><td>446 帧 / 加密采样</td><td>主模型增至 247 帧，保留原有 76 帧并恢复更多画面。</td></tr><tr><td>27 对 / 边界补匹配</td><td>只增加一条 24 内点的连接，主模型仍为相同 247 帧。</td></tr>
+      </tbody></table></div></div>
+      <p class="result"><strong>处理结果：</strong>找到了输入占位特征问题，也确认单纯过滤或补一条连接不足以修复该片段。因此保留 SIFT 常规路线，学习型特征暂不替代默认。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>小对匹配审计、正分特征实验、446 帧 gap 支持分析及 27 对边界补匹配报告。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="sfm-small-match-audit-20260907.md">官方实现与 ONNX 对照</a>；<a href="aliked-positive-score-experiment-20260907.md">48 / 192 / 446 帧实验</a>；<a href="aliked-dense-gap-audit-20260908.md">未注册图像的三维支持</a>；<a href="aliked-cross-alignment-boundary-recovery-20260908.md">边界补匹配</a>。</p><blockquote>ALIKED frame 710 instead exposes 3,205 zero-score points among 4,032 valid-coordinate ONNX outputs, versus 786 official-reference detections</blockquote><blockquote>The one allowed incremental Mapper run completed in 632.34s and produced nine models; its primary has the exact same 247-image set</blockquote><p>任务：<code>20260907-162035-230f</code>、<code>20260907-170855-bd8d</code>、<code>20260908-130658-6f94</code>。完整四格中的 SIFT-LightGlue 因 OOM 缺少几何结果，不用它来归因位姿失败。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s7" hidden>
+  <header class="topline"><span class="chapter">几何重建 / 位姿异常与求解器</span><span>09.03—09.10</span></header>
+  <div class="heading"><h2 id="s7">几何稳定性约束与相机求解器对照</h2><p class="subtitle">研究问题：注册率和重投影误差能否充分反映模型质量？实验同时考察相机连续性、三维支持与下游渲染稳定性。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>异常传播机制</h3><p>某 1,000 图模型中的离群相机距主体约 999 倍，主导了归一化尺度。渲染相机矩阵又保留统一缩放，使近裁剪面与场景尺度不一致，最终在第二步触发显存不足。</p></section>
+      <section><h3>几何防护方法</h3><p>消除渲染相机中的相似变换尺度，使裁剪距离采用一致坐标。训练前检查孤立相机、时间归一化运动跳变、空点云和初始化尺度塌缩；恢复步骤接受新模型前执行同样检查。</p></section>
+      <section><h3>求解器实验设置</h3><p>从同一数据库快照建立两个副本，分别运行 Incremental 与 Global。除注册规模外，比较像素重投影误差、时序位姿连续性和耗时。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>Incremental / Global，同一 1,000 帧快照</h3><div class="table-wrap"><table><thead><tr><th>项目</th><th>增量求解</th><th>全局求解</th></tr></thead><tbody>
+        <tr><td>注册相机</td><td class="num">765</td><td class="num">927</td></tr><tr><td>三维点</td><td class="num">234,766</td><td class="num">288,881</td></tr><tr><td>像素误差中位数</td><td class="num">0.310640</td><td class="num">0.300603</td></tr><tr><td>耗时（秒）</td><td class="num">1,014</td><td class="num">2,226</td></tr><tr><td>轨迹检查</td><td>未见灾难性跳变</td><td>一处严重跳变，另有 3 个无轨迹点支持的相机</td></tr>
+      </tbody></table></div></div>
+      <p class="result"><strong>结论：</strong>Global 增加了注册数量，但轨迹出现错误分支，因此继续采用增量求解。原始 Global 残差另行重算为像素单位，避免错用指标。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>实验记录：</strong>phase6-mapper-snapshot-ab-v2。Global 请求 GPU，但此次 Ceres 环境实际使用 CPU；表中不作为 GPU 加速比较。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a>，09-03 相机归一化问题、09-10 同快照求解器对照。</p><blockquote>Incremental selected a healthy 765/1000-camera, 234,766-point model at `0.310640px` median error in 1013.83s; Global registered 927/1000 with 288,881 points and `0.300603px` median error in 2226.28s but was rejected for the 1502→1504 temporal pose discontinuity</blockquote><p>实现：<code>cf425b7</code>（相机单位）、<code>170655e</code>（几何防护）、<code>6590561</code>（独立时序检查）、<code>9843d1c</code>（Global 像素残差）。历史第一轮对照数据库不一致，以上只使用后续同快照 v2。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s8" hidden>
+  <header class="topline"><span class="chapter">几何与模型 / 学习深度辅助</span><span>08.17—09.10</span></header>
+  <div class="heading"><h2 id="s8">学习式几何先验的两类辅助用途</h2><p class="subtitle">VGGT 用于预测相机与深度，属于几何估计先验。本期分别验证其作为相机初始化和高斯可见性约束的作用，不将预测结果直接视为真实表面。</p></div>
+  <div class="content columns equal">
+    <div class="prose">
+      <section><h3>用途一：为相机重建提供初值</h3><p>长序列不能一次放进 VGGT，因此用 8 帧窗口、4 帧重叠处理。窗口内跟踪相同特征并调整相机；窗口间利用共同相机估计缩放、旋转和平移，再用全局约束连接。</p></section>
+      <p>得到初始相机后，仍交给 COLMAP 三角化和 BA。遇到少数弱帧，先排除其不可靠约束、尝试局部桥接，再补注册，避免一个窗口失败拖垮全部序列。</p>
+      <div class="mechanism"><strong>完成情况：</strong>完成视频专用 VGGT-BA 流程、局部弱帧恢复和诊断。部分运行需要回到普通 COLMAP，尚无足够证据证明整体优于常规几何路线。</div>
+    </div>
+    <div class="prose">
+      <section><h3>用途二：判断哪些高斯漂在物体前方</h3><p>对最多 64 张训练图预测深度，并与 SfM 对齐尺度。将高斯投影到多个视角，比较它与预测表面的深度；只有持续位于空旷区域且缺乏支持时才删除。</p></section>
+      <div class="table-wrap"><table class="compact"><thead><tr><th>MCMC 模型清理</th><th>保守深度范围</th><th>激进中心深度</th></tr></thead><tbody><tr><td>删除高斯</td><td class="num">8,030</td><td class="num">10,165</td></tr><tr><td>平均 PSNR 变化</td><td class="num">−0.050 dB</td><td class="num">−1.341 dB</td></tr><tr><td>观察</td><td>清理部分漂浮物，画质变化小</td><td>154/179 个视角变差</td></tr></tbody></table></div>
+      <p class="result"><strong>实验认识：</strong>部分大高斯实际承担反射或表面外观，不能仅凭“中心没落在表面”就删除。保留保守清理，停止激进方案。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>记录：</strong>VGGT-BA 实现 f158858、8dbeb53；MCMC 可见性清理 9a3b047；中心策略负结果 7e5127b。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a> 的 08-17/18、09-09/10 条目。</p><blockquote>It removed 8,030 / 2,999,577 Gaussians (0.268%): 5,610 front-free-space and 2,420 outside-oversized. Validation moved only −0.050153 dB / −0.000145 SSIM</blockquote><blockquote>Quality failed decisively: −1.341481 dB mean PSNR, −0.007827 SSIM, −1.423899 dB P10, 154/179 views worse and worst-view delta −7.101706 dB</blockquote><p>远端：<code>outputs/experiments/mcmc-20260909-vggt-visibility-v1/</code> 与 <code>outputs/experiments/mcmc-20260909-vggt-oversized-center-v1/</code>。两次使用同一模型、同一 64 个训练深度视角。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s9" hidden>
+  <header class="topline"><span class="chapter">3DGS 训练 / 初始化与剪枝</span><span>08.12　Project v7</span></header>
+  <div class="heading"><h2 id="s9">初始化与屏幕剪枝的交互消融</h2><p class="subtitle">研究问题：模型退化由初始高斯尺度引起，还是由训练期删除策略引起？采用两因素交叉实验分离影响。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>表示与优化机制</h3><p>3DGS 将场景表示为带位置、旋转、尺度、透明度和球谐颜色的三维高斯。可微渲染提供参数梯度，分裂、复制和剪枝改变表示容量；错误删除会损失仍在优化中的结构。</p></section>
+      <section><h3>实验设置与观察</h3><p>固定房间数据、种子、训练预算和评价相机，交叉比较 3NN / 原 1NN 初始化与 20 像素剪枝开关。开启剪枝时两种初始化均退化，且第 3,100 步即出现约 8.3 万个高斯的数量差。</p></section>
+      <section><h3>方法修订</h3><p>8 月 12 日采用前期消融结论：保留由三个近邻距离估计初始尺度的 3NN 方法，禁用训练期 20 像素剪枝，形成 Project v7；屏幕尺度继续作为诊断量保留。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>房间四组实验：各自最佳验证结果</h3><div class="table-wrap"><table><thead><tr><th>初始大小</th><th>20px 剪枝</th><th>PSNR</th><th>SSIM</th></tr></thead><tbody><tr><td>3NN</td><td>开</td><td class="num">20.7823</td><td class="num">0.6837</td></tr><tr class="emphasis"><td>3NN</td><td>关</td><td class="num">26.7929</td><td class="num">0.8456</td></tr><tr><td>原 1NN</td><td>开</td><td class="num">21.9523</td><td class="num">0.7233</td></tr><tr><td>原 1NN</td><td>关</td><td class="num">26.4699</td><td class="num">0.8423</td></tr></tbody></table></div></div>
+      <p class="result"><strong>对照结论：</strong>主要问题是屏幕剪枝，不是 3NN。都关闭剪枝时，3NN 在共同的第 10,000 步比原初始化提高 0.3231 dB。</p>
+      <p class="caption">四组实验始于 8 月 10 日，本期贡献为 8 月 12 日的算法收敛与接入。表中是最佳验证值，不与最终第 30,000 步的差值混用。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>实验摘录：</strong>stage2d-contract 房间四组表；Project v7 实现 b7f2a7f。PSNR 越高表示渲染像素误差越小。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="stage2d-contract.md">docs/stage2d-contract.md</a> 四组消融段落；原实验目录 <code>outputs/experiments/schema-v6-screen-init-ablation-20260810/</code>。</p><blockquote>The four best Validation cells were: 3NN+20px `20.7823/0.6837` at 20k (662,453 Gaussians), 3NN+off `26.7929/0.8456` at 10k (948,899), legacy+20px `21.9523/0.7233` at 30k (672,011), and legacy+off `26.4699/0.8423` at 10k (975,322).</blockquote><p>原记录还给出了最终步数对比：关闭剪枝在 3NN / legacy 两臂分别提高 5.5888 / 4.0938 dB。这与上表最佳值差不是同一统计口径。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s10" hidden>
+  <header class="topline"><span class="chapter">3DGS 训练 / 漂浮噪声分析</span><span>08.19—08.21</span></header>
+  <div class="heading"><h2 id="s10">空间支持统计与保守离群过滤</h2><p class="subtitle">研究问题：如何区分自由空间漂浮噪声与合法薄结构，避免统计离群过滤同时破坏场景细节？</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>空间诊断方法</h3><p>统计高斯到 SfM 点云和相机的距离，并联合透明度与尺度划分贴近表面的结构、自由空间薄雾和大尺寸雾片。一个 266 万高斯视频模型中，约 20.3 万属于自由空间薄雾。</p></section>
+      <section><h3>消融设置</h3><p>SOR 根据高斯与邻居的平均距离识别离群点。在两份冻结视频模型上扫描三组参数和两种删除规则，共 12 个统计实验格；再通过房间渲染检验外观损失。</p></section>
+      <section><h3>透明度保护</h3><p>Full 规则删除所有离群高斯；Band 规则保留 opacity ≥ 0.05 的离群高斯。该限制用于保护位置稀疏但外观贡献较大的薄结构，同时过滤低透明度离群噪声。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>房间渲染验证：PSNR 相对变化</h3><div class="table-wrap"><table><thead><tr><th>参数强度</th><th>Full：全部离群点</th><th>Band：低透明度离群点</th></tr></thead><tbody><tr><td>保守</td><td class="num">−2.81 dB</td><td class="num">−0.042 dB</td></tr><tr><td>中等</td><td class="num">−3.66 dB</td><td class="num">−0.046 dB</td></tr><tr><td>激进</td><td class="num">−4.97 dB</td><td class="num">−0.054 dB</td></tr></tbody></table></div><p class="caption">Band 数值由原记录 25.9971 dB 基线与三组评价值相减、四舍五入得到。它不是完全零损失。</p></div>
+      <p class="result"><strong>落地方案：</strong>默认采用保守 band 清理。成团薄雾并不一定是位置离群点，因此后续进一步研究训练期的贡献判断，而非持续加大 SOR 强度。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>sor-floater-cleanup-v1 参数扫描、掩码与房间评价；实现 c79671e、6f092e8、775ad5d。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a>，08-20 SOR 实验条目。原目录：<code>outputs/experiments/sor-floater-cleanup-v1/</code>。</p><blockquote>baseline reproduced bit-exact at PSNR 25.9971 / SSIM 0.8396</blockquote><blockquote>conservative/balanced/aggressive give PSNR 25.9549 / 25.9514 / 25.9432 (Δ ≤ 0.054 dB, SSIM +0.0004..+0.0005, noise-level) while removing 3,174–5,883 gaussians.</blockquote><p>保守参数：30 个邻居、标准差系数 2.0、透明度保护线 0.05。聚集型噪声离其邻居也很近，因此单靠统计离群不能识别。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s11" hidden>
+  <header class="topline"><span class="chapter">3DGS 训练 / 恢复速度剪枝</span><span>08.20—08.21</span></header>
+  <div class="heading"><h2 id="s11">基于重置后恢复行为的高斯剪枝</h2><p class="subtitle">研究问题：能否用一段优化过程中的贡献恢复程度，替代单时刻透明度阈值，从而减少噪声而保留有效结构？</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>前置消融</h3><p>将透明度重置值从 0.01 降至 0.0045，可减少约 10% 的自由空间薄雾，但 PSNR 下降 0.308 dB。更低值会触及光栅器的有效可见性下限，使高斯失去可用于恢复的渲染贡献。</p></section>
+      <section><h3>恢复窗口方法</h3><p>保持重置值 0.01，在随后 500 次更新中允许高斯重新响应图像监督。窗口结束后一次性删除透明度仍低于 0.05 的高斯，以持续低贡献作为筛选依据。</p></section>
+      <div class="mechanism"><strong>实现规则：</strong>在重置时刻 t 后，于 t + 500 检查 opacity；仅此时执行 opacity &lt; 0.05 的恢复剪枝，其他步骤保留原训练行为。该规则是贡献代理，不是对物理表面真假的直接分类。</div>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>房间同配置 A/B：只改变恢复剪枝开关</h3><div class="table-wrap"><table><thead><tr><th>指标</th><th>关闭</th><th>开启</th></tr></thead><tbody><tr><td>最终高斯数量</td><td class="num">953,200</td><td class="num">641,026</td></tr><tr><td>PSNR</td><td class="num">26.7433</td><td class="num">26.8944</td></tr><tr><td>SSIM</td><td class="num">0.8459</td><td class="num">0.8440</td></tr><tr class="emphasis"><td>自由空间薄雾</td><td colspan="2">减少 104,825 个，约 87.8%</td></tr><tr><td>大尺寸薄雾片</td><td colspan="2">两档尺度统计减少约 80%—90%</td></tr></tbody></table></div></div>
+      <p class="result"><strong>结果：</strong>最终模型减少 32.8%，PSNR 略升，SSIM 小幅下降。主要收益是显著减少冗余和漂浮薄雾，同时基本保持房间画质。</p>
+      <p class="caption">这些比例来自该房间的一组对照，不作为所有场景的平均降幅。9 月 8 日将此策略纳入 Project 默认配置。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>opacity-reset-floor-v1、recovery-gated-prune-v1；四次恢复剪枝事件及续训记录完整保留。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a> 08-20 / 08-21 条目；实现 <code>a59cf4b</code>、<code>775ad5d</code>，默认接入 <code>babd398</code>。</p><blockquote>baseline 26.7433/0.8459 (953,200 gaussians) vs fix 26.8944/0.8440 (641,026)</blockquote><blockquote>free-space haze −104,825 (−87.8%), total haze −88.9%, veils −89.8%/−80.4%</blockquote><p>四次剪枝累计删除 510,412 个，中间训练又生成部分有效高斯，所以累计删除量不等于最终模型减少量。SSIM 实际变化 −0.00196；记录中另披露约 0.06 dB 的 GPU 运行间非确定性。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s12" hidden>
+  <header class="topline"><span class="chapter">3DGS 训练 / MCMC 多臂对照</span><span>09.01—09.09</span></header>
+  <div class="heading"><h2 id="s12">固定几何输入下的 Project / MCMC 方法对照</h2><p class="subtitle">研究问题：随机扰动与重定位能否改善高斯容量分配？在相同观测与更新预算下，同时考察渲染质量、表示规模和计算成本。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>策略差异</h3><p>Project 主要依据渲染梯度分裂、复制与删除高斯；MCMC 使用位置随机扰动、低贡献高斯重定位和增长，并加入透明度与尺度正则。两者均属于针对当前场景的观测拟合，不是生成式世界模型。</p></section>
+      <section><h3>实验设置</h3><p>复用相同相机与冻结初始化，使用 1,376 张训练图和 179 张验证图。两臂均运行两卡、30,000 次更新、60,000 次相机采样；MCMC 全局上限固定为 300 万高斯。</p></section>
+      <section><h3>结果分析</h3><p>MCMC 在 121/179 个视角取得更高 PSNR，低分位视角亦改善。但它保留更多高斯、训练时间更长，部分自由空间雾片增加，表明质量提升伴随不同的容量与空间分布。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>相同 SOR 后的模型比较</h3><div class="table-wrap"><table><thead><tr><th>项目</th><th>Project v7</th><th>MCMC</th></tr></thead><tbody><tr><td>平均 PSNR</td><td class="num">23.5629</td><td class="num">23.8330</td></tr><tr><td>平均 SSIM</td><td class="num">0.80939</td><td class="num">0.81981</td></tr><tr><td>高斯数量</td><td>169.3 万</td><td>300.0 万</td></tr><tr><td>主训练时间</td><td>52.0 分钟</td><td>81.3 分钟</td></tr></tbody></table></div><p class="caption">PSNR +0.2701 dB，SSIM +0.01042；训练时间约增加 56.5%。固定的是输入与更新预算，高斯数量不相同。</p></div>
+      <p class="result"><strong>当前选择：</strong>Project 继续作为默认方案，MCMC 作为画质候选保留。这个实验量化了质量收益与计算代价，而非只增加一个算法入口。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>mcmc-replay-project-v7-2gpu-ab-v1；MCMC 模型来自完整训练后保留的最佳分片，终态保存故障见工程页。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a>，same-replay Project-vs-MCMC 条目。远端对照：<code>outputs/experiments/mcmc-replay-project-v7-2gpu-ab-v1/</code>；Project 任务 <code>20260909-174518-874c</code>。</p><blockquote>after the same SOR it gained +0.270058 dB / +0.010421 SSIM and won 121/179 views.</blockquote><blockquote>MCMC used 2,999,577 SOR Gaussians versus Project 1,692,616 and took 4,878.90s versus 3,117.25s</blockquote><p>MCMC 训练在保存最终 checkpoint 时主机内存不足，后续从不可变的两份最佳模型分片恢复可评价模型；原 Job 的失败状态没有改写。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s13" hidden>
+  <header class="topline"><span class="chapter">重建质量 / 低质量视角归因</span><span>09.11</span></header>
+  <div class="heading"><h2 id="s13">低质量视角的观测支持与表示误差归因</h2><p class="subtitle">研究问题：渲染误差来自输入退化、训练覆盖不足，还是外观表达能力？以原图质量、轨迹支持和同相机方法对照构成分层证据。</p></div>
+  <div class="content">
+    <div class="table-wrap"><table><thead><tr><th>代表视角</th><th>原始数据与几何支持</th><th>主要判断</th><th>对应处理思路</th></tr></thead><tbody>
+      <tr><td class="num">1108</td><td>清晰度、边缘密度偏低；377 个三维观测中，仅 14 个有至少两个训练视角支持。</td><td>输入退化与训练支持稀疏并存。</td><td>优先改善采集与观察覆盖；当前证据不足以支持仅增加表示容量。</td></tr>
+      <tr><td class="num">1718</td><td>相机平滑，重投影误差中位数 0.411 像素；但处于连续 8 秒的非训练片段。</td><td>主要候选原因是图像监督缺口。</td><td>在模型选择后补入已有观察，检验固定拓扑补拟合的作用。</td></tr>
+      <tr><td class="num">508</td><td>原图清晰；6,040 个三维观测，6 条直接训练连接；重投影误差中位数 0.257 像素。</td><td>未发现明显输入或几何异常。</td><td>将外观表达与渲染机制作为后续研究变量，而非直接增加帧数。</td></tr>
+    </tbody></table></div>
+    <div class="columns equal">
+      <section class="prose"><h3>从三个案例回看全体视角</h3><p>179 张验证图中，画质与最近训练相机距离存在明显负相关（Spearman −0.6017）：离训练观察越远，画质通常越差。</p></section>
+      <section class="prose"><h3>排除 MCMC 特有退化</h3><p>在完全相同的三个相机位置上，MCMC 都优于 Project，但两者表现出相似缺陷。因此先处理共享的输入和监督问题。</p></section>
+    </div>
+    <p class="caption">表中“支持”指同一三维点被多少训练图观察；没有直接训练匹配边不等于完全没有间接三维约束。</p>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>mcmc-native-low-view-attribution-20260911/REPORT.md；179 视角总体相关性与三视角逐项归因。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../outputs/analysis/mcmc-native-low-view-attribution-20260911/REPORT.md">低质量视角报告</a>；<a href="../outputs/analysis/mcmc-native-low-view-attribution-20260911/project-v7-comparison.json">同相机 Project 对照</a>。</p><blockquote>Across all 179 Validation views, PSNR correlates with nearest Train center distance at Spearman `-0.6017`, direction-constrained distance at `-0.5939`, and nearest Train time at `-0.4645`.</blockquote><p>出处：codex.md 09-11 归因条目。该分析没有改相机或重跑训练。1108、1718、508 的 Project/MCMC PSNR 差分别约为 +0.370、+0.958、+0.559 dB，均为 MCMC 更高。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s14" hidden>
+  <header class="topline"><span class="chapter">重建质量 / 交付前补拟合</span><span>09.11—09.14</span></header>
+  <div class="heading"><h2 id="s14">选模后的固定拓扑补拟合</h2><p class="subtitle">研究假设：完成模型选择后，将原验证图用于低学习率优化，可以减轻已拍摄区域的监督空缺，而不再改变表示规模。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>方法定义</h3><p>主训练仍以独立验证图选择模型。选定并完成 SOR 后，冻结高斯数量，重新建立优化器，只更新位置、颜色、透明度和尺度；验证阶段与交付拟合阶段分别保存结果。</p></section>
+      <section><h3>优化设置</h3><p>增加 2,000 次更新：位置采用原配置最终学习率，其他参数为原值的 1/10。关闭分裂、删除、透明度重置及 MCMC 重定位和噪声，不重复 SfM 或主训练。</p></section>
+      <section><h3>实验设置</h3><p>Project 与 MCMC 分别从自己的选中模型开始，使用相同的 1,376 张训练图和 179 张原验证图。评价在同一 179 个相机上逐视角配对，检查画质变化与高斯数量守恒。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>补拟合前后，同一 179 个相机</h3><div class="table-wrap"><table><thead><tr><th>方案</th><th>PSNR 前 → 后</th><th>SSIM 前 → 后</th></tr></thead><tbody><tr><td>Project</td><td class="num">23.563 → 25.187</td><td class="num">0.8094 → 0.8408</td></tr><tr><td>MCMC</td><td class="num">23.833 → 25.619</td><td class="num">0.8198 → 0.8568</td></tr></tbody></table></div><p>额外耗时：Project <strong>4.2 分钟</strong>，MCMC <strong>6.3 分钟</strong>；两卡执行。</p></div>
+      <div class="table-wrap"><table class="compact"><thead><tr><th>目标视角</th><th>Project 提高</th><th>MCMC 提高</th></tr></thead><tbody><tr><td>1108 / 输入较弱</td><td>0.733 dB</td><td>0.720 dB</td></tr><tr><td>1718 / 监督空档</td><td>2.951 dB</td><td>2.437 dB</td></tr><tr><td>508 / 表达不足候选</td><td>2.661 dB</td><td>3.080 dB</td></tr></tbody></table></div>
+      <p class="caption">以上为参与补训后的拟合集结果。未参与拟合视角的收益，以及“额外步数”和“新增图像”各自的贡献，尚未完成对照；当前功能默认关闭。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始数值：</strong>train-validation-final-fit-v1/comparison.json；代码 976d36b；四路模型查看已接入现有前端。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../outputs/analysis/train-validation-final-fit-v1/comparison.json">原始 comparison.json</a> · <a href="../outputs/analysis/train-validation-final-fit-v1/REPORT.md">实验报告</a>。</p><p>原 JSON 的 Project 字段摘录（以字段路径标明嵌套位置）：</p><pre>arms.project.optimizer_updates = 2000
+arms.project.camera_samples = 4000
+arms.project.gaussian_count_before = 1692616
+arms.project.gaussian_count_after = 1692616
+arms.project.elapsed_seconds = 253.02605827600928
+arms.project.baseline.psnr.mean = 23.562934646393334
+arms.project.fit.psnr.mean = 25.186682312182207
+arms.project.baseline.ssim.mean = 0.8093912185237394
+arms.project.fit.ssim.mean = 0.8408303786922433</pre><p>上述值摘自已保存 JSON，不是演示数据。两卡 Train-only 同预算控制于 09-14 因驱动初始化失败而未执行优化，Test 未评价；按用户要求暂停。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s15" hidden>
+  <header class="topline"><span class="chapter">评价与渲染 / 导出一致性</span><span>09.10—09.11</span></header>
+  <div class="heading"><h2 id="s15">模型、序列化与浏览器渲染的一致性检验</h2><p class="subtitle">研究问题：训练评价与浏览器观感的差异发生在哪一阶段？固定模型与相机，依次排查原生渲染、PLY 转换和前端光栅化。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <ol class="steps">
+        <li><strong>复现原生渲染。</strong>对六个指定视角重新渲染，确认椅子细节模糊和弱纹理问题在模型端已存在。</li>
+        <li><strong>导出后再读回。</strong>比较高斯参数与同相机渲染，检查是否在 PLY 转换中丢失数据。</li>
+        <li><strong>固定浏览器相机。</strong>核对实际使用的球谐阶数和合成效果，不仅看文件声明。</li>
+        <li><strong>统一指标说明。</strong>分别计算原始浮点图、显示裁剪图的 PSNR / SSIM，避免同一模型因计分方式不同被误判。</li>
+      </ol>
+      <p class="mechanism"><strong>球谐阶数（SH）</strong>决定高斯能表达多复杂的方向相关颜色，例如从不同角度看到的反光。模型存有三阶系数，不代表浏览器实际使用了全部系数。</p>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>六视角固定相机审查</h3><div class="table-wrap"><table class="compact"><thead><tr><th>检查位置</th><th>实际记录</th><th>判断</th></tr></thead><tbody><tr><td>原生 → PLY 回读</td><td>SSIM ≥ 0.99999988</td><td>导出近乎无损</td></tr><tr><td>浏览器有效阶数</td><td>请求 SH3，实际 SH2</td><td>显示能力少一阶</td></tr><tr><td>浏览器 ↔ 原生 PNG</td><td>平均 SSIM 0.96628</td><td>仍有光栅化、合成差异</td></tr></tbody></table></div></div>
+      <section><h3>已经完成的修正</h3><p>评价报告和前端同时标明原始浮点、显示裁剪指标，以及浏览器实际 SH 阶数。后续可据此单独研究渲染器，不再把浏览器差异全部归为训练问题。</p></section>
+      <p class="caption">六个视角为诊断选取；浏览器与原生相似度不是对原图的重建分数。此次完成审查与标识，尚未实现浏览器 SH3。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>mcmc-render-audit-20260910/REPORT.md；评价标识实现 2ed1416；浏览器包版本 0.4.7。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../outputs/analysis/mcmc-render-audit-20260910/REPORT.md">固定相机审查报告</a>；<a href="../outputs/analysis/mcmc-render-audit-20260910/comparison.json">原始对照 JSON</a>。</p><blockquote>means/log-scales/opacity/SH round-trip exactly, normalized-quaternion max delta is `1.79e-7`, and six PLY-reload renders match native at SSIM `>=.99999988`.</blockquote><p>另一个口径示例：视角 317 原始浮点评价 PSNR 24.318，显示裁剪后 25.754；约 0.7703% 的预测通道值超出 [0,1]。分开记录，并未修改历史分数。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s16" hidden>
+  <header class="topline"><span class="chapter">前端展示 / 中间数据可视化</span><span>08.13—09.14</span></header>
+  <div class="heading"><h2 id="s16">重建中间结果的关联可视化</h2><p class="subtitle">将最终渲染与其输入来源、局部匹配和三维支持建立可浏览关联，为低质量区域归因提供统一操作界面。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>查询方法</h3><p>根据当前 Gaussian 视角的位置和方向检索邻近输入相机，联查原图、源时间、关键点及几何验证对应；进一步在稀疏点云与轨迹中检查异常分支和观测缺口。</p></section>
+      <section><h3>坐标与显示一致性</h3><p>通过主平面估计和平均相机朝上方向建立显示旋转，同步作用于高斯、稀疏点云、相机及辅助碰撞结构；查询时逆变换回源坐标。该操作不改变模型几何。</p></section>
+      <section><h3>结果组织</h3><p>集成中文界面、历史任务选择和模型切换，支持原版 / 深度过滤、Project / MCMC、选中模型 / 补拟合模型查看。第一人称漫游作为辅助展示，不参与重建评价。</p></section>
+    </div>
+    <div class="prose">
+      <div class="evidence-box"><h3>界面里新增了哪些可检查信息</h3><div class="table-wrap"><table class="compact"><thead><tr><th>信息</th><th>能回答的问题</th></tr></thead><tbody><tr><td>原图与源时间</td><td>这里是否拍清、是否漏拍</td></tr><tr><td>关键点、验证后匹配</td><td>图片之间是否有足够对应</td></tr><tr><td>未注册帧与相邻关系</td><td>哪些图片没进入最终几何</td></tr><tr><td>稀疏点、相机轨迹</td><td>是否出现断层、漂移和错误分支</td></tr><tr><td>四路模型与评价</td><td>训练策略和补拟合改变了什么</td></tr></tbody></table></div></div>
+      <p class="result"><strong>数据加载改造：</strong>关键点和图像对分片压缩，按需加载；匹配线可选 50 / 150 / 300 条，轨迹完整显示、视锥最多采样 120 个，控制浏览器负担。</p>
+      <p class="caption">四路切换会重新加载并复位相机，目前不是联动锁定相机的同步 A/B。1,824 图诊断压缩体积估算约 180 MB，源数据库约 1.6 GB，内容并非完整数据库副本。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>部署记录：</strong>四路对比任务 train_validation_final_fit_v1_comparison，09-14 上线既有 8081 前端；显示相关源码见 SfM inspector 与 Gaussian viewer。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p>中文与任务选择 <code>43159e8</code>；结构化 SfM 数据 <code>6779050</code>；对齐 <code>d9b587e</code>；四路展示 <code>45d8f50</code>；部署记录 <code>d077397</code>。</p><blockquote>The live 8081 frontend defaults to MCMC Final-fit; a bounded Chrome control test verified all four labels, metric roles and asset URL switches without downloading whole PLYs.</blockquote><p>上述为控件和 URL 切换测试，不是四个完整大模型的性能基准。四路 manifest SHA：<code>ca77d3a4…389a</code>。原始记录位于 <a href="../codex.md">codex.md</a> 08-31、09-01、09-14 条目。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s17" hidden>
+  <header class="topline"><span class="chapter">运行效率 / 内存与存储</span><span>08.14—09.09</span></header>
+  <div class="heading"><h2 id="s17">分布式训练的主机内存与序列化优化</h2><p class="subtitle">通过运行日志定位输入驻留和终态保存两个峰值，分别调整数据类型与对象生命周期；优化过程不降低输入分辨率或改变拟合目标。</p></div>
+  <div class="content">
+    <div class="table-wrap"><table><thead><tr><th>问题与现场记录</th><th>定位与改法</th><th>实际效果</th></tr></thead><tbody>
+      <tr><td><strong>3072px 双卡任务在首步前被系统终止</strong><br>273 张图；被终止进程约 16.2 GiB 内存。</td><td>每张卡的进程都把所有图片保存为 float32。改为 CPU 保留 uint8，仅当前图片传到 GPU 时转换。</td><td>图像像素存储由 4 字节变为 1 字节，<strong>降至 1/4</strong>；图像分辨率与训练像素不变。</td></tr>
+      <tr><td><strong>MCMC 训练完成，保存 checkpoint 时内存不足</strong><br>两进程各仍持有约 4.277 GB 图像。</td><td>最终保存还要汇总模型、优化器和策略状态。先释放不再使用的图像，再汇总保存。</td><td>后续同输入双卡 Project 任务完成最终 checkpoint；MCMC 已保留的模型分片单独恢复用于评价。</td></tr>
+      <tr><td><strong>导入约百万高斯的模型文件异常偏大</strong><br>生成的 .pt 约 1.15 GB。</td><td>多个张量视图各保存了完整底层矩阵。改为按实际参数生成紧凑连续存储。</td><td>文件降到约 <strong>230 MB</strong>，约为原来的 <strong>1/5</strong>。</td></tr>
+    </tbody></table></div>
+    <div class="columns equal">
+      <section class="prose"><h3>多卡实现</h3><p>高斯、优化器与训练策略按 GPU 分片，协同渲染，最终合并成同一浏览器模型；两张卡不是一张可直接相加显存的设备。</p></section>
+      <section class="prose"><h3>工具链修正</h3><p>升级隔离 COLMAP 4 / CUDA 工具链，修复旧词汇树格式和分布式光栅模式，避免接口不兼容导致重建中途失败。</p></section>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>原始记录：</strong>2d2d2d8（uint8 图像）、f5f4fb5（保存前释放）、6f092e8（模型存储）、a87b93e / b6d7ca6（多卡）。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="../codex.md">codex.md §17</a>，08-14、08-20、09-09 条目。</p><blockquote>every rank retained all Train and Validation RGB pixels as CPU float32. Undistorted CPU views now remain uint8 and only the selected view converts to normalized float32 during device transfer, reducing resident image bytes by 4×</blockquote><blockquote>each rank retained about 4.277 GB of CPU Train/Validation images while `_checkpoint_state` serialized model/optimizer/strategy and rank 0 gathered both complete states</blockquote><p>4 倍仅指图像驻留字节，不指整个任务总内存；约 5 倍来自 PLY 导入模型的具体存储问题，不指所有文件通用压缩率。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s18" hidden>
+  <header class="topline"><span class="chapter">实验方法 / 数据复用与工程维护</span><span>贯穿本月</span></header>
+  <div class="heading"><h2 id="s18">冻结输入、分阶段重放与实验可比性</h2><p class="subtitle">相机和初始化的变化会混入训练策略的效果评估。保存并复用中间产物，既减少重复计算，也限定每次实验可归因的变量。</p></div>
+  <div class="content columns">
+    <div class="prose">
+      <section><h3>训练输入冻结与重放</h3><p>将已确定的相机、图像划分、去畸变图片和高斯初始化保存为 replay。Project/MCMC 直接复用，不重复 SfM、点筛选或近邻初始化。补拟合更进一步，直接从选中模型开始。</p></section>
+      <section><h3>保留失败时的有效产物</h3><p>保留原始数据库、相机模型、匹配关系和训练分片。一次任务中断后，可判断哪些阶段确实完成，继续做只读诊断或单独恢复结果，而非整条流程重跑。</p></section>
+      <section><h3>统一工程实现</h3><p>消除执行层循环依赖，集中维护配置解析、资源安装与文件校验。前端读取统一结果清单，后端升级算法时不需要为每种模型另写一套查看逻辑。</p></section>
+    </div>
+    <div class="evidence-box"><h3>本月实际采用的实验方式</h3><div class="table-wrap"><table class="compact"><thead><tr><th>问题</th><th>保留不变</th><th>单独改变</th></tr></thead><tbody>
+      <tr><td>初始化还是误剪枝</td><td>房间数据、种子、预算</td><td>两种初始化 × 剪枝开关</td></tr><tr><td>特征无效还是缺图</td><td>有效点坐标与描述子</td><td>正分过滤，再加密采样</td></tr><tr><td>哪个相机求解器更合适</td><td>同一数据库快照</td><td>Incremental / Global</td></tr><tr><td>哪种高斯策略更好</td><td>同一 replay、更新预算</td><td>Project / MCMC</td></tr><tr><td>补训有没有改善</td><td>同一选中模型、报告视角</td><td>固定结构 2,000 步补拟合</td></tr>
+    </tbody></table></div><p class="caption">协议、配置与数据用校验值绑定，原始指标和逐视角结果随实验保存。这里强调可比较性，而不是用实验次数代替工作效果。</p></div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>实现依据：</strong>Gaussian replay、checkpoint、模型导出与实验合同；多次对照已在同一输入上执行。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p><a href="gaussian-trainer-contract.md">训练与 replay 合同</a>；<a href="gaussian-checkpoint-contract.md">checkpoint 合同</a>；<a href="manifest-schema.md">前后端资产清单合同</a>。</p><p>主要改动：<code>1978e2b</code> / <code>dd96949</code> 接入 MCMC 与重放；<code>fe2ef3a</code> 去循环依赖和统一文件校验；<code>3dbc602</code> 等保留重建中间结果；<code>52f2e27</code> / <code>b29977a</code> 单独发布只读恢复模型。</p><p>同一 replay 的核心数据：训练 1,376、验证 179、Test 171。Test 的相机与特征参与共享 SfM，但没有用作这轮 Gaussian 的训练或选模 RGB。</p></template>
+</section>
+
+<section class="slide" aria-labelledby="s19" hidden>
+  <header class="topline"><span class="chapter">阶段结论</span><span>截至 2026.09.14</span></header>
+  <div class="heading"><h2 id="s19">已落地的改进与尚待解决的问题</h2><p class="subtitle">本月完成视频重建与诊断流程扩展，并以受控实验改进模型精简和交付画质；默认方案仍采用已经验证的常规路线。</p></div>
+  <div class="content columns equal">
+    <div class="prose">
+      <section><h3>已经用于当前系统</h3><p><strong>输入与几何：</strong>视频自适应选帧、初始注册扩展、局部恢复和相机异常检查；默认使用 SIFT、暴力匹配和增量求解。</p><p><strong>模型训练：</strong>Project v7、恢复速度剪枝与保守 SOR；支持双卡训练和固定输入重放。</p><p><strong>结果查看：</strong>原图、关键点、匹配、稀疏点云与相机轨迹联查；四路模型切换；原生与显示指标分别标识。</p></section>
+      <section><h3>有实验收益，暂作候选保留</h3><p>MCMC 在同输入验证集上提高画质，但容量和耗时更大；final-fit 用数分钟改善参与补训的画面，下一步需要评价未拟合视角。</p></section>
+    </div>
+    <div class="prose">
+      <section><h3>仍需解决的主要问题</h3><p><strong>弱纹理与反光：</strong>加密图片、替换特征或删除大高斯均不能普遍解决，需分别判断数据支持与外观表达。</p><p><strong>连续移动的观感：</strong>固定相机画质已量化，但浏览器仍使用 SH2，连续移动的闪烁与显示一致性尚需单独研究。</p><p><strong>跨视角与跨场景效果：</strong>现有补拟合收益来自单场景；Train-only 等预算控制和未拟合视角评价尚未完成。</p></section>
+      <p class="result"><strong>当前状态：</strong>按安排暂停继续优化，保留当前系统、模型与实验记录。本汇报聚焦重建质量和研发改进；语义场景图及物理尺度恢复未作为已完成成果。</p>
+      <p class="caption">后续优先补充未拟合视角与第二场景验证，再决定是否默认启用新训练方案。当前没有进行新的 Test 评价。</p>
+    </div>
+  </div>
+  <footer class="footer"><p class="source-note"><strong>状态依据：</strong>09-08 默认配置、09-11 final-fit 报告、09-14 前端部署与控制实验记录。正文中的量化结果均可从各页证据入口复查。</p><button class="source-button" type="button">查看原始记录</button></footer>
+  <template class="source"><p>当前基线：<a href="../README.md">README</a>、<a href="../codex.md">codex.md §17</a>；默认改动 <code>babd398</code>；final-fit 对照协议 <a href="gaussian-final-fit-comparison.md">gaussian-final-fit-comparison.md</a>。</p><p>09-14 Train-only 任务 <code>20260914-103119-487f</code> 在 NCCL 初始化时失败，未生成模型或优化进度：</p><pre>nvmlInit_v2() failed: Driver/library version mismatch
+loaded kernel module: 580.173.02
+installed userspace / module: 580.178.04</pre><p>任务退出码为 1，失败记录保留在 <code>outputs/experiments/mcmc-final-fit-generalization-v1/</code>。没有重启、重试或消费 Test。</p></template>
+</section>
+</main>
+
+<nav class="controls" aria-label="演示翻页">
+  <button id="prev" type="button" aria-label="上一页">←</button>
+  <button id="next" type="button" aria-label="下一页">→</button>
+  <label class="sr-only" for="pages">选择页面</label><select id="pages"></select>
+  <span class="key-hint">← → 翻页 · Home / End</span>
+  <span class="page-count" id="page-count" aria-live="polite">01 / 24</span>
+  <button id="fullscreen" type="button">全屏</button>
+</nav>
+<dialog id="evidence-dialog" aria-labelledby="evidence-title">
+  <header class="dialog-head"><h2 id="evidence-title">原始记录</h2><button id="close-evidence" type="button">关闭</button></header>
+  <div class="dialog-body" id="evidence-content"></div>
+</dialog>
+<div class="sr-only" id="announcement" aria-live="polite"></div>
+<script>
+(() => {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const prev = document.getElementById('prev');
+  const next = document.getElementById('next');
+  const pages = document.getElementById('pages');
+  const count = document.getElementById('page-count');
+  const dialog = document.getElementById('evidence-dialog');
+  const evidence = document.getElementById('evidence-content');
+  const fullscreen = document.getElementById('fullscreen');
+  const announcement = document.getElementById('announcement');
+  let index = 0;
+  let touch = null;
+  slides.forEach((slide, i) => {
+    const heading = slide.querySelector('h1,h2');
+    const option = document.createElement('option');
+    option.value = String(i);
+    option.textContent = `${String(i+1).padStart(2,'0')}　${heading.textContent}`;
+    pages.append(option);
+    slide.querySelector('.source-button').addEventListener('click', () => {
+      evidence.replaceChildren(slide.querySelector('.source').content.cloneNode(true));
+      document.getElementById('evidence-title').textContent = `第 ${i+1} 页 · 原始记录`;
+      dialog.showModal();
+    });
+  });
+  function show(n, updateHash = true) {
+    index = Math.max(0, Math.min(slides.length-1, n));
+    slides.forEach((s,i) => { s.hidden = i !== index; });
+    prev.disabled = index === 0;
+    next.disabled = index === slides.length-1;
+    pages.value = String(index);
+    count.textContent = `${String(index+1).padStart(2,'0')} / ${slides.length}`;
+    announcement.textContent = `第 ${index+1} 页：${slides[index].querySelector('h1,h2').textContent}`;
+    if (updateHash) {
+      try { history.replaceState(null,'',`#${index+1}`); } catch (_) { /* 翻页不依赖文件 URL 的 history 权限。 */ }
+    }
+  }
+  prev.addEventListener('click', () => show(index-1));
+  next.addEventListener('click', () => show(index+1));
+  pages.addEventListener('change', () => show(Number(pages.value)));
+  document.getElementById('close-evidence').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', event => {
+    const rect = dialog.getBoundingClientRect();
+    if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
+  });
+  document.addEventListener('keydown', event => {
+    if (dialog.open || event.altKey || event.ctrlKey || event.metaKey || event.target.closest('button,select,input,textarea,a,[contenteditable="true"]')) return;
+    if (['ArrowRight','PageDown',' '].includes(event.key)) { event.preventDefault(); show(index+1); }
+    if (['ArrowLeft','PageUp'].includes(event.key)) { event.preventDefault(); show(index-1); }
+    if (event.key === 'Home') { event.preventDefault(); show(0); }
+    if (event.key === 'End') { event.preventDefault(); show(slides.length-1); }
+  });
+  document.getElementById('deck').addEventListener('touchstart', event => {
+    if (dialog.open || event.target.closest('.table-wrap,button,a')) { touch = null; return; }
+    const point = event.changedTouches[0];
+    touch = { x: point.clientX, y: point.clientY };
+  }, { passive: true });
+  document.getElementById('deck').addEventListener('touchend', event => {
+    if (!touch || dialog.open) return;
+    const point = event.changedTouches[0];
+    const dx = point.clientX-touch.x, dy = point.clientY-touch.y;
+    touch = null;
+    if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy)*1.5) show(index+(dx<0?1:-1));
+  }, { passive: true });
+  fullscreen.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch (_) { fullscreen.textContent = '请使用浏览器全屏'; }
+  });
+  document.addEventListener('fullscreenchange', () => { fullscreen.textContent = document.fullscreenElement ? '退出全屏' : '全屏'; });
+  const initial = Number(location.hash.slice(1));
+  show(Number.isInteger(initial) && initial > 0 && initial <= slides.length ? initial-1 : 0, false);
+})();
+</script>
