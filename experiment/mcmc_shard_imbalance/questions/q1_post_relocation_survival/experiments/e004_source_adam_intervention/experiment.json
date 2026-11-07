@@ -24,7 +24,8 @@
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v1-preflight.json",
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-20261029-v2-prefix.json",
     "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json",
-    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-moment-split-20261030-v1.json"
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-moment-split-20261030-v1.json",
+    "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-opacity-only-20261107-v1.json"
   ],
   "shared_run_records": [],
   "reviewed_reports": [
@@ -36,10 +37,12 @@
     "helpers": [
       "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/probe.py",
       "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/analyze.py",
-      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/moment_split.py"
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/moment_split.py",
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/cycle.py"
     ],
     "local_tests": [
-      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_intervention.py"
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_intervention.py",
+      "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_cycle.py"
     ],
     "remote_tests": [
       "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/tests/test_intervention_remote.py"
@@ -130,12 +133,28 @@
     },
     "opacity_only": {
       "profile": "source_adam_opacity_only_v1",
-      "status": "implemented_local_checks_remote_not_run",
+      "status": "completed_20_steps",
       "prepare_option": "--opacity-only",
       "new_arms": [
         "O"
       ],
       "new_global_updates_budget": 20,
+      "real_arms_executed": true,
+      "remote_validation_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-opacity-only-20261107-v1.json",
+      "remote_validation_implementation_commit": "87928163b26f202f4011cdc166ac80e50e49717c"
+    },
+    "full_cycle": {
+      "profile": "source_adam_full_cycle_v1",
+      "status": "implemented_local_checks_remote_not_run",
+      "prepare_option": "--full-cycle",
+      "arms": [
+        "A",
+        "O",
+        "V"
+      ],
+      "new_global_updates_budget": 300,
+      "additional_render_forwards_budget": 12,
+      "endpoint_phase": "after_Adam_before_next_relocation",
       "real_arms_executed": false
     }
   }

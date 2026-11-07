@@ -29,7 +29,7 @@ SPLIT_UNIT = 'image3d-source-adam-moment-split-v1.service'
 PREFLIGHT_UNIT = 'image3d-source-adam-preflight-v1.service'
 FILES = tuple(REL + '/' + n for n in ('run.py', 'probe.py', 'analyze.py', 'tests/test_intervention.py', 'tests/test_intervention_remote.py'))
 RECOVERY_FILES = tuple(REL + '/' + n for n in ('prefix_recovery.py', 'tests/test_prefix_recovery.py', 'tests/test_prefix_recovery_remote.py'))
-SPLIT_FILES = tuple(REL + '/' + n for n in ('moment_split.py', 'tests/test_moment_split_remote.py'))
+SPLIT_FILES = tuple(REL + '/' + n for n in ('moment_split.py', 'cycle.py', 'tests/test_moment_split_remote.py'))
 DEPENDENCIES = tuple(dict.fromkeys((*base.DEPENDENCIES, *FILES, *RECOVERY_FILES, *SPLIT_FILES)))
 CONTRACT = {'profile': PROFILE, 'start': 12000, 'event': 12100, 'end': 12120, 'owner_size': 1500000,
     'nominal_iterations': 30000, 'parent_checkpoint_sha256': base.connected.PARENT_SHA, 'core': base.legacy.CORE,
@@ -204,27 +204,38 @@ def checkpoint(root, p):
 def verify_worker(root, case, rank, p):
     stage = root / case
     w = read(stage / f'worker-rank-{rank}.json')
-    n = CONTRACT['prefix_updates'] if case == 'prefix' else CONTRACT['arm_updates']
+    n = CONTRACT['prefix_updates'] if case == 'prefix' else p['arm_updates']
     counts = {'restore': 1, 'batch': n, 'render': n, 'backward': n, 'raster_forward': n, 'raster_backward': n,
               'optimizer': 6 * n, 'strategy': n, 'relocate': int(case == 'prefix'), 'sample': 0,
               'add': int(case == 'prefix'), 'noise': n, 'terminal': 1, 'checkpoint': int(case == 'prefix')}
+    if p.get('full_cycle'):
+        from . import cycle
+        counts = cycle.expected_calls(n)
     if case == 'prefix':
         counts['sample'] = int(analyze.gate0(stage, rank)['target_count'] > 0)
     if (w['status'] != 'measured' or w['case'] != case or w['rank'] != rank or w['calls'] != counts
             or w['new_updates'] != n or w['validation_evaluated'] or w['native_training_complete']
             or w['protocol_sha256'] != sha256(root / 'protocol.json')):
         raise ValueError('worker lifecycle or counts differ')
-    if len(w['schedule']) != n or len(w['noise_schedule']) != n or not w['manifests']:
+    noise_count = n - 1 if p.get('full_cycle') else n
+    if len(w['schedule']) != n or len(w['noise_schedule']) != noise_count or not w['manifests']:
         raise ValueError('missing worker evidence')
     start = CONTRACT['start'] if case == 'prefix' else CONTRACT['event']
-    rows = base.previous.admission.window_rows(read(stage / f'native-tail-rank-{rank}.json'),
-        start=start, end=start + n, owner_size=CONTRACT['owner_size'])
+    rows = read(stage / f'native-tail-rank-{rank}.json')
+    if p.get('full_cycle'):
+        rows = cycle.native_rows(rows, start, start + n, p['owner_size'])
+    else:
+        rows = base.previous.admission.window_rows(rows,
+            start=start, end=start + n, owner_size=CONTRACT['owner_size'])
     dataset = read(Path(p['source_identity']['native']['pair']['replay']) / 'dataset.json')
     train_ids = set(map(str, dataset['splits']['train']))
     if not w['loaded_train_ids'] or not set(w['loaded_train_ids']) <= train_ids:
         raise ValueError('worker decoded non-Train image')
-    analyze.verify_schedule(rows, w['schedule'], w['noise_schedule'], rank,
-                            p['source_identity']['config']['effective_config'], analyze.scene_scale(dataset), train_ids)
+    if p.get('full_cycle'):
+        cycle.verify_schedule(rows, w, rank, p, dataset)
+    else:
+        analyze.verify_schedule(rows, w['schedule'], w['noise_schedule'], rank,
+                                p['source_identity']['config']['effective_config'], analyze.scene_scale(dataset), train_ids)
     initialization = read(stage / f'initialization-rank-{rank}.json')
     if (initialization['warmup_forward_calls'] or initialization['warmup_backward_calls']
             or initialization['rng_restored'] or not initialization['initialization_outside_measurement']):
@@ -250,7 +261,7 @@ def verify_worker(root, case, rank, p):
                 if item['after'] != item['expected_retained' if retains_moment(case, name, key) else 'before']:
                     raise ValueError('wrong source moments')
         w['analysis'] = {'survival': analyze.trajectory(prefix_stage(root, p), stage, rank,
-                            CONTRACT['event'], CONTRACT['end'], CONTRACT['owner_size']),
+                            p['event'], p['end'], p['owner_size']),
                          'first_step': analyze.first_step(stage, rank)}
     return w
 
@@ -363,7 +374,8 @@ def worker(local_rank, rank, world_size, args):
     bundle = source['replay_record']
     initialization = load_frozen_initialization(replay / bundle['initialization_path'], replay / bundle['initialization_diagnostics_path'], expected_sha256=bundle['initialization_sha256'])
     probe = InterventionProbe(stage, rank, args.case, dataset['splits']['train'], lambda n: reserve(args.output_root, n),
-        prefix=prefix_stage(args.output_root, p), training=args.output_root / 'training', provenance=provenance)
+        prefix=prefix_stage(args.output_root, p), training=args.output_root / 'training', provenance=provenance,
+        end=p['end'], cycle_cameras=p.get('cycle_camera_contract', {}).get('image_ids'))
     failure = stage / f'failure-rank-{rank}'
     failure.mkdir(exist_ok=False)
     with memory_telemetry(stage / 'memory', rank, rank), failure_record(failure, p['profile'], args.case):
@@ -464,7 +476,10 @@ def run_phase(args, p, phase):
                 base.legacy.run_stage(stage, 'case', command, cwd=PROJECT, monitor=monitor, pass_fds=(lease.fileno(),), host_group=None)
                 completed[case] = bind_complete(root, case, p, {'per_rank_peak_reserved_bytes': monitor.peaks})
                 if phase == 'split':
-                    moment_split.verify_schedule(completed[case], reference['workers']['A'])
+                    if p.get('full_cycle'):
+                        moment_split.verify_schedule(completed[case], completed['A'])
+                    else:
+                        moment_split.verify_schedule(completed[case], reference['workers']['A'])
             if phase == 'prefix':
                 owners = {str(r): analyze.gate0(root / 'prefix', r) for r in (0, 1)}
                 report = {'status': 'structural_verified_review_required', 'owners': owners,
@@ -473,7 +488,12 @@ def run_phase(args, p, phase):
                     'source_protocol_sha256': args.protocol_sha256, 'moment_magnitude_automatically_admitted': False}
                 report_name = 'gate0.json'
             elif phase == 'split':
-                report, report_name = moment_split.compare(root, completed, reference), 'comparison.json'
+                if p.get('full_cycle'):
+                    from . import cycle
+                    report = cycle.compare(root, completed)
+                else:
+                    report = moment_split.compare(root, completed, reference)
+                report_name = 'comparison.json'
             else:
                 arms = {case: {rank: w['analysis'] for rank, w in workers.items()} for case, workers in completed.items()}
                 report, report_name = analyze.compare(root, prefix=prefix_stage(root, p), arms=arms), 'comparison.json'
@@ -531,7 +551,9 @@ def main():
         modes.add_argument('--' + name, action='store_true')
     for name in ('prepare', 'prefix', 'prepare-arms', 'arms', 'prepare-split', 'split'):
         parser.add_argument('--authorize-' + name, action='store_true')
-    parser.add_argument('--opacity-only', action='store_true', help='仅用于prepare-split：新协议固定只运行O')
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--opacity-only', action='store_true', help='仅用于prepare-split：新协议固定只运行O')
+    selection.add_argument('--full-cycle', action='store_true', help='仅用于prepare-split：A/O/V各100步，在下一次relocation前停止')
     parser.add_argument('--acknowledge-gate0-review', action='store_true')
     parser.add_argument('--preflight-report', type=Path)
     parser.add_argument('--protocol-sha256')
@@ -543,11 +565,11 @@ def main():
     args = parser.parse_args()
     if socket.gethostname() != 'i-94B8D131' or str(PROJECT) != '/usr/local/3dgs_new/Image3D-SceneGraph':
         raise SystemExit('仅指定远端可以执行此独立实验')
-    if args.opacity_only and not args.prepare_split:
-        parser.error('--opacity-only只能与--prepare-split一起使用')
+    if (args.opacity_only or args.full_cycle) and not args.prepare_split:
+        parser.error('实验选择只能与--prepare-split一起使用')
     if args.case is not None and not args.worker:
         parser.error('不允许跳过固定执行次序')
-    phase = ('split' if args.split or args.case in SPLIT_CASES else
+    phase = ('split' if args.split or args.authorize_split or args.case in SPLIT_CASES else
              'prefix' if args.prefix or (args.worker and args.case == 'prefix') else 'arms')
     if args.monitor:
         authorized = True
@@ -564,7 +586,10 @@ def main():
     root = args.output_root = output_root(args.output_root, args.prepare or args.prepare_split)
     if args.prepare_split:
         from . import moment_split
-        moment_split.prepare(root, opacity_only=args.opacity_only)
+        if args.full_cycle:
+            moment_split.prepare(root, full_cycle=True)
+        else:
+            moment_split.prepare(root, opacity_only=args.opacity_only)
         return
     if args.prepare:
         if args.preflight_report is None:

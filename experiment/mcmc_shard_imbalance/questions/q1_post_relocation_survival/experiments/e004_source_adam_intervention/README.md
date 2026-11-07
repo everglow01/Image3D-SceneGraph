@@ -1,8 +1,8 @@
 # 来源Adam状态短窗干预
 
-2026-10-29 · **MCMC-Q1-E004 / Q1-B** · **零训练恢复及A/B各20步已完成；来源Adam状态的短窗作用已测得，监控面板终态缺失。**
+2026-10-29 · **MCMC-Q1-E004 / Q1-B** · **零训练恢复、A/B/V及单独O的20步已完成；M首步失败，完整周期尚未执行。**
 
-A/B结果与证据见[主记录](records/adam-intervention-recovery-20261029-v1.json)。2026-10-30两矩拆分：CPU检查通过，V完成20步，M首步数值失稳，O按失败即停未启动；部分结果及失败证据见[本轮主记录](records/adam-intervention-moment-split-20261030-v1.json)。下文保留设计与历史阶段记录。
+A/B结果与证据见[主记录](records/adam-intervention-recovery-20261029-v1.json)。2026-10-30两矩拆分：CPU检查通过，V完成20步，M首步数值失稳，O按失败即停未启动；部分结果及失败证据见[本轮主记录](records/adam-intervention-moment-split-20261030-v1.json)。2026-11-07已补齐[单独O主记录](records/adam-intervention-opacity-only-20261107-v1.json)：仅opacity两矩获得接近B的S短窗保护，T仍有风险转移。下文保留设计与历史阶段记录。
 
 ## 1. 问题与证据边界
 
@@ -211,7 +211,7 @@ worker只保留协议身份、继承的GPU lease、原生加载和本rank实际�
 
 ## 13. 单独O续跑
 
-**状态：本地实现，尚未执行。** 原三臂任务的V结果和M失败记录保持不变；O从同一12100公共checkpoint重新开始，不接续M失败状态，不重跑V/M、A/B或公共前缀。
+**状态：2026-11-07已完成O的20步，见[主记录](records/adam-intervention-opacity-only-20261107-v1.json)。** 原三臂任务的V结果和M失败记录保持不变；O从同一12100公共checkpoint重新开始，不接续M失败状态，不重跑V/M、A/B或公共前缀。
 
 复用`run.py`的split执行/监控入口和原O干预逻辑。准备时加`--opacity-only`，生成固定`source_adam_opacity_only_v1`协议，`arms=['O']`；该选项不能用于执行或监控，也不提供任意选臂列表。新目录必须为`adam-intervention-opacity-only-*`，旧失败目录不可改写。
 
@@ -226,3 +226,24 @@ worker只保留协议身份、继承的GPU lease、原生加载和本rank实际�
 现有远端CPU检查已覆盖O的矩选择与真实Adam首步并通过，本次未改变`probe.py`或数值实现，不重跑该检查、旧GPU前置或历史训练。当前只验证新增的协议选择、准备/执行次序和汇总行为。
 
 O结果自动与已有A/B比较S/T/U和家族风险、首步两矩代数及配对loss；主要loss窗口仍为12102—12120。汇总只读取O和已有A/B，不依赖V/M文件。V继续引用上一轮主记录作结果对照，M保留失败状态，不伪造五臂完整结果；完整relocation周期仍未实现或启动。
+
+
+## 14. 短窗闭合后的下一阶段
+
+当前已定义的A/B/V/M/O短窗都已有执行结论：A/B/V/O完成，M首步数值失败。单独O补跑复用原入口，未修改训练代码、依赖或生产默认。数值、任务和证据只维护在[O主记录](records/adam-intervention-opacity-only-20261107-v1.json)，历史三臂失败记录不改写。
+
+完整周期入口现已实现，尚未远端执行。候选固定为A/O/V：A是原生基线，O测试最小字段干预，V检查二阶矩候选的周期代价。各臂从完整12100 checkpoint重新恢复，执行12101—12200共100次Adam更新；在12200 Adam后、原生策略前停止，既不执行该步relocation，也不执行该步noise。12101—12199保留原生策略及noise，三臂共300更新、600相机forward/backward、3600参数组step，公共前缀不重跑。
+
+复用原prepare/split/monitor入口，在prepare时使用互斥选项`--full-cycle`，新目录为`adam-intervention-cycle-*`。新协议固定相同相机/RNG/学习率日程和4张Train评价视角（复用既有按image_id SHA选相机规则）；每臂终点4张，共12次额外图像forward、0额外backward。评价在全部更新之后、同一12200策略前状态进行，RNG不得变化。没有新checkpoint或整模型快照复制，12120旧观测快照不用于续训。
+
+保留S/T/U逐点位图和1/5/10/20/100步首死、家族统计与首步Adam分析。终点来源池按原生relocation规则统计：alpha>.005的候选，以alpha归一化作有放回采样权重；报告候选数、死亡目标数、权重和、有效样本量1/sum(p²)、按该目标数抽样时的预期唯一来源数。它是当前权重的解析描述，没有额外采样或未来存活承诺。
+
+第12200步原生loss汇总发生在策略后，本实验不会到达该处。原生日志只保存12101—12199，主配对均值为12102—12199；不能补造12200日志。固定视角终点评价独立报告L1、SSIM、重建loss和PSNR，只描述这4张Train视角，不代表held-out泛化。主存无限额、30分钟执行上限、单卡18GiB、16GiB输出/20GiB准入沿用原设置。
+
+本地验证：周期新增与原干预/恢复定向测试合计59 passed、68 subtests passed，Ruff通过。覆盖真实安装的策略hook在最后Adam后截停、最后一步策略/noise不得多执行、历史日志相位、协议预算及加权来源池；没有改旧测试断言。远端正式执行后以新主记录更新状态。
+
+运行命令仍为同一`run`模块：
+
+1. `--prepare-split --full-cycle --authorize-prepare-split --output-root <新目录>`。
+2. 在原`image3d-source-adam-moment-split-v1.service`内运行`--split --authorize-split --protocol-sha256 <SHA> --output-root <同目录>`。
+3. 唯一只读监控使用`--monitor --monitor-phase split --protocol-sha256 <SHA> --output-root <同目录>`。

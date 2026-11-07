@@ -23,7 +23,11 @@ OPACITY_CONTRACT = {**CONTRACT, 'profile': 'source_adam_opacity_only_v1', 'arms'
 
 
 def contract(p):
-    expected = OPACITY_CONTRACT if p.get('profile') == OPACITY_CONTRACT['profile'] else CONTRACT
+    if p.get('full_cycle'):
+        from . import cycle
+        expected = cycle.CONTRACT
+    else:
+        expected = OPACITY_CONTRACT if p.get('profile') == OPACITY_CONTRACT['profile'] else CONTRACT
     if any(p.get(k) != v for k, v in expected.items()) or 'prefix_recovery' in p:
         raise ValueError('invalid moment split contract')
     s = p.get('moment_split', {})
@@ -112,20 +116,28 @@ def reference_inputs():
     return {'protocol': p, 'comparison': comparison, 'workers': workers, 'binding': binding}
 
 
-def prepare(root, *, opacity_only=False):
+def prepare(root, *, opacity_only=False, full_cycle=False):
+    if opacity_only and full_cycle:
+        raise ValueError('choose one experiment')
     expected = OPACITY_CONTRACT if opacity_only else CONTRACT
     prefix = 'adam-intervention-opacity-only-' if opacity_only else 'adam-intervention-moment-split-'
+    extra = {}
+    if full_cycle:
+        from . import cycle
+        expected, prefix = cycle.CONTRACT, 'adam-intervention-cycle-'
     if not root.name.startswith(prefix):
         raise ValueError('new ' + prefix + '* root required')
     commit = run.execution_commit()
     reference = reference_inputs()
     copies = reference['binding']['checkpoint_files']
+    if full_cycle:
+        extra['cycle_camera_contract'] = cycle.camera_contract(reference['protocol']['source_identity'])
     if (sum(row['bytes'] for row in copies.values()) + 1024**3 > CONTRACT['max_output_bytes']
             or shutil.disk_usage(run.PROJECT).free < CONTRACT['disk_admission_bytes']):
         raise ValueError('moment split disk admission')
     root.mkdir(exist_ok=False)
     prefix_recovery.copy_lineage(root, copies)
-    run.write_new(root / 'protocol.json', {**expected, 'implementation_commit': commit,
+    run.write_new(root / 'protocol.json', {**expected, **extra, 'implementation_commit': commit,
         'code_sha256': {n: run.sha256(run.PROJECT / n) for n in run.DEPENDENCIES},
         'source_identity': reference['protocol']['source_identity'], 'moment_split': reference['binding'],
         'status': 'moment_split_prepared_not_executed'})
@@ -137,6 +149,10 @@ def verify_inputs(p):
     reference = reference_inputs()
     if binding != reference['binding'] or p['source_identity'] != reference['protocol']['source_identity']:
         raise ValueError('split input bindings differ')
+    if p.get('full_cycle'):
+        from . import cycle
+        if p.get('cycle_camera_contract') != cycle.camera_contract(p['source_identity']):
+            raise ValueError('cycle camera contract differs')
     return reference
 
 

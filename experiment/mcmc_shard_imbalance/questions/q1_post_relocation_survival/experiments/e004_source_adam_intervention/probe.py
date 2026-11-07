@@ -34,7 +34,7 @@ class InterventionProbe:
     record_masks = MinimalObserver.record_masks
 
     def __init__(self, root, rank, case, train_ids, reserve, *, prefix=None, start=12000, event=12100,
-                 end=12120, count=1500000, training=None, provenance=None):
+                 end=12120, count=1500000, training=None, provenance=None, cycle_cameras=None):
         if case not in ('prefix', 'A', 'B', *SPLIT_CASES) or not start < event < end:
             raise ValueError('invalid intervention window/case')
         self.root, self.rank, self.case = Path(root), rank, case
@@ -43,6 +43,8 @@ class InterventionProbe:
         self.expected_count = self.owner_size = count
         self.train_ids, self.reserve = set(map(str, train_ids)), reserve
         self.training, self.provenance = training, provenance
+        self.cycle_cameras = cycle_cameras
+        self.evaluating_cycle, self.evaluation_forwards = False, 0
         self.params = self.optimizers = self.state = None
         self.camera, self.schedule, self.noise_schedule = {}, [], []
         self.manifests, self.rows, self.loaded = {}, [], set()
@@ -315,6 +317,8 @@ class InterventionProbe:
                                               **self.record_masks(alpha, str(self.iteration))})
                             if self.iteration == self.end:
                                 self.capture('final-opacity', {'alpha': alpha, 'logits': self.params['opacities'].detach()})
+                    if self.cycle_cameras and self.iteration == self.end:
+                        return  # Endpoint is after Adam and before the next strategy/noise.
                     result = post(*args, **kwargs)
                     if len(self.params['means']) != self.owner_size:
                         raise ValueError('owner topology changed')
@@ -324,7 +328,12 @@ class InterventionProbe:
                             proof = analyze.gate0(self.root, self.rank)
                             write_new(self.root / f'gate0-rank-{self.rank}.json', proof)
                     return result
-                return self.consensus(f'post-{self.iteration}', action)
+                result = self.consensus(f'post-{self.iteration}', action)
+                if self.cycle_cameras and self.iteration == self.end:
+                    from .cycle import finish_boundary
+                    finish_boundary(self)
+                    raise snapshots.ProbeComplete()
+                return result
             strategy.check_sanity, strategy.step_post_backward = checked, posted
             strategy._relocate_gs, strategy._add_new_gs = relocated, added
             return strategy
@@ -352,6 +361,8 @@ class InterventionProbe:
         def render(*a, **kw):
             if self.calls['render'] != self.calls['batch'] - 1:
                 raise ValueError('extra training render')
+            if self.cycle_cameras:
+                self.cycle_render_context = (a[0], a[1], originals['_render_visible_training_view'])
             result = originals['_render_visible_training_view'](*a, **kw)
             self.calls['render'] += 1
             self.schedule.append({'iteration': self.iteration, 'indices': self.batch_indices,
@@ -381,7 +392,10 @@ class InterventionProbe:
             return result
 
         def counted_forward(*a, **kw):
-            self.calls['raster_forward'] += 1
+            if self.evaluating_cycle:
+                self.evaluation_forwards += 1
+            else:
+                self.calls['raster_forward'] += 1
             return forward(*a, **kw)
         def counted_backward(*a, **kw):
             self.calls['raster_backward'] += 1
@@ -427,9 +441,15 @@ class InterventionProbe:
                     'optimizer': 6 * n, 'strategy': n, 'relocate': int(self.case == 'prefix'),
                     'sample': int(self.case == 'prefix' and len(self.targets) > 0), 'add': int(self.case == 'prefix'),
                     'noise': n, 'terminal': 1, 'checkpoint': int(self.case == 'prefix')}
-        if not self.completed or self.calls != expected or len(self.schedule) != n or len(self.noise_schedule) != n:
+        if self.cycle_cameras:
+            from .cycle import expected_calls
+            expected = expected_calls(n)
+            if self.evaluation_forwards != len(self.cycle_cameras) // 2:
+                raise ValueError('incomplete fixed-view renders')
+        noise_count = n - 1 if self.cycle_cameras else n
+        if not self.completed or self.calls != expected or len(self.schedule) != n or len(self.noise_schedule) != noise_count:
             raise ValueError('incomplete intervention worker counts')
-        return {'status': 'measured', 'case': self.case, 'rank': self.rank, 'calls': self.calls,
+        return {**({'evaluation_forwards': self.evaluation_forwards} if self.cycle_cameras else {}), 'status': 'measured', 'case': self.case, 'rank': self.rank, 'calls': self.calls,
                 'new_updates': n, 'manifests': self.manifests, 'schedule': self.schedule, 'noise_schedule': self.noise_schedule,
                 'restored_digest': self.restored_digest, 'loaded_train_ids': sorted(self.loaded),
                 'validation_evaluated': False, 'native_training_complete': False}

@@ -1,0 +1,811 @@
+{
+  "schema_version": 1,
+  "run_id": "adam-intervention-opacity-only-20261107-v1",
+  "experiment_id": "MCMC-Q1-E004",
+  "kind": "source_adam_opacity_only_short_window",
+  "catalogued_on": "2026-11-07",
+  "execution_status": "completed",
+  "acceptance_status": "O_20_steps_measured",
+  "source_commit": "87928163b26f202f4011cdc166ac80e50e49717c",
+  "protocol_sha256": "ffc35ade5a4a414bdf4c258d0270fe997a8014c563691d62ddc3a944f86e533d",
+  "reference_run": "adam-intervention-recovery-20261029-v1",
+  "reference_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-recovery-20261029-v1.json",
+  "V_M_reference_record": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/records/adam-intervention-moment-split-20261030-v1.json",
+  "V_M_reference_record_sha256": "adde2f191cb4b9f28e3e90f8ffa0e818ce6f561c979276bc39212826494475a9",
+  "execution_task": "20261107-104511-5f9f",
+  "monitor_task": "20261107-104528-968b",
+  "panel_statuses": {
+    "execution": {
+      "id": "20261107-104511-5f9f",
+      "running": false,
+      "finished": false,
+      "exit_code": null,
+      "log_size": 377
+    },
+    "monitor": {
+      "id": "20261107-104528-968b",
+      "running": false,
+      "finished": true,
+      "exit_code": 0,
+      "log_size": 507
+    }
+  },
+  "terminal": {
+    "status": "completed",
+    "exit_code": 0,
+    "phase": "split",
+    "protocol_sha256": "ffc35ade5a4a414bdf4c258d0270fe997a8014c563691d62ddc3a944f86e533d",
+    "report": "comparison.json",
+    "report_sha256": "81a403f9c73842eebc1f685f180b549176724075303ca9008213d1b32e5ce49f",
+    "ended_unix": 1794019608.665119
+  },
+  "suite_exit_code": 0,
+  "terminal_interpretation": "执行包装器显式exit，面板没有执行任务结束标志；systemd成功、suite.exit-code=0、split-execution及报告SHA一致。唯一监控finished=true、exit_code=0；不把面板execution.exit_code=null改成0。",
+  "remote_evidence": {
+    "root": "/usr/local/3dgs_new/Image3D-SceneGraph/experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1",
+    "postrun_observed_at_utc": "2026-11-07T02:50:11Z",
+    "gpu_compute_processes": [],
+    "gpu_used_mib": [
+      3,
+      3
+    ],
+    "image3d_cloud": "active"
+  },
+  "local_evidence": [
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/O/case.exit.json",
+      "sha256": "1df44ba2938615b2a7d7d2d34834904bf54eaac9837335cb4543a3fde28cafc3",
+      "bytes": 231
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/O/complete.json",
+      "sha256": "34ffe0c3af674ccd4fa83b87e733a32a46024be0c1b96ad452ec214c617bb2d3",
+      "bytes": 29198
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/O/worker-rank-0.json",
+      "sha256": "9d8e4f690acb9ed88e469fd294d0cb9fefdaed73ee69ebb97f1f1539dfd1643c",
+      "bytes": 13420
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/O/worker-rank-1.json",
+      "sha256": "46248a3f29ec705387df123a41f8245c2f070c894a3b0ccc738867493b5d3523",
+      "bytes": 13422
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/comparison.json",
+      "sha256": "81a403f9c73842eebc1f685f180b549176724075303ca9008213d1b32e5ce49f",
+      "bytes": 640675
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/execution-log.log",
+      "sha256": "fd39c50032ffd9ebcbeb592e977e952f19bcc44b6acea862a9f9fd55bfe634a9",
+      "bytes": 377
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/execution-status.json",
+      "sha256": "72ed6100b3ff426b2df05554c7b9752847aeade4751639e1529b7818a0c43d27",
+      "bytes": 121
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/monitor-log.log",
+      "sha256": "6a1090fc0a30085244d066d0d127601b0088e8e19f35bcd5d40a87b76f29566c",
+      "bytes": 507
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/monitor-status.json",
+      "sha256": "20cc7556b196286ab2b2af6f9a5569e76d2c55287891be65a82e28ad8b384b77",
+      "bytes": 117
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/protocol.json",
+      "sha256": "ffc35ade5a4a414bdf4c258d0270fe997a8014c563691d62ddc3a944f86e533d",
+      "bytes": 597001
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/split-execution.json",
+      "sha256": "8c61c9976e52b0289273bcf22a6692fb92828513ad3d9cc74a04a3d5af73499b",
+      "bytes": 308
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/split-started.json",
+      "sha256": "e7401021be4d996fa5802738e5ef45e62b5519adbbe8f6e7daa4d687c83f4355",
+      "bytes": 138
+    },
+    {
+      "path": "experiment/mcmc_shard_imbalance/questions/q1_post_relocation_survival/experiments/e004_source_adam_intervention/runs/adam-intervention-opacity-only-20261107-v1-local/suite.exit-code",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    }
+  ],
+  "budget_actual": {
+    "new_global_updates": 20,
+    "camera_forwards": 40,
+    "loss_backwards": 40,
+    "optimizer_group_steps": 240,
+    "extra_render_forwards": 0,
+    "new_relocations": 0,
+    "new_prefix_updates": 0,
+    "reference_arms_reexecuted": false,
+    "workers": {
+      "0": {
+        "new_updates": 20,
+        "calls": {
+          "restore": 1,
+          "batch": 20,
+          "render": 20,
+          "backward": 20,
+          "raster_forward": 20,
+          "raster_backward": 20,
+          "optimizer": 120,
+          "strategy": 20,
+          "relocate": 0,
+          "sample": 0,
+          "add": 0,
+          "noise": 20,
+          "terminal": 1,
+          "checkpoint": 0
+        }
+      },
+      "1": {
+        "new_updates": 20,
+        "calls": {
+          "restore": 1,
+          "batch": 20,
+          "render": 20,
+          "backward": 20,
+          "raster_forward": 20,
+          "raster_backward": 20,
+          "optimizer": 120,
+          "strategy": 20,
+          "relocate": 0,
+          "sample": 0,
+          "add": 0,
+          "noise": 20,
+          "terminal": 1,
+          "checkpoint": 0
+        }
+      }
+    }
+  },
+  "timing": {
+    "prepare_service_seconds": 25.059,
+    "split_service_seconds": 97.035,
+    "O_subprocess_seconds": 76.29683770146221,
+    "started_utc": "2026-11-07T02:45:11Z",
+    "split_ended_utc": "2026-11-07T02:46:48.665119+00:00"
+  },
+  "resources": {
+    "per_rank_peak_reserved_bytes": [
+      4357881856,
+      4492099584
+    ]
+  },
+  "results": {
+    "risk_definition": "同一12100起点初始存活的点中，20步内首次alpha<=0.005的比例；不是拓扑删除率。",
+    "risk_at_20_by_arm_owner_group": {
+      "A": {
+        "0": {
+          "T": {
+            "count": 87900,
+            "initial_not_alive": 1866,
+            "at_risk": 86034,
+            "first_deaths": 9544,
+            "risk": 0.11093288699816352,
+            "currently_dead": 10805,
+            "family_equal_risk": 0.11375266298305028,
+            "at_risk_families": 78546
+          },
+          "S": {
+            "count": 80384,
+            "initial_not_alive": 1838,
+            "at_risk": 78546,
+            "first_deaths": 36797,
+            "risk": 0.4684770707610827,
+            "currently_dead": 38156
+          },
+          "U": {
+            "count": 1331716,
+            "initial_not_alive": 0,
+            "at_risk": 1331716,
+            "first_deaths": 7597,
+            "risk": 0.005704669764424247,
+            "currently_dead": 7138
+          }
+        },
+        "1": {
+          "T": {
+            "count": 168827,
+            "initial_not_alive": 6387,
+            "at_risk": 162440,
+            "first_deaths": 26459,
+            "risk": 0.1628847574489042,
+            "currently_dead": 30938,
+            "family_equal_risk": 0.1699688085757526,
+            "at_risk_families": 136118
+          },
+          "S": {
+            "count": 142316,
+            "initial_not_alive": 6198,
+            "at_risk": 136118,
+            "first_deaths": 72861,
+            "risk": 0.5352782144903686,
+            "currently_dead": 77723
+          },
+          "U": {
+            "count": 1188857,
+            "initial_not_alive": 0,
+            "at_risk": 1188857,
+            "first_deaths": 10503,
+            "risk": 0.008834536029143959,
+            "currently_dead": 9873
+          }
+        }
+      },
+      "B": {
+        "0": {
+          "T": {
+            "count": 87900,
+            "initial_not_alive": 1866,
+            "at_risk": 86034,
+            "first_deaths": 9975,
+            "risk": 0.11594253434688612,
+            "currently_dead": 11279,
+            "family_equal_risk": 0.11875397856033407,
+            "at_risk_families": 78546
+          },
+          "S": {
+            "count": 80384,
+            "initial_not_alive": 1838,
+            "at_risk": 78546,
+            "first_deaths": 141,
+            "risk": 0.0017951264227331755,
+            "currently_dead": 1232
+          },
+          "U": {
+            "count": 1331716,
+            "initial_not_alive": 0,
+            "at_risk": 1331716,
+            "first_deaths": 7525,
+            "risk": 0.005650604182873826,
+            "currently_dead": 7102
+          }
+        },
+        "1": {
+          "T": {
+            "count": 168827,
+            "initial_not_alive": 6387,
+            "at_risk": 162440,
+            "first_deaths": 27617,
+            "risk": 0.17001354346220143,
+            "currently_dead": 32250,
+            "family_equal_risk": 0.17710900696104712,
+            "at_risk_families": 136118
+          },
+          "S": {
+            "count": 142316,
+            "initial_not_alive": 6198,
+            "at_risk": 136118,
+            "first_deaths": 506,
+            "risk": 0.003717362876327892,
+            "currently_dead": 4245
+          },
+          "U": {
+            "count": 1188857,
+            "initial_not_alive": 0,
+            "at_risk": 1188857,
+            "first_deaths": 10450,
+            "risk": 0.008789955394130664,
+            "currently_dead": 9887
+          }
+        }
+      },
+      "O": {
+        "0": {
+          "T": {
+            "count": 87900,
+            "initial_not_alive": 1866,
+            "at_risk": 86034,
+            "first_deaths": 9971,
+            "risk": 0.11589604110003023,
+            "currently_dead": 11262,
+            "family_equal_risk": 0.11869668729152344,
+            "at_risk_families": 78546
+          },
+          "S": {
+            "count": 80384,
+            "initial_not_alive": 1838,
+            "at_risk": 78546,
+            "first_deaths": 139,
+            "risk": 0.0017696636365951163,
+            "currently_dead": 1267
+          },
+          "U": {
+            "count": 1331716,
+            "initial_not_alive": 0,
+            "at_risk": 1331716,
+            "first_deaths": 7555,
+            "risk": 0.005673131508519834,
+            "currently_dead": 7119
+          }
+        },
+        "1": {
+          "T": {
+            "count": 168827,
+            "initial_not_alive": 6387,
+            "at_risk": 162440,
+            "first_deaths": 27534,
+            "risk": 0.16950258557005662,
+            "currently_dead": 32128,
+            "family_equal_risk": 0.17668890577433163,
+            "at_risk_families": 136118
+          },
+          "S": {
+            "count": 142316,
+            "initial_not_alive": 6198,
+            "at_risk": 136118,
+            "first_deaths": 501,
+            "risk": 0.0036806300415815688,
+            "currently_dead": 4369
+          },
+          "U": {
+            "count": 1188857,
+            "initial_not_alive": 0,
+            "at_risk": 1188857,
+            "first_deaths": 10507,
+            "risk": 0.008837900605371377,
+            "currently_dead": 9919
+          }
+        }
+      },
+      "V": {
+        "0": {
+          "T": {
+            "count": 87900,
+            "initial_not_alive": 1866,
+            "at_risk": 86034,
+            "first_deaths": 10016,
+            "risk": 0.11641909012715904,
+            "currently_dead": 11322,
+            "family_equal_risk": 0.119260051434828,
+            "at_risk_families": 78546
+          },
+          "S": {
+            "count": 80384,
+            "initial_not_alive": 1838,
+            "at_risk": 78546,
+            "first_deaths": 43,
+            "risk": 0.0005474499019682734,
+            "currently_dead": 1252
+          },
+          "U": {
+            "count": 1331716,
+            "initial_not_alive": 0,
+            "at_risk": 1331716,
+            "first_deaths": 7521,
+            "risk": 0.005647600539454358,
+            "currently_dead": 7100
+          }
+        },
+        "1": {
+          "T": {
+            "count": 168827,
+            "initial_not_alive": 6387,
+            "at_risk": 162440,
+            "first_deaths": 27617,
+            "risk": 0.17001354346220143,
+            "currently_dead": 32244,
+            "family_equal_risk": 0.17713300574641466,
+            "at_risk_families": 136118
+          },
+          "S": {
+            "count": 142316,
+            "initial_not_alive": 6198,
+            "at_risk": 136118,
+            "first_deaths": 153,
+            "risk": 0.0011240247432374852,
+            "currently_dead": 4302
+          },
+          "U": {
+            "count": 1188857,
+            "initial_not_alive": 0,
+            "at_risk": 1188857,
+            "first_deaths": 10449,
+            "risk": 0.00878911425007381,
+            "currently_dead": 9885
+          }
+        }
+      }
+    },
+    "O_risk_effects_all_horizons": {
+      "1": {
+        "S": {
+          "O_minus_A_by_owner": [
+            -0.008300868281007309,
+            -0.014244993314624076
+          ],
+          "O_minus_B_by_owner": [
+            0.0,
+            0.0
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.0061508297009336445,
+            "B": 0.00020670466731687666,
+            "O": 0.00020670466731687666
+          }
+        },
+        "T": {
+          "O_minus_A_by_owner": [
+            0.0,
+            0.0
+          ],
+          "O_minus_B_by_owner": [
+            0.0,
+            0.0
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.0005071780976484922,
+            "B": 0.0005071780976484922,
+            "O": 0.0005071780976484922
+          },
+          "family_equal_vs_reference": {
+            "A": [
+              0.0,
+              0.0
+            ],
+            "B": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        "U": {
+          "O_minus_A_by_owner": [
+            0.0,
+            0.0
+          ],
+          "O_minus_B_by_owner": [
+            0.0,
+            0.0
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.00018341586667066262,
+            "B": 0.00018341586667066262,
+            "O": 0.00018341586667066262
+          }
+        }
+      },
+      "5": {
+        "S": {
+          "O_minus_A_by_owner": [
+            -0.08344155017442009,
+            -0.1363155497436048
+          ],
+          "O_minus_B_by_owner": [
+            1.2731393069029566e-05,
+            0.0
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.05349711594934775,
+            "B": 0.0006358477732320624,
+            "O": 0.0006231163801630328
+          }
+        },
+        "T": {
+          "O_minus_A_by_owner": [
+            5.811655856986786e-05,
+            0.0001292785028318144
+          ],
+          "O_minus_B_by_owner": [
+            0.0,
+            2.4624476729868255e-05
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.00866630987307109,
+            "B": 0.008712847340603168,
+            "O": 0.008737471817333036
+          },
+          "family_equal_vs_reference": {
+            "A": [
+              5.7291268810634455e-05,
+              0.00014693133898529068
+            ],
+            "B": [
+              0.0,
+              2.5712984322426302e-05
+            ]
+          }
+        },
+        "U": {
+          "O_minus_A_by_owner": [
+            5.256375984068673e-06,
+            -2.5234321705635936e-06
+          ],
+          "O_minus_B_by_owner": [
+            1.5018217097339994e-06,
+            0.0
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.0008551801185285701,
+            "B": 0.0008489021320836718,
+            "O": 0.0008474003103739378
+          }
+        }
+      },
+      "10": {
+        "S": {
+          "O_minus_A_by_owner": [
+            -0.259236625671581,
+            -0.35264990669859975
+          ],
+          "O_minus_B_by_owner": [
+            0.0,
+            -2.9386267797058135e-05
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.09457181553567695,
+            "B": 0.0011879207764552467,
+            "O": 0.0011585345086581886
+          }
+        },
+        "T": {
+          "O_minus_A_by_owner": [
+            0.0003603226631331835,
+            0.0010219157842895898
+          ],
+          "O_minus_B_by_owner": [
+            -0.00013947974056768148,
+            -0.00014774686037921647
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.03106525499499442,
+            "B": 0.03173511523596236,
+            "O": 0.03172684811615083
+          },
+          "family_equal_vs_reference": {
+            "A": [
+              0.0003331381186396157,
+              0.0010750476302424095
+            ],
+            "B": [
+              -0.00014004532375931633,
+              -0.00017448096504503463
+            ]
+          }
+        },
+        "U": {
+          "O_minus_A_by_owner": [
+            -2.1776414791141365e-05,
+            -2.7757753876201698e-05
+          ],
+          "O_minus_B_by_owner": [
+            -3.7545542743346733e-06,
+            1.3458304909673945e-05
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.0015663700846849024,
+            "B": 0.0015431758864158335,
+            "O": 0.001560388745599842
+          }
+        }
+      },
+      "20": {
+        "S": {
+          "O_minus_A_by_owner": [
+            -0.46670740712448755,
+            -0.531597584448787
+          ],
+          "O_minus_B_by_owner": [
+            -2.546278613805913e-05,
+            -3.67328347463231e-05
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.06680114372928592,
+            "B": 0.0019222364535947164,
+            "O": 0.0019109664049864524
+          }
+        },
+        "T": {
+          "O_minus_A_by_owner": [
+            0.004963154101866707,
+            0.006617828121152414
+          ],
+          "O_minus_B_by_owner": [
+            -4.649324685589151e-05,
+            -0.0005109578921448088
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.05195187045074069,
+            "B": 0.054071009115315316,
+            "O": 0.0536065444700264
+          },
+          "family_equal_vs_reference": {
+            "A": [
+              0.004944024308473155,
+              0.0067200971985790225
+            ],
+            "B": [
+              -5.7291268810627516e-05,
+              -0.00042010118671548247
+            ]
+          }
+        },
+        "U": {
+          "O_minus_A_by_owner": [
+            -3.153825590441247e-05,
+            3.364576227418703e-06
+          ],
+          "O_minus_B_by_owner": [
+            2.252732564600804e-05,
+            4.794521124071305e-05
+          ],
+          "owner1_minus_owner0": {
+            "A": 0.0031298662647197117,
+            "B": 0.003139351211256838,
+            "O": 0.003164769096851543
+          }
+        }
+      }
+    },
+    "O_first_step_mechanism": {
+      "0": {
+        "O": {
+          "fixed_gradient_reference": "historical_A_total_opacity_gradient",
+          "logit_update_minus_zero": {
+            "count": 80384,
+            "nonzero": 80384,
+            "positive": 74260,
+            "negative": 6124,
+            "quantiles": [
+              -0.29284048080444336,
+              0.11576678752899171,
+              0.15728610754013062,
+              0.1739982485771179,
+              0.31369805335998535
+            ],
+            "absolute_quantiles": [
+              0.15767139196395874,
+              0.174621319770813,
+              0.31369805335998535
+            ],
+            "mean": 0.13391691870001407
+          },
+          "direction_flip_count": 36457,
+          "actual_gradient_minus_reference": {
+            "count": 80384,
+            "nonzero": 4983,
+            "positive": 2551,
+            "negative": 2432,
+            "quantiles": [
+              -4.3655745685100555e-11,
+              0.0,
+              0.0,
+              0.0,
+              4.3655745685100555e-11
+            ],
+            "absolute_quantiles": [
+              0.0,
+              0.0,
+              4.3655745685100555e-11
+            ],
+            "mean": 2.4707389979519315e-16
+          },
+          "interpretation_usable": true
+        }
+      },
+      "1": {
+        "O": {
+          "fixed_gradient_reference": "historical_A_total_opacity_gradient",
+          "logit_update_minus_zero": {
+            "count": 142316,
+            "nonzero": 142316,
+            "positive": 130279,
+            "negative": 12037,
+            "quantiles": [
+              -0.31104540824890137,
+              0.09811103343963623,
+              0.15722274780273438,
+              0.17613089084625244,
+              0.35249996185302734
+            ],
+            "absolute_quantiles": [
+              0.1576676368713379,
+              0.1770632266998291,
+              0.35249996185302734
+            ],
+            "mean": 0.13140475180914873
+          },
+          "direction_flip_count": 64666,
+          "actual_gradient_minus_reference": {
+            "count": 142316,
+            "nonzero": 8849,
+            "positive": 4508,
+            "negative": 4341,
+            "quantiles": [
+              -5.093170329928398e-11,
+              0.0,
+              0.0,
+              0.0,
+              1.8189894035458565e-11
+            ],
+            "absolute_quantiles": [
+              0.0,
+              0.0,
+              5.093170329928398e-11
+            ],
+            "mean": -6.194643948826613e-16
+          },
+          "interpretation_usable": true
+        }
+      }
+    },
+    "O_first_step_algebra_usable": {
+      "0": true,
+      "1": true
+    },
+    "mean_loss_12102_through_12120": {
+      "A": {
+        "loss": 0.0424065868321218,
+        "reconstruction_loss": 0.04189050967167867,
+        "l1": 0.029135132061415596,
+        "ssim": 0.9070879848379838,
+        "opacity_regularization": 0.00044678153215883007,
+        "scale_regularization": 6.929569606558959e-05
+      },
+      "B": {
+        "loss": 0.04213755548392471,
+        "reconstruction_loss": 0.04159985335641786,
+        "l1": 0.028954962145929273,
+        "ssim": 0.9078205855269181,
+        "opacity_regularization": 0.000467807220717843,
+        "scale_regularization": 6.989444668043258e-05
+      },
+      "O": {
+        "loss": 0.042202140351659374,
+        "reconstruction_loss": 0.04166479815581912,
+        "l1": 0.028983218889487416,
+        "ssim": 0.9076088870826521,
+        "opacity_regularization": 0.00046797162672431255,
+        "scale_regularization": 6.937047012462771e-05
+      },
+      "V": {
+        "loss": 0.04201131613042794,
+        "reconstruction_loss": 0.04147408564427966,
+        "l1": 0.028864901782454627,
+        "ssim": 0.9080891828787955,
+        "opacity_regularization": 0.0004673357455574564,
+        "scale_regularization": 6.989447071023996e-05
+      }
+    },
+    "reconstruction_loss_relative_change_percent": {
+      "O": {
+        "A": -0.5388130095064225,
+        "B": 0.15611785658191657,
+        "V": 0.4598353612305983
+      },
+      "V": {
+        "A": -0.9940772520143137,
+        "B": -0.3023272968311952
+      }
+    },
+    "baseline_12101_A_B_O_loss_equal": true,
+    "V_comparison_kind": "只引用上一轮同起点20步主记录的风险和相同窗口均值，未重新训练或逐点重算V。"
+  },
+  "conclusions": [
+    "O只保留来源S的opacity两矩，完成20步；owner0/1的S首次死亡为139/501，风险0.1769663637%/0.3680630042%，接近B的0.1795126423%/0.3717362876%。仅opacity两矩在此起点和窗口足以复现B大部分S保护，但不证明两方法等价或长期改善。",
+    "O相对A的T风险增加0.4963154102/0.6617828121个百分点；U变化为-0.0031538256/+0.0003364576个百分点。S获益伴随T代价，不能只报S。",
+    "O在12102—12120的重建loss均值比A低0.5388130095%，比B高0.1561178566%；比V高约0.46%。这不是固定视角终点评价或独立泛化证据。",
+    "V的S风险仍低于O，但V改变六组二阶矩，O只改变opacity两矩。M保持历史首步数值失败结论，不作为稳定候选，不修改原失败记录。"
+  ],
+  "decision": "当前已定义短窗的缺失O已补齐。下一阶段最小对照建议A/O/V，分别检验原生基线、最小字段干预和二阶矩候选；不重跑公共前缀，不追加M或重复B短窗。",
+  "remaining_work": {
+    "full_relocation_cycle": "尚未实现或执行；需要从完整12100起点分别运行至下一次relocation前，不能把12120观测快照当续训checkpoint。",
+    "long_run_12k_30k": "后置，尚未执行。"
+  },
+  "limitations": [
+    "单一公共起点，没有新增seed、场景或统计显著性证据。",
+    "12101 loss在首次干预更新前，主窗口从12102起；无第20次更新后的独立渲染。",
+    "没有新测完整周期的有效来源池、来源多样性或长期owner失衡。",
+    "生产默认与远端服务配置不变。"
+  ]
+}
